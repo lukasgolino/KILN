@@ -360,3 +360,21 @@ def test_sockets_in_glb_and_manifest(project: Project) -> None:
     index, hand = nodes["arm_l_hand"]
     assert index in nodes["arm_l"][1]["children"] and hand["extras"] == {"kiln_socket": "hand", "kiln_part": "arm_l"}
     np.testing.assert_allclose(hand["translation"], [0.15, -0.25, 0.0], atol=1e-6)
+
+
+# 36. vertex colours on glow surfaces of skinned models too
+def test_vertex_colors_on_glow_skinned(tmp_path: Path) -> None:
+    project = make_project(tmp_path, 'default_style = "fast"\ndefault_palette = "main"\nvertex_colors = true\n')
+    write_model(project, arms_text(skin="soft").replace("color: blue", "color: blue\n    material: glow"))
+    build(project)
+    doc, _ = read_glb((project.output_dir / "models" / "thing.glb").read_bytes())
+    prims = [p for m in doc["meshes"] for p in m["primitives"]]
+    assert "JOINTS_0" in prims[0]["attributes"] and all("COLOR_0" in p["attributes"] for p in prims)
+
+
+# 32/43. api.part knows the part-level options
+def test_api_part_sorts_part_options() -> None:
+    from kiln.api import part
+
+    out = part("sphere", color="red", radius=0.1, loose=True, keep=True, hard=True)
+    assert out["loose"] is True and out["keep"] is True and out["hard"] is True and out["sphere"] == {"radius": 0.1}

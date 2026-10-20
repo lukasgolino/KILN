@@ -26,6 +26,15 @@ DONE: v0.4.0 tagged locally (M1-M3, M7, M8; not pushed). Next release (0.5.0) af
 - Then: rebuild ~/repos/kiln-website with the new tag (tools/build_site_assets.py --kiln-repo ~/repos/KILN; bump
   requirements.txt) and tell LOOSE's agent (via its KILN_LOG.md / LOOSE_REPORT.md) what's new.
 
+LOOSE_REPORT.md backlog (items 26-43, filed after this plan; not part of it, do after M5/M6/M4 or if the owner asks):
+- Done: 32/43 (api.part keys), 36 (COLOR_0 on glow/skinned surfaces). 37: use `variant_glbs = false` (variants become
+  Godot recolour scenes) or `atlas = true` (texture swap).
+- Open: 26 text/glyph shape; 27 extrude with holes; 28 polygon offset/inset; 29 orient any shape by two end points;
+  30 several/local-axis patterns per part; 31 faster polygon distance (Python loop over edges in sdf.polygon_2d);
+  33 W106 false positive on rounded extrudes; 34 stronger rim; 35 hero output size; 38 per-part scalar attribute
+  (`attr: {heat}` -> COLOR_0.a/custom attribute); 39 UVs (`uv: {project: cylindrical|...}`); 40 model `origin:
+  base|center|[x,y,z]`; 41 `effect:` block (particle spawn JSON); 42 bloom in previews.
+
 Known limits / notes for the next agent:
 - Machine has ~6 GB RAM shared with other sessions: run test files selectively; full suite takes ~4 min.
 - Tests: `.venv/bin/python -m pytest -q -p no:cacheprovider`; types: `.venv/bin/mypy` (strict, must be clean).

@@ -24,9 +24,11 @@ Part = dict[str, Any]
 
 def part(shape: str, color: str | None = None, material: str = "default", id: str | None = None, **params: Any) -> Part:  # noqa: A002
     """One part: `part("box", color="wood", at=[0, 0.5, 0], size=[1, 1, 1], round=0.05, blend=0.02)`.
-    Part-level options (blend, cut, intersect, mirror, mirror_id, array, shell, twist, noise, pattern, decal) may be
-    passed with the shape's own parameters; they are sorted into the right place."""
-    part_keys = {"blend", "cut", "intersect", "mirror", "mirror_id", "array", "shell", "twist", "noise", "pattern", "decal"}
+    Part-level options (blend, cut, intersect, mirror, mirror_id, array, shell, twist, noise, pattern, decal, loose,
+    hard, bevel, chamfer, segments, fit, keep) may be passed with the shape's own parameters; they are sorted into the
+    right place."""
+    part_keys = {"blend", "cut", "intersect", "mirror", "mirror_id", "array", "shell", "twist", "noise", "pattern", "decal", "loose",
+                 "hard", "bevel", "chamfer", "segments", "fit", "keep"}  # fmt: skip
     shape_params = {k: v for k, v in params.items() if k not in part_keys}
     out: Part = {shape: shape_params}
     if id is not None:

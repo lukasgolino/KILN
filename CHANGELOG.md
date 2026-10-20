@@ -18,6 +18,12 @@ before 1.0).
 - `atlas_ao = true`: ambient occlusion baked into the vertex colours (COLOR_0, a multiplier), from the distance field.
 - `kiln build --verify-godot` checks that atlas models sample their palette texture.
 
+### Fixed
+
+- `vertex_colors = true`: every surface carries COLOR_0, glow ones (which keep a material per colour) included, so
+  rigged glowing models get vertex colours too (LOOSE 36).
+- `kiln.api.part()` sorts `loose`, `hard`, `bevel`, `chamfer`, `segments`, `fit` and `keep` into the part (LOOSE 32, 43).
+
 ## [0.4.0] - 2026-10-21
 
 Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).

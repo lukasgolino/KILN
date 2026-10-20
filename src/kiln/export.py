@@ -197,7 +197,7 @@ class _Writer:
                 "POSITION": self.doc.accessor(pos.astype(np.float32), target=ARRAY_BUFFER, bounds=True),
                 "NORMAL": self.doc.accessor(nrm.astype(np.float32), target=ARRAY_BUFFER),
             }
-            if key[1] == "vertex":
+            if self.vertex_colors and self.atlas is None:  # every surface carries its colours (glow ones keep their own material too)
                 rgb = np.array([srgb_to_linear(palette[int(c)]) for c in unique[:, 4]], dtype=np.float32)
                 attributes["COLOR_0"] = self.doc.accessor(rgb, target=ARRAY_BUFFER)
             shared = self.atlas is not None and key[3] < 0

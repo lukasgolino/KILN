@@ -233,3 +233,45 @@ Generator: `logo3d/models/gen_logo.py`. Works and looks good in game; items belo
 
 - Model families (`extends` + template) made "O" and "O with an arrow" trivial; variants for colour swaps; poses on
   the soldier (wave, hang, peek) played straight from the exported AnimationPlayer; `loose: true` splinters.
+
+## 2026-10-21: toon VFX meshes (KILN v0.3.0; LOOSE branch `vfx`, project `vfx3d/` -> `assets/kiln_vfx`)
+
+25 models (+ 7 variant glbs) from `vfx3d/models/gen_vfx.py`: flame tongues (twisted star extrudes, tapered tubes,
+forks), a comet streak, 3 rigged blazes (soft skin, chained bones, `flicker-loop`), cauliflower puffs, shockwave and
+dust rings, spark, ember, 5 debris pieces, splash crown/column/droplet/foam ring with an `oil` variant. The game
+applies its own shaders (heat ramp, dissolve, glow) and does all motion on its world clock.
+
+### Bugs
+
+36. **`vertex_colors = true` is ignored for skinned models.** Static meshes get one surface with `COLOR_0`; the three
+    rigged blazes (`skin: soft`) come out with one surface per palette colour and no `COLOR_0`
+    (`blaze_hay.glb`: 4 materials `glow_fire_*`, attributes JOINTS_0/NORMAL/POSITION/WEIGHTS_0). A shader that keys
+    on vertex colour needs a second path for rigged meshes. Proposal: write COLOR_0 on skinned exports too (or W-lint
+    that the option was dropped).
+37. **Colour-only variants of skinned models duplicate everything.** `blaze_*.embers.glb` (a palette swap) is a full
+    second ~0.6 MB glb with its own skin and animation (3.6 MB for 6 blazes). Same root as #35; with vertex colours
+    working on skinned meshes (#36) a variant could be a colour stream only.
+
+### Friction / missing
+
+38. **No per-part scalar attribute.** VFX shaders want a heat/opacity key per vertex; the only carrier is the palette
+    colour, so the game reverse-maps colours (`VfxLib.HEAT`, matching both sRGB and linear because glTF factors are
+    linear). Wanted: `attr: {heat: 0.9}` on a part, exported to COLOR_0.a / UV2 / a custom `_HEAT` attribute.
+39. **No UVs.** Exports have no TEXCOORD_0, so scrolling textures/dissolves along a flame's length are impossible;
+    LOOSE uses object-space 3D noise instead. Wanted: `uv: {project: cylindrical|spherical|box|along}` per part.
+40. **No origin control.** Puffs and debris must spin about their centre; LOOSE recentres every mesh at load.
+    Wanted: model-level `origin: base|center|[x,y,z]`.
+41. **Effect motion lives entirely in the game.** KILN describes shape, rig and poses; life, velocity, scale-pop,
+    squash, heat-over-life and dissolve are hand-coded in GDScript. Nice-to-have: an `effect:` block (spawn list of
+    models with velocity/gravity/drag ranges and keyed scale/heat/fade envelopes) exported as JSON next to the glb
+    for engine-side players. Would let `kiln preview` show the whole burst, not single meshes.
+42. **Preview can't show emissive/bloom.** `kiln preview`/`gallery` render the `glow` material flat; the look only
+    shows in-engine. Nice-to-have: an HDR bloom pass in preview for emissive materials.
+43. **`kiln.api.part()` still doesn't know `loose` in v0.3.0** (#32): set on the dict after the call.
+
+### Good
+
+- Tapered `tube` + `twist` extrudes make readable toon flame tongues fast; `array` around y builds splash crowns.
+- Soft skin + per-frame poses + a `chain` cycle in one animation gave flickering rigged fires that Godot plays
+  (`flicker-loop` loops automatically); the game advances them manually on world time.
+- Material names carry the palette key (`glow_fire_red#e8382c`), which helps engine-side mapping.
