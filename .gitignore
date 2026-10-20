@@ -4,3 +4,9 @@ spike/out/
 spike/godot/.godot/
 spike/godot/models/
 *.import
+.kiln-cache/
+previews/
+examples/godot/.godot/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/

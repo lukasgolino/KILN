@@ -1,0 +1,31 @@
+name: toybox
+# Bright toy colours for the KILN demo (PAGAN palette format; models use the names).
+colors:
+  "0": { hex: "#141414", name: black }
+  "1": { hex: "#f4f4f0", name: white }
+  "2": { hex: "#8a93a3", name: grey }
+  "3": { hex: "#4a4a52", name: iron }
+  "4": { hex: "#aeb6c1", name: steel }
+  "5": { hex: "#e8413c", name: red }
+  "6": { hex: "#c03a2b", name: crimson }
+  "7": { hex: "#f2c14e", name: gold }
+  "8": { hex: "#4caf50", name: green }
+  "9": { hex: "#3d8b3d", name: hood }
+  "a": { hex: "#2e7d32", name: leaf }
+  "b": { hex: "#3fb6a8", name: teal }
+  "c": { hex: "#2f6fd0", name: blue }
+  "d": { hex: "#2f5fa8", name: seat_blue }
+  "e": { hex: "#2b3a67", name: navy }
+  "f": { hex: "#1f2a4d", name: navy_dark }
+  "g": { hex: "#f1b48c", name: skin }
+  "h": { hex: "#5a3825", name: hair }
+  "i": { hex: "#3b3f58", name: denim }
+  "j": { hex: "#a0663a", name: wood }
+  "k": { hex: "#6e4426", name: wood_dark }
+  "l": { hex: "#6b4a2f", name: bark }
+  "m": { hex: "#c9a66b", name: rope }
+  "n": { hex: "#b8b2a7", name: stone }
+  "o": { hex: "#8d877c", name: stone_dark }
+  "p": { hex: "#ff8fb1", name: pink }
+ramps:
+  greys: ["0", "3", "2", "4", "1"]

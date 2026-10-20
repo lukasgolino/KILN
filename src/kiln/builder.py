@@ -22,7 +22,7 @@ from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
 from kiln.sdf import Field
 from kiln.style import Style
 
-BUILDER_VERSION = 1  # bump when meshing/painting changes output
+BUILDER_VERSION = 3  # bump when meshing/painting changes output
 
 
 def field_of(model: Model, step: float) -> Field:

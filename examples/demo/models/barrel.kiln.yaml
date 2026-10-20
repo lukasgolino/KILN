@@ -1,0 +1,19 @@
+name: barrel
+description: wooden barrel with iron hoops
+class: prop
+tags: [siege, cabin]
+status: approved
+style_version: 1
+parts:
+  - lathe: { profile: [[0, 0], [0.3, 0], [0.34, 0.2], [0.355, 0.4], [0.34, 0.6], [0.3, 0.8], [0, 0.8]] }
+    color: wood
+    material: wood
+  - cylinder: { at: [0, 0.81, 0], radius: 0.26, height: 0.04, round: 0.01 }
+    cut: true
+  - torus: { at: [0, 0.18, 0], radius: 0.338, thickness: 0.02 }
+    color: iron
+    material: metal
+  - torus: { at: [0, 0.62, 0], radius: 0.338, thickness: 0.02 }
+    color: iron
+    material: metal
+lint: { disable: [W106] }

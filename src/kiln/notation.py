@@ -276,7 +276,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             ok = False
             continue
         params[key] = checked
-    missing = [k for k in sdef.required if k not in params]
+    missing = [k for k in sdef.required if k not in params and k not in spec]  # a bad value was reported already
     if missing:
         ctx.error("E003", f"{kind} needs {', '.join(missing)} ({sdef.help})", line, swhere)
         ok = False

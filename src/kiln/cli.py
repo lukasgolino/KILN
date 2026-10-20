@@ -137,7 +137,8 @@ def cmd_lint(args: argparse.Namespace, out: Output) -> int:
     data = {"models": len(paths), "errors": len(result.errors), "warnings": len(result.warnings),
             "findings": [f.to_dict() for f in result.findings]}  # fmt: skip
     if result.errors:
-        out.failure(result.errors, data)
+        if out.as_json:  # human output: the findings are printed above already
+            out.failure(result.findings, data)
         return 1
     out.result(data)
     return 0
@@ -157,7 +158,8 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
                             "removed": [display_path(p) for p in result.removed], "findings": [f.to_dict() for f in result.findings]}  # fmt: skip
     if result.errors:
         out.say("build failed: fix the errors above")
-        out.failure(result.errors, data)
+        if out.as_json:  # human output: the findings are printed above already
+            out.failure(result.findings, data)
         return 1
     out.say(f"built {len(result.models)} models into {display_path(result.output_dir)}: {len(result.written)} written, "
             f"{result.unchanged} unchanged, {len(result.removed)} removed")  # fmt: skip
@@ -237,7 +239,8 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     if args.engine:
         outputs["engine"] = _engine_preview(project, built, folder)
     for key, value in outputs.items():
-        out.say(f"{name} {key}: {value}")
+        for label, path in (value.items() if isinstance(value, dict) else [("", value)]):
+            out.say(f"{name} {key}{' ' + label if label else ''}: {path}")
     out.result({"model": name, "outputs": outputs, "triangles": built.triangles})
     return 0
 

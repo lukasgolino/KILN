@@ -148,7 +148,7 @@ def read_mesh(path: Path) -> tuple[Array, Array, Array, list[str]]:
                 verts.append(wpos)
                 faces.append(idx + count)
                 colors.append(face_col)
-                kinds += [kind] * len(idx)
+                kinds.extend([kind] * len(idx))
                 count += len(wpos)
         for child in node.get("children", []):
             visit(child, world)

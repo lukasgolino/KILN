@@ -85,7 +85,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             for k, i in enumerate(adding):
                 part = m.parts[i]
                 if not near[k].any():
-                    warn("W101", f"part {i} ({part.geometry.shape}, {part.color_name}) has no visible surface: later parts cover it or a "
+                    warn("W101", f"part {part.index} ({part.geometry.shape}, {part.color_name}) has no visible surface: later parts cover it or a "
                          "cut removes it; move it out, or make the covering part a shell", part.line, part.where)  # fmt: skip
         for part in m.parts:
             if part.geometry.op != "add":

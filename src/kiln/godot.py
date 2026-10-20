@@ -199,8 +199,8 @@ def _sun_transform(look: Look) -> str:
     from kiln.sdf import rotation_matrix
 
     m = rotation_matrix((look.sun_pitch, look.sun_yaw, 0.0))
-    cols = ", ".join(f"{m[r, c]:.6g}" for c in range(3) for r in range(3))
-    return f"Transform3D({cols}, 0, 10, 0)"
+    rows = ", ".join(f"{m[r, c]:.6g}" for r in range(3) for c in range(3))  # Godot's text format is row-major
+    return f"Transform3D({rows}, 0, 10, 0)"
 
 
 # --- running Godot -------------------------------------------------------------------------------------

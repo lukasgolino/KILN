@@ -13,6 +13,24 @@
 
 ---
 
+## Status (2026-10-20): v0.1.0 built
+
+M1-M7 and most of M8 are done; see CHANGELOG.md and CLAUDE.md's decisions log. Where the build differs from
+this plan:
+- **Previews:** KILN's own vectorised software renderer, so previews need no GPU or display. Godot renders on
+  request with `--engine`. The plan had Godot only.
+- **Patterns:** cut into the mesh along their zero lines, after local refinement, rather than baked into
+  textures. Decals are the only textures.
+- **LODs:** separate `.lod<N>.glb` files.
+- **Not done:**
+  - M7b humanoid retargeting (`rig: humanoid` mapping to SkeletonProfileHumanoid);
+  - pack mirroring and search (`kiln pack add/search`): `kiln import` brings in local .glb/.gltf files;
+  - the optional Blender extra (FBX/.blend imports).
+- **Known limits:**
+  - Very thin sharp rims (a cone roof overhanging its tower) can come out ragged at the default resolution.
+  - The toon look kit is basic.
+  - Cross-machine byte-identity is untested (CI checks build-twice equality).
+
 ## 0. Verdict
 
 **Feasible, and free: Claude (Max subscription) writes the models; KILN, which is open source, builds them.**

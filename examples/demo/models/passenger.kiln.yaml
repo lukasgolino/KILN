@@ -1,0 +1,71 @@
+name: passenger
+description: big-headed caricature passenger in a holiday shirt
+class: character
+tags: [npc]
+status: approved
+style_version: 1
+parts:
+  - capsule: { from: [0, 0.38, 0], to: [0, 0.6, 0], radius: 0.25 }
+    color: teal
+    material: fabric
+    pattern: { type: dots, color: white, size: 0.09, width: 0.4 }
+  - capsule: { from: [0.1, 0.09, 0], to: [0.1, 0.32, 0], radius: 0.09 }
+    id: leg_l
+    mirror: x
+    mirror_id: leg_r
+    blend: 0.03
+    color: denim
+    material: fabric
+  - capsule: { from: [0.25, 0.58, 0], to: [0.33, 0.32, 0.06], radius: 0.07 }
+    id: arm_l
+    mirror: x
+    mirror_id: arm_r
+    blend: 0.03
+    color: teal
+    material: fabric
+  - sphere: { at: [0.34, 0.27, 0.07], radius: 0.07 }
+    id: arm_l
+    mirror: x
+    mirror_id: arm_r
+    blend: 0.02
+    color: skin
+    material: skin
+  - ellipsoid: { at: [0, 1.0, 0.02], radii: [0.27, 0.3, 0.26] }
+    id: head
+    blend: 0.06
+    color: skin
+    material: skin
+  - ellipsoid: { at: [0, 0.96, 0.28], radii: [0.07, 0.1, 0.09] }
+    id: head
+    blend: 0.03
+    color: skin
+    material: skin
+  - ellipsoid: { at: [0.27, 1.0, 0], radii: [0.05, 0.08, 0.04] }
+    id: head
+    mirror: x
+    blend: 0.02
+    color: skin
+    material: skin
+  - ellipsoid: { at: [0, 1.17, -0.04], radii: [0.28, 0.15, 0.26] }
+    id: head
+    blend: 0.02
+    color: hair
+    material: fabric
+  - sphere: { at: [0.1, 1.07, 0.2], radius: 0.085 }
+    id: head
+    mirror: x
+    color: white
+    material: plastic
+  - sphere: { at: [0.1, 1.07, 0.28], radius: 0.035 }
+    id: head
+    mirror: x
+    color: black
+    material: plastic
+rig:
+  leg_l: { pivot: [0.1, 0.32, 0] }
+  arm_l: { pivot: [0.25, 0.58, 0] }
+  head: { pivot: [0, 0.68, 0], meta: { hitzone: head } }
+skin: soft
+animations:
+  walk: { fps: 12, cycle: { type: walk, swing: 25 } }
+  nod: { fps: 8, poses: [ {}, { head: { rotate: [12, 0, 0] } }, {}, { head: { rotate: [12, 0, 0] } } ] }

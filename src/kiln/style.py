@@ -119,7 +119,7 @@ def _raw(name: str, project_styles: Path | None, seen: tuple[str, ...], findings
         return {}, text, path
     parent = data.pop("extends", None)
     if parent is not None:
-        if not isinstance(parent, str) or parent in seen or parent == name:
+        if not isinstance(parent, str) or parent in seen or (parent == name and path.parent == builtin_dir()):
             findings.append(Finding("E006", f"extends must name another style (no cycles): {parent!r}", path, None, "extends"))
             return data, text, path
         # a project style may extend the built-in preset of the same name

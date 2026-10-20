@@ -61,6 +61,9 @@ def validate(doc: dict[str, Any], binary: bytes) -> list[str]:
             normals = accessor(doc, binary, attrs["NORMAL"])
             if len(normals) and not np.allclose(np.linalg.norm(normals, axis=1), 1.0, atol=1e-3):
                 problems.append(f"meshes[{m}].primitives[{p}] normals aren't unit length")
+            for key in ("JOINTS_0", "WEIGHTS_0"):
+                if key in attrs and doc["accessors"][attrs[key]]["type"] != "VEC4":
+                    problems.append(f"meshes[{m}].primitives[{p}] {key} must be VEC4")
             if "WEIGHTS_0" in attrs:
                 w = accessor(doc, binary, attrs["WEIGHTS_0"])
                 j = accessor(doc, binary, attrs["JOINTS_0"])

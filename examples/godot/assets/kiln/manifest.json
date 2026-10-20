@@ -1,0 +1,817 @@
+{
+  "files": [
+    "looks/soft_toy.tscn",
+    "models/archer.glb",
+    "models/archer.tscn",
+    "models/barrel.glb",
+    "models/barrel.tscn",
+    "models/knight.glb",
+    "models/knight.tscn",
+    "models/passenger.glb",
+    "models/passenger.tscn",
+    "models/pilot.copilot.glb",
+    "models/pilot.glb",
+    "models/pilot.tscn",
+    "models/seat.glb",
+    "models/seat.tscn",
+    "models/trebuchet.glb",
+    "models/trebuchet.tscn",
+    "models/tree.glb",
+    "models/tree.lod1.glb",
+    "models/tree.tscn",
+    "models/wall.glb",
+    "models/wall.tscn",
+    "manifest.json"
+  ],
+  "front": "+Z",
+  "generator": "kiln 0.1.0",
+  "looks": {
+    "soft_toy": "res://assets/kiln/looks/soft_toy.tscn"
+  },
+  "models": {
+    "archer": {
+      "animations": {
+        "hop": {
+          "duration": 0.66667,
+          "fps": 12.0,
+          "frames": 8,
+          "gltf_name": "hop-loop",
+          "interpolation": "linear",
+          "loop": true
+        },
+        "walk": {
+          "duration": 0.66667,
+          "fps": 12.0,
+          "frames": 8,
+          "gltf_name": "walk-loop",
+          "interpolation": "linear",
+          "loop": true
+        }
+      },
+      "bounds": {
+        "max": [
+          0.54815,
+          1.30147,
+          0.43851
+        ],
+        "min": [
+          -0.46978,
+          -0.03981,
+          -0.45435
+        ]
+      },
+      "class": "character",
+      "colors": [
+        "#141414",
+        "#3d8b3d",
+        "#6e4426",
+        "#a0663a",
+        "#c9a66b",
+        "#f1b48c",
+        "#f4f4f0"
+      ],
+      "description": "hooded bean archer with a longbow",
+      "glb": "models/archer.glb",
+      "glb_res": "res://assets/kiln/models/archer.glb",
+      "godot_scene": "res://assets/kiln/models/archer.tscn",
+      "parts": {
+        "arm_l": {
+          "meta": {
+            "holds": "bow"
+          },
+          "parent": "root",
+          "pivot": [
+            0.28,
+            0.6,
+            0.0
+          ],
+          "separate": false
+        },
+        "arm_r": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            -0.28,
+            0.6,
+            0.0
+          ],
+          "separate": false
+        },
+        "leg_l": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            0.11,
+            0.25,
+            0.0
+          ],
+          "separate": false
+        },
+        "leg_r": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            -0.11,
+            0.25,
+            0.0
+          ],
+          "separate": false
+        },
+        "root": {
+          "meta": {},
+          "parent": "",
+          "pivot": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "separate": false
+        }
+      },
+      "size": [
+        1.01793,
+        1.34127,
+        0.89287
+      ],
+      "skin": "rigid",
+      "status": "approved",
+      "style": "soft_toy",
+      "style_version": 1,
+      "tags": [
+        "siege",
+        "soldier"
+      ],
+      "triangles": 9204
+    },
+    "barrel": {
+      "animations": {},
+      "bounds": {
+        "max": [
+          0.35474,
+          0.8,
+          0.35715
+        ],
+        "min": [
+          -0.35756,
+          -0.0,
+          -0.35654
+        ]
+      },
+      "class": "prop",
+      "colors": [
+        "#4a4a52",
+        "#a0663a"
+      ],
+      "description": "wooden barrel with iron hoops",
+      "glb": "models/barrel.glb",
+      "glb_res": "res://assets/kiln/models/barrel.glb",
+      "godot_scene": "res://assets/kiln/models/barrel.tscn",
+      "parts": {
+        "root": {
+          "meta": {},
+          "parent": "",
+          "pivot": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "separate": false
+        }
+      },
+      "size": [
+        0.7123,
+        0.8,
+        0.71368
+      ],
+      "skin": "none",
+      "status": "approved",
+      "style": "soft_toy",
+      "style_version": 1,
+      "tags": [
+        "siege",
+        "cabin"
+      ],
+      "triangles": 3770
+    },
+    "knight": {
+      "animations": {
+        "attack": {
+          "duration": 0.5,
+          "fps": 10.0,
+          "frames": 5,
+          "gltf_name": "attack",
+          "interpolation": "linear",
+          "loop": false
+        },
+        "walk": {
+          "duration": 0.66667,
+          "fps": 12.0,
+          "frames": 8,
+          "gltf_name": "walk-loop",
+          "interpolation": "linear",
+          "loop": true
+        }
+      },
+      "bounds": {
+        "max": [
+          0.6177,
+          1.39725,
+          0.31997
+        ],
+        "min": [
+          -0.5482,
+          -0.04922,
+          -0.31995
+        ]
+      },
+      "class": "character",
+      "colors": [
+        "#141414",
+        "#2f6fd0",
+        "#4a4a52",
+        "#6e4426",
+        "#aeb6c1",
+        "#c03a2b",
+        "#e8413c",
+        "#f2c14e",
+        "#f4f4f0"
+      ],
+      "description": "bean knight with a bucket helm, sword and round shield",
+      "glb": "models/knight.glb",
+      "glb_res": "res://assets/kiln/models/knight.glb",
+      "godot_scene": "res://assets/kiln/models/knight.tscn",
+      "parts": {
+        "arm_l": {
+          "meta": {
+            "holds": "shield"
+          },
+          "parent": "root",
+          "pivot": [
+            0.3,
+            0.58,
+            0.0
+          ],
+          "separate": false
+        },
+        "arm_r": {
+          "meta": {
+            "holds": "sword"
+          },
+          "parent": "root",
+          "pivot": [
+            -0.3,
+            0.58,
+            0.0
+          ],
+          "separate": false
+        },
+        "helmet": {
+          "meta": {
+            "detachable": true,
+            "hitzone": "head"
+          },
+          "parent": "root",
+          "pivot": [
+            0.0,
+            0.8,
+            0.0
+          ],
+          "separate": true
+        },
+        "leg_l": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            0.12,
+            0.25,
+            0.0
+          ],
+          "separate": false
+        },
+        "leg_r": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            -0.12,
+            0.25,
+            0.0
+          ],
+          "separate": false
+        },
+        "root": {
+          "meta": {},
+          "parent": "",
+          "pivot": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "separate": false
+        }
+      },
+      "size": [
+        1.1659,
+        1.44646,
+        0.63992
+      ],
+      "skin": "soft",
+      "status": "approved",
+      "style": "soft_toy",
+      "style_version": 1,
+      "tags": [
+        "siege",
+        "soldier"
+      ],
+      "triangles": 62724
+    },
+    "passenger": {
+      "animations": {
+        "nod": {
+          "duration": 0.5,
+          "fps": 8.0,
+          "frames": 4,
+          "gltf_name": "nod-loop",
+          "interpolation": "linear",
+          "loop": true
+        },
+        "walk": {
+          "duration": 0.66667,
+          "fps": 12.0,
+          "frames": 8,
+          "gltf_name": "walk-loop",
+          "interpolation": "linear",
+          "loop": true
+        }
+      },
+      "bounds": {
+        "max": [
+          0.40894,
+          1.3199,
+          0.36941
+        ],
+        "min": [
+          -0.40991,
+          0.00139,
+          -0.3
+        ]
+      },
+      "class": "character",
+      "colors": [
+        "#141414",
+        "#3b3f58",
+        "#3fb6a8",
+        "#5a3825",
+        "#f1b48c",
+        "#f4f4f0"
+      ],
+      "description": "big-headed caricature passenger in a holiday shirt",
+      "glb": "models/passenger.glb",
+      "glb_res": "res://assets/kiln/models/passenger.glb",
+      "godot_scene": "res://assets/kiln/models/passenger.tscn",
+      "parts": {
+        "arm_l": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            0.25,
+            0.58,
+            0.0
+          ],
+          "separate": false
+        },
+        "arm_r": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            -0.25,
+            0.58,
+            0.0
+          ],
+          "separate": false
+        },
+        "head": {
+          "meta": {
+            "hitzone": "head"
+          },
+          "parent": "root",
+          "pivot": [
+            0.0,
+            0.68,
+            0.0
+          ],
+          "separate": false
+        },
+        "leg_l": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            0.1,
+            0.32,
+            0.0
+          ],
+          "separate": false
+        },
+        "leg_r": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            -0.1,
+            0.32,
+            0.0
+          ],
+          "separate": false
+        },
+        "root": {
+          "meta": {},
+          "parent": "",
+          "pivot": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "separate": false
+        }
+      },
+      "size": [
+        0.81885,
+        1.31851,
+        0.6694
+      ],
+      "skin": "soft",
+      "status": "approved",
+      "style": "soft_toy",
+      "style_version": 1,
+      "tags": [
+        "npc"
+      ],
+      "triangles": 34755
+    },
+    "pilot": {
+      "animations": {
+        "idle": {
+          "duration": 1.33333,
+          "fps": 6.0,
+          "frames": 8,
+          "gltf_name": "idle-loop",
+          "interpolation": "linear",
+          "loop": true
+        },
+        "walk": {
+          "duration": 0.66667,
+          "fps": 12.0,
+          "frames": 8,
+          "gltf_name": "walk-loop",
+          "interpolation": "linear",
+          "loop": true
+        },
+        "wave": {
+          "duration": 1.0,
+          "fps": 8.0,
+          "frames": 8,
+          "gltf_name": "wave-loop",
+          "interpolation": "linear",
+          "loop": true
+        }
+      },
+      "bounds": {
+        "max": [
+          0.49856,
+          1.155,
+          0.3611
+        ],
+        "min": [
+          -0.49981,
+          -0.03945,
+          -0.3
+        ]
+      },
+      "class": "character",
+      "colors": [
+        "#141414",
+        "#1f2a4d",
+        "#2b3a67",
+        "#e8413c",
+        "#f2c14e",
+        "#f4f4f0"
+      ],
+      "description": "bean crew member in a pilot's cap with the airline's wings",
+      "glb": "models/pilot.glb",
+      "glb_res": "res://assets/kiln/models/pilot.glb",
+      "godot_scene": "res://assets/kiln/models/pilot.tscn",
+      "parts": {
+        "arm_l": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            0.3,
+            0.6,
+            0.0
+          ],
+          "separate": false
+        },
+        "arm_r": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            -0.3,
+            0.6,
+            0.0
+          ],
+          "separate": false
+        },
+        "cap": {
+          "meta": {
+            "detachable": true
+          },
+          "parent": "root",
+          "pivot": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "separate": true
+        },
+        "leg_l": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            0.12,
+            0.26,
+            0.0
+          ],
+          "separate": false
+        },
+        "leg_r": {
+          "meta": {},
+          "parent": "root",
+          "pivot": [
+            -0.12,
+            0.26,
+            0.0
+          ],
+          "separate": false
+        },
+        "root": {
+          "meta": {},
+          "parent": "",
+          "pivot": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "separate": false
+        }
+      },
+      "size": [
+        0.99837,
+        1.19445,
+        0.6611
+      ],
+      "skin": "soft",
+      "status": "approved",
+      "style": "soft_toy",
+      "style_version": 1,
+      "tags": [
+        "crew"
+      ],
+      "triangles": 14328,
+      "variants": {
+        "copilot": {
+          "glb": "models/pilot.copilot.glb",
+          "swap": {
+            "#e8413c": "#3fb6a8"
+          }
+        }
+      }
+    },
+    "seat": {
+      "animations": {},
+      "bounds": {
+        "max": [
+          0.30476,
+          1.06,
+          0.25
+        ],
+        "min": [
+          -0.30476,
+          0.00026,
+          -0.27145
+        ]
+      },
+      "class": "prop",
+      "colors": [
+        "#2f5fa8",
+        "#8a93a3",
+        "#f4f4f0"
+      ],
+      "description": "airline seat",
+      "glb": "models/seat.glb",
+      "glb_res": "res://assets/kiln/models/seat.glb",
+      "godot_scene": "res://assets/kiln/models/seat.tscn",
+      "parts": {
+        "root": {
+          "meta": {},
+          "parent": "",
+          "pivot": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "separate": false
+        }
+      },
+      "size": [
+        0.60952,
+        1.05974,
+        0.52145
+      ],
+      "skin": "none",
+      "status": "approved",
+      "style": "soft_toy",
+      "style_version": 1,
+      "tags": [
+        "cabin"
+      ],
+      "triangles": 3470
+    },
+    "trebuchet": {
+      "animations": {
+        "fire": {
+          "duration": 0.5,
+          "fps": 12.0,
+          "frames": 6,
+          "gltf_name": "fire",
+          "interpolation": "linear",
+          "loop": false
+        }
+      },
+      "bounds": {
+        "max": [
+          0.77,
+          3.24401,
+          1.2
+        ],
+        "min": [
+          -0.77,
+          0.00071,
+          -1.91855
+        ]
+      },
+      "class": "machine",
+      "colors": [
+        "#4a4a52",
+        "#6e4426",
+        "#a0663a",
+        "#c9a66b"
+      ],
+      "description": "siege trebuchet on wheels; the arm swings to throw",
+      "glb": "models/trebuchet.glb",
+      "glb_res": "res://assets/kiln/models/trebuchet.glb",
+      "godot_scene": "res://assets/kiln/models/trebuchet.tscn",
+      "parts": {
+        "arm": {
+          "meta": {
+            "fires": true
+          },
+          "parent": "root",
+          "pivot": [
+            0.0,
+            1.78,
+            0.0
+          ],
+          "separate": false
+        },
+        "root": {
+          "meta": {},
+          "parent": "",
+          "pivot": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "separate": false
+        }
+      },
+      "size": [
+        1.54,
+        3.24329,
+        3.11855
+      ],
+      "skin": "rigid",
+      "status": "approved",
+      "style": "soft_toy",
+      "style_version": 1,
+      "tags": [
+        "siege"
+      ],
+      "triangles": 15998
+    },
+    "tree": {
+      "animations": {},
+      "bounds": {
+        "max": [
+          0.84,
+          2.46818,
+          0.60551
+        ],
+        "min": [
+          -0.82971,
+          0.01207,
+          -0.6212
+        ]
+      },
+      "class": "nature",
+      "colors": [
+        "#4caf50",
+        "#6b4a2f"
+      ],
+      "description": "round toy tree",
+      "glb": "models/tree.glb",
+      "glb_res": "res://assets/kiln/models/tree.glb",
+      "godot_scene": "res://assets/kiln/models/tree.tscn",
+      "lods": [
+        {
+          "glb": "models/tree.lod1.glb",
+          "triangles": 1562
+        }
+      ],
+      "parts": {
+        "root": {
+          "meta": {},
+          "parent": "",
+          "pivot": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "separate": false
+        }
+      },
+      "size": [
+        1.6697,
+        2.45612,
+        1.22671
+      ],
+      "skin": "none",
+      "status": "approved",
+      "style": "soft_toy",
+      "style_version": 1,
+      "tags": [
+        "siege",
+        "nature"
+      ],
+      "triangles": 6102
+    },
+    "wall": {
+      "animations": {},
+      "bounds": {
+        "max": [
+          2.10417,
+          3.30679,
+          0.60326
+        ],
+        "min": [
+          -2.10389,
+          -0.00685,
+          -0.60755
+        ]
+      },
+      "class": "building",
+      "colors": [
+        "#8d877c",
+        "#b8b2a7"
+      ],
+      "description": "castle wall segment, 4 m, with merlons and an arrow slit",
+      "glb": "models/wall.glb",
+      "glb_res": "res://assets/kiln/models/wall.glb",
+      "godot_scene": "res://assets/kiln/models/wall.tscn",
+      "parts": {
+        "root": {
+          "meta": {},
+          "parent": "",
+          "pivot": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "separate": false
+        }
+      },
+      "size": [
+        4.20806,
+        3.31365,
+        1.21081
+      ],
+      "skin": "none",
+      "status": "approved",
+      "style": "soft_toy",
+      "style_version": 1,
+      "tags": [
+        "siege"
+      ],
+      "triangles": 20562
+    }
+  },
+  "units": "metres",
+  "up": "+Y"
+}

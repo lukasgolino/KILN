@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Version
+        run: kiln --version
+      - name: Type check
+        run: mypy
+      - name: Tests
+        run: pytest -q
+      - name: Lint the demo
+        working-directory: examples/demo
+        run: kiln lint
+
+  godot:
+    # Builds the demo into the example Godot project twice (deterministic), loads everything in headless Godot and
+    # runs the showcase scene.
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: "4.7.2-stable"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}
+      - name: Download Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot
+          curl -sSL -o ~/godot/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q ~/godot/godot.zip -d ~/godot
+          rm ~/godot/godot.zip
+      - name: Point GODOT at the binary
+        run: |
+          chmod +x ~/godot/Godot_v${GODOT_VERSION}_linux.x86_64
+          echo "GODOT=$HOME/godot/Godot_v${GODOT_VERSION}_linux.x86_64" >> "$GITHUB_ENV"
+      - name: Build the demo twice (deterministic) and verify in Godot
+        working-directory: examples/demo
+        run: |
+          kiln build --verify-godot
+          cp -r ../godot/assets/kiln /tmp/first
+          rm -rf .kiln-cache
+          kiln build
+          diff -r /tmp/first ../godot/assets/kiln
+      - name: Showcase scene
+        run: $GODOT --headless --path examples/godot -s res://tests/check_showcase.gd
+      - name: Godot tests
+        run: pytest -q -k godot

@@ -105,25 +105,39 @@ def lineup(builts: list[Built], height_px: int = 360) -> Image.Image:
     """Models side by side at one scale (pixels per metre), standing on one ground line, with a 1 m bar."""
     if not builts:
         return sheet("line-up", "no models", [])
+    margin = 24
     tallest = max(float(b.bounds()[1][1]) for b in builts)
-    ppm = (height_px - 40) / max(tallest, 0.5)
-    tiles = []
+    ppm = (height_px - margin - 30) / max(tallest, 0.5)
+    tiles: list[tuple[str, Image.Image]] = []
     for b in builts:
         lo, hi = b.bounds()
-        width_m = float(max(hi[0] - lo[0], hi[2] - lo[2])) * 1.1 + 0.1
-        side = int(max(height_px, width_m * ppm))
+        width_px = int(float(max(hi[0] - lo[0], hi[2] - lo[2])) * 1.15 * ppm) + 24
+        side = max(height_px, width_px)
         half = side / ppm / 2
-        centre = np.array([(lo[0] + hi[0]) / 2, half - 20 / ppm, (lo[2] + hi[2]) / 2])
-        tiles.append((b.model.name, render(b, View(25.0, 8.0), side, fit=(centre, half), background=TILE_BG)))
-    bar = Image.new("RGBA", (60, max(t.height for _, t in tiles)), TILE_BG)
-    d = ImageDraw.Draw(bar)
-    ground = bar.height - 20
-    d.line([(30, ground), (30, ground - ppm)], fill=(30, 30, 40), width=3)
+        centre = np.array([(lo[0] + hi[0]) / 2, half - margin / ppm, (lo[2] + hi[2]) / 2])  # ground `margin` px above the bottom
+        full = render(b, View(25.0, 8.0), side, fit=(centre, half), background=TILE_BG)
+        left = (side - width_px) // 2
+        tiles.append((b.model.name, full.crop((left, side - height_px, left + width_px, side))))
+    gap = 6
+    width = 70 + sum(t.width + gap for _, t in tiles) + 10
+    out = Image.new("RGB", (width, height_px + 80), BG)
+    draw = ImageDraw.Draw(out)
+    draw.text((10, 10), "line-up", fill=TEXT, font=_font(20))
+    draw.text((10, 36), f"same scale: {ppm:.0f} px per metre, all standing on one ground line", fill=DIM, font=_font(13))
+    top = 64
+    ground = top + height_px - margin
+    x = 70
+    for name, tile in tiles:
+        out.paste(tile, (x, top), tile)
+        draw.text((x + 4, top + 4), name, fill=(40, 40, 52), font=_font(13))
+        x += tile.width + gap
+    draw.line([(10, ground), (width - 10, ground)], fill=(120, 124, 136), width=1)
+    draw.line([(40, ground), (40, ground - ppm)], fill=TEXT, width=3)
     for k in range(11):
         y = ground - ppm * k / 10
-        d.line([(24 if k % 5 else 18, y), (36 if k % 5 else 42, y)], fill=(30, 30, 40), width=1)
-    d.text((8, ground - ppm - 18), "1 m", fill=(30, 30, 40), font=_font(13))
-    return sheet("line-up", f"same scale: {ppm:.0f} px per metre; ground at the bottom", [("", [("", bar), *tiles])])
+        draw.line([(34 if k % 5 else 28, y), (46 if k % 5 else 52, y)], fill=TEXT, width=1)
+    draw.text((26, ground - ppm - 18), "1 m", fill=TEXT, font=_font(13))
+    return out
 
 
 def gallery(builts: list[Built], size: int = 200) -> Image.Image:

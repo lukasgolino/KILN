@@ -1,0 +1,10 @@
+# KILN demo: a toy airline and a toy siege, one style (soft_toy). `kiln build` writes into the Godot example.
+default_style = "soft_toy"
+default_palette = "toybox"
+output_dir = "../godot/assets/kiln"
+preview_dir = "previews"
+export = ["glb", "godot"]
+style_version = 1
+
+[lint]
+disable = []

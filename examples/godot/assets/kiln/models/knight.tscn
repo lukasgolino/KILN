@@ -1,0 +1,90 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/kiln/models/knight.glb" id="1_glb"]
+
+[sub_resource type="Shader" id="Shader_toon"]
+code = "shader_type spatial;
+render_mode specular_disabled;
+uniform vec4 albedo : source_color = vec4(1.0);
+uniform vec3 emission = vec3(0.0);
+uniform int bands = 3;
+void fragment() {
+	ALBEDO = albedo.rgb;
+	EMISSION = emission;
+}
+void light() {
+	float n = clamp((dot(NORMAL, LIGHT) + 0.15) / 1.15, 0.0, 0.999);
+	float lit = floor(n * float(bands)) / float(bands - 1);
+	DIFFUSE_LIGHT += vec3(lit) * ATTENUATION * LIGHT_COLOR * 0.9;
+}
+"
+
+[sub_resource type="Shader" id="Shader_outline"]
+code = "shader_type spatial;
+render_mode cull_front, unshaded;
+uniform float width = 0.012;
+uniform vec4 color : source_color = vec4(0.1, 0.08, 0.12, 1.0);
+void vertex() {
+	VERTEX += NORMAL * width;
+}
+void fragment() {
+	ALBEDO = color.rgb;
+}
+"
+
+[sub_resource type="GDScript" id="GDScript_apply"]
+script/source = "@tool
+extends Node3D
+# Written by `kiln build`: gives every surface the style's material (toon bands, outlines, rim light).
+@export var shader_kind := \"standard\"
+@export var toon_shader: Shader
+@export var outline_shader: Shader
+@export var bands := 3
+@export var outline := 0.0
+@export var outline_color := Color(0.1, 0.08, 0.12)
+@export var rims: Dictionary = {}
+
+func _ready() -> void:
+	for node in find_children(\"*\", \"MeshInstance3D\", true, false):
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh == null:
+			continue
+		for i in mesh_instance.mesh.get_surface_count():
+			var source := mesh_instance.mesh.surface_get_material(i) as BaseMaterial3D
+			if source == null:
+				continue
+			var material: Material
+			if shader_kind == \"toon\":
+				var toon := ShaderMaterial.new()
+				toon.shader = toon_shader
+				toon.set_shader_parameter(\"albedo\", source.albedo_color)
+				toon.set_shader_parameter(\"emission\", Vector3(source.emission.r, source.emission.g, source.emission.b) * source.emission_energy_multiplier if source.emission_enabled else Vector3.ZERO)
+				toon.set_shader_parameter(\"bands\", bands)
+				material = toon
+			else:
+				var standard := source.duplicate() as BaseMaterial3D
+				var rim: float = rims.get(source.resource_name.get_slice(\"_\", 0), 0.0)
+				if rim > 0.0:
+					standard.rim_enabled = true
+					standard.rim = rim
+					standard.rim_tint = 0.6
+				material = standard
+			if outline > 0.0:
+				var edge := ShaderMaterial.new()
+				edge.shader = outline_shader
+				edge.set_shader_parameter(\"width\", outline)
+				edge.set_shader_parameter(\"color\", outline_color)
+				material.next_pass = edge
+			mesh_instance.set_surface_override_material(i, material)
+"
+
+[node name="knight" instance=ExtResource("1_glb")]
+script = SubResource("GDScript_apply")
+shader_kind = "standard"
+toon_shader = SubResource("Shader_toon")
+outline_shader = SubResource("Shader_outline")
+bands = 3
+outline = 0
+outline_color = Color(0.101961, 0.0784314, 0.12549, 1)
+rims = {"skin": 0.2}
+metadata/kiln_style = "soft_toy"

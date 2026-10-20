@@ -25,17 +25,19 @@ BoundsFn = Callable[[dict[str, Any]], tuple[Array, Array]]
 # --- 2D helpers -------------------------------------------------------------------------------------
 
 
-def polygon_2d(p: Array, points: Array) -> Array:
-    """Signed distance from 2D points (N, 2) to a closed polygon (M, 2); negative inside."""
-    d = ((p - points[0]) ** 2).sum(axis=1)
+def polygon_2d(p: Array, points: Array, skip: Array | None = None) -> Array:
+    """Signed distance from 2D points (N, 2) to a closed polygon (M, 2); negative inside. `skip[i]` leaves the
+    edge from point i-1 to point i out of the distance (it still counts for inside/outside)."""
+    d = ((p - points[0]) ** 2).sum(axis=1) if skip is None else np.full(len(p), np.inf)
     sign = np.ones(len(p))
     j = len(points) - 1
     for i in range(len(points)):
         e = points[j] - points[i]
         w = p - points[i]
-        t = np.clip((w @ e) / float(e @ e), 0.0, 1.0)
-        b = w - t[:, None] * e
-        d = np.minimum(d, (b * b).sum(axis=1))
+        if skip is None or not skip[i]:
+            t = np.clip((w @ e) / float(e @ e), 0.0, 1.0)
+            b = w - t[:, None] * e
+            d = np.minimum(d, (b * b).sum(axis=1))
         c1 = p[:, 1] >= points[i][1]
         c2 = p[:, 1] < points[j][1]
         c3 = e[0] * w[:, 1] > e[1] * w[:, 0]
@@ -62,7 +64,8 @@ def ellipsoid(p: Array, s: dict[str, Any]) -> Array:
     r = np.asarray(s["radii"], float)
     k0 = np.linalg.norm(p / r, axis=1)
     k1 = np.linalg.norm(p / (r * r), axis=1)
-    return k0 * (k0 - 1.0) / np.maximum(k1, 1e-12)
+    # at the exact centre the formula gives 0 (on the surface): it is the deepest point inside
+    return np.where(k1 > 1e-12, k0 * (k0 - 1.0) / np.maximum(k1, 1e-12), -float(r.min()))
 
 
 def box(p: Array, s: dict[str, Any]) -> Array:
@@ -119,8 +122,12 @@ def torus(p: Array, s: dict[str, Any]) -> Array:
 
 def lathe(p: Array, s: dict[str, Any]) -> Array:
     """A 2D profile [[r, y], ...] (r >= 0) spun around the y axis: vases, bottles, towers, chess pieces."""
-    q = np.stack([np.linalg.norm(p[:, [0, 2]], axis=1), p[:, 1]], axis=1)
-    return polygon_2d(q, np.asarray(s["profile"], float))
+    prof = np.asarray(s["profile"], float)
+    # profile edges lying on the axis aren't surface (the axis is inside the solid); points exactly on the axis
+    # are nudged off it so inside/outside is decided by the profile, not by a tie on that edge
+    on_axis = (prof[:, 0] == 0) & (np.roll(prof[:, 0], 1) == 0)
+    q = np.stack([np.maximum(np.linalg.norm(p[:, [0, 2]], axis=1), 1e-9), p[:, 1]], axis=1)
+    return polygon_2d(q, prof, on_axis if on_axis.any() else None)
 
 
 def extrude(p: Array, s: dict[str, Any]) -> Array:
@@ -343,7 +350,8 @@ def smooth_max(a: Array, b: Array, k: float) -> Array:
 class Field:
     """Parts combined in order. `evaluate` returns the surface distance and every adding part's own distance
     (used to paint each part's colour). Far from a part's box, its distance is replaced by the distance to the
-    box (a lower bound), which never changes the result near the surface but skips most of the work."""
+    box plus the padding: a stand-in that keeps every sign and never changes the result near the surface,
+    but skips most of the work."""
 
     def __init__(self, parts: list[Geometry], margin: float) -> None:
         self.parts = parts

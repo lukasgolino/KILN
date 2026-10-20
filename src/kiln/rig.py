@@ -83,9 +83,13 @@ def soft_weights(points: Array, model: Model, field: Field, skeleton: Skeleton, 
     w = np.exp(np.maximum(logits, -50))
     order = np.argsort(-w, axis=0, kind="stable")[:MAX_INFLUENCES].T  # (V, 4)
     top = np.take_along_axis(w.T, order, axis=1)
-    top[top < 1e-3] = 0.0
+    top[top < 0.02] = 0.0  # no faint pull from far bones (a body shouldn't twitch when an arm moves)
     top /= top.sum(axis=1, keepdims=True)
     order[top == 0] = 0  # glTF: unused influences point at joint 0
+    if order.shape[1] < MAX_INFLUENCES:  # fewer bones than influences: glTF still needs VEC4
+        pad = MAX_INFLUENCES - order.shape[1]
+        order = np.pad(order, ((0, 0), (0, pad)))
+        top = np.pad(top, ((0, 0), (0, pad)))
     return order.astype(np.int64), top
 
 
@@ -169,8 +173,10 @@ def expand_cycle(anim: Animation, model: Model) -> list[dict[str, PartPose]]:
             pose[part] = PartPose(scale=(1 - s / 2, 1 + s, 1 - s / 2))
         elif kind == "wave":
             arm = arms[-1] if arms else part
+            entry = model.rig.get(arm)
+            side = 1.0 if entry is not None and entry.pivot is not None and entry.pivot[0] > 0 else -1.0  # +X = the model's left
             raise_deg = opt("raise", 150.0)
-            pose[arm] = PartPose(rotate=(0.0, 0.0, -raise_deg + opt("angle", 20.0) * _wave(t)))
+            pose[arm] = PartPose(rotate=(0.0, 0.0, side * (raise_deg + opt("angle", 20.0) * _wave(t))))
         out.append(pose)
     return out
 

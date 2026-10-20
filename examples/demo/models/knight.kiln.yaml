@@ -1,0 +1,81 @@
+name: knight
+description: bean knight with a bucket helm, sword and round shield
+class: character
+tags: [siege, soldier]
+status: approved
+style_version: 1
+parts:
+  - capsule: { from: [0, 0.3, 0], to: [0, 0.75, 0], radius: 0.3 }
+    color: crimson
+    material: fabric
+    pattern: { type: band, color: gold, size: 0.05, at: 0.42, axis: y }
+  - capsule: { from: [0.12, 0.05, 0], to: [0.12, 0.25, 0], radius: 0.1 }
+    id: leg_l
+    mirror: x
+    mirror_id: leg_r
+    blend: 0.05
+    color: iron
+    material: metal
+  - capsule: { from: [0.3, 0.58, 0], to: [0.42, 0.36, 0.1], radius: 0.08 }
+    id: arm_l
+    mirror: x
+    mirror_id: arm_r
+    blend: 0.04
+    color: steel
+    material: metal
+  - cylinder: { at: [0, 0.98, 0], radius: 0.32, height: 0.4, round: 0.07 }
+    id: helmet
+    color: steel
+    material: metal
+  - box: { at: [0, 0.93, 0.3], size: [0.44, 0.1, 0.2], round: 0.02 }
+    cut: true
+  - sphere: { at: [0.09, 0.93, 0.22], radius: 0.07 }
+    mirror: x
+    color: white
+    material: plastic
+  - sphere: { at: [0.09, 0.93, 0.28], radius: 0.03 }
+    mirror: x
+    color: black
+    material: plastic
+  - ellipsoid: { at: [0, 1.27, -0.04], radii: [0.05, 0.13, 0.17] }
+    id: helmet
+    blend: 0.03
+    color: red
+    material: fabric
+  - box: { at: [-0.45, 0.66, 0.14], size: [0.07, 0.55, 0.03], round: 0.01 }
+    id: arm_r
+    color: steel
+    material: metal
+  - box: { at: [-0.45, 0.37, 0.14], size: [0.2, 0.035, 0.045], round: 0.012 }
+    id: arm_r
+    color: gold
+    material: gold
+  - capsule: { from: [-0.45, 0.36, 0.14], to: [-0.45, 0.24, 0.14], radius: 0.022 }
+    id: arm_r
+    color: wood_dark
+    material: wood
+  - cylinder: { at: [0.42, 0.45, 0.16], radius: 0.2, height: 0.05, round: 0.015, rotate: [90, 0, 0] }
+    id: arm_l
+    color: blue
+    material: wood
+  - sphere: { at: [0.42, 0.45, 0.2], radius: 0.05 }
+    id: arm_l
+    color: gold
+    material: gold
+rig:
+  leg_l: { pivot: [0.12, 0.25, 0] }
+  arm_l: { pivot: [0.3, 0.58, 0], meta: { holds: shield } }
+  arm_r: { pivot: [-0.3, 0.58, 0], meta: { holds: sword } }
+  helmet: { pivot: [0, 0.8, 0], meta: { hitzone: head, detachable: true }, separate: true }
+skin: soft
+animations:
+  walk: { fps: 12, cycle: { type: walk, swing: 24 } }
+  attack:
+    fps: 10
+    loop: false
+    poses:
+      - {}
+      - { arm_r: { rotate: [-70, 0, 0] } }
+      - { arm_r: { rotate: [-110, 0, 0] } }
+      - { arm_r: { rotate: [40, 0, 0] }, root: { offset: [0, 0, 0.05] } }
+      - { arm_r: { rotate: [20, 0, 0] } }
