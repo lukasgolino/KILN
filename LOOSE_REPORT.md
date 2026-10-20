@@ -195,3 +195,41 @@ and the CC0 look is "hand-built low poly with a texture atlas".
   KILN for custom attachments made to fit those rigs (helmets, shields, banners, weapons as separate closed meshes
   with sockets from the CC0 rig), custom props/machines/buildings, and recolour/variant/LOD/hit-zone tooling over
   both. That needs KILN to import a CC0 rig as the target for attachments (`fit_to: Knight.glb#head`).
+
+## 2026-10-21: the 3D title logo "LOOSE!" (LOOSE branch `ui3d`, KILN v0.3.0)
+
+Project `logo3d/` in LOOSE: one model per letter (Lilita One outlines extruded 0.34 m, rounded 0.06 m, plank seams,
+inset painted face plate, iron straps with rivets), an O pierced by an arrow (model family), a big arrow + target as
+"!", splinters, debris, two soft-toy soldiers with poses. Style `logo` = soft_toy at resolution 0.005, budget 100k.
+Generator: `logo3d/models/gen_logo.py`. Works and looks good in game; items below are what cost time.
+
+### Friction / missing
+
+26. **No text/glyph shape.** Logos and signs need font outlines; LOOSE dumps them from Godot's TextServer, flattens
+    the beziers, despikes and RDP-simplifies by hand (`tools/glyph_outlines.gd`). Wanted: `glyph: {font, char, size}`
+    / `text:` shape, or an SVG-path extrude (`path: "M .. Q .. Z"`).
+27. **`extrude` takes one polygon, no holes.** The O's counter is a second `cut` part with its own blend, so the
+    inner bevel can't match the outer `round`. Wanted: even-odd outlines with holes and one `round` for every edge.
+28. **No polygon offset/inset.** The inset face plate needs an offset outline; a home-made miter offset spiked on a
+    stray control point. Wanted: `inset:`/`offset:` on extrude, or `kiln.api.offset_outline()`.
+29. **Only capsule/tube orient by end points.** Arrows at arbitrary angles need Rz·Ry·Rx Euler decomposition in the
+    generator. Wanted: `along: [from, to]` / `aim:` on every shape; arrays/patterns around any axis.
+30. **One pattern per part, patterns are world-axis.** Planks + an iron band on one letter needs extra geometry; a
+    pattern on a rotated arrow doesn't follow it. Wanted: several patterns per part, axes in the part's frame.
+31. **Extrude meshing cost at hero detail.** Polygon distance is a Python loop over edges (cost ~ edges x samples):
+    a 1 m letter at resolution 0.005 with a 300-point outline takes minutes; outlines had to be simplified to
+    ~1.2 mm. 0.3.0's parallel lint helps; vectorising the edge loop (numpy) would remove the need.
+32. **`kiln.api.part()` doesn't know `loose`**: it ends up inside the shape's parameters; must be set after the call.
+33. **W106 (not on ground) false positive on rounded extrudes**: the meshed bottom sits 1-2 cm above y = 0 at
+    coarse resolution because `round` eats the bottom edge. Either offset by the round radius or skip W106 for it.
+34. **Rim material param is too subtle under Godot lighting.** `rim = 0.35` on paint is barely visible on a bright
+    sky; LOOSE adds its own fresnel `material_overlay` shader for the hero logo. Nice-to-have: a style-level
+    `rim_light = {color, power, strength}` exported as a next_pass/overlay in the Godot `.tscn`.
+35. **Hero output size.** One letter is ~1.8 MB glb (6 letters + variants ~ 21 MB in git). Wanted: `export.lod` or a
+    `--quantize`/meshopt compression option for glb, and variants that share the mesh (colour-only variants currently
+    duplicate the whole glb).
+
+### Good
+
+- Model families (`extends` + template) made "O" and "O with an arrow" trivial; variants for colour swaps; poses on
+  the soldier (wave, hang, peek) played straight from the exported AnimationPlayer; `loose: true` splinters.
