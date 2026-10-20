@@ -16,12 +16,12 @@ from pathlib import Path
 
 import numpy as np
 
-from kiln.builder import build_cached, cached
+from kiln.builder import build_cached, cached, field_of
 from kiln.export import Built
 from kiln.mesher import open_edges
 from kiln.notation import Model
 from kiln.project import Project
-from kiln.sdf import thickness
+from kiln.sdf import Array, part_thickness
 from kiln.style import Style
 from kiln.vendor.findings import Finding
 
@@ -37,6 +37,7 @@ WARNING_RULES = {
     "W110": "the model is well over its triangle budget (patterns need many small triangles)",
     "W111": "a part was lost when the mesh was reduced to its triangle budget (budget too low)",
     "W112": "a LOD came out well above its triangle target",
+    "W113": "a part pokes through another part's shell (eyes through a visor, a head through a helmet)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -87,7 +88,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         for part in m.parts:
             if part.geometry.op != "add":
                 continue
-            t = thickness(part.geometry.shape, part.geometry.params)
+            t = part_thickness(part.geometry)
             if t is not None and t < 2 * built.step:
                 warn("W102", f"this {part.geometry.shape} is {t:.3g} m thick but the mesh resolution here is {built.step:.3g} m: it may break "
                      f"into bits; make it at least {2 * built.step:.3g} m thick", part.line, part.where)  # fmt: skip
@@ -96,6 +97,12 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             for part in m.parts:
                 if part.geometry.op == "add" and part.color not in hexes:
                     warn("W104", f"colour {part.color} isn't in the palette: use a palette colour name", part.line, f"{part.where}.color")
+    if m.source is None:
+        for i, j, volume, centre in penetrations(built):
+            a, b = m.parts[i], m.parts[j]
+            warn("W113", f"part {b.index} ({b.geometry.shape}, {b.color_name}) pokes through the shell of part {a.index} ({a.geometry.shape}, "
+                 f"{a.color_name}) around [{centre[0]:.2f}, {centre[1]:.2f}, {centre[2]:.2f}] ({volume * 1e6:.0f} cm3 inside its wall): move or "
+                 "shrink it so it stays inside (or outside), or cut it where it meets the wall", b.line, b.where)  # fmt: skip
     budget = m.budget or built.style.budget(m.cls)
     if m.source is None and built.triangles > budget * 1.25:
         patterned = sum(1 for p in m.parts if p.pattern is not None)
@@ -117,6 +124,47 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         entry = m.rig.get(name)
         if name != "root" and (entry is None or entry.pivot is None):
             warn("W109", f"part {name!r} is animated but has no rig pivot: it turns about the middle of its box; set rig: {{ {name}: {{ pivot: [x, y, z] }} }}")
+    return out
+
+
+def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
+    """(shell part, part poking through it, overlap volume in m3, where) for every part whose solid crosses a shell's
+    wall and shows outside it next to the wall. Parts sharing the shell's id are its own details (a crest)."""
+    m = built.model
+    shells = [i for i, p in enumerate(m.parts) if p.geometry.op == "add" and p.geometry.shell]
+    if not shells:
+        return []
+    field = field_of(m, built.step)
+    adding = [i for i, p in enumerate(m.parts) if p.geometry.op == "add"]
+    pv = built.painted
+    centres = pv.vertices[pv.faces].mean(axis=1)
+    owner = np.asarray(adding)[np.stack([np.abs(field.part_distance(i, centres)) for i in adding]).argmin(axis=0)]
+    step = built.step
+    out = []
+    for i in shells:
+        gi = m.parts[i].geometry
+        for j in adding:
+            if j == i or m.parts[j].id == m.parts[i].id or m.parts[j].geometry.shell:
+                continue
+            lo = np.maximum(field.boxes[i][0], field.boxes[j][0])
+            hi = np.minimum(field.boxes[i][1], field.boxes[j][1])
+            if (hi <= lo).any():
+                continue
+            h = max(step, float(np.prod(hi - lo) / 200_000) ** (1 / 3))
+            axes = [np.arange(a + h / 2, b, h) for a, b in zip(lo, hi, strict=True)]
+            if any(len(a) == 0 for a in axes):
+                continue
+            pts = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
+            overlap = (m.parts[j].geometry.distance(pts) < 0) & (gi.distance(pts) < 0)
+            volume = float(overlap.sum()) * h**3
+            if volume < (2 * step) ** 3:
+                continue
+            mine = centres[owner == j]
+            if not len(mine):
+                continue
+            envelope = gi.distance(mine, filled=True)
+            if ((envelope > 0) & (envelope < gi.shell + 2 * step)).any():
+                out.append((i, j, volume, pts[overlap].mean(axis=0)))
     return out
 
 

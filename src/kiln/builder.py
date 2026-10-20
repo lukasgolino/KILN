@@ -23,7 +23,7 @@ from kiln.mesher import Mesh, component_labels, components, decimate, decimate_r
 from kiln.notation import ROOT_ID, Decal, Model, Part
 from kiln.paint import PaintGroup, Painted, Regions, corner_normals, hard_regions, paint, regions
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
-from kiln.sdf import Array, Field, thickness
+from kiln.sdf import Array, Field, part_thickness
 from kiln.style import Style
 
 BUILDER_VERSION = 10  # bump when meshing/painting changes output
@@ -46,7 +46,8 @@ def hard_parts(model: Model, style: Style) -> frozenset[int]:
     out = set()
     for i, p in enumerate(model.parts):
         g = p.geometry
-        if g.op != "add" or g.shape not in HARD_SHAPES or g.twist or g.noise is not None or (g.shell and g.shape not in SHELL_SHAPES):
+        if g.op != "add" or g.shape not in HARD_SHAPES or g.twist or g.noise is not None or (g.shell and g.shape not in SHELL_SHAPES) \
+                or g.fit is not None:
             continue
         if p.hard is not None:
             if p.hard:
@@ -156,7 +157,7 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
         # thin parts the budget's triangle size would erase (plates, wheels, posts) keep their outline like a colour
         area = sum(_area(mesh.vertices, mesh.faces) for _, _, mesh in live)
         edge = math.sqrt(4 * area / (math.sqrt(3) * soft_target))
-        protect = frozenset(i for i in adding if (t := thickness(model.parts[i].geometry.shape, model.parts[i].geometry.params)) is not None
+        protect = frozenset(i for i in adding if (t := part_thickness(model.parts[i].geometry)) is not None
                             and t < PROTECT * edge)  # fmt: skip
         full_areas = [_areas(f, mesh.vertices, mesh.faces, include, step) for include, f, mesh in live]  # (W101, W111)
         # First shape the surface freely (triangles go where the shape needs them: wheels stay round), then cut the colour

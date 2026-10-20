@@ -260,7 +260,17 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
             hexc, name, material, gap = entry.under
 
             def under_values(x: Array, covering: list[int] = covering, gap: float = gap) -> Array:
-                return np.min([field.parts[i].distance(x, filled=True) for i in covering], axis=0) - gap
+                per = []
+                for i in covering:  # its solid shape, minus what later cuts take away (a face opening)
+                    d = field.parts[i].distance(x, filled=True)
+                    for j in range(i + 1, len(model.parts)):
+                        g = model.parts[j].geometry
+                        if g.op == "cut":
+                            d = np.maximum(d, -field.part_distance(j, x))
+                        elif g.op == "intersect":
+                            d = np.maximum(d, field.part_distance(j, x))
+                    per.append(d)
+                return np.min(per, axis=0) - gap
 
             sel = np.ones(len(faces), dtype=bool)
             vertices, faces, negative, parent = split(vertices, faces, under_values(vertices), sel)
@@ -403,7 +413,8 @@ def corner_normals(painted: Painted, field: Field, step: float, smooth: bool, sh
     # surface, not the triangle, keeps big decimated triangles smooth.
     centre = v[f].mean(axis=1, keepdims=True)
     inset = field.gradient((v[f] + (centre - v[f]) * 0.3).reshape(-1, 3), step * 0.25).reshape(-1, 3, 3)
-    cos_limit = math.cos(math.radians(sharp_angle))
+    # on a crisp edge the field's normal is the bisector: half the edge's angle away from each face
+    cos_limit = math.cos(math.radians(sharp_angle / 2))
     agree = (vn * inset).sum(axis=2) >= cos_limit
     normals = np.where(agree[:, :, None], vn, inset)
     # on a border between paint groups the surface usually creases (an eye on a head, a hoop on a barrel) and the

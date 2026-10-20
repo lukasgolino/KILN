@@ -17,6 +17,9 @@ Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).
   in low_poly is 908 triangles with octagonal wheels.
 - `shell: { thickness, side: in | both, open: -y }`: a wall inside the surface with one side open, showing its rim.
 - Rig `under: { color, material, gap }` on a `separate` part: paints what it covers (hair under a helmet).
+- `fit: { to: <id>, gap }` on a shell part (M3): the wall wraps those parts' surface wherever the part's own shape
+  reaches, so a helmet encloses the head down to the cheeks instead of perching on it.
+- W113: a part pokes through another part's shell (eyes through a visor slot, a head through a helmet).
 - `kiln preview <model> --detach` (and the MCP `preview` tool's `detach`): each separate part off in turn.
 - E013: the built mesh has open edges (cracks).
 
@@ -25,6 +28,9 @@ Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).
 - Cracks at colour borders (LOOSE 23: 36 open edges on a footman; the demo knight had 48): cutting a border split
   only one side of an edge, leaving T-junctions. Every demo model is now closed.
 - Zero-volume fins (pairs of opposite faces) that decimation could leave on thin parts are removed.
+- Smooth shading streaked across flat faces next to crisp edges (a cylinder's cap): the crease test compared the
+  field's normal on the edge (the bisector) with the full `sharp_angle` instead of half of it.
+- W102 and thin-part protection use a shell's wall thickness.
 
 ## [0.3.0] - 2026-10-20
 

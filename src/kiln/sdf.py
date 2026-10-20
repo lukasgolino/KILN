@@ -319,9 +319,20 @@ class Geometry:
     noise: Noise | None = None
     shell_side: str = "both"  # both: the wall is centred on the surface (shell: t); in: inside it (the outside stays put)
     open: tuple[int, float] | None = None  # (axis, sign): the shell's open side (local frame), showing its rim
+    fit: tuple[tuple[Geometry, ...], float] | None = None  # (parts, gap): the shell wraps their surface, gap away
 
     def distance(self, p: Array, filled: bool = False) -> Array:
-        """Signed distance; `filled`: a shell counts as solid (what it covers), its open side still open."""
+        """Signed distance; `filled`: a shell counts as solid (what it covers), its open side still open. A fitted
+        shell is a wall `gap` away from its parts' surface, as thick as the shell, wherever its own shape (solid) is."""
+        if self.fit is not None:
+            own = self._distance(p, True)
+            parts, gap = self.fit
+            dt = np.min([g.distance(p) for g in parts], axis=0)
+            wall = dt - gap - self.shell if filled else np.maximum(gap - dt, dt - gap - self.shell)
+            return np.asarray(np.maximum(own, wall))
+        return self._distance(p, filled)
+
+    def _distance(self, p: Array, filled: bool) -> Array:
         if self.mirror:
             p = p.copy()
             for axis in self.mirror:
@@ -388,6 +399,15 @@ def thickness(shape: str, p: dict[str, Any]) -> float | None:
     if shape in ("cone", "extrude"):
         return float(p["height"])
     return None
+
+
+def part_thickness(g: Geometry) -> float | None:
+    """A part's thinnest dimension: its shape's, or its shell's wall (twice the shell when centred on the surface)."""
+    t = thickness(g.shape, g.params)
+    if g.shell:
+        wall = g.shell * (2 if g.shell_side == "both" and g.fit is None else 1)
+        t = wall if t is None else min(t, wall)
+    return t
 
 
 def box_distance(p: Array, lo: Array, hi: Array) -> Array:

@@ -29,7 +29,7 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments"}  # fmt: skip
+               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
@@ -75,6 +75,7 @@ class Part:
     crisp: bool = False  # blend: none (a hard part when the style allows)
     bevel: float = 0.0  # hard edges rounded in `segments` bands (a chamfer: one band)
     segments: int = 2
+    fit: tuple[str, float] | None = None  # a shell wrapping the parts with this id, this far from them
 
 
 @dataclass(frozen=True)
@@ -457,6 +458,18 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         ctx.error("E003", "a hard part (sides, bevel, chamfer, blend: none or hard: true) can't twist or have noise: those need the smooth field",
                   line, where)  # fmt: skip
         ok = False
+    fit = None
+    if "fit" in raw:
+        f_raw = raw["fit"]
+        f_to = f_raw if isinstance(f_raw, str) else f_raw.get("to") if isinstance(f_raw, dict) else None
+        f_gap = f_raw.get("gap", 0.01) if isinstance(f_raw, dict) else 0.01
+        if (isinstance(f_raw, dict) and any(k not in ("to", "gap") for k in f_raw)) or not isinstance(f_to, str) or not _num(f_gap) \
+                or float(f_gap) < 0 or not shell or op != "add":
+            ctx.error("E003", "fit wraps a shell around other parts: fit: head or { to: head, gap: 0.01 }, on a part with shell: "
+                      "{ thickness, open } (its own shape says how far down it reaches)", line, f"{where}.fit")  # fmt: skip
+            ok = False
+        else:
+            fit = (str(f_to), float(f_gap))
     if not ok:
         return []
     open_axis = None
@@ -464,7 +477,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         open_axis = (AXES[open_side[-1]], -1.0 if open_side.startswith("-") else 1.0)
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis)  # fmt: skip
-    hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments)}
+    hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit}
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
@@ -784,6 +797,14 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 model.parts.extend(_parse_part(ctx, raw, i, _line(raw) or _line(data, "parts")))
             if model.parts and not any(p.geometry.op == "add" for p in model.parts):
                 ctx.error("E009", "the model has no adding parts (only cut/intersect)", _line(data, "parts"), "parts")
+            for part in model.parts:
+                if part.fit is None:
+                    continue
+                targets = tuple(q.geometry for q in model.parts if q.id == part.fit[0] and q.id != part.id and q.geometry.op == "add" and q.fit is None)
+                if not targets:
+                    ctx.error("E003", f"fit: no other part has id {part.fit[0]!r} (it wraps the parts with that id)", part.line, f"{part.where}.fit")
+                    continue
+                part.geometry.fit = (targets, part.fit[1])
     ids = set(model.ids) if model.parts else {ROOT_ID}
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig")), model.parts)
     skin = data.get("skin", "rigid" if model.rig else "none")
