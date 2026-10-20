@@ -42,7 +42,9 @@ From the LOOSE! dogfooding report (LOOSE_REPORT.md, items 1-22).
   overrides the game set before `add_child` alone (report 18).
 - soft_toy materials reflect less: metal 0.35 metallic / 0.55 roughness, gold 0.5 / 0.45, skin roughness 0.8;
   low_poly gold 0.5 metallic (report 21).
-- Meshing at tight budgets (characters with many colours, big models): borders are thinned and the mesh decimated in
+- Meshing at tight budgets (characters with many colours, big models): each piece is first decimated freely to 3x the
+  budget (triangles go where the shape needs them: wheels stay round), then colour borders are cut into it and kept.
+  Borders are thinned and the mesh decimated in
   turns (a full-detail border can't be thinned until the surface around it is coarser), border tolerance follows the
   budget's triangle size, the simplifier runs again while it still helps (it stopped early on flat brims), and parts
   thinner than two budget-sized triangles keep their outline. Body pieces and `separate` parts are decimated

@@ -81,3 +81,7 @@ anything that changes output.
   Keep the palette format in step by hand. Families copy PAGAN's template/extends/remove. `separate` parts are their
   own pieces (`Field.only`: same part indices, only some adding parts form the surface). Godot checks run in a sandbox
   project (copy of output_dir + minimal project.godot with the host's renderer). Lint builds in a forkserver pool.
+- 2026-10-20: Meshing order (found on LOOSE's 44 models): DC at full detail -> free decimation to PRESHAPE x budget
+  (shape-driven; locked borders from full detail starved shapes: hexagonal wheels, flattened boots) -> cut colour
+  regions -> alternate border thinning and border-locked decimation -> relax bad faces. Thin parts (< PROTECT x the
+  budget's edge length) get their own region. Lint workers are limited by free memory (WORKER_MEMORY).

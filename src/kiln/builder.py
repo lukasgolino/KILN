@@ -16,7 +16,7 @@ import numpy as np
 
 from kiln import __version__
 from kiln.export import Built
-from kiln.mesher import Mesh, component_labels, components, decimate_regions, dual_contour, model_step, simplify_borders
+from kiln.mesher import Mesh, component_labels, components, decimate, decimate_regions, dual_contour, model_step, simplify_borders
 from kiln.notation import ROOT_ID, Model
 from kiln.paint import PaintGroup, Painted, Regions, corner_normals, paint, regions
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
@@ -25,6 +25,7 @@ from kiln.style import Style
 
 BUILDER_VERSION = 9  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
+PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
 LOST_AREA = 0.25  # a part keeping less of its surface than this through decimation is lost (lint W111)
 
@@ -65,9 +66,14 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     edge = math.sqrt(4 * area / (math.sqrt(3) * target))
     protect = frozenset(i for i in adding if (t := thickness(model.parts[i].geometry.shape, model.parts[i].geometry.params)) is not None
                         and t < PROTECT * edge)  # fmt: skip
+    full_areas = [_areas(f, mesh.vertices, mesh.faces, include, step) for include, f, mesh in live]  # (W101, W111)
+    # First shape the surface freely (triangles go where the shape needs them: wheels stay round), then cut the colour
+    # borders into that and keep them through the rest (seams stay clean)
+    total = sum(mesh.triangles for _, _, mesh in live)
+    live = [(include, f, decimate(f, mesh, max(200, round(PRESHAPE * target * mesh.triangles / total)), step)) for include, f, mesh in live]
     cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect) for include, f, mesh in live])
     fields = [f for _, f, _ in live]
-    painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, target, [inc for inc, _, _ in live])
+    painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, target, [inc for inc, _, _ in live], full_areas)
     main = region_piece[painted.face_group] == 0
     floating = _pieces(model, field, Mesh(painted.vertices, painted.faces[main]), step) if groups_of[0] else 1  # separate parts may float
     skeleton = build_skeleton(model, field) if rigged else Skeleton([Bone(ROOT_ID, -1, np.zeros(3), {}, False)])
@@ -134,7 +140,8 @@ def _join(cuts: list[Regions]) -> tuple[Regions, Array]:
 
 
 def _decimate(
-    model: Model, style: Style, fields: list[Field], cut: Regions, region_piece: Array, step: float, target: int, includes: list[list[int]]
+    model: Model, style: Style, fields: list[Field], cut: Regions, region_piece: Array, step: float, target: int, includes: list[list[int]],
+    full_areas: list[Array],
 ) -> tuple[Painted, Array, tuple[int, ...], tuple[int, ...]]:
     """Decimate every piece together to the budget, paint decals, and work out normals and hidden/lost parts per
     piece (each on its own surface)."""
@@ -166,12 +173,11 @@ def _decimate(
     hidden: list[int] = []
     lost: list[int] = []
     face_piece = region_piece[painted.face_group]
-    full_piece = region_piece[cut.owner]
     for k, (field, include) in enumerate(zip(fields, includes, strict=True)):
         mine = face_piece == k
         sub = Painted(painted.vertices, painted.faces[mine], painted.face_group[mine], painted.groups, painted.face_decal[mine], painted.decals)
         normals[mine] = corner_normals(sub, field, step, style.smooth, style.sharp_angle)
-        full = _areas(field, cut.mesh.vertices, cut.mesh.faces[full_piece == k], include, step)
+        full = full_areas[k]
         final = _areas(field, painted.vertices, painted.faces[mine], include, step)
         hidden += [i for i, a in zip(include, full, strict=True) if a == 0]
         lost += [i for i, a, b in zip(include, full, final, strict=True) if a > 0 and b < a * LOST_AREA]

@@ -100,7 +100,8 @@ def test_part_lost_in_decimation_is_w111(project: Project, monkeypatch: pytest.M
 
 
 def test_lod_missing_its_target_is_w112(project: Project) -> None:
-    write_model(project, arms_text().replace("class: character\n", "class: character\nlod: [12]\n"))
+    striped = sphere_text() + "    pattern: { type: stripes, color: blue, size: 0.05, axis: y }\nlod: [12]\n"  # stripes need triangles
+    write_model(project, striped)
     result = build(project)
     assert any(f.rule == "W112" for f in result.findings)
 

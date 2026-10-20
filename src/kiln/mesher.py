@@ -202,9 +202,12 @@ def decimate(field: Field, mesh: Mesh, budget: int, step: float) -> Mesh:
     """Reduce to at most `budget` triangles (quadric edge collapse), then re-project onto the surface."""
     if mesh.triangles <= budget or mesh.triangles == 0:
         return mesh
-    v, f = fast_simplification.simplify(
-        mesh.vertices.astype(np.float64), mesh.faces.astype(np.int32), target_count=int(budget), agg=6.0
-    )
+    v, f = mesh.vertices.astype(np.float64), mesh.faces.astype(np.int32)
+    for _ in range(4):  # the simplifier stops after a fixed number of rounds: again while that helps
+        before = len(f)
+        v, f = fast_simplification.simplify(v, f, target_count=int(budget), agg=6.0)
+        if len(f) <= budget * 1.02 or len(f) > before * 0.97:
+            break
     v = project(field, np.asarray(v, dtype=np.float64), step * 2)
     return Mesh(v, np.asarray(f, dtype=np.int64))
 
