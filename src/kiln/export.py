@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from kiln.atlas import AtlasUse, ambient_occlusion
 from kiln.notation import ROOT_ID, Model
 from kiln.paint import Painted, decal_uv
 from kiln.rig import Skeleton, Track
@@ -63,10 +64,13 @@ def gltf_name(name: str, loop: bool) -> str:
 
 
 class _Writer:
-    def __init__(self, built: Built, swap: dict[str, str], generator: str, vertex_colors: bool = False) -> None:
+    def __init__(self, built: Built, swap: dict[str, str], generator: str, vertex_colors: bool = False, atlas: AtlasUse | None = None) -> None:
         self.b = built
         self.swap = swap
         self.vertex_colors = vertex_colors
+        self.atlas = atlas
+        self.atlas_material: int | None = None
+        self.ao: Array | None = ambient_occlusion(built) if atlas is not None and atlas.ao else None
         self.doc = Document(generator)
         self.materials: dict[tuple[str, str, int], int] = {}
         self.textures: dict[tuple[int, str], int] = {}
@@ -101,6 +105,35 @@ class _Writer:
         self.materials[key] = self.doc.add("materials", mat)
         return self.materials[key]
 
+    def nearest_sampler(self) -> int:
+        if True not in self.sampler:
+            self.sampler[True] = self.doc.add("samplers", {"magFilter": NEAREST, "minFilter": NEAREST, "wrapS": CLAMP_TO_EDGE, "wrapT": CLAMP_TO_EDGE})
+        return self.sampler[True]
+
+    def uri_texture(self, uri: str, name: str) -> dict[str, Any]:
+        img = self.doc.add("images", {"uri": uri, "name": name})
+        return {"index": self.doc.add("textures", {"sampler": self.nearest_sampler(), "source": img})}
+
+    def shared_material(self) -> int:
+        """The atlas material: colour, roughness/metal and glow from textures (UVs at each face's cell)."""
+        if self.atlas_material is not None:
+            return self.atlas_material
+        a = self.atlas
+        assert a is not None
+        pbr: dict[str, Any] = {"baseColorTexture": self.uri_texture(a.palette, "palette"), "metallicFactor": 1.0, "roughnessFactor": 1.0,
+                               "metallicRoughnessTexture": self.uri_texture(a.material, "material")}  # fmt: skip
+        mat: dict[str, Any] = {"name": "atlas", "pbrMetallicRoughness": pbr}
+        if a.glow is not None:
+            mat["emissiveTexture"] = self.uri_texture(a.glow, "glow")
+            mat["emissiveFactor"] = [1.0, 1.0, 1.0]
+            if a.glow_strength != 1.0:
+                mat["extensions"] = {"KHR_materials_emissive_strength": {"emissiveStrength": a.glow_strength}}
+                self.doc.json.setdefault("extensionsUsed", [])
+                if "KHR_materials_emissive_strength" not in self.doc.json["extensionsUsed"]:
+                    self.doc.json["extensionsUsed"].append("KHR_materials_emissive_strength")
+        self.atlas_material = self.doc.add("materials", mat)
+        return self.atlas_material
+
     def texture(self, decal: int, base_color: str) -> int:
         key = (decal, base_color)
         if key in self.textures:
@@ -131,7 +164,14 @@ class _Writer:
         keys = [(self.color(p.groups[g].color), names[p.groups[g].color], p.groups[g].material, int(dec))
                 for g, dec in zip(p.face_group[faces_idx], p.face_decal[faces_idx], strict=True)]  # fmt: skip
         face_color = [k[0] for k in keys]
-        if self.vertex_colors:  # colours in the vertices: one primitive per material preset (fewer draw calls)
+        if self.atlas is not None:  # one primitive for every non-decal face; the mesh doesn't depend on the swap
+            atlas = self.atlas.atlas
+            groups = p.groups
+            keys = [("", "atlas", "", -1) if int(dec) < 0 else (groups[g].color, names[groups[g].color], groups[g].material, int(dec))
+                    for g, dec in zip(p.face_group[faces_idx], p.face_decal[faces_idx], strict=True)]  # fmt: skip
+            face_color = [str(atlas.index(groups[g].color, groups[g].material)) if int(dec) < 0 else "" for g, dec in
+                          zip(p.face_group[faces_idx], p.face_decal[faces_idx], strict=True)]  # fmt: skip
+        elif self.vertex_colors:  # colours in the vertices: one primitive per material preset (fewer draw calls)
             presets = self.b.style.materials
             keys = [k if k[3] >= 0 or presets.get(k[2], presets["default"]).emission > 0 else (WHITE, "vertex", k[2], -1) for k in keys]
         order = sorted(set(keys))
@@ -139,6 +179,8 @@ class _Writer:
         keys_arr = np.array([index[k] for k in keys]) if keys else np.zeros(0, dtype=int)
         palette = sorted(set(face_color))
         color_id = np.array([palette.index(c) for c in face_color]) if face_color else np.zeros(0, dtype=int)
+        if self.atlas is not None:  # the cell number itself
+            color_id = np.array([int(c) if c else -1 for c in face_color], dtype=int)
         for m, key in enumerate(order):
             mask = keys_arr == m
             sel = faces_idx[mask]
@@ -158,6 +200,12 @@ class _Writer:
             if key[1] == "vertex":
                 rgb = np.array([srgb_to_linear(palette[int(c)]) for c in unique[:, 4]], dtype=np.float32)
                 attributes["COLOR_0"] = self.doc.accessor(rgb, target=ARRAY_BUFFER)
+            shared = self.atlas is not None and key[3] < 0
+            if shared:
+                assert self.atlas is not None
+                attributes["TEXCOORD_0"] = self.doc.accessor(self.atlas.atlas.uvs(unique[:, 4]).astype(np.float32), target=ARRAY_BUFFER)
+            if self.ao is not None:  # baked occlusion: a grey multiplier (glTF multiplies COLOR_0 into the base colour)
+                attributes["COLOR_0"] = self.doc.accessor(np.repeat(self.ao[vidx][:, None], 3, axis=1).astype(np.float32), target=ARRAY_BUFFER)
             if key[3] >= 0:
                 uv = decal_uv(p.decals[key[3]], p.vertices[vidx])
                 attributes["TEXCOORD_0"] = self.doc.accessor(uv.astype(np.float32), target=ARRAY_BUFFER)
@@ -166,7 +214,8 @@ class _Writer:
                 attributes["JOINTS_0"] = self.doc.accessor(self.b.joints[vidx].astype(np.uint16), target=ARRAY_BUFFER)
                 attributes["WEIGHTS_0"] = self.doc.accessor(self.b.weights[vidx].astype(np.float32), target=ARRAY_BUFFER)
             indices = self.doc.accessor(inverse.reshape(-1).astype(np.uint32), target=ELEMENT_ARRAY_BUFFER)
-            prims.append({"attributes": attributes, "indices": indices, "material": self.material(key[0], key[1], key[2], key[3])})
+            material = self.shared_material() if shared else self.material(self.color(key[0]) if self.atlas else key[0], key[1], key[2], key[3])
+            prims.append({"attributes": attributes, "indices": indices, "material": material})
         return prims
 
     def write(self) -> bytes:
@@ -247,8 +296,10 @@ class _Writer:
         self.doc.add("animations", {"name": gltf_name(track.name, track.loop), "samplers": samplers, "channels": channels})
 
 
-def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, vertex_colors: bool = False) -> bytes:
-    return _Writer(built, swap or {}, generator, vertex_colors).write()
+def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, vertex_colors: bool = False, atlas: AtlasUse | None = None) -> bytes:
+    """`atlas`: one material from the palette textures it names (kiln.toml atlas = true); `swap` then only recolours
+    decals (the palette texture carries the variant's colours)."""
+    return _Writer(built, swap or {}, generator, vertex_colors, atlas).write()
 
 
 __all__ = ["Built", "ROOT_ID", "gltf_name", "srgb_to_linear", "to_glb"]

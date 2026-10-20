@@ -93,12 +93,18 @@ func check_model(name: String, node: Node) -> void:
 		if looping != animations[anim]["loop"]:
 			fail("%s animation %s loop is %s" % [name, anim, looping])
 	var surfaces := 0
+	var textured := false
 	for mesh_instance in node.find_children("*", "MeshInstance3D", true, false):
 		if mesh_instance.mesh == null:
 			continue
 		for i in mesh_instance.mesh.get_surface_count():
 			surfaces += 1
-			if mesh_instance.get_surface_override_material(i) == null:
+			var material = mesh_instance.get_surface_override_material(i)
+			if material == null:
 				fail("%s %s surface %d has no KILN material" % [name, mesh_instance.name, i])
+			elif (material is BaseMaterial3D and material.albedo_texture != null) or (material is ShaderMaterial and material.get_shader_parameter("albedo_texture") != null):
+				textured = true
 	if surfaces == 0:
 		fail("%s has no mesh surfaces" % name)
+	if entry.has("atlas") and not textured:
+		fail("%s has a palette atlas but no surface samples it" % name)

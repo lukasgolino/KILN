@@ -110,6 +110,55 @@ func _ready() -> void:
 """
 
 
+def _swap_lines(text: str, pairs: list[tuple[str, str]]) -> str:
+    for old, new in pairs:
+        assert text.count(old) == 1, old
+        text = text.replace(old, new)
+    return text
+
+
+# atlas = true (kiln.toml): the same shader and script, also reading the palette textures (non-atlas output unchanged)
+ATLAS_TOON_SHADER = _swap_lines(TOON_SHADER, [
+    ("uniform vec3 emission = vec3(0.0);\n", "uniform vec3 emission = vec3(0.0);\n"
+     "uniform sampler2D albedo_texture : source_color, filter_nearest, hint_default_white;\n"
+     "uniform sampler2D emission_texture : source_color, filter_nearest, hint_default_white;\n"),
+    ("\tALBEDO = albedo.rgb * COLOR.rgb;  // COLOR: white unless the glb has vertex colours (vertex_colors = true)\n\tEMISSION = emission;\n",
+     "\tALBEDO = albedo.rgb * texture(albedo_texture, UV).rgb * COLOR.rgb;  // COLOR: baked occlusion (atlas_ao) or white\n"
+     "\tEMISSION = emission * texture(emission_texture, UV).rgb;\n"),
+])  # fmt: skip
+
+ATLAS_SCRIPT = _swap_lines(APPLY_SCRIPT, [
+    ('@export var swap: Dictionary = {}  # variant: "rrggbb" (a material\'s colour, from its name) -> new colour\n',
+     '@export var swap: Dictionary = {}  # variant: "rrggbb" (a material\'s colour, from its name) -> new colour\n'
+     "@export var palette: Texture2D  # variant: its palette texture (the same cells in other colours)\n"
+     "@export var glow: Texture2D  # variant: its glow texture\n"
+     "@export var rim_texture: Texture2D  # rim light per cell (R: rim, G: tint)\n"),
+    ("\t\t\tvar albedo := source.albedo_color\n",
+     "\t\t\tvar albedo := source.albedo_color\n"
+     '\t\t\tvar atlas := source.resource_name == "atlas"  # the material every non-decal face shares\n'
+     "\t\t\tvar albedo_texture := palette if atlas and palette != null else source.albedo_texture\n"
+     "\t\t\tvar emission_texture := glow if atlas and glow != null else source.emission_texture\n"),
+    ("outline_color.to_html(), rims]\n",
+     "outline_color.to_html(), rims]\n"
+     "\t\t\tkey += \"|%d\" % (albedo_texture.get_instance_id() if albedo_texture != null else 0)\n"),
+    ('\t\t\t\ttoon.set_shader_parameter("albedo", albedo)\n',
+     '\t\t\t\ttoon.set_shader_parameter("albedo", albedo)\n'
+     '\t\t\t\ttoon.set_shader_parameter("albedo_texture", albedo_texture)\n'
+     '\t\t\t\ttoon.set_shader_parameter("emission_texture", emission_texture)\n'),
+    ("\t\t\t\tstandard.albedo_color = albedo\n",
+     "\t\t\t\tstandard.albedo_color = albedo\n"
+     "\t\t\t\tif atlas:\n"
+     "\t\t\t\t\tstandard.albedo_texture = albedo_texture\n"
+     "\t\t\t\t\tstandard.emission_texture = emission_texture\n"
+     "\t\t\t\t\tstandard.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST  # one texel per cell, no mipmaps\n"
+     "\t\t\t\t\tif rim_texture != null:\n"
+     "\t\t\t\t\t\tstandard.rim_enabled = true\n"
+     "\t\t\t\t\t\tstandard.rim = 1.0\n"
+     "\t\t\t\t\t\tstandard.rim_tint = 0.6\n"
+     "\t\t\t\t\t\tstandard.rim_texture = rim_texture\n"),
+])  # fmt: skip
+
+
 def res_path(path: Path, godot_root: Path) -> str:
     return "res://" + path.resolve().relative_to(godot_root.resolve()).as_posix()
 
@@ -131,24 +180,29 @@ def _color(hex_color: str) -> str:
     return f"Color({r:.6g}, {g:.6g}, {b:.6g}, 1)"
 
 
-def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | None = None) -> str:
+def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | None = None, textures: dict[str, str] | None = None) -> str:
     """`<name>.tscn`: the .glb with the style's materials applied by a small built-in tool script. With `swap`
-    (a variant, when variant_glbs is false) the script also recolours: the base glb, other colours."""
+    (a variant, when variant_glbs is false) the script also recolours: the base glb, other colours. `textures`
+    (atlas = true): res:// paths by script property (`palette` and `glow` for a variant, `rim_texture`)."""
     look = style.look
     rims = ", ".join(f"{_quote(k)}: {v.rim:.6g}" for k, v in sorted(style.materials.items()) if v.rim > 0)
+    atlas = textures is not None
+    keys = sorted(textures or {})
+    ext = [f'[ext_resource type="Texture2D" path={_quote((textures or {})[k])} id="{i}_{k}"]' for i, k in enumerate(keys, 2)]
     lines = [
         "[gd_scene format=3]",
         "",
         f'[ext_resource type="PackedScene" path={_quote(glb_res)} id="1_glb"]',
+        *ext,
         "",
         '[sub_resource type="Shader" id="Shader_toon"]',
-        f"code = {_quote(TOON_SHADER)}",
+        f"code = {_quote(ATLAS_TOON_SHADER if atlas else TOON_SHADER)}",
         "",
         '[sub_resource type="Shader" id="Shader_outline"]',
         f"code = {_quote(OUTLINE_SHADER)}",
         "",
         '[sub_resource type="GDScript" id="GDScript_apply"]',
-        f"script/source = {_quote(APPLY_SCRIPT)}",
+        f"script/source = {_quote(ATLAS_SCRIPT if atlas else APPLY_SCRIPT)}",
         "",
         f'[node name={_quote(name)} instance=ExtResource("1_glb")]',
         'script = SubResource("GDScript_apply")',
@@ -160,6 +214,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         f"outline_color = {_color(look.outline_color)}",
         f"rims = {{{rims}}}",
         *([f"swap = {{{', '.join(f'{_quote(k[1:])}: {_color(v)}' for k, v in sorted(swap.items()))}}}"] if swap else []),
+        *(f'{k} = ExtResource("{i}_{k}")' for i, k in enumerate(keys, 2)),
         f"metadata/kiln_style = {_quote(style.name)}",
         "",
     ]
@@ -306,4 +361,4 @@ def render_engine(godot: str, godot_root: Path, scene_res: str, look_res: str, v
     return images, output
 
 
-__all__ = ["GodotCheck", "find_godot_binary", "find_godot_project", "look_scene", "model_scene", "render_engine", "res_path", "verify"]
+__all__ = ["ATLAS_SCRIPT", "ATLAS_TOON_SHADER", "GodotCheck", "find_godot_binary", "find_godot_project", "look_scene", "model_scene", "render_engine", "res_path", "verify"]

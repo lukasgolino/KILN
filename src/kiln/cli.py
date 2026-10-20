@@ -33,6 +33,8 @@ SETTINGS = {
     "style_version": "the look's version; models made under an older one are flagged (W107)",
     "variant_glbs": "true: a .glb per variant; false: variants are swap tables (Godot: <name>.<variant>.tscn recolours the base)",
     "vertex_colors": "true: colours in the vertices, one surface per material preset (fewer draw calls); needs variant_glbs",
+    "atlas": "true: one material per model (palette textures; variants swap the texture): 1 surface, 2 with decals",
+    "atlas_ao": "true (with atlas): bake ambient occlusion into the vertex colours",
 }
 
 
@@ -447,7 +449,7 @@ def cmd_config(args: argparse.Namespace, out: Output) -> int:
     cfg = project.config
     values = {"default_style": cfg.default_style, "default_palette": cfg.default_palette, "output_dir": cfg.output_dir,
               "preview_dir": cfg.preview_dir, "export": list(cfg.export), "style_version": cfg.style_version,
-              "variant_glbs": cfg.variant_glbs, "vertex_colors": cfg.vertex_colors}  # fmt: skip
+              "variant_glbs": cfg.variant_glbs, "vertex_colors": cfg.vertex_colors, "atlas": cfg.atlas, "atlas_ao": cfg.atlas_ao}  # fmt: skip
     if args.config_cmd == "show":
         for key, meaning in SETTINGS.items():
             out.say(f"{key:<16} = {json.dumps(values[key]):<24} {meaning}")
