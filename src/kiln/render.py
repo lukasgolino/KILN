@@ -157,6 +157,8 @@ def render(
         l2 = 1 - l0 - l1
         inside = (l0 >= -1e-6) & (l1 >= -1e-6) & (l2 >= -1e-6)
         px, py, T, l0, l1, l2 = px[inside], py[inside], T[inside], l0[inside], l1[inside], l2[inside]
+        if not len(px):  # nothing in this chunk covers a pixel centre (all off screen in a close framing)
+            continue
         depth = l0 * sz[T, 0] + l1 * sz[T, 1] + l2 * sz[T, 2]
         pix = py * res + px
         order = np.lexsort((depth, pix))
@@ -262,4 +264,43 @@ def _outline(image: Array, depth: Array, width: int, hex_color: str) -> Array:
     return out
 
 
-__all__ = ["View", "camera_basis", "posed", "render"]
+def silhouette(corners: Array, view: View, size: int, fit: tuple[Array, float]) -> Array:
+    """Binary coverage mask (size, size) of triangles (F, 3, 3) under the same camera and framing as `render`,
+    sampled at pixel centres, both windings (no culling: a reference's winding may be inconsistent)."""
+    centre, half = fit
+    scale = size / (2 * half)
+    right, up, _ = camera_basis(view)
+    rel = corners - centre
+    sx = (rel @ right) * scale + size / 2
+    sy = size / 2 - (rel @ up) * scale
+    x0 = np.ceil(sx.min(axis=1) - 0.5).astype(int).clip(0, size)
+    x1 = np.floor(sx.max(axis=1) - 0.5).astype(int).clip(-1, size - 1)
+    y0 = np.ceil(sy.min(axis=1) - 0.5).astype(int).clip(0, size)
+    y1 = np.floor(sy.max(axis=1) - 0.5).astype(int).clip(-1, size - 1)
+    w, h = np.maximum(x1 - x0 + 1, 0), np.maximum(y1 - y0 + 1, 0)
+    counts = w * h
+    tri = np.flatnonzero(counts > 0)
+    mask = np.zeros(size * size, dtype=bool)
+    start = 0
+    while start < len(tri):
+        cum = np.cumsum(counts[tri[start:]])
+        sel = tri[start : start + max(1, int(np.searchsorted(cum, 4_000_000)))]
+        start += len(sel)
+        reps = counts[sel]
+        t = np.repeat(sel, reps)
+        offsets = np.arange(int(reps.sum())) - np.repeat(np.cumsum(reps) - reps, reps)
+        px = x0[t] + offsets % w[t]
+        py = y0[t] + offsets // w[t]
+        cx, cy = px + 0.5, py + 0.5
+        ax, ay, bx, by, qx, qy = sx[t, 0], sy[t, 0], sx[t, 1], sy[t, 1], sx[t, 2], sy[t, 2]
+        denom = (by - qy) * (ax - qx) + (qx - bx) * (ay - qy)
+        ok = np.abs(denom) > 1e-12
+        denom = np.where(ok, denom, 1.0)
+        l0 = ((by - qy) * (cx - qx) + (qx - bx) * (cy - qy)) / denom
+        l1 = ((qy - ay) * (cx - qx) + (ax - qx) * (cy - qy)) / denom
+        inside = ok & (l0 >= -1e-9) & (l1 >= -1e-9) & (1 - l0 - l1 >= -1e-9)
+        mask[py[inside] * size + px[inside]] = True
+    return mask.reshape(size, size)
+
+
+__all__ = ["View", "camera_basis", "posed", "render", "silhouette"]

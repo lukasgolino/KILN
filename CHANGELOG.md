@@ -26,6 +26,12 @@ Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).
   each expands into ordinary (hard) parts.
 - `kiln preview <model> --detach` (and the MCP `preview` tool's `detach`): each separate part off in turn.
 - E013: the built mesh has open edges (cracks).
+- Reference comparison (M7): `kiln preview <model> --vs <ref.glb|ref.gltf> [--ref-height M]` renders the model and a
+  reference mesh at one scale in paired turntable rows, head-region closeups and per-view silhouette differences, with
+  metrics (printed and under `compare` in `--json`): silhouette IoU over 8 views, triangles and their ratio, surfaces,
+  materials, colours, facet regularity and open edges of both. `--vs` without a path still shows the inspiration
+  images. The MCP `preview` tool takes `reference` and `ref_height` with `which: "vs"`.
+- Skill: a "match a reference" workflow (iterate until the metrics are inside the owner's thresholds).
 
 ### Fixed
 
@@ -35,6 +41,7 @@ Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).
 - Smooth shading streaked across flat faces next to crisp edges (a cylinder's cap): the crease test compared the
   field's normal on the edge (the bisector) with the full `sharp_angle` instead of half of it.
 - W102 and thin-part protection use a shell's wall thickness.
+- The preview renderer crashed when a batch of triangles covered no pixel centre (close framings).
 
 ## [0.3.0] - 2026-10-20
 

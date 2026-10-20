@@ -134,6 +134,19 @@ Quaternius (CC0), Poly Pizza (CC0/CC-BY). `kiln import <file.glb> --licence CC0-
 ground, snaps its colours to the palette and applies the style's materials. `kiln credits` and `CREDITS.md` list
 authors. Never use assets whose licence forbids it (NC, ND, SA, Synty, anything "no AI").
 
+**Match a reference** (make a KILN model that holds its own next to a CC0 asset, e.g. a KayKit barrel):
+1. Put the reference in `imports/` and ask the owner for thresholds, with defaults: silhouette `iou` >= 0.9 (and
+   `iou_min` >= 0.85), `triangle_ratio` <= 1.5, `surfaces` <= the reference's + 1, `colors` within +-2,
+   `open_edges` 0, and for a faceted (low poly) target `facet_regularity` >= 0.7 (use a hard-surface style or parts).
+2. `kiln preview <model> --vs imports/<ref>.glb --ref-height <the model's intended height> --json` (MCP: `preview`
+   with `which: "vs"`, `reference`, `ref_height`). Read `compare` and LOOK at the sheet: the silhouette row shows red
+   where the model sticks out and blue where it is missing, per view.
+3. Change the model (proportions, part sizes, budget, `sides`, colours), lint, and repeat step 2 until every metric is
+   inside the thresholds. Fix the worst view first (`iou_views`). Don't copy the reference's details one for one:
+   match its size, outline, density and colour count; the design stays ours.
+4. Report both renders (the vs sheet) and the final metrics against the thresholds; say which ones you couldn't meet
+   and why.
+
 ## 8. Reporting
 
 Keep reports short: what you made, the preview image paths, sizes/triangles if relevant, open questions with your

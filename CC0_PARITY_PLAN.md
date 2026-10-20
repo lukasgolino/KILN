@@ -1,5 +1,39 @@
 # CC0_PARITY_PLAN.md — make KILN output as good as KayKit/Kenney
 
+## STATUS (2026-10-21) — read this first if you are continuing the work
+
+Owner's instruction: do every milestone below, commit as you go, tag a release when it makes sense (0.4.0 or
+smaller steps are fine). Never push without asking; never add AI attribution to commits. v0.3.0 is pushed and tagged.
+
+| Milestone | State | Where |
+|---|---|---|
+| M1 watertight detachables | DONE | commit c311dbd (+ da39833): split() fixes T-junctions, drop_twins(), E013 lint, `under:` paint, `preview --detach`, tests/test_watertight.py |
+| M2 hard surface | DONE | c311dbd: src/kiln/hard.py (BSP CSG, bevels, planar re-merge), builder hard_parts/build_hard, style hard_surface/hard_sides, tests/test_hard.py |
+| M3 shells + no-penetration | DONE | da39833: `shell: {thickness, side, open}`, `fit: {to, gap}` (Geometry.fit in sdf.py), W113 (lint.penetrations), tests/test_shells.py |
+| M8 keep + hardware | DONE | 2ce9d1b: `keep:` + auto-keep small crisp parts (builder.kept_parts/_kept), src/kiln/hardware.py (rivets, band, planks, bolt, slit), tests/test_hardware.py. Planar-aware decimation: QEM already does it; pinned by a test |
+| M7 reference critic | DONE (merged) | branch m7-reference-compare (cd38b09), merged into main: `preview --vs ref.glb [--ref-height]`, metrics, MCP, skill workflow, tests/test_compare.py. Worktree /home/lgolino/repos/KILN/.claude/worktrees/m7-compare can be removed |
+| M9 palette atlas | IN PROGRESS by a subagent (may be unfinished) | look for a branch/worktree under /home/lgolino/repos/KILN/.claude/worktrees/ or /home/lgolino/repos/PAGAN/.claude/worktrees/ (`git -C <dir> log`); spec: setting `atlas = true`, one material + palette PNG per model, ORM texture, variants = texture swaps, optional AO in COLOR_0, tests/test_atlas.py. If nothing usable exists, implement from section M9 |
+| M5 humanoid rig + retargeting | TODO | KayKit files (CC0) at ~/repos/loose/assets/third_party/kaykit-animations/Rig_Medium_*.glb and kaykit-adventurers/Knight.glb; owner OK'd committing ~2 MB of them as test fixtures |
+| M6 fit attachments to CC0 rigs | TODO | needs M3 fit (done) + a mesh SDF of the CC0 target (sample its surface, grid-hash nearest point, sign from normals) |
+| M4 template library | TODO | needs `extends:` to find package templates (notation.resolve_extends only looks in models/); put them in src/kiln/library/ |
+
+Also still to do before tagging 0.4.0:
+- Rebuild the demo output (`cd examples/demo && kiln build --verify-godot`) and commit examples/godot/assets: every
+  mesh changed (crack fix, shading fix). Bump BUILDER_VERSION if meshing changes again (now 10).
+- Bump version in pyproject.toml, move CHANGELOG [Unreleased] to [0.4.0] - date, add CLAUDE.md decision-log lines
+  (hard surface via BSP CSG in pure Python; crease test uses half sharp_angle with a 15% inset; kept parts as own
+  meshes; hardware expands at parse time), tag v0.4.0 locally, ask the owner before pushing.
+- Then: rebuild ~/repos/kiln-website with the new tag (tools/build_site_assets.py --kiln-repo ~/repos/KILN; bump
+  requirements.txt) and tell LOOSE's agent (via its KILN_LOG.md / LOOSE_REPORT.md) what's new.
+
+Known limits / notes for the next agent:
+- Machine has ~6 GB RAM shared with other sessions: run test files selectively; full suite takes ~4 min.
+- Tests: `.venv/bin/python -m pytest -q -p no:cacheprovider`; types: `.venv/bin/mypy` (strict, must be clean).
+- Hard parts are not decimated; LOD/budget pressure lowers their detail level (bevel->chamfer->none->fewer sides).
+- A few non-manifold "pinch" edges remain on thin soft parts (no holes); E013 only reports open edges.
+- Smooth thin shells still shade a little noisily at their rims.
+
+
 Source: LOOSE_REPORT.md items 23–25, Proposal and Verdict (2026-10-20). Evidence renders were made in the LOOSE session
 scratchpad (`kilngap/01_hollow_head.png`, `02_helmets.png`, `03_machines.png`, `lineup_kiln.png`, `lineup_kaykit.png`).
 Copy any you want kept into `docs/` before that scratchpad goes.
