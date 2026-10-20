@@ -6,6 +6,7 @@ import json
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from conftest import arms_text, make_project, sphere_text, write_model
@@ -225,3 +226,19 @@ def test_builds_do_not_depend_on_the_hash_seed(tmp_path: Path) -> None:
         assert run.returncode == 0, run.stdout + run.stderr
         outputs.append({p.name: p.read_bytes() for p in sorted((root / "out" / "models").glob("*.glb"))})
     assert outputs[0] == outputs[1]
+
+
+@pytest.mark.slow
+def test_demo_meshes_stay_on_their_surface() -> None:
+    """Every demo model's mesh lies on its shapes (decimation once threw thin parts' vertices metres away)."""
+    from kiln.builder import build_model, field_of
+
+    project = load_project(Path(__file__).parent.parent / "examples" / "demo")
+    palette, _ = project.palette()
+    for name in ("archer", "pilot"):
+        model, style, _ = project.load(project.models_dir / f"{name}.kiln.yaml")
+        assert model and style
+        built = build_model(model, style, None, palette)
+        distance = field_of(model, built.step).distance(built.painted.vertices[np.unique(built.painted.faces)])
+        assert np.abs(distance).max() < built.step * 2, name
+        assert len(built.painted.faces) <= style.budget(model.cls) * 1.05, name

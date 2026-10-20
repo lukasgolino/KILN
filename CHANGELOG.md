@@ -6,6 +6,27 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-20
+
+Smoother models: no more jagged seams, polygonal pupils, streaks or creases from decimation. Every built mesh
+changes (same triangle budgets).
+
+### Changed
+
+- Colour borders and patterns are cut on the full-resolution mesh, then decimation keeps them: the mesh is pulled
+  apart along the borders, simplified with the borders locked (thinned to within 0.15 grid steps where straight),
+  and welded back. Before, edge collapses crossed borders: jagged seams (a cap on a head), polygonal pupils and
+  shading streaks where parts blend.
+- Patterns no longer refine the decimated mesh, so they cost far fewer triangles (the knight's band: ~7000 fewer).
+- After decimation, slivers and tilted faces are evened out along the surface (borders and creases stay put).
+- Normals: sharp edges are judged by the surface, not by the triangle (big decimated triangles stay smooth), and on
+  a border each side uses its own faces' normals (no dark wedges beside a hoop or an eye).
+- Needs fast-simplification >= 0.2.0 (border locking, collapse replay).
+
+### Fixed
+
+- Triangle budgets: the build loop also loosens border tolerance when borders alone exceed the budget.
+
 ## [0.1.0] - 2026-10-20
 
 First release.
@@ -30,5 +51,6 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/lukasgolino/KILN/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lukasgolino/KILN/releases/tag/v0.1.0

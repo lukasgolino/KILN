@@ -19,6 +19,9 @@ from kiln.sdf import Array, Field
 
 COARSE = 4  # coarse sampling: one in 4 grid points per axis first; only blocks near the surface are refined
 MAX_CELLS = 256  # per axis
+BAD_TILT_COS = math.cos(math.radians(25))  # a face turned further than this from the surface needs repair
+BAD_ASPECT = 8.0  # longest edge squared over twice the area: above this, a sliver
+BORDER_TOLERANCE = 0.15  # grid steps: how far a simplified colour border may stray from the exact one (first try)
 
 
 @dataclass
@@ -186,6 +189,181 @@ def decimate(field: Field, mesh: Mesh, budget: int, step: float) -> Mesh:
     )
     v = project(field, np.asarray(v, dtype=np.float64), step * 2)
     return Mesh(v, np.asarray(f, dtype=np.int64))
+
+
+def simplify_borders(mesh: Mesh, region: Array, tolerance: float) -> tuple[Mesh, Array]:
+    """Thin out the vertices along region borders (full resolution: one every grid step) wherever the border is
+    straight enough: a vertex goes if it lies within `tolerance` of the line between its two border neighbours.
+    Each removal collapses the vertex into a neighbour along the border, so the border stays on the surface and
+    both sides stay joined. Junctions of three regions and anything that would fold a triangle stay."""
+    v, f, region = mesh.vertices, mesh.faces.copy(), region.copy()
+    alive = np.ones(len(f), dtype=bool)
+    for _ in range(12):
+        live = np.flatnonzero(alive)
+        e = np.concatenate([f[live][:, [0, 1]], f[live][:, [1, 2]], f[live][:, [2, 0]]])
+        owner = np.tile(live, 3)
+        key = np.sort(e, axis=1)
+        order = np.lexsort((key[:, 1], key[:, 0]))
+        key, owner = key[order], owner[order]
+        pair = np.flatnonzero((key[1:] == key[:-1]).all(axis=1))
+        border = key[pair][region[owner[pair]] != region[owner[pair + 1]]]
+        if not len(border):
+            break
+        ends = border.reshape(-1)
+        count = np.bincount(ends, minlength=len(v))
+        # each border vertex's two border neighbours (only for vertices on exactly two border edges)
+        other = np.concatenate([border[:, 1], border[:, 0]])
+        by = np.argsort(np.concatenate([border[:, 0], border[:, 1]]), kind="stable")
+        verts = np.concatenate([border[:, 0], border[:, 1]])[by]
+        nb = other[by]
+        start = np.searchsorted(verts, np.arange(len(v)))
+        cand = np.flatnonzero(count == 2)
+        a, c = nb[start[cand]], nb[start[cand] + 1]
+        chord = v[c] - v[a]
+        t = np.clip(((v[cand] - v[a]) * chord).sum(1) / np.maximum((chord * chord).sum(1), 1e-18), 0, 1)
+        dev = np.linalg.norm(v[cand] - (v[a] + chord * t[:, None]), axis=1)
+        ok = dev < tolerance
+        cand, a, dev = cand[ok], a[ok], dev[ok]
+        if not len(cand):
+            break
+        faces_of: dict[int, list[int]] = {}
+        for fi in live:
+            for x in f[fi]:
+                faces_of.setdefault(int(x), []).append(int(fi))
+        locked: set[int] = set()
+        removed = 0
+        for i in np.lexsort((cand, dev)):
+            x, into = int(cand[i]), int(a[i])
+            if x in locked or into in locked:
+                continue
+            fan = faces_of[x]
+            ring = {int(y) for fi in fan for y in f[fi]}
+            shared = [fi for fi in fan if into in f[fi]]
+            # link condition: x and `into` share exactly the two vertices opposite their edge (no pinching)
+            ring_into = {int(y) for fi in faces_of[into] for y in f[fi]}
+            if len(shared) != 2 or len((ring & ring_into) - {x, into}) != 2:
+                continue
+            moved = [fi for fi in fan if fi not in shared]
+            before = np.cross(v[f[moved, 1]] - v[f[moved, 0]], v[f[moved, 2]] - v[f[moved, 0]])
+            after_f = np.where(f[moved] == x, into, f[moved])
+            after = np.cross(v[after_f[:, 1]] - v[after_f[:, 0]], v[after_f[:, 2]] - v[after_f[:, 0]])
+            norm = np.linalg.norm(before, axis=1) * np.linalg.norm(after, axis=1)
+            if np.any((before * after).sum(1) <= 0.2 * norm):
+                continue  # would fold or squash a triangle
+            f[moved] = after_f
+            alive[shared] = False
+            locked |= ring | ring_into
+            removed += 1
+        if not removed:
+            break
+    keep = np.flatnonzero(alive)
+    used, inverse = np.unique(f[keep], return_inverse=True)
+    return Mesh(v[used], inverse.reshape(-1, 3).astype(np.int64)), region[keep]
+
+
+def nearest_part(field: Field, points: Array) -> Array:
+    """Index of the solid part whose surface is nearest to each point."""
+    adding = [i for i, g in enumerate(field.parts) if g.op == "add"]
+    if not adding:
+        return np.zeros(len(points), dtype=np.int64)
+    d = np.stack([np.abs(field.part_distance(i, points)) for i in adding])
+    return np.asarray(adding)[d.argmin(axis=0)]
+
+
+def relax(field: Field, mesh: Mesh, fixed: Array, step: float, iterations: int = 8, rate: float = 0.5) -> Mesh:
+    """Repair what decimation next to locked borders leaves: fans of slivers that tilt and fold (dark wedges
+    beside seams). Each round, the free vertices of bad faces (tilted against the surface, or slivers) slide along
+    the surface towards the average of their neighbours, then back onto it. Good faces aren't touched, so rims
+    and edges keep their shape."""
+    v, f = mesh.vertices.copy(), mesh.faces
+    e = np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
+    e = np.unique(np.sort(e, axis=1), axis=0)
+    a, b = np.concatenate([e[:, 0], e[:, 1]]), np.concatenate([e[:, 1], e[:, 0]])
+    degree = np.bincount(a, minlength=len(v)).astype(float)
+    # vertices on a crease (a cylinder's cap edge, a box's corner) stay: sliding them would round thin parts into
+    # points. Only within one part: where two parts meet (next to a border, or a crisp join inside a region) the
+    # normal jumps by design. (Normals here use a tiny difference step, so a part right next to the vertex
+    # doesn't bend them.)
+    normal = field.gradient(v, step * 0.01)
+    crease = np.zeros(len(v), dtype=bool)
+    part = nearest_part(field, v)
+    sharp = (normal[e[:, 0]] * normal[e[:, 1]]).sum(axis=1) < BAD_TILT_COS
+    sharp &= ~fixed[e[:, 0]] & ~fixed[e[:, 1]] & (part[e[:, 0]] == part[e[:, 1]])
+    crease[e[sharp].reshape(-1)] = True
+    for _ in range(iterations):
+        p = v[f]
+        n = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
+        area2 = np.linalg.norm(n, axis=1)
+        tilt = (n * field.gradient(p.mean(axis=1), step * 0.01)).sum(axis=1) < BAD_TILT_COS * area2
+        longest = np.max(np.linalg.norm(p - np.roll(p, 1, axis=1), axis=2), axis=1)
+        sliver = longest**2 > BAD_ASPECT * np.maximum(area2, 1e-18)
+        bad = tilt | sliver
+        free = np.zeros(len(v), dtype=bool)
+        free[f[bad].reshape(-1)] = True
+        free &= ~fixed & ~crease & (degree > 0)
+        if not free.any():
+            break
+        mean = np.zeros_like(v)
+        np.add.at(mean, a, v[b])
+        mean[free] /= degree[free, None]
+        normal = field.gradient(v[free], step * 0.01)
+        move = mean[free] - v[free]
+        move -= (move * normal).sum(axis=1, keepdims=True) * normal  # along the surface only
+        v[free] = project(field, v[free] + rate * move, step, 1)
+    return Mesh(v, f)
+
+
+def decimate_regions(
+    field: Field,
+    mesh: Mesh,
+    region: Array,
+    budget: int,
+    step: float,
+    border_tolerance: float = BORDER_TOLERANCE,
+) -> tuple[Mesh, Array]:
+    """Like `decimate`, but the borders between regions (paint groups, cut on the full-resolution mesh) are kept
+    exactly: the mesh is pulled apart along them, simplified with its open borders locked, and welded back.
+    Collapsing edges across a border is what makes seams jagged, pupils polygonal and blends streaky.
+    Returns the mesh and every face's region."""
+    if mesh.triangles <= budget or mesh.triangles == 0:
+        return mesh, region
+    mesh, region = simplify_borders(mesh, region, step * border_tolerance)
+    # one copy of a vertex per region that uses it: borders become open edges
+    n_regions = int(region.max()) + 1
+    keys = (mesh.faces * n_regions + region[:, None]).reshape(-1)
+    unique, inverse = np.unique(keys, return_inverse=True)
+    source, vregion = unique // n_regions, unique % n_regions
+    cut_v = mesh.vertices[source].astype(np.float64)
+    cut_f = inverse.reshape(-1, 3).astype(np.int32)
+    v, f, collapses = fast_simplification.simplify(
+        cut_v, cut_f, target_count=int(budget), agg=6.0, return_collapses=True, preserve_border=True
+    )
+    # replaying the collapses gives which input vertex became which output vertex (same faces, same order);
+    # its own positions aren't used: fast-simplification 0.2.0's replay misplaces some vertices by metres
+    _, replayed, mapping = fast_simplification.replay_simplification(cut_v, cut_f, collapses)
+    v, f, mapping = np.asarray(v, dtype=np.float64), np.asarray(f, dtype=np.int64), np.asarray(mapping, dtype=np.int64)
+    if not np.array_equal(f, np.asarray(replayed, dtype=np.int64)):
+        raise RuntimeError("fast-simplification's replay disagrees with its simplify; please report")
+    out_region = np.zeros(len(v), dtype=np.int64)
+    out_region[mapping] = vregion
+    face_region = out_region[f[:, 0]]
+    # weld: border vertices survive untouched, one per region copy; join the copies of each source vertex
+    kept = np.bincount(mapping, minlength=len(v))[mapping] == 1
+    weld = np.arange(len(v))
+    if kept.any():
+        order = np.lexsort((mapping[kept], source[kept]))
+        src, out = source[kept][order], mapping[kept][order]
+        first = np.r_[True, src[1:] != src[:-1]]
+        weld[out] = out[np.flatnonzero(first)[np.cumsum(first) - 1]]
+    used, inverse = np.unique(weld[f], return_inverse=True)
+    v, f = v[used], inverse.reshape(-1, 3).astype(np.int64)
+    # borders (vertices shared by faces of two regions) stay exactly where they are; other vertices belong to one
+    vertex_region = np.full(len(v), -1)
+    np.maximum.at(vertex_region, f.reshape(-1), np.repeat(face_region, 3))
+    border = np.zeros(len(v), dtype=bool)
+    np.logical_or.at(border, f.reshape(-1), vertex_region[f.reshape(-1)] != np.repeat(face_region, 3))
+    return relax(field, Mesh(project(field, v, step * 2), f), border, step), face_region
+
 
 
 def remove_unused(mesh: Mesh) -> Mesh:

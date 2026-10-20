@@ -127,3 +127,21 @@ def test_meshing_is_deterministic() -> None:
     a, b = dual_contour(f, 0.03), dual_contour(f, 0.03)
     np.testing.assert_array_equal(a.vertices, b.vertices)
     np.testing.assert_array_equal(a.faces, b.faces)
+
+
+def test_decimate_regions_keeps_borders_and_stays_closed() -> None:
+    from kiln.mesher import decimate_regions
+
+    f = field("sphere", {"radius": 0.5})
+    mesh = dual_contour(f, 0.02)
+    region = (mesh.vertices[mesh.faces].mean(axis=1)[:, 1] > 0.2).astype(np.int64)  # a cap and the rest
+    out, out_region = decimate_regions(f, mesh, region, 600, 0.02)
+    assert out.triangles <= 700 and len(out_region) == out.triangles
+    check_closed_outward(out)
+    # the border between the two regions survives decimation, thinned out
+    full = mesh.vertices[np.unique(mesh.faces[region == 1])]
+    rest = mesh.vertices[np.unique(mesh.faces[region == 0])]
+    border_full = {tuple(np.round(p, 9)) for p in full} & {tuple(np.round(p, 9)) for p in rest}
+    a = {tuple(np.round(p, 9)) for p in out.vertices[np.unique(out.faces[out_region == 1])]}
+    b = {tuple(np.round(p, 9)) for p in out.vertices[np.unique(out.faces[out_region == 0])]}
+    assert a & b and len(a & b) < len(border_full)  # thinned out, but present

@@ -71,3 +71,8 @@ anything that changes output.
   Transform3D bases row-major.
 - 2026-10-20: Styles are chosen per game (owner: "I want to choose inspirations"); presets soft_toy, low_poly, toon,
   clay, diorama; project styles `extends` a preset; inspiration images in styles/<name>/inspiration/.
+- 2026-10-20: Decimation keeps colour borders (owner: "weird artifacts, jagged edges"): paint groups and patterns
+  are cut at full resolution, borders thinned (BORDER_TOLERANCE) and locked through fast-simplification's
+  preserve_border, then welded via its collapse replay. The replay's own positions are wrong for some vertices
+  (0.2.0), so only its index mapping is used. Afterwards bad faces (tilted > 25 degrees or slivers) are relaxed
+  along the surface; crease vertices within one part stay. Border corners take per-side face-normal averages.

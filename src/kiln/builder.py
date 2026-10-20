@@ -15,14 +15,14 @@ import numpy as np
 
 from kiln import __version__
 from kiln.export import Built
-from kiln.mesher import Mesh, components, decimate, dual_contour, model_step
+from kiln.mesher import BORDER_TOLERANCE, Mesh, components, decimate_regions, dual_contour, model_step
 from kiln.notation import ROOT_ID, Model
-from kiln.paint import corner_normals, paint
+from kiln.paint import Regions, corner_normals, paint, regions
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
 from kiln.sdf import Field
 from kiln.style import Style
 
-BUILDER_VERSION = 5  # bump when meshing/painting changes output
+BUILDER_VERSION = 7  # bump when meshing/painting changes output
 
 
 def field_of(model: Model, step: float) -> Field:
@@ -42,17 +42,20 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
         raise ValueError("the model has no surface (everything cut away, or all parts are cuts)")
     target = budget or model.budget or style.budget(model.cls)
     rigged = model.skin != "none"
-    # painting adds triangles (borders, patterns): decimate harder until the painted mesh fits the budget
-    goal = target
+    cut = regions(mesh, model, field, rigged)  # colour borders cut at full resolution, kept by decimation
+    # colour borders (kept by decimation) cost triangles: decimate harder and let borders stray further
+    # until the painted mesh fits the budget
+    goal, tolerance = target, BORDER_TOLERANCE
     previous = None
-    for _ in range(3):
-        decimated = decimate(field, mesh, goal, step)
-        painted = paint(decimated, model, field, rigged)
+    for _ in range(4):
+        decimated, owner = decimate_regions(field, cut.mesh, cut.owner, goal, step, tolerance)
+        painted = paint(Regions(decimated, owner, cut.groups, cut.part_group, cut.pattern_groups), model)
         count = len(painted.faces)
-        if count <= target * 1.05 or goal <= target * 0.2 or (previous is not None and count > previous * 0.9):
+        if count <= target * 1.05 or goal <= target * 0.2 or (previous is not None and count > previous * 0.95):
             break  # fits, or the extra triangles come from patterns themselves (lint W110 says so)
         previous = count
         goal = max(int(goal * target / count * 0.95), int(target * 0.2))
+        tolerance *= 2
     mesh = decimated
     pieces = components(mesh)
     normals = corner_normals(painted, field, step, style.smooth, style.sharp_angle)

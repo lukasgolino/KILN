@@ -160,8 +160,20 @@ def decal_uv(d: Decal, points: Array) -> Array:
     return np.stack([(rel @ u) / d.size[0] + 0.5, 0.5 - (rel @ v) / d.size[1]], axis=1)
 
 
-def paint(mesh: Mesh, model: Model, field: Field, rigged: bool) -> Painted:
-    """Split the mesh into paint groups (one per bone + colour + material) and decal regions."""
+@dataclass
+class Regions:
+    """A mesh cut along the borders between paint groups, with every face's group."""
+
+    mesh: Mesh
+    owner: Array  # (F,) index into groups
+    groups: list[PaintGroup]
+    part_group: dict[int, int]  # adding part index -> group
+    pattern_groups: dict[int, int]  # group -> its pattern's second-colour group
+
+
+def regions(mesh: Mesh, model: Model, field: Field, rigged: bool) -> Regions:
+    """Cut the mesh into paint groups (one per bone + colour + material) and patterns. Done on the full-resolution
+    mesh, so the borders are smooth curves that decimation then keeps (mesher.decimate_regions)."""
     vertices, faces = mesh.vertices, mesh.faces
     adding = [i for i, part in enumerate(model.parts) if part.geometry.op == "add"]
     # parts that paint the same way (and move with the same bone) are one group: no cuts between them
@@ -240,6 +252,14 @@ def paint(mesh: Mesh, model: Model, field: Field, rigged: bool) -> Painted:
             groups.append(alt)
         pattern_groups[g] = group_index[alt]
         owner[(owner == g) & ~negative] = group_index[alt]
+    return Regions(Mesh(vertices, faces), owner, groups, part_group, pattern_groups)
+
+
+def paint(painted: Regions, model: Model) -> Painted:
+    """Decals on top of the paint groups (cut after decimation: their borders are straight)."""
+    vertices, faces, owner = painted.mesh.vertices, painted.mesh.faces, painted.owner
+    groups, part_group, pattern_groups = painted.groups, painted.part_group, painted.pattern_groups
+    adding = [i for i, part in enumerate(model.parts) if part.geometry.op == "add"]
     # decals: cut along the rectangle, then mark the faces inside that face the decal's way
     decals: list[Decal] = []
     face_decal = np.full(len(faces), -1)
@@ -286,9 +306,32 @@ def corner_normals(painted: Painted, field: Field, step: float, smooth: bool, sh
     if not smooth:
         return flat
     vn = field.gradient(v, step * 0.25)[f]  # (F, 3, 3)
+    # the surface's normal a little way into the face from each corner: on a crisp edge (a box's corner, a crisp
+    # seam between parts) it's the face's own side, elsewhere the same as at the corner. Judging sharpness by the
+    # surface, not the triangle, keeps big decimated triangles smooth.
+    centre = v[f].mean(axis=1, keepdims=True)
+    inset = field.gradient((v[f] + (centre - v[f]) * 0.3).reshape(-1, 3), step * 0.25).reshape(-1, 3, 3)
     cos_limit = math.cos(math.radians(sharp_angle))
-    agree = (vn * face_n[:, None, :]).sum(axis=2) >= cos_limit
-    return np.where(agree[:, :, None], vn, flat)
+    agree = (vn * inset).sum(axis=2) >= cos_limit
+    normals = np.where(agree[:, :, None], vn, inset)
+    # on a border between paint groups the surface usually creases (an eye on a head, a hoop on a barrel) and the
+    # field's normal there is a blend of both sides: each side gets the average of its own faces' normals instead
+    g = painted.face_group
+    corner_group = np.repeat(g, 3)
+    lo = np.full(len(v), np.iinfo(np.int64).max)
+    hi = np.full(len(v), -1)
+    np.minimum.at(lo, f.reshape(-1), corner_group)
+    np.maximum.at(hi, f.reshape(-1), corner_group)
+    border = (lo != hi)[f]  # (F, 3)
+    if border.any():
+        weighted = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])  # area-weighted
+        key = f.reshape(-1) * (int(g.max()) + 1) + corner_group
+        unique, inverse = np.unique(key, return_inverse=True)
+        side = np.zeros((len(unique), 3))
+        np.add.at(side, inverse, np.repeat(weighted, 3, axis=0))
+        side /= np.maximum(np.linalg.norm(side, axis=1, keepdims=True), 1e-12)
+        normals = np.where(border[:, :, None], side[inverse].reshape(-1, 3, 3), normals)
+    return normals
 
 
-__all__ = ["PaintGroup", "Painted", "Part", "corner_normals", "decal_uv", "paint", "split"]
+__all__ = ["PaintGroup", "Painted", "Part", "Regions", "corner_normals", "decal_uv", "paint", "regions", "split"]

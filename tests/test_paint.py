@@ -115,7 +115,8 @@ def test_band_pattern_is_where_it_says(project: Project) -> None:
     p = built.painted
     blue = next(i for i, g in enumerate(p.groups) if g.color_name == "blue")
     y = p.vertices[p.faces[p.face_group == blue]][:, :, 1]
-    assert y.min() >= 0.25 - 1e-6 and y.max() <= 0.35 + 1e-6
+    # borders are cut at full resolution, then simplified within a fraction of a grid step (mesher.BORDER_TOLERANCE)
+    assert y.min() >= 0.25 - 1e-3 and y.max() <= 0.35 + 1e-3
 
 
 def test_decals_mark_faces_facing_their_way(project: Project) -> None:
