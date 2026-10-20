@@ -410,6 +410,9 @@ def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int |
     for part in model.parts:
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())
+    for anim in model.animations.values():  # retargeted clips
+        if anim.source is not None:
+            h.update(anim.source[0].read_bytes())
     if model.source is not None:
         from kiln.importer import external_files
 

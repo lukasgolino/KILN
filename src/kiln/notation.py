@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from kiln.hardware import HARDWARE, expand
+from kiln.retarget import REQUIRED
 from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
 from kiln.vendor.findings import Finding
 from kiln.vendor.yamlio import LineMap, YamlError, load_yaml, parse_yaml
@@ -34,7 +35,7 @@ PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror",
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
-              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove"}  # fmt: skip
+              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton"}  # fmt: skip
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
@@ -105,6 +106,7 @@ class Animation:
     interpolation: str
     poses: list[dict[str, PartPose]]  # one dict per frame: part id -> pose (missing = rest)
     cycle: dict[str, Any] | None = None  # expanded into poses once the rig is known
+    source: tuple[Path, str, float] | None = None  # (glb, clip, speed): retargeted from a clip library
 
 
 @dataclass
@@ -144,6 +146,7 @@ class Model:
     text: str = ""
     template: bool = False  # a base for `extends` (not built on its own)
     extends: str | None = None
+    skeleton: str | None = None  # humanoid: standard joint names, clip retargeting
 
     @property
     def ids(self) -> list[str]:
@@ -676,7 +679,36 @@ def _pose(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, where: str) -> d
     return out
 
 
-def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> dict[str, Animation]:
+def _parse_import(ctx: _Ctx, name: str, spec: dict[str, Any], line: int | None, where: str, humanoid: bool) -> Animation | None:
+    """An animation retargeted from a clip library: { import: imports/Rig_Medium_General.glb, clip: Idle_A }."""
+    bad = [k for k in spec if k not in ("import", "clip", "fps", "loop", "speed")]
+    fps, loop, speed = spec.get("fps", 30), spec.get("loop", True), spec.get("speed", 1.0)
+    if bad or not isinstance(spec.get("import"), str) or not isinstance(spec.get("clip"), str) or not _num(fps) or not 0 < fps <= 120 \
+            or not isinstance(loop, bool) or not _num(speed) or speed <= 0:
+        ctx.error("E008", "an imported animation is { import: imports/clips.glb, clip: Walking_A, fps: 30, loop: true, speed: 1 }", line, where)
+        return None
+    if not humanoid:
+        ctx.error("E008", "imported clips play on humanoids: add skeleton: humanoid (and name the parts after its joints)", line, where)
+        return None
+    base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+    file = (base / spec["import"]).resolve()
+    if not file.is_file():
+        ctx.error("E008", f"animation file {spec['import']} not found (paths are relative to the project)", line, f"{where}.import")
+        return None
+    from kiln.retarget import clip_names
+
+    try:
+        names = clip_names(file)
+    except Exception as exc:  # noqa: BLE001 - any unreadable file is the same mistake
+        ctx.error("E008", f"can't read {spec['import']}: {exc}", line, f"{where}.import")
+        return None
+    if spec["clip"] not in names:
+        ctx.error("E008", f"{spec['import']} has no clip {spec['clip']!r} (it has: {', '.join(names)})", line, f"{where}.clip")
+        return None
+    return Animation(name, float(fps), loop, "linear", [], None, (file, str(spec["clip"]), float(speed)))
+
+
+def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, humanoid: bool = False) -> dict[str, Animation]:
     out: dict[str, Animation] = {}
     if raw is None:
         return out
@@ -688,6 +720,11 @@ def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> d
         where = f"animations.{name}"
         if not isinstance(name, str) or not NAME_RE.match(name):
             ctx.error("E008", "animation names are lowercase letters, digits, _ or -", aline, where)
+            continue
+        if isinstance(spec, dict) and "import" in spec:
+            imported = _parse_import(ctx, name, spec, aline, where, humanoid)
+            if imported is not None:
+                out[name] = imported
             continue
         if not isinstance(spec, dict) or ("poses" not in spec and "cycle" not in spec):
             ctx.error("E008", "an animation has poses: [...], cycle: { type: ... }, or both (poses then override the cycle per part)", aline, where)
@@ -828,12 +865,23 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 part.geometry.fit = (targets, part.fit[1])
     ids = set(model.ids) if model.parts else {ROOT_ID}
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig")), model.parts)
-    skin = data.get("skin", "rigid" if model.rig else "none")
+    skeleton = data.get("skeleton")
+    if skeleton is not None:
+        missing = [j for j in REQUIRED if j not in ids]
+        if skeleton != "humanoid":
+            ctx.error("E007", "skeleton is humanoid (parts named after the standard joints: hips, spine, chest, head, upperarm_l, ...)",
+                      _line(data, "skeleton"), "skeleton")  # fmt: skip
+        elif missing:
+            ctx.error("E007", f"a humanoid needs parts with ids {', '.join(missing)} (standard joints; mirror_id makes the _r side)",
+                      _line(data, "skeleton"), "skeleton")  # fmt: skip
+        else:
+            model.skeleton = "humanoid"
+    skin = data.get("skin", "soft" if model.skeleton else "rigid" if model.rig else "none")
     if skin not in SKINS:
         ctx.error("E007", "skin is none (static), rigid (each part moves as one piece) or soft (blended joints bend)", _line(data, "skin"), "skin")
     else:
         model.skin = str(skin)
-    model.animations = _parse_animations(ctx, data.get("animations"), ids, _line(data, "animations"))
+    model.animations = _parse_animations(ctx, data.get("animations"), ids, _line(data, "animations"), model.skeleton is not None)
     if model.animations and model.skin == "none":
         ctx.error("E008", "animations move parts: give the model a rig (pivots and parents) or skin: rigid", _line(data, "animations"), "animations")
     variants = data.get("variants", {})

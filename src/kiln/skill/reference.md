@@ -236,6 +236,26 @@ skin: soft
   empty child node `<id>_<name>` that moves with the part (Godot: a Node3D under a BoneAttachment3D on soft skins), and
   the manifest gives its position and its offset from the pivot. Mirrored twins get mirrored sockets.
 
+## Humanoids and clip libraries
+
+`skeleton: humanoid` names a character's parts after the standard joints: `hips`, `spine`, `chest`, `head`,
+`upperarm_l`, `lowerarm_l`, `hand_l`, `upperleg_l`, `lowerleg_l`, `foot_l` (and `_r`, usually by `mirror_id`;
+optional `toes_l/_r`). Parents come from the standard hierarchy and pivots default to the joints (limbs at their end
+nearest the parent; spine, chest, head at their bottom); give `rig:` pivots where that guess is off. Skin defaults to
+soft. The manifest maps each joint to its KayKit, Mixamo and Godot SkeletonProfileHumanoid name.
+
+Then any CC0 clip library on the same joints (KayKit Character Animations' `Rig_Medium_*.glb`: Idle_A, Walking_A,
+Running_A, Death_A, Hit_A, Throw, Jump_*, ... ~80 clips) plays on the character, retargeted when it's built:
+
+```yaml
+animations:
+  walk:  { import: imports/Rig_Medium_MovementBasic.glb, clip: Walking_A }
+  death: { import: imports/Rig_Medium_General.glb, clip: Death_A, loop: false, fps: 30, speed: 1 }
+```
+
+Each bone points where the clip's bone points (the clip's rest pose may be a T-pose; yours can be anything), bone
+lengths stay yours, and the hips move by the clip's motion scaled to your hip height. Check with `--pose <name>`.
+
 ## Animations
 
 ```yaml

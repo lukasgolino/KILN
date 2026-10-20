@@ -17,6 +17,10 @@ before 1.0).
   variant `palette`/`glow`.
 - `atlas_ao = true`: ambient occlusion baked into the vertex colours (COLOR_0, a multiplier), from the distance field.
 - `kiln build --verify-godot` checks that atlas models sample their palette texture.
+- Humanoids (M5): `skeleton: humanoid` (parts named after standard joints; default parents, pivots and soft skin;
+  manifest `humanoid` maps joints to KayKit, Mixamo and Godot SkeletonProfileHumanoid names) and imported
+  animations `{ import: <clips.glb>, clip: <name>, fps, loop, speed }` retargeted at build time from CC0 clip libraries
+  such as KayKit Character Animations (Rig_Medium); manifest animations name their `clip`.
 
 ### Fixed
 

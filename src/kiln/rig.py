@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from kiln.notation import ROOT_ID, Animation, Model, PartPose
+from kiln.retarget import JOINTS, default_pivot, load_clip, retarget
 from kiln.sdf import Array, Field, rotation_matrix
 
 MAX_INFLUENCES = 4
@@ -43,17 +44,29 @@ class Skeleton:
 def build_skeleton(model: Model, field: Field) -> Skeleton:
     """Root first, then parents before children (glTF needs no order, but previews and tests like it)."""
     ids = model.ids
+    humanoid = model.skeleton == "humanoid"
+
+    def box(pid: str) -> tuple[Array, Array]:
+        boxes = [field.boxes[i] for i, p in enumerate(model.parts) if p.id == pid and p.geometry.op == "add"]
+        return np.min([b[0] for b in boxes], axis=0), np.max([b[1] for b in boxes], axis=0)
+
+    def default_parent(pid: str) -> str:
+        if humanoid and pid in JOINTS and JOINTS[pid][1] in ids:
+            return JOINTS[pid][1]
+        return ROOT_ID
+
+    parent_of: dict[str, str] = {pid: (model.rig[pid].parent or default_parent(pid)) if pid in model.rig else default_parent(pid) for pid in ids[1:]}
     pivots: dict[str, Array] = {ROOT_ID: np.zeros(3)}
     for pid in ids[1:]:
         entry = model.rig.get(pid)
         if entry is not None and entry.pivot is not None:
             pivots[pid] = np.array(entry.pivot, float)
+        elif humanoid and pid in JOINTS:  # standard joints: hips' middle, bottoms of spine/chest/head, limbs at their top end
+            up = parent_of[pid]
+            pivots[pid] = default_pivot(pid, box(pid), None if up == ROOT_ID else (box(up)[0] + box(up)[1]) / 2)
         else:  # default: the centre of the part's box
-            boxes = [field.boxes[i] for i, p in enumerate(model.parts) if p.id == pid and p.geometry.op == "add"]
-            lo = np.min([b[0] for b in boxes], axis=0)
-            hi = np.max([b[1] for b in boxes], axis=0)
+            lo, hi = box(pid)
             pivots[pid] = (lo + hi) / 2
-    parent_of: dict[str, str] = {pid: (model.rig[pid].parent or ROOT_ID) if pid in model.rig else ROOT_ID for pid in ids[1:]}
     order = [ROOT_ID]
     while len(order) < len(ids):
         for pid in ids[1:]:
@@ -224,6 +237,12 @@ def tracks(model: Model, skeleton: Skeleton) -> list[Track]:
     n = len(skeleton.bones)
     rest = np.array([skeleton.rest_translation(i) for i in range(n)])
     for anim in model.animations.values():
+        if anim.source is not None:  # retargeted from a clip library
+            path, clip_name, speed = anim.source
+            bones = [(b.name, b.parent, b.pivot) for b in skeleton.bones]
+            tr_, rot_ = retarget(load_clip(path, clip_name), bones, anim.fps, speed)
+            out.append(Track(anim.name, anim.fps, anim.loop, anim.interpolation, tr_, rot_, np.ones(tr_.shape)))
+            continue
         poses = animation_poses(anim, model)
         tr = np.repeat(rest[None], len(poses), axis=0)
         rot = np.tile(np.array([0.0, 0.0, 0.0, 1.0]), (len(poses), n, 1))

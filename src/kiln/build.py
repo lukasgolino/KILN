@@ -15,6 +15,7 @@ import numpy as np
 from kiln import __version__
 from kiln.atlas import CELL, Atlas, AtlasUse, layout
 from kiln.builder import build_cached
+from kiln.retarget import HUMANOID, OPTIONAL
 from kiln.export import Built, gltf_name, to_glb
 from kiln.godot import find_godot_project, look_scene, model_scene, res_path
 from kiln.lint import LintResult, lint_project
@@ -91,11 +92,15 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
     for t in built.tracks:
         animations[t.name] = {"gltf_name": gltf_name(t.name, t.loop), "fps": t.fps, "frames": t.frames, "loop": t.loop,
                               "interpolation": t.interpolation, "duration": _f(t.frames / t.fps)}  # fmt: skip
-        first = animation_poses(m.animations[t.name], m)[0] if t.name in m.animations else {}
+        poses = animation_poses(m.animations[t.name], m) if t.name in m.animations else []
+        first = poses[0] if poses else {}
         start = {pid: {"rotate": [_f(v) for v in pose.rotate], "offset": [_f(v) for v in pose.offset]}
                  for pid, pose in sorted(first.items()) if max(map(abs, (*pose.rotate, *pose.offset))) > 1e-4}  # fmt: skip
         if start:  # where its first frame puts parts (e.g. an arm built level, cocked at the start)
             animations[t.name]["start"] = start
+        source = m.animations[t.name].source if t.name in m.animations else None
+        if source is not None:  # retargeted from a clip library
+            animations[t.name]["clip"] = {"file": source[0].name, "clip": source[1]}
     entry: dict[str, Any] = {
         "glb": glb.relative_to(out).as_posix(),
         "description": m.description,
@@ -114,6 +119,8 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
     }
     if m.source is not None:
         entry["source"] = {"file": m.source.file.name, "licence": m.source.licence, "author": m.source.author, "url": m.source.url}
+    if m.skeleton == "humanoid":  # the standard names of its joints, for engines' retargeting (Godot: SkeletonProfileHumanoid)
+        entry["humanoid"] = {kid: {"kaykit": kk, "mixamo": mx, "godot": gd} for kid, _, kk, mx, gd in HUMANOID + OPTIONAL if kid in parts}
     return entry
 
 
