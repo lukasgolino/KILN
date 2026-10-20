@@ -307,3 +307,19 @@ def test_skill_install(in_project: Project, tmp_path: Path, capsys: pytest.Captu
         assert (target / name).read_text() == files("kiln").joinpath("skill", name).read_text()
     code, result = run_json(["skill", "install", "--target", str(tmp_path / "elsewhere")], capsys)
     assert code == 0 and (tmp_path / "elsewhere").is_dir()
+
+
+def test_json_after_the_command(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    from kiln.cli import main
+
+    assert main(["status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["ok"]
+
+
+def test_closeup_by_part_number(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    from kiln.cli import main
+
+    main(["--json", "new", "model", "crate", "--template", "empty"])
+    capsys.readouterr()
+    assert main(["--json", "preview", "crate", "--closeup", "0"]) == 0
+    assert "0" in json.loads(capsys.readouterr().out)["outputs"]["closeup"]

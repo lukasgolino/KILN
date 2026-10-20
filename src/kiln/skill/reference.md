@@ -80,11 +80,12 @@ then y then z, about its centre).
 | `capsule` | `from: [x, y, z]`, `to: [x, y, z]`, `radius`, `radius_to` (taper) |
 | `tube` | `points: [[x, y, z], ...]` (2+), `radius`, `radius_to`: ropes, branches, rails, tails |
 | `torus` | `radius` (ring), `thickness` (tube radius); ring in the xz plane (rotate for others) |
-| `lathe` | `profile: [[r, y], ...]` spun around y: vases, bottles, bells, chess pieces, round towers |
+| `lathe` | `profile: [[r, y], ...]` spun around y: vases, bottles, bells, caps, chess pieces, round towers. The profile is a closed outline in the (radius, height) plane: go up the outside and come back down the axis (points with r = 0), e.g. a cap `[[0, 1.06], [0.2, 1.02], [0.3, 0.9], [0.3, 0.8], [0, 0.8]]`. Corners are rounded (`smooth: true`, default); `smooth: false` keeps them sharp |
 | `extrude` | `points: [[x, z], ...]` outline seen from above, `height` (along y), `round`: shields, signs, floor plans, stars |
 | `wedge` | `size: [x, y, z]`: a roof (ridge along x at the top) |
 
-For `capsule` and `tube`, the points are in the part's frame (moved by `at`, turned by `rotate`).
+For `capsule` and `tube`, the points are in the part's frame (moved by `at`, turned by `rotate`). Everything else in a
+model (decal `at`, rig pivots, poses' offsets) is in model space.
 
 ### Part options
 
@@ -92,7 +93,7 @@ For `capsule` and `tube`, the points are in the part's frame (moved by `at`, tur
 |---|---|
 | `id` | bone/node name (lowercase). Parts sharing an id move together. No id = `root`. |
 | `color` | palette colour name (required for adding parts) |
-| `material` | style preset: default, plastic, paint, fabric, skin, rubber, wood, stone, metal, gold, leaf, glass, glow |
+| `material` | style preset: default, plastic, paint, fabric, skin, leather, rubber, wood, stone, metal, gold, leaf, glass, glow |
 | `blend` | smooth-union radius in metres with everything before it (cuts/intersects: smooth edge) |
 | `cut: true` | remove this shape from everything before it (holes, slits, windows, eye sockets) |
 | `intersect: true` | keep only what's inside this shape (trim) |
@@ -117,7 +118,8 @@ for a ~1 m model, coarser for bigger models).
 ```
 
 - `stripes`: bands across `axis`, one every `size` metres, `width` = fraction in the second colour.
-- `band`: one band of thickness `size` centred at `at` (metres along `axis`): belts, trims, hat bands.
+- `band`: one band of thickness `size` centred at `at` (one number: metres along `axis`, in model space): belts, trims,
+  hat bands. E.g. `{ type: band, color: brown, size: 0.06, at: 0.4, axis: y }` = a belt 0.4 m above the ground.
 - `checker`: checks `size` metres across.
 - `dots`: dots on a grid `size` metres apart, diameter `width` x size.
 
@@ -128,7 +130,8 @@ for a ~1 m model, coarser for bigger models).
 ```
 
 Projects an image (PNG with transparency, e.g. made with PAGAN) onto the faces of this part that face `axis`
-(x, -x, y, -y, z, -z), centred at `at`, `size` = width, height in metres. Transparent pixels show the part's colour.
+(x, -x, y, -y, z, -z), centred at `at` (model space, on or near the surface), `size` = width, height in metres. It
+shows on that side only (a flag needs a second decal with `axis: -z` for its back). Transparent pixels show the part's colour.
 Small images (<= 256 px) are sampled crisp (pixel art).
 
 ## Rig and skin
@@ -165,8 +168,10 @@ animations:
 ```
 
 Pose fields per part: `offset: [x, y, z]` (metres), `rotate: [x, y, z]` (degrees, about the pivot), `scale: s` or
-`[x, y, z]` (squash and stretch). Rotating about x swings a limb forwards/backwards; about z, sideways (negative z
-raises a right arm, positive raises a left arm).
+`[x, y, z]` (squash and stretch). Signs: positive x tips the part's top towards the front (+Z), so a hanging leg or arm
+swings backwards with positive x and forwards with negative x; a drawbridge hinged at its bottom lowers forwards with
+positive x. About z: negative raises a right arm (-X side), positive raises a left arm. About y: positive turns
+left (counter-clockwise seen from above).
 
 Cycles (8 frames unless `frames:`):
 
@@ -180,6 +185,7 @@ Cycles (8 frames unless `frames:`):
 | `swing` | `part`, `axis` y, `angle` 20 |
 | `breathe` | `part`, `amount` 0.03 |
 | `wave` | `arms` (the last one waves), `raise` 150, `angle` 20 |
+| `chain` | `parts` [ids in order from the root out; default: every id in file order], `axis` y, `angle` 15, `phase` 0.15: a travelling wave for flags, tails, tentacles, ropes |
 
 ## Imported models
 
@@ -245,17 +251,19 @@ problem, E011 decal image missing.
 
 Warnings: W101 part has no visible surface, W102 part thinner than the mesh resolution, W103 separate pieces,
 W104 colour not in the palette, W106 not standing on y = 0, W107 made under an older style_version, W108 size
-unusual for the class, W109 animated part without a pivot. Disable in `kiln.toml` `[lint] disable` or per model
+unusual for the class, W109 animated part without a pivot, W110 well over the triangle budget (patterns cost
+triangles: every stripe border is cut into the mesh; prefer few, large patterns, or model details as parts). Disable in `kiln.toml` `[lint] disable` or per model
 `lint: { disable: [...] }`.
 
 ## Commands
 
 `kiln init [dir] --style soft_toy` · `kiln new model <name> --template bean|prop|empty --class C` ·
-`kiln lint [models]` · `kiln preview <model> [--closeup PART] [--pose ANIM] [--vs] [--engine] [--variant V]` ·
+`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--engine] [--variant V]` ·
 `kiln lineup [models]` · `kiln gallery` · `kiln build [--verify-godot]` · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
 `kiln config show|get|set` · `kiln import <file> --licence L` · `kiln credits` · `kiln doctor` ·
-`kiln skill install` · `kiln mcp`. Every command takes `--json`.
+`kiln skill install` · `kiln mcp`. Every command takes `--json` (before or after the command). `--closeup` takes a part
+id (`root` = parts without one) or a part's number in the file (`--closeup 3`).
 
 ## Build output
 

@@ -67,8 +67,9 @@ def closeup(built: Built, part_id: str, size: int = 260) -> Image.Image:
     """One part (bone) filling the view, in place: what a close camera (a kill cam, a dialogue shot) sees."""
     p = built.painted
     faces = np.array([p.groups[g].bone == part_id for g in p.face_group])
-    if built.skin == "none":  # no bones: use the parts' own boxes
-        boxes = [g.bounds() for part, g in ((q, q.geometry) for q in built.model.parts) if part.id == part_id and g.op == "add"]
+    if built.skin == "none" or part_id.isdigit():  # no bones, or a part by its number in the file: the parts' own boxes
+        chosen = [q for q in built.model.parts if (q.index == int(part_id) if part_id.isdigit() else q.id == part_id)]
+        boxes = [q.geometry.bounds() for q in chosen if q.geometry.op == "add"]
         if not boxes:
             raise KeyError(part_id)
         lo, hi = np.min([b[0] for b in boxes], axis=0), np.max([b[1] for b in boxes], axis=0)
@@ -101,7 +102,7 @@ def filmstrip(built: Built, animation: str, size: int = 200) -> Image.Image:
     return sheet(f"{built.model.name} · {animation}", f"{t.frames} frames at {t.fps:g} fps ({t.frames / t.fps:.2f} s), {loop}, {t.interpolation}", rows)
 
 
-def lineup(builts: list[Built], height_px: int = 360) -> Image.Image:
+def lineup(builts: list[Built], height_px: int = 480) -> Image.Image:
     """Models side by side at one scale (pixels per metre), standing on one ground line, with a 1 m bar."""
     if not builts:
         return sheet("line-up", "no models", [])
@@ -111,7 +112,8 @@ def lineup(builts: list[Built], height_px: int = 360) -> Image.Image:
     tiles: list[tuple[str, Image.Image]] = []
     for b in builts:
         lo, hi = b.bounds()
-        width_px = int(float(max(hi[0] - lo[0], hi[2] - lo[2])) * 1.15 * ppm) + 24
+        label_px = int(_font(13).getlength(b.model.name)) + 12
+        width_px = max(int(float(max(hi[0] - lo[0], hi[2] - lo[2])) * 1.15 * ppm) + 24, label_px)
         side = max(height_px, width_px)
         half = side / ppm / 2
         centre = np.array([(lo[0] + hi[0]) / 2, half - margin / ppm, (lo[2] + hi[2]) / 2])  # ground `margin` px above the bottom

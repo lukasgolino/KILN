@@ -66,7 +66,11 @@ def refine(vertices: Array, faces: Array, selected: Array, max_edge: float, proj
     e = np.stack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]], axis=1)  # (F, 3, 2)
     keys = np.sort(e, axis=2).reshape(-1, 2)
     length = np.linalg.norm(vertices[keys[:, 0]] - vertices[keys[:, 1]], axis=1)
-    long_edge = (length > max_edge) & np.repeat(selected, 3)
+    # longest-edge bisection: only each selected face's longest edge splits (neighbours follow), which keeps
+    # triangles well shaped instead of multiplying slivers
+    longest = np.zeros((len(faces), 3), dtype=bool)
+    longest[np.arange(len(faces)), length.reshape(-1, 3).argmax(axis=1)] = True
+    long_edge = (length > max_edge) & np.repeat(selected, 3) & longest.reshape(-1)
     if not long_edge.any():
         return vertices, faces, np.arange(len(faces))
     split_keys = np.unique(keys[long_edge], axis=0)
@@ -209,14 +213,24 @@ def paint(mesh: Mesh, model: Model, field: Field, rigged: bool) -> Painted:
         sel = owner == g
         if not sel.any():
             continue
-        # a periodic pattern needs edges well under its repeat to cut cleanly: refine the part's faces first
-        limit = part.pattern.size / (3 if part.pattern.type == "band" else 5)
-        for _ in range(6):
-            n_before = len(faces)
-            vertices, faces, parent = refine(vertices, faces, owner == g, limit, lambda x: _project(field, x))
-            owner = owner[parent]
-            if len(faces) == n_before:
-                break
+        # A pattern needs edges shorter than its repeat (or a stripe could fall between vertices), then short edges
+        # along its borders to cut them cleanly; areas between borders stay coarse (the budget).
+        pat = part.pattern
+        for limit, border_only in ((pat.size / 2 if pat.type != "band" else pat.size, False), (pat.size / 4, True)):
+            for _ in range(12):
+                values = fn(vertices)[faces]
+                sel = owner == g
+                if border_only:
+                    sel &= (values.min(axis=1) < 0) & (values.max(axis=1) >= 0)
+                elif pat.type == "band":
+                    sel &= values.max(axis=1) > -pat.size  # only near the band
+                if not sel.any():
+                    break
+                n_before = len(faces)
+                vertices, faces, parent = refine(vertices, faces, sel, limit, lambda x: _project(field, x))
+                owner = owner[parent]
+                if len(faces) == n_before:
+                    break
         sel = owner == g
         vertices, faces, negative, parent = split(vertices, faces, fn(vertices), sel)
         owner = owner[parent]

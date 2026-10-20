@@ -120,6 +120,23 @@ def torus(p: Array, s: dict[str, Any]) -> Array:
     return np.sqrt(ring * ring + p[:, 1] * p[:, 1]) - s["thickness"]
 
 
+def smooth_profile(points: list[list[float]], rounds: int = 3) -> list[list[float]]:
+    """Chaikin corner cutting on a closed outline; points on the axis (r = 0) stay put, so the shape stays closed."""
+    pts = [list(p) for p in points]
+    for _ in range(rounds):
+        out: list[list[float]] = []
+        n = len(pts)
+        for i in range(n):
+            prev, cur, nxt = pts[i - 1], pts[i], pts[(i + 1) % n]
+            if cur[0] == 0.0:
+                out.append(cur)
+                continue
+            out.append([0.75 * cur[0] + 0.25 * prev[0], 0.75 * cur[1] + 0.25 * prev[1]])
+            out.append([0.75 * cur[0] + 0.25 * nxt[0], 0.75 * cur[1] + 0.25 * nxt[1]])
+        pts = out
+    return pts
+
+
 def lathe(p: Array, s: dict[str, Any]) -> Array:
     """A 2D profile [[r, y], ...] (r >= 0) spun around the y axis: vases, bottles, towers, chess pieces."""
     prof = np.asarray(s["profile"], float)
@@ -200,7 +217,8 @@ SHAPES: dict[str, ShapeDef] = {
     "torus": ShapeDef(torus, {"radius": "pos", "thickness": "pos"}, ("radius", "thickness"), {},
                       lambda s: _sym(np.array([s["radius"] + s["thickness"], s["thickness"], s["radius"] + s["thickness"]])),
                       "radius (ring), thickness (tube radius); ring in the xz plane"),
-    "lathe": ShapeDef(lathe, {"profile": "profile"}, ("profile",), {}, _bounds_lathe, "profile: [[r, y], ...] spun around y"),
+    "lathe": ShapeDef(lathe, {"profile": "profile", "smooth": "bool"}, ("profile",), {"smooth": True}, _bounds_lathe,
+                      "profile: [[r, y], ...] outline spun around y (closed; points on the axis have r = 0), smooth: true|false"),
     "extrude": ShapeDef(extrude, {"points": "points2", "height": "pos", "round": "nonneg"}, ("points", "height"), {"round": 0.0},
                         _bounds_extrude, "points: [[x, z], ...] outline seen from above, height (along y), round"),
     "wedge": ShapeDef(wedge, {"size": "posvec3"}, ("size",), {}, lambda s: _sym(np.asarray(s["size"], float) / 2),

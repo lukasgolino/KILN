@@ -42,8 +42,10 @@ Write the answers into BRIEF.md and STYLE.md.
      `mirror_id: arm_r` so the copy is its own part.
    - Holes and openings: a `cut: true` part after the solid. Hollow things: `shell: <thickness>`.
    - Many regular repeats: `array` (in a row or a ring), or a generator script with `kiln.api` (section 6).
-   - Every colour is a palette name. Materials are the style's presets (plastic, fabric, skin, wood, stone, metal,
-     gold, leaf, glass, rubber, paint, glow).
+   - Every colour is a palette name. Materials are the style's presets (plastic, fabric, skin, leather, wood, stone,
+     metal, gold, leaf, glass, rubber, paint, glow).
+   - Big plain areas read better with geometry than patterns: planks, trims and shields as parts. Patterns cost
+     triangles (W110); keep them for clothes and small props.
 4. **Lint:** `kiln lint <name>`. Fix every error; read every warning (W101 a part is hidden, W102 too thin to mesh,
    W103 floating pieces, W106 not standing on the ground, W108 size wrong for the class).
 5. **Look:** `kiln preview <name>` writes a turntable (8 sides x below / eye level / above). Open it and check:
@@ -67,7 +69,9 @@ Write the answers into BRIEF.md and STYLE.md.
   where parts blend: creatures, bean characters). `separate: true` keeps a part rigid inside a soft skin
   (detachable helmet).
 - **Animations:** explicit `poses` (one per frame, per part: offset/rotate/scale) or a `cycle` that writes the
-  poses for you: walk, waddle, hop, bob, spin, swing, breathe, wave (reference.md). Check every animation with
+  poses for you: walk, waddle, hop, bob, spin, swing, breathe, wave, chain (reference.md).
+- **Cloth and flags:** split them into 3-4 segments along their length, each its own id parented to the previous one
+  (pivots on the seams), crisp seams (`blend: 0`), `skin: soft`, and animate with `cycle: { type: chain, parts: [...] }`. Check every animation with
   `kiln preview <name> --pose <animation>`: the filmstrip shows each frame from the front and the side.
 - Gameplay data on parts: `rig: { helmet: { meta: { hitzone: head, detachable: true } } }` -> node metadata in Godot
   and in the manifest.

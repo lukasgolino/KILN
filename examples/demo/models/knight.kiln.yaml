@@ -9,7 +9,7 @@ parts:
     color: crimson
     material: fabric
     pattern: { type: band, color: gold, size: 0.05, at: 0.42, axis: y }
-  - capsule: { from: [0.12, 0.05, 0], to: [0.12, 0.25, 0], radius: 0.1 }
+  - capsule: { from: [0.12, 0.1, 0], to: [0.12, 0.25, 0], radius: 0.1 }
     id: leg_l
     mirror: x
     mirror_id: leg_r

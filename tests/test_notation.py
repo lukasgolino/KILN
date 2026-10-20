@@ -221,7 +221,7 @@ parts:
         ("sphere: { radius: 1 }\n    id: Arm", "parts[0].id", "lowercase"),
         ("sphere: { radius: 1 }\n    mirror_id: other", "parts[0].mirror_id", "exactly one mirror axis"),
         ("sphere: { radius: 1 }\n    pattern: { type: zigzag }", "parts[0].pattern", "stripes|checker|dots|band"),
-        ("sphere: { radius: 1 }\n    pattern: { type: dots, color: blue, width: 2 }", "parts[0].pattern", "width 0..1"),
+        ("sphere: { radius: 1 }\n    pattern: { type: dots, color: blue, width: 2 }", "parts[0].pattern", "width must be between 0 and 1"),
         ("sphere: { radius: 1 }\n    cut: yes please", "parts[0].cut", "true or false"),
         ("sphere: { radius: 1 }\n    cut: true\n    intersect: true", "parts[0]", "not both"),
         ("sphere: { radius: 1 }\n    sphere2: 1\n    box: { size: [1, 1, 1] }", "parts[0]", "exactly one shape"),

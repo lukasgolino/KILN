@@ -22,7 +22,7 @@ from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
 from kiln.sdf import Field
 from kiln.style import Style
 
-BUILDER_VERSION = 3  # bump when meshing/painting changes output
+BUILDER_VERSION = 5  # bump when meshing/painting changes output
 
 
 def field_of(model: Model, step: float) -> Field:
@@ -41,10 +41,20 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     if mesh.triangles == 0:
         raise ValueError("the model has no surface (everything cut away, or all parts are cuts)")
     target = budget or model.budget or style.budget(model.cls)
-    mesh = decimate(field, mesh, target, step)
-    pieces = components(mesh)
     rigged = model.skin != "none"
-    painted = paint(mesh, model, field, rigged)
+    # painting adds triangles (borders, patterns): decimate harder until the painted mesh fits the budget
+    goal = target
+    previous = None
+    for _ in range(3):
+        decimated = decimate(field, mesh, goal, step)
+        painted = paint(decimated, model, field, rigged)
+        count = len(painted.faces)
+        if count <= target * 1.05 or goal <= target * 0.2 or (previous is not None and count > previous * 0.9):
+            break  # fits, or the extra triangles come from patterns themselves (lint W110 says so)
+        previous = count
+        goal = max(int(goal * target / count * 0.95), int(target * 0.2))
+    mesh = decimated
+    pieces = components(mesh)
     normals = corner_normals(painted, field, step, style.smooth, style.sharp_angle)
     skeleton = build_skeleton(model, field) if rigged else Skeleton([Bone(ROOT_ID, -1, np.zeros(3), {}, False)])
     joints = weights = None

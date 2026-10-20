@@ -171,6 +171,12 @@ def expand_cycle(anim: Animation, model: Model) -> list[dict[str, PartPose]]:
         elif kind == "breathe":
             s = opt("amount", 0.03) * _wave(t)
             pose[part] = PartPose(scale=(1 - s / 2, 1 + s, 1 - s / 2))
+        elif kind == "chain":  # a travelling wave along a chain of parts: flags, tails, tentacles, ropes
+            links = names("parts", [i for i in model.ids if i != "root"])  # default: every part id in file order
+            for k, link in enumerate(links):
+                rot = [0.0, 0.0, 0.0]
+                rot[axis] = opt("angle", 15.0) * _wave(t - opt("phase", 0.15) * k)
+                pose[link] = PartPose(rotate=(rot[0], rot[1], rot[2]))
         elif kind == "wave":
             arm = arms[-1] if arms else part
             entry = model.rig.get(arm)

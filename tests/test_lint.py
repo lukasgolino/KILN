@@ -162,3 +162,23 @@ def test_second_lint_uses_the_cache(project: Project) -> None:
 @pytest.mark.parametrize("rule", sorted(WARNING_RULES))
 def test_every_warning_is_documented(rule: str) -> None:
     assert rule.startswith("W1") and WARNING_RULES[rule]
+
+
+def test_w106_catches_a_few_centimetres(project: Project) -> None:
+    text = "name: thing\nparts:\n  - capsule: { from: [0, 0.06, 0], to: [0, 0.5, 0], radius: 0.1 }\n    color: red\n"
+    assert "W106" in warnings(lint(project, text))  # 4 cm under the ground (the old bean template)
+
+
+def test_w110_patterns_over_budget(project: Project) -> None:
+    text = ("name: thing\nbudget: 200\nparts:\n  - box: { at: [0, 0.5, 0], size: [1, 1, 1], round: 0.05 }\n    color: red\n"
+            "    pattern: { type: stripes, color: blue, size: 0.06, axis: y }\n")  # fmt: skip
+    assert "W110" in warnings(lint(project, text))
+
+
+def test_budget_is_met_when_painting_adds_triangles(project: Project) -> None:
+    text = ("name: thing\nbudget: 1500\nparts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.5 }\n    color: red\n"
+            "  - sphere: { at: [0.2, 0.8, 0.3], radius: 0.12 }\n    color: blue\n"
+            "  - sphere: { at: [-0.2, 0.8, 0.3], radius: 0.12 }\n    color: blue\n")  # fmt: skip
+    write_model(project, text)
+    result = lint_paths(project, project.model_paths())
+    assert result.built["thing"].triangles <= 1500 * 1.05

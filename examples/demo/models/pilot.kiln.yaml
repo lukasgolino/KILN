@@ -8,7 +8,7 @@ parts:
   - capsule: { from: [0, 0.32, 0], to: [0, 0.74, 0], radius: 0.3 }
     color: red
     material: plastic
-  - capsule: { from: [0.12, 0.06, 0], to: [0.12, 0.26, 0], radius: 0.1 }
+  - capsule: { from: [0.12, 0.1, 0], to: [0.12, 0.26, 0], radius: 0.1 }
     id: leg_l
     mirror: x
     mirror_id: leg_r

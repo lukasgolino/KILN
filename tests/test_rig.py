@@ -123,7 +123,8 @@ def test_cycles_expand_to_poses(project: Project, cycle: str) -> None:
     assert moved and moved <= set(model.ids)
     changing = [name for name in moved if len({repr(p.get(name)) for p in poses}) > 1]
     assert changing, cycle
-    expected = {"walk": {"leg_l", "leg_r", "arm_l", "arm_r", "root"}, "waddle": {"leg_l", "leg_r", "root"}, "wave": {"arm_r"}}
+    expected = {"walk": {"leg_l", "leg_r", "arm_l", "arm_r", "root"}, "waddle": {"leg_l", "leg_r", "root"}, "wave": {"arm_r"},
+                "chain": set(model.ids) - {"root"}}
     if cycle in ("hop", "bob", "spin", "swing", "breathe"):
         assert moved == {"head"}
     else:

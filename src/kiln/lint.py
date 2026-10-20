@@ -26,6 +26,7 @@ WARNING_RULES = {
     "W107": "made under an older style_version",
     "W108": "the model's size is unusual for its class (metres!)",
     "W109": "an animated part has no rig pivot (it turns about its box centre)",
+    "W110": "the model is well over its triangle budget (patterns need many small triangles)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -99,11 +100,17 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             for part in m.parts:
                 if part.geometry.op == "add" and part.color not in hexes:
                     warn("W104", f"colour {part.color} isn't in the palette: use a palette colour name", part.line, f"{part.where}.color")
+    budget = m.budget or built.style.budget(m.cls)
+    if m.source is None and built.triangles > budget * 1.25:
+        patterned = sum(1 for p in m.parts if p.pattern is not None)
+        why = f"its {patterned} pattern(s) need edges shorter than their repeat" if patterned else "fine details and colour borders"
+        warn("W110", f"{built.triangles} triangles for a budget of {budget}: {why}. Use bigger pattern repeats, fewer patterns, model "
+             "the details as parts, or raise budget:")  # fmt: skip
     if built.pieces > 1:
         warn("W103", f"the model is {built.pieces} separate pieces: a floating part, or a gap between parts that should touch")
     lo, hi = built.bounds()
     size = float((hi - lo).max())
-    if abs(float(lo[1])) > max(0.02, 0.05 * size):
+    if abs(float(lo[1])) > max(0.01, 0.01 * size):
         warn("W106", f"the lowest point is at y = {float(lo[1]):.3g} m: models stand on y = 0 (feet, wheels, base). Move the parts, "
              "or disable W106 for things that hang or float")  # fmt: skip
     limits = CLASS_SIZES.get(m.cls)

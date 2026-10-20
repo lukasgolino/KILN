@@ -205,3 +205,12 @@ def test_gradient_is_unit_and_outward() -> None:
     f = Field([Geometry("sphere", {"radius": 1.0})], margin=0.01)
     p = np.array([[1.0, 0, 0], [0, 0, -1.0], [0.6, 0.8, 0]])
     np.testing.assert_allclose(f.gradient(p, 1e-4), p, atol=1e-6)
+
+
+def test_lathe_profiles_are_smoothed_unless_asked() -> None:
+    from kiln.sdf import smooth_profile
+
+    square = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+    smooth = smooth_profile(square)
+    assert len(smooth) > len(square) and [0.0, 0.0] in smooth and [0.0, 1.0] in smooth  # axis points stay
+    assert [1.0, 1.0] not in smooth  # the corner is cut

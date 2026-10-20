@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix
+from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
 from pagan.findings import Finding
 from pagan.yamlio import LineMap, YamlError, load_yaml, parse_yaml
 
@@ -25,7 +25,7 @@ AXES = {"x": 0, "y": 1, "z": 2}
 PATTERNS = ("stripes", "checker", "dots", "band")
 STATUSES = ("draft", "approved")
 SKINS = ("none", "rigid", "soft")
-CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave")
+CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "chain")
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
@@ -169,6 +169,8 @@ def _vec(v: Any, n: int = 3) -> tuple[float, ...] | None:
 
 def _check_value(kind: str, v: Any) -> Any:
     """A validated parameter value, or None."""
+    if kind == "bool":
+        return v if isinstance(v, bool) else None
     if kind == "num":
         return float(v) if _num(v) else None
     if kind == "pos":
@@ -197,7 +199,7 @@ def _check_value(kind: str, v: Any) -> Any:
 KIND_HELP = {
     "num": "a number", "pos": "a number > 0", "nonneg": "a number >= 0", "vec3": "[x, y, z]",
     "posvec3": "[x, y, z], each > 0", "points3": "a list of 2+ points [x, y, z]",
-    "points2": "a list of 3+ points [x, z]", "profile": "a list of 3+ points [r, y] with r >= 0",
+    "points2": "a list of 3+ points [x, z]", "bool": "true or false", "profile": "a list of 3+ points [r, y] with r >= 0",
 }  # fmt: skip
 
 
@@ -280,6 +282,8 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if missing:
         ctx.error("E003", f"{kind} needs {', '.join(missing)} ({sdef.help})", line, swhere)
         ok = False
+    if kind == "lathe" and "profile" in params and params.get("smooth", True):
+        params["profile"] = smooth_profile(params["profile"])
     if kind in ("capsule", "tube") and "radius" in params:
         params.setdefault("radius_to", params["radius"])
     if kind in ("box", "cylinder", "extrude") and ok:
@@ -422,10 +426,18 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
     axis = raw.get("axis", "y")
     c = _color(ctx, raw.get("color"), line, f"{where}.color")
     at = raw.get("at", 0.0)
-    if bad or not _num(size) or size <= 0 or not _num(width) or not 0 < width < 1 or axis not in AXES or not _num(at) or c is None:
-        if c is not None:
-            ctx.error("E003", "pattern: size > 0 (metres per repeat; band: thickness), width 0..1, axis x|y|z, at (band centre); "
-                      "fields type, color, size, axis, width, at", line, where)
+    problems = [f"unknown field(s) {', '.join(map(str, bad))}"] if bad else []
+    if not _num(size) or size <= 0:
+        problems.append("size must be > 0 (metres per repeat; band: its thickness)")
+    if not _num(width) or not 0 < width < 1:
+        problems.append("width must be between 0 and 1")
+    if axis not in AXES:
+        problems.append("axis must be x, y or z")
+    if not _num(at):
+        problems.append("at is one number: the band's centre in metres along the axis (not [x, y, z])")
+    if problems or c is None:
+        if problems:
+            ctx.error("E003", "pattern: " + "; ".join(problems), line, where)
         return None
     unit = [0.0, 0.0, 0.0]
     unit[AXES[axis]] = 1.0

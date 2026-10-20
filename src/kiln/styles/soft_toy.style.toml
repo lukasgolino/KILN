@@ -28,6 +28,7 @@ plastic = { roughness = 0.42 }
 paint = { roughness = 0.55 }
 fabric = { roughness = 0.85 }
 skin = { roughness = 0.55, rim = 0.2 }
+leather = { roughness = 0.7 }
 rubber = { roughness = 0.75 }
 wood = { roughness = 0.75 }
 stone = { roughness = 0.9 }
