@@ -17,7 +17,7 @@ smaller steps are fine). Never push without asking; never add AI attribution to 
 | M6 fit attachments to CC0 rigs | TODO | needs M3 fit (done) + a mesh SDF of the CC0 target (sample its surface, grid-hash nearest point, sign from normals) |
 | M4 template library | TODO | needs `extends:` to find package templates (notation.resolve_extends only looks in models/); put them in src/kiln/library/ |
 
-Also still to do before tagging 0.4.0:
+DONE: v0.4.0 tagged locally (M1-M3, M7, M8; not pushed). Next release (0.5.0) after M9, M5, M6, M4:
 - Rebuild the demo output (`cd examples/demo && kiln build --verify-godot`) and commit examples/godot/assets: every
   mesh changed (crack fix, shading fix). Bump BUILDER_VERSION if meshing changes again (now 10).
 - Bump version in pyproject.toml, move CHANGELOG [Unreleased] to [0.4.0] - date, add CLAUDE.md decision-log lines
