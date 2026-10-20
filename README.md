@@ -6,6 +6,9 @@ them, and builds `.glb` files and Godot scenes. It's the 3D sibling of [PAGAN](h
 (pixel art as text): Claude can't draw, but it can write, and KILN makes the writing into art. No paid
 generators, no GPU, no Blender.
 
+**Website:** https://lukasgolino.com/kiln-website/ (live 3D demo, docs). Sister libraries: [PAGAN](https://pagan.top/)
+(pixel art) and [SEGAN](https://segan.top/) (audio).
+
 ![The demo models in Godot](docs/showcase.png)
 
 ```yaml
