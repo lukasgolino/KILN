@@ -1,15 +1,19 @@
 """Preview sheets an agent (or a person) looks at: turntable, closeup, animation filmstrip, line-up at a common
-scale, gallery, and the model beside the style's inspiration images."""
+scale, gallery, the model beside the style's inspiration images, and the model against a reference mesh (a CC0
+pack item) with metrics: silhouette IoU, triangles, surfaces, materials, colours, facet regularity, open edges."""
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from kiln.export import Built
-from kiln.render import View, render
+from kiln.mesher import open_edges
+from kiln.render import View, render, silhouette
 from kiln.sdf import Array
 
 BG = (32, 33, 40)
@@ -187,4 +191,126 @@ def versus(built: Built, images: list[Path], size: int = 320) -> Image.Image:
     return sheet(f"{built.model.name} vs inspiration", f"style {built.style.name}: does it look like it belongs?", [("", tiles)])
 
 
-__all__ = ["closeup", "filmstrip", "gallery", "inspiration_images", "lineup", "sheet", "turntable", "versus"]
+# --- against a reference mesh ------------------------------------------------------------------------------------
+
+# opposite orthographic views have mirrored silhouettes, so four headings cover the horizon
+COMPARE_VIEWS = [("front", View(0.0, 10.0)), ("front-left", View(45.0, 10.0)), ("left", View(90.0, 10.0)),
+                 ("back-left", View(135.0, 10.0)), ("front above", View(0.0, 50.0)), ("left above", View(90.0, 50.0)),
+                 ("top", View(0.0, 90.0)), ("below", View(30.0, -30.0))]  # fmt: skip
+MASK_SIZE = 256
+FACET_ANGLE = 2.0  # degrees: neighbours closer than this are one flat facet
+
+
+def _shared_fit(a: Built, b: Built) -> tuple[Array, float]:
+    """One framing for both: same pixels per metre, same ground."""
+    (alo, ahi), (blo, bhi) = a.bounds(), b.bounds()
+    lo, hi = np.minimum(alo, blo), np.maximum(ahi, bhi)
+    return (lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2 * 1.08
+
+
+def _corners(built: Built) -> Array:
+    return np.asarray(built.painted.vertices[built.painted.faces])
+
+
+def facet_regularity(vertices: Array, faces: Array) -> float:
+    """Share of the surface area (0..1) in triangles that have an edge neighbour facing the same way (within
+    FACET_ANGLE): parts of flat facets of two or more triangles. Designed low poly (quads, n-gons) is near 1;
+    a smooth or noisily decimated mesh, where every triangle tilts a little, is near 0."""
+    if not len(faces):
+        return 0.0
+    tri = vertices[faces]
+    cross = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    norm = np.linalg.norm(cross, axis=1)
+    area = norm / 2
+    unit = cross / np.maximum(norm, 1e-300)[:, None]
+    _, weld = np.unique(np.round(vertices, 6), axis=0, return_inverse=True)
+    f = weld.reshape(-1)[faces]
+    e = np.sort(np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]), axis=1)
+    face = np.tile(np.arange(len(faces)), 3)
+    keep = (e[:, 0] != e[:, 1]) & (area[face] > 0)
+    e, face = e[keep], face[keep]
+    key = e[:, 0] * (int(f.max()) + 1) + e[:, 1]
+    order = np.lexsort((face, key))
+    key, face = key[order], face[order]
+    same = key[1:] == key[:-1]
+    fa, fb = face[:-1][same], face[1:][same]
+    flat = (unit[fa] * unit[fb]).sum(axis=1) >= math.cos(math.radians(FACET_ANGLE))
+    coplanar = np.zeros(len(faces), dtype=bool)
+    coplanar[fa[flat]] = True
+    coplanar[fb[flat]] = True
+    total = float(area.sum())
+    return float(area[coplanar].sum()) / total if total > 0 else 0.0
+
+
+def mesh_stats(built: Built, counts: dict[str, int]) -> dict[str, Any]:
+    """Triangles, `counts` (surfaces, materials: from the glTF), colours (distinct base colours on faces), facet
+    regularity, open edges and size (metres) of a built model or a loaded reference."""
+    p = built.painted
+    lo, hi = built.bounds()
+    return {"triangles": built.triangles, **counts, "colors": len({p.groups[int(g)].color for g in np.unique(p.face_group)}),
+            "facet_regularity": round(facet_regularity(p.vertices, p.faces), 4),
+            "open_edges": int(len(open_edges(p.vertices, p.faces))), "size": [round(float(x), 4) for x in hi - lo]}  # fmt: skip
+
+
+def _masks(built: Built, ref: Built) -> list[tuple[str, Array, Array]]:
+    fit = _shared_fit(built, ref)
+    a, b = _corners(built), _corners(ref)
+    return [(name, silhouette(a, view, MASK_SIZE, fit), silhouette(b, view, MASK_SIZE, fit)) for name, view in COMPARE_VIEWS]
+
+
+def compare(built: Built, ref: Built, counts: dict[str, int], ref_counts: dict[str, int]) -> dict[str, Any]:
+    """Metrics of a model against a reference at one scale: silhouette IoU per view (8 views, binary masks at the
+    same framing), its mean and minimum, triangle ratio (model / reference) and both meshes' stats."""
+    views = {}
+    for name, a, b in _masks(built, ref):
+        union = int((a | b).sum())
+        views[name] = round(int((a & b).sum()) / union, 4) if union else 1.0
+    stats, ref_stats = mesh_stats(built, counts), mesh_stats(ref, ref_counts)
+    return {"iou": round(float(np.mean(list(views.values()))), 4), "iou_min": min(views.values()), "iou_views": views,
+            "triangle_ratio": round(stats["triangles"] / max(ref_stats["triangles"], 1), 4), "model": stats, "reference": ref_stats}  # fmt: skip
+
+
+def compare_summary(metrics: dict[str, Any]) -> list[str]:
+    m, r = metrics["model"], metrics["reference"]
+    pairs = " · ".join(f"{k.replace('_', ' ')} {m[k]} vs {r[k]}" for k in ("surfaces", "materials", "colors", "facet_regularity", "open_edges"))
+    return [f"silhouette IoU {metrics['iou']:.3f} (min {metrics['iou_min']:.3f}) · triangles {m['triangles']} vs {r['triangles']} "
+            f"(x{metrics['triangle_ratio']:.2f})", pairs]  # fmt: skip
+
+
+def _head_fit(built: Built, ref: Built) -> tuple[Array, float]:
+    """The top fifth of both (a character's head region)."""
+    (alo, ahi), (blo, bhi) = built.bounds(), ref.bounds()
+    top, bottom = float(max(ahi[1], bhi[1])), float(min(alo[1], blo[1]))
+    cut = top - (top - bottom) / 5
+    v = np.concatenate([built.painted.vertices[np.unique(built.painted.faces)], ref.painted.vertices[np.unique(ref.painted.faces)]])
+    v = v[v[:, 1] >= cut]
+    lo, hi = v.min(axis=0), v.max(axis=0)
+    return (lo + hi) / 2, max(float(np.linalg.norm(hi - lo)) / 2 * 1.15, built.step * 8)
+
+
+def versus_reference(built: Built, ref: Built, metrics: dict[str, Any], label: str, size: int = 180) -> Image.Image:
+    """Reference and model in paired rows at one scale (turntable from below, eye level, above), their head regions
+    (top fifth) close up, and the silhouette difference in each metric view."""
+    fit = _shared_fit(built, ref)
+    rows: list[tuple[str, list[tuple[str, Image.Image]]]] = []
+    for pitch, height in ((-20.0, "from below"), (15.0, "eye level"), (50.0, "from above")):
+        for who, b in (("reference", ref), ("kiln", built)):
+            rows.append((f"{who}, {height} ({pitch:+g} degrees)", [(n, render(b, View(yaw, pitch), size, fit=fit, background=TILE_BG)) for n, yaw in HEADINGS]))
+    head = _head_fit(built, ref)
+    for who, b in (("reference", ref), ("kiln", built)):
+        rows.append((f"{who}, top fifth close up", [(n, render(b, View(yaw, 15.0), size, fit=head, background=TILE_BG)) for n, yaw in HEADINGS]))
+    diff = []
+    for name, mine, theirs in _masks(built, ref):
+        im = np.zeros((MASK_SIZE, MASK_SIZE, 4), dtype=np.uint8)
+        im[:] = TILE_BG
+        im[mine & theirs] = (120, 124, 136, 255)
+        im[mine & ~theirs] = (220, 60, 50, 255)
+        im[theirs & ~mine] = (50, 110, 220, 255)
+        tile = Image.fromarray(im, "RGBA").resize((size, size), Image.Resampling.NEAREST)
+        diff.append((f"{name} {metrics['iou_views'][name]:.2f}", tile))
+    rows.append(("silhouettes: grey both, red kiln only, blue reference only (IoU per view)", diff))
+    return sheet(f"{built.model.name} vs {label}", " | ".join(compare_summary(metrics)), rows)
+
+
+__all__ = ["closeup", "compare", "compare_summary", "detach", "facet_regularity", "filmstrip", "gallery", "inspiration_images", "lineup",
+           "mesh_stats", "sheet", "turntable", "versus", "versus_reference"]

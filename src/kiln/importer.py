@@ -266,4 +266,75 @@ def mesh_normals(v: Array, f: Array, smooth: bool, sharp_angle: float) -> Array:
     return np.where(agree[:, :, None], corner, flat)
 
 
-__all__ = ["ImportError_", "build_imported", "external_files", "mesh_normals", "missing_files", "nearest_palette", "read_mesh"]
+def _scene_primitives(doc: dict[str, Any]) -> list[tuple[dict[str, Any], Array]]:
+    """(triangle primitive, world matrix) per mesh instance in the scene, in `read_mesh`'s order."""
+    scene = doc.get("scenes", [{}])[doc.get("scene", 0)] if doc.get("scenes") else {"nodes": list(range(len(doc.get("nodes", []))))}
+    out: list[tuple[dict[str, Any], Array]] = []
+
+    def visit(index: int, parent: Array) -> None:
+        node = doc["nodes"][index]
+        world = parent @ _node_matrix(node)
+        if "mesh" in node:
+            out.extend((prim, world) for prim in doc["meshes"][node["mesh"]]["primitives"] if prim.get("mode", 4) == 4)
+        for child in node.get("children", []):
+            visit(child, world)
+
+    for root in scene.get("nodes", []):
+        visit(root, np.eye(4))
+    return out
+
+
+def gltf_counts(source: Path | bytes) -> dict[str, int]:
+    """Surfaces (triangle primitives drawn: draw calls) and distinct materials they use, over the scene of a
+    .glb/.gltf file or of glb bytes (what `to_glb` writes)."""
+    prims = _scene_primitives(read_glb(source)[0] if isinstance(source, bytes) else _document(source))
+    return {"surfaces": len(prims), "materials": len({p.get("material", -1) for p, _ in prims})}
+
+
+def read_normals(path: Path) -> Array:
+    """Per-corner normals (F, 3, 3) of `read_mesh(path)`'s faces: the file's own (NORMAL), flat where it has none."""
+    doc, buffers = _load(path)
+    out = []
+    for prim, world in _scene_primitives(doc):
+        pos = _accessor(doc, buffers, prim["attributes"]["POSITION"])
+        idx = _accessor(doc, buffers, prim["indices"]).astype(np.int64).reshape(-1, 3) if "indices" in prim else np.arange(len(pos)).reshape(-1, 3)
+        if np.linalg.det(world[:3, :3]) < 0:
+            idx = idx[:, ::-1]
+        if "NORMAL" in prim["attributes"]:
+            n = _accessor(doc, buffers, prim["attributes"]["NORMAL"]) @ np.linalg.inv(world[:3, :3])  # inverse transpose
+            corner = n[idx]
+        else:
+            w = (np.concatenate([pos, np.ones((len(pos), 1))], axis=1) @ world.T)[:, :3][idx]
+            fn = np.cross(w[:, 1] - w[:, 0], w[:, 2] - w[:, 0])
+            corner = np.repeat(fn[:, None, :], 3, axis=1)
+        out.append(corner / np.maximum(np.linalg.norm(corner, axis=2, keepdims=True), 1e-12))
+    return np.concatenate(out) if out else np.zeros((0, 3, 3))
+
+
+def load_reference(path: Path, style: Style, height: float | None = None, centre_xz: tuple[float, float] | None = None) -> Built:
+    """A .glb/.gltf as it is (a reference to compare against): its own colours (textures sampled per face) and
+    normals, no decimation; scaled to `height` metres (default: the file's units), standing on y = 0, its box
+    centred on `centre_xz` if given."""
+    v, f, cols, kinds = read_mesh(path)
+    if height is not None:
+        span = float(v[:, 1].max() - v[:, 1].min())
+        v = v * (height / span if span > 0 else 1.0)
+    used = v[np.unique(f)]
+    lo, hi = used.min(axis=0), used.max(axis=0)
+    shift = np.array([0.0, -lo[1], 0.0])
+    if centre_xz is not None:
+        shift[[0, 2]] = np.array(centre_xz) - (lo[[0, 2]] + hi[[0, 2]]) / 2
+    v = v + shift
+    face_hex = ["#%02x%02x%02x" % tuple(int(round(c * 255)) for c in col) for col in np.clip(cols, 0, 1)]
+    keys = sorted(set(zip(face_hex, kinds, strict=True)))
+    lookup = {k: i for i, k in enumerate(keys)}
+    groups = [PaintGroup(ROOT_ID, h, h, k) for h, k in keys]
+    face_group = np.array([lookup[k] for k in zip(face_hex, kinds, strict=True)], dtype=np.int64)
+    painted = Painted(v, f, face_group, groups, np.full(len(f), -1), [])
+    skeleton = Skeleton([Bone(ROOT_ID, -1, np.zeros(3), {}, False)])
+    size = float((hi - lo).max())
+    return Built(Model(path.stem, path), style, painted, read_normals(path), skeleton, "none", None, None, [], max(size / 200, 0.002), 1)
+
+
+__all__ = ["ImportError_", "build_imported", "external_files", "gltf_counts", "load_reference", "mesh_normals", "missing_files", "nearest_palette",
+           "read_mesh", "read_normals"]

@@ -219,7 +219,9 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     swap = built.model.variants.get(args.variant) if args.variant else None
     if args.variant and swap is None:
         raise _usage(f"{name} has no variant {args.variant!r} (variants: {', '.join(built.model.variants) or 'none'})")
-    wanted_any = args.closeup or args.pose or args.vs or args.engine or args.detach
+    wanted_any = args.closeup or args.pose or args.vs is not None or args.engine or args.detach
+    if args.ref_height is not None and not args.vs:
+        raise _usage("--ref-height goes with --vs <ref.glb>")
     if args.turntable or not wanted_any:
         path = folder / (f"turntable.{args.variant}.png" if args.variant else "turntable.png")
         pv.turntable(built, swap=swap).save(path)
@@ -245,7 +247,10 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
             outputs["detach"] = display_path(path)
         except KeyError:
             raise _usage(f"{name} has no separate parts (rig: {{ <id>: {{ separate: true }} }}, on a skinned model)") from None
+    metrics: dict[str, Any] | None = None
     if args.vs:
+        metrics = _compare(project, built, Path(args.vs), args.ref_height, folder, outputs)
+    elif args.vs is not None:
         images = pv.inspiration_images(project.styles_dir, built.style.name)
         if not images:
             raise _usage(f"no inspiration images in styles/{built.style.name}/inspiration/ (png, jpg, webp)")
@@ -257,8 +262,35 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     for key, value in outputs.items():
         for label, path in (value.items() if isinstance(value, dict) else [("", value)]):
             out.say(f"{name} {key}{' ' + label if label else ''}: {path}")
-    out.result({"model": name, "outputs": outputs, "triangles": built.triangles})
+    if metrics is not None:
+        for line in pv.compare_summary(metrics):
+            out.say(f"{name} vs {metrics['file']}: {line}")
+    out.result({"model": name, "outputs": outputs, "triangles": built.triangles, **({"compare": metrics} if metrics else {})})
     return 0
+
+
+def _compare(project: Project, built: Any, ref_path: Path, ref_height: float | None, folder: Path, outputs: dict[str, Any]) -> dict[str, Any]:
+    """`--vs <ref.glb>`: the comparison sheet and metrics."""
+    from kiln import preview as pv
+    from kiln.export import to_glb
+    from kiln.importer import ImportError_, gltf_counts, load_reference
+
+    if ref_path.suffix.lower() not in (".glb", ".gltf") or not ref_path.is_file():
+        raise _usage(f"--vs takes a .glb or .gltf file (or nothing: the style's inspiration images); {ref_path} isn't one")
+    if ref_height is not None and ref_height <= 0:
+        raise _usage("--ref-height is the reference's height in metres (> 0)")
+    lo, hi = built.bounds()
+    try:
+        ref = load_reference(ref_path, built.style, ref_height, (float(lo[0] + hi[0]) / 2, float(lo[2] + hi[2]) / 2))
+        ref_counts = gltf_counts(ref_path)
+    except (ImportError_, ValueError, KeyError, IndexError, OSError) as exc:
+        raise _usage(f"can't read {ref_path}: {exc}") from None
+    counts = gltf_counts(to_glb(built, "kiln", None, project.config.vertex_colors))
+    metrics = {"file": display_path(ref_path), "ref_height": ref_height, **pv.compare(built, ref, counts, ref_counts)}
+    path = folder / f"vs_{ref_path.stem}.png"
+    pv.versus_reference(built, ref, metrics, ref_path.name).save(path)
+    outputs["vs_reference"] = display_path(path)
+    return metrics
 
 
 def _engine_preview(project: Project, built: Any, folder: Path) -> str:
@@ -607,7 +639,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--turntable", action="store_true")
     s.add_argument("--closeup", action="append", metavar="PART")
     s.add_argument("--pose", action="append", metavar="ANIMATION")
-    s.add_argument("--vs", action="store_true", help="beside the style's inspiration images")
+    s.add_argument("--vs", nargs="?", const="", metavar="REF",
+                   help="beside the style's inspiration images; with a .glb/.gltf: against that reference at one scale, with metrics")  # fmt: skip
+    s.add_argument("--ref-height", type=float, metavar="METRES", help="scale the --vs reference to this height (default: its own units)")
     s.add_argument("--detach", action="store_true", help="each separate part taken off: what's left, and what it covered")
     s.add_argument("--engine", action="store_true", help="render through Godot (needs a display and a build)")
     s.add_argument("--variant")

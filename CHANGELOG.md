@@ -19,12 +19,19 @@ Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).
 - Rig `under: { color, material, gap }` on a `separate` part: paints what it covers (hair under a helmet).
 - `kiln preview <model> --detach` (and the MCP `preview` tool's `detach`): each separate part off in turn.
 - E013: the built mesh has open edges (cracks).
+- Reference comparison (M7): `kiln preview <model> --vs <ref.glb|ref.gltf> [--ref-height M]` renders the model and a
+  reference mesh at one scale in paired turntable rows, head-region closeups and per-view silhouette differences, with
+  metrics (printed and under `compare` in `--json`): silhouette IoU over 8 views, triangles and their ratio, surfaces,
+  materials, colours, facet regularity and open edges of both. `--vs` without a path still shows the inspiration
+  images. The MCP `preview` tool takes `reference` and `ref_height` with `which: "vs"`.
+- Skill: a "match a reference" workflow (iterate until the metrics are inside the owner's thresholds).
 
 ### Fixed
 
 - Cracks at colour borders (LOOSE 23: 36 open edges on a footman; the demo knight had 48): cutting a border split
   only one side of an edge, leaving T-junctions. Every demo model is now closed.
 - Zero-volume fins (pairs of opposite faces) that decimation could leave on thin parts are removed.
+- The preview renderer crashed when a batch of triangles covered no pixel centre (close framings).
 
 ## [0.3.0] - 2026-10-20
 

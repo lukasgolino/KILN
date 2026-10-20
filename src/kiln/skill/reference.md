@@ -339,6 +339,18 @@ Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`.
 `kiln config show|get|set` · `kiln import <file> --licence L` · `kiln credits` · `kiln doctor` ·
 `kiln skill install` · `kiln mcp`. Every command takes `--json` (before or after the command). `--closeup` takes a part
 id (`root` = parts without one) or a part's number in the file (`--closeup 3`).
+`kiln preview <model> --vs <ref.glb|ref.gltf> [--ref-height METRES]`: the model against a reference mesh (a CC0
+pack item, kept as it is: its own colours and normals) at one scale (same pixels per metre, both on y = 0, centred
+on each other), in the style's lighting: `previews/<model>/vs_<ref>.png` with paired turntable rows (reference above
+the model; from below, eye level, above), the top fifth (head region) close up, and the silhouette difference per
+view. `--ref-height` scales the reference to that height (default: its own units). Metrics (printed, and in `--json`
+under `compare`): `iou` (mean silhouette IoU of 8 views: front, front-left, left, back-left at +10 degrees, front and
+left at +50, top, below at -30; 1.0 = same outline), `iou_min`, `iou_views`, `triangle_ratio` (model / reference),
+and for `model` and `reference`: `triangles`, `surfaces` (glTF primitives drawn = draw calls; for the model what
+`kiln build` writes), `materials`, `colors` (distinct base colours on faces; a textured reference counts each face's
+sampled colour), `facet_regularity` (share of surface area in triangles with an edge neighbour facing the same way
+within 2 degrees: flat designed facets near 1, smooth or noisily decimated surfaces near 0), `open_edges` (cracks),
+`size` (metres). All deterministic. Without a path, `--vs` shows the style's inspiration images.
 
 ## Build output
 
