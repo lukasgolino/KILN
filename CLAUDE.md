@@ -85,3 +85,13 @@ anything that changes output.
   (shape-driven; locked borders from full detail starved shapes: hexagonal wheels, flattened boots) -> cut colour
   regions -> alternate border thinning and border-locked decimation -> relax bad faces. Thin parts (< PROTECT x the
   budget's edge length) get their own region. Lint workers are limited by free memory (WORKER_MEMORY).
+- 2026-10-21: CC0 parity (CC0_PARITY_PLAN.md; owner: "do everything in there"). Hard surface is a second, exact path:
+  parts tessellated from their shape and combined with BSP CSG (csg.js algorithm) in pure Python, then coplanar
+  fragments re-triangulated (holes bridged, straight points dropped only where every patch agrees) so it stays
+  watertight. Hard parts aren't decimated; budget pressure lowers their detail (bevel -> chamfer -> none -> fewer sides).
+- 2026-10-21: Cracks at colour borders came from split() cutting only the selected side of an edge (T-junctions); the
+  neighbour is now split too. The smooth crease test uses half of sharp_angle (the field's normal on a crisp edge is
+  the bisector) with a 15% inset sample.
+- 2026-10-21: Kept parts (`keep`, or crisp parts < 2% of the model) are their own small meshes on a finer grid, sitting
+  in the surface around them, so LODs never lose them. Hardware parts (rivets, band, planks, bolt, slit) expand into
+  ordinary parts at parse time. Fitted shells (`fit`) are a wall around another part's distance field.

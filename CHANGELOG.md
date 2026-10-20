@@ -6,6 +6,8 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-21
+
 Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).
 
 ### Added
@@ -145,7 +147,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/lukasgolino/KILN/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lukasgolino/KILN/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lukasgolino/KILN/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lukasgolino/KILN/releases/tag/v0.1.0
