@@ -72,7 +72,7 @@ class _Writer:
         return self.swap.get(hex_color, hex_color)
 
     def material(self, color: str, color_name: str, preset_name: str, decal: int) -> int:
-        color = self.color(color)
+        """`color` is already swapped (variants)."""
         key = (color, preset_name, decal)
         if key in self.materials:
             return self.materials[key]
@@ -118,9 +118,15 @@ class _Writer:
         """Primitives for a subset of faces (one per material), positions relative to `origin`."""
         p = self.b.painted
         prims = []
-        keys = [(p.groups[g].color, p.groups[g].color_name, p.groups[g].material, int(dec)) for g, dec in zip(p.face_group[faces_idx], p.face_decal[faces_idx], strict=True)]
-        order = sorted(set(keys), key=lambda k: (self.color(k[0]), k[2], k[3]))
-        keys_arr = np.array([order.index(k) for k in keys]) if keys else np.zeros(0, dtype=int)
+        # one primitive per material: (colour after swaps, preset, decal); groups that only differ in name merge
+        names: dict[str, str] = {}
+        for g in p.groups:
+            names.setdefault(g.color, g.color_name.split("#")[0])
+        keys = [(self.color(p.groups[g].color), names[p.groups[g].color], p.groups[g].material, int(dec))
+                for g, dec in zip(p.face_group[faces_idx], p.face_decal[faces_idx], strict=True)]  # fmt: skip
+        order = sorted(set(keys))
+        index = {k: i for i, k in enumerate(order)}
+        keys_arr = np.array([index[k] for k in keys]) if keys else np.zeros(0, dtype=int)
         for m, key in enumerate(order):
             sel = faces_idx[keys_arr == m]
             corners = p.faces[sel].reshape(-1)

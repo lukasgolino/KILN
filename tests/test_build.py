@@ -199,3 +199,29 @@ def test_godot_loads_a_toon_style(tmp_path: Path) -> None:
     assert godot is not None
     check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
     assert check.ok, check.output[-3000:]
+
+
+@pytest.mark.slow
+def test_builds_do_not_depend_on_the_hash_seed(tmp_path: Path) -> None:
+    """Python randomises str hashes per process: output must not depend on set/dict order of names."""
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    demo = Path(__file__).parent.parent / "examples" / "demo"
+    outputs = []
+    for seed in ("1", "2"):
+        root = tmp_path / seed
+        shutil.copytree(demo, root, ignore=shutil.ignore_patterns("previews", ".kiln-cache"))
+        config = (root / "kiln.toml").read_text().replace('output_dir = "../godot/assets/kiln"', 'output_dir = "out"').replace('export = ["glb", "godot"]', 'export = ["glb"]')
+        (root / "kiln.toml").write_text(config)
+        keep = {"passenger.kiln.yaml", "pilot.kiln.yaml"}
+        for path in (root / "models").glob("*.kiln.yaml"):
+            if path.name not in keep:
+                path.unlink()
+        env = {**os.environ, "PYTHONHASHSEED": seed}
+        run = subprocess.run([sys.executable, "-m", "kiln", "build"], cwd=root, env=env, capture_output=True, text=True, timeout=600)
+        assert run.returncode == 0, run.stdout + run.stderr
+        outputs.append({p.name: p.read_bytes() for p in sorted((root / "out" / "models").glob("*.glb"))})
+    assert outputs[0] == outputs[1]
