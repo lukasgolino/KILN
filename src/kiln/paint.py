@@ -171,11 +171,12 @@ class Regions:
     pattern_groups: dict[int, int]  # group -> its pattern's second-colour group
 
 
-def regions(mesh: Mesh, model: Model, field: Field, rigged: bool) -> Regions:
+def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[int] | None = None, protect: frozenset[int] = frozenset()) -> Regions:
     """Cut the mesh into paint groups (one per bone + colour + material) and patterns. Done on the full-resolution
-    mesh, so the borders are smooth curves that decimation then keeps (mesher.decimate_regions)."""
+    mesh, so the borders are smooth curves that decimation then keeps (mesher.decimate_regions). `protect`ed parts
+    (thin ones the budget would erase) get their own group, so decimation keeps their outline too."""
     vertices, faces = mesh.vertices, mesh.faces
-    adding = [i for i, part in enumerate(model.parts) if part.geometry.op == "add"]
+    adding = [i for i, part in enumerate(model.parts) if part.geometry.op == "add" and (include is None or i in include)]
     # parts that paint the same way (and move with the same bone) are one group: no cuts between them
     group_index: dict[PaintGroup, int] = {}
     groups: list[PaintGroup] = []
@@ -183,7 +184,7 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool) -> Regions:
     for i in adding:
         part = model.parts[i]
         key = PaintGroup(part.id if rigged else "root", part.color, part.color_name, part.material)
-        if part.pattern is not None or part.decal is not None:
+        if part.pattern is not None or part.decal is not None or i in protect:
             key = PaintGroup(key.bone, key.color, f"{key.color_name}#{i}", key.material)  # its own group
         if key not in group_index:
             group_index[key] = len(groups)
@@ -191,10 +192,19 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool) -> Regions:
         part_group[i] = group_index[key]
     members = [[i for i in adding if part_group[i] == g] for g in range(len(groups))]
 
+    later = {i: [j for j in range(i + 1, len(model.parts)) if model.parts[j].geometry.op != "add"] for i in adding}
+
     def group_distances(points: Array) -> Array:
         if not len(points):
             return np.zeros((len(groups), 0))
-        per_part = {i: field.part_distance(i, points) for i in adding}
+        # a part's surface counts only where the cuts after it left it (a door in a cut archway isn't the wall's)
+        removers = {j: field.part_distance(j, points) for j in sorted({j for js in later.values() for j in js})}
+        per_part = {}
+        for i in adding:
+            d = field.part_distance(i, points)
+            for j in later[i]:
+                d = np.maximum(d, -removers[j] if model.parts[j].geometry.op == "cut" else removers[j])
+            per_part[i] = d
         return np.array([np.min([per_part[i] for i in m], axis=0) for m in members])
 
     dist = group_distances(vertices)
@@ -265,7 +275,7 @@ def paint(painted: Regions, model: Model) -> Painted:
     face_decal = np.full(len(faces), -1)
     for i in adding:
         part = model.parts[i]
-        if part.decal is None:
+        if part.decal is None or i not in part_group:  # (another piece's part)
             continue
         d = part.decal
         g = part_group[i]

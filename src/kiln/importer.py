@@ -24,8 +24,8 @@ from kiln.paint import PaintGroup, Painted
 from kiln.rig import Bone, Skeleton
 from kiln.sdf import Array, rotation_matrix
 from kiln.style import Style
-from pagan.color import distance, rgb_to_oklab
-from pagan.gltf import read_glb
+from kiln.vendor.color import distance, rgb_to_oklab
+from kiln.vendor.gltf import read_glb
 
 COMPONENTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
 DTYPES = {5126: "<f4", 5123: "<u2", 5125: "<u4", 5121: "u1", 5122: "<i2", 5120: "i1"}
@@ -33,6 +33,24 @@ DTYPES = {5126: "<f4", 5123: "<u2", 5125: "<u4", 5121: "u1", 5122: "<i2", 5120: 
 
 class ImportError_(ValueError):
     pass
+
+
+def _document(path: Path) -> dict[str, Any]:
+    if path.suffix.lower() == ".glb":
+        return read_glb(path.read_bytes())[0]
+    doc: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return doc
+
+
+def external_files(path: Path) -> list[str]:
+    """The files a .glb/.gltf refers to by relative uri (buffers, textures: Kenney's Textures/colormap.png)."""
+    doc = _document(path)
+    uris = [item.get("uri", "") for item in [*doc.get("buffers", []), *doc.get("images", [])]]
+    return sorted({u for u in uris if u and not u.startswith("data:")})
+
+
+def missing_files(path: Path) -> list[str]:
+    return [u for u in external_files(path) if not (path.parent / u).is_file()]
 
 
 def _load(path: Path) -> tuple[dict[str, Any], list[bytes]]:
@@ -106,6 +124,10 @@ def _texture_image(doc: dict[str, Any], buffers: list[bytes], path: Path, tex_in
 
 def read_mesh(path: Path) -> tuple[Array, Array, Array, list[str]]:
     """(vertices (V, 3), faces (F, 3), face colours (F, 3) sRGB 0..1, face material kinds) in the file's scene."""
+    missing = missing_files(path)
+    if missing:
+        raise ImportError_(f"{path.name} refers to {', '.join(missing)}, which isn't next to it (keep the pack's folders, "
+                           "e.g. imports/Textures/; `kiln import` copies them)")  # fmt: skip
     doc, buffers = _load(path)
     scene = doc.get("scenes", [{}])[doc.get("scene", 0)] if doc.get("scenes") else {"nodes": list(range(len(doc.get("nodes", []))))}
     verts, faces, colors, kinds = [], [], [], []
@@ -244,4 +266,4 @@ def mesh_normals(v: Array, f: Array, smooth: bool, sharp_angle: float) -> Array:
     return np.where(agree[:, :, None], corner, flat)
 
 
-__all__ = ["ImportError_", "build_imported", "mesh_normals", "nearest_palette", "read_mesh"]
+__all__ = ["ImportError_", "build_imported", "external_files", "mesh_normals", "missing_files", "nearest_palette", "read_mesh"]

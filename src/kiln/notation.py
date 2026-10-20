@@ -15,8 +15,8 @@ from typing import Any
 import numpy as np
 
 from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
-from pagan.findings import Finding
-from pagan.yamlio import LineMap, YamlError, load_yaml, parse_yaml
+from kiln.vendor.findings import Finding
+from kiln.vendor.yamlio import LineMap, YamlError, load_yaml, parse_yaml
 
 MODEL_SUFFIX = ".kiln.yaml"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -29,9 +29,10 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "noise", "pattern", "decal"}  # fmt: skip
+               "shell", "twist", "noise", "pattern", "decal", "loose"}  # fmt: skip
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
-              "skin", "animations", "variants", "lod", "lint", "source", "process"}  # fmt: skip
+              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove"}  # fmt: skip
+OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ class Part:
     where: str = ""
     twin_of: str | None = None  # mirror_id copies: the id they mirror
     twin_axis: int = 0
+    loose: bool = False  # meant to float (flames, bees, rubble): not a W103 floating piece
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,8 @@ class Model:
     lint_disable: tuple[str, ...] = ()
     source: Source | None = None
     text: str = ""
+    template: bool = False  # a base for `extends` (not built on its own)
+    extends: str | None = None
 
     @property
     def ids(self) -> list[str]:
@@ -191,7 +195,11 @@ def _check_value(kind: str, v: Any) -> Any:
             pts = [list(_vec(p, 2) or ()) for p in v]
             if kind == "profile" and any(p[0] < 0 for p in pts):
                 return None
-            return pts
+            # a repeated point (or an outline closed on its first point) is a zero-length edge: drop it
+            pts = [p for i, p in enumerate(pts) if i == 0 or p != pts[i - 1]]
+            if len(pts) > 1 and pts[-1] == pts[0]:
+                pts.pop()
+            return pts if len(pts) >= 3 else None
         return None
     return None
 
@@ -199,7 +207,8 @@ def _check_value(kind: str, v: Any) -> Any:
 KIND_HELP = {
     "num": "a number", "pos": "a number > 0", "nonneg": "a number >= 0", "vec3": "[x, y, z]",
     "posvec3": "[x, y, z], each > 0", "points3": "a list of 2+ points [x, y, z]",
-    "points2": "a list of 3+ points [x, z]", "bool": "true or false", "profile": "a list of 3+ points [r, y] with r >= 0",
+    "points2": "a list of 3+ different points [x, z]", "bool": "true or false",
+    "profile": "a list of 3+ different points [r, y] with r >= 0",
 }  # fmt: skip
 
 
@@ -390,11 +399,15 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             if paint in raw:
                 ctx.error("E003", f"a {op} part removes material: it has no {paint}", line, f"{where}.{paint}")
                 ok = False
+    loose = raw.get("loose", False)
+    if not isinstance(loose, bool):
+        ctx.error("E003", "loose must be true or false (true: this part may float free; lint W103 ignores it)", line, f"{where}.loose")
+        ok = False
     if not ok:
         return []
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise)  # fmt: skip
-    parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where)]
+    parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose))]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
         twin_decal = decal
@@ -403,7 +416,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             at_m[mirror[0]] = -at_m[mirror[0]]
             axis_m = decal.axis if decal.axis.lstrip("-") != "xyz"[mirror[0]] else (decal.axis[1:] if decal.axis.startswith("-") else "-" + decal.axis)
             twin_decal = Decal(decal.image, axis_m, (at_m[0], at_m[1], at_m[2]), decal.size)
-        parts.append(Part(index, str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where, str(part_id), mirror[0]))
+        parts.append(Part(index, str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where, str(part_id), mirror[0], bool(loose)))
     return parts
 
 
@@ -488,9 +501,16 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> dict[str
             ctx.error("E007", f"parent must be another part id ({', '.join(sorted(ids))})", rline, f"{where}.parent")
             continue
         meta = spec.get("meta", {})
-        if not isinstance(meta, dict) or not all(isinstance(k, str) and (isinstance(v, str | bool) or _num(v)) for k, v in meta.items()):
-            ctx.error("E007", "meta maps names to plain values, e.g. { hitzone: head, damage: 2, detachable: true }", rline, f"{where}.meta")
+
+        def plain(v: Any) -> bool:
+            return isinstance(v, str | bool) or _num(v)
+
+        if not isinstance(meta, dict) or not all(isinstance(k, str) and (plain(v) or (isinstance(v, list) and all(plain(x) for x in v)))
+                                                 for k, v in meta.items()):  # fmt: skip
+            ctx.error("E007", "meta maps names to plain values or flat lists, e.g. { hitzone: head, damage: 2, seat: [0, 1.5, 0] }",
+                      rline, f"{where}.meta")  # fmt: skip
             continue
+        meta = {k: tuple(v) if isinstance(v, list) else v for k, v in meta.items()}
         separate = spec.get("separate", False)
         if not isinstance(separate, bool):
             ctx.error("E007", "separate must be true or false", rline, f"{where}.separate")
@@ -565,8 +585,8 @@ def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> d
         if not isinstance(name, str) or not NAME_RE.match(name):
             ctx.error("E008", "animation names are lowercase letters, digits, _ or -", aline, where)
             continue
-        if not isinstance(spec, dict) or ("poses" in spec) == ("cycle" in spec):
-            ctx.error("E008", "an animation has poses: [...] or cycle: { type: ... } (one of them)", aline, where)
+        if not isinstance(spec, dict) or ("poses" not in spec and "cycle" not in spec):
+            ctx.error("E008", "an animation has poses: [...], cycle: { type: ... }, or both (poses then override the cycle per part)", aline, where)
             continue
         bad = [k for k in spec if k not in ("fps", "loop", "interpolation", "poses", "cycle")]
         fps = spec.get("fps", 12)
@@ -575,15 +595,18 @@ def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> d
         if bad or not _num(fps) or not 0 < fps <= 120 or not isinstance(loop, bool) or interp not in INTERPOLATIONS:
             ctx.error("E008", "animation fields: fps (1-120), loop (true/false), interpolation (linear|step), poses or cycle", aline, where)
             continue
+        poses: list[dict[str, PartPose]] = []
         if "poses" in spec:
             raw_poses = spec["poses"]
             if not isinstance(raw_poses, list) or not raw_poses:
                 ctx.error("E008", "poses is a list of poses (one per frame): - { arm_r: { rotate: [0, 0, -60] } }", aline, f"{where}.poses")
                 continue
-            poses = [_pose(ctx, p, ids, _line(p) or aline, f"{where}.poses[{i}]") for i, p in enumerate(raw_poses)]
-            if any(p is None for p in poses):
+            parsed = [_pose(ctx, p, ids, _line(p) or aline, f"{where}.poses[{i}]") for i, p in enumerate(raw_poses)]
+            if any(p is None for p in parsed):
                 continue
-            out[name] = Animation(name, float(fps), loop, interp, [p for p in poses if p is not None])
+            poses = [p for p in parsed if p is not None]
+        if "cycle" not in spec:
+            out[name] = Animation(name, float(fps), loop, interp, poses)
         else:
             cycle = spec["cycle"]
             if not isinstance(cycle, dict) or cycle.get("type") not in CYCLES:
@@ -595,7 +618,7 @@ def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> d
             if unknown:
                 ctx.error("E008", f"cycle names unknown part id(s) {', '.join(map(str, unknown))} (ids: {', '.join(sorted(ids))})", aline, f"{where}.cycle")
                 continue
-            out[name] = Animation(name, float(fps), loop, interp, [], dict(cycle))
+            out[name] = Animation(name, float(fps), loop, interp, poses, dict(cycle))
     return out
 
 
@@ -615,6 +638,12 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     elif expected is not None and name != expected:
         ctx.error("E003", f"name {name!r} must match the file name ({expected}{MODEL_SUFFIX})", _line(data, "name"), "name")
     model = Model(name=str(name), path=path, text=text)
+    template = data.get("template", False)
+    if not isinstance(template, bool):
+        ctx.error("E003", "template is true or false (true: a base other models extend; it isn't built itself)", _line(data, "template"), "template")
+    else:
+        model.template = template
+    model.extends = data.get("extends") if isinstance(data.get("extends"), str) else None
     model.description = str(data.get("description", ""))
     tags = data.get("tags", [])
     if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
@@ -744,15 +773,76 @@ def _parse_source(ctx: _Ctx, raw: Any, process: Any, line: int | None) -> Source
     return src
 
 
-def load_model(path: Path, palette: dict[str, str], materials: set[str]) -> tuple[Model | None, list[Finding]]:
+def _read(path: Path) -> tuple[Any, str, list[Finding]]:
     try:
         text = path.read_text(encoding="utf-8")
-        data = parse_yaml(text)
+        return parse_yaml(text), text, []
     except (OSError, UnicodeDecodeError) as exc:
-        return None, [Finding("E001", f"cannot read file: {exc}", path)]
+        return None, "", [Finding("E001", f"cannot read file: {exc}", path)]
     except YamlError as exc:
-        return None, [Finding("E001", exc.message, path, exc.line)]
-    return parse_model(data, path, palette, materials, text)
+        return None, "", [Finding("E001", exc.message, path, exc.line)]
+
+
+def resolve_extends(path: Path, data: Any, text: str, seen: tuple[Path, ...] = ()) -> tuple[Any, str, list[Finding]]:
+    """A model with `extends: <base>` merged onto its base (a `template: true` model in the same folder):
+    the base's parts come first, minus `remove: [ids]`, then the model's own; rig entries, animations and variants
+    merge by name (the model's win); every other field is inherited unless the model sets it, except its own
+    identity (name, description, tags, status, style_version, template). Returns (data, text of the whole family)."""
+    if not isinstance(data, dict) or not isinstance(data.get("extends"), str):
+        if isinstance(data, dict) and "extends" in data:
+            return data, text, [Finding("E012", "extends is the name of a template model (models/<name>.kiln.yaml)", path, _line(data, "extends"), "extends")]
+        return data, text, []
+    line = _line(data, "extends")
+    base_path = path.parent / f"{data['extends']}{MODEL_SUFFIX}"
+    if base_path.resolve() in seen or base_path.resolve() == path.resolve():
+        return data, text, [Finding("E012", f"extends forms a loop: {' -> '.join(p.stem for p in (*seen, path))} -> {base_path.name}", path, line, "extends")]
+    if not base_path.is_file():
+        return data, text, [Finding("E012", f"extends: no model {data['extends']!r} ({base_path.name}) in {path.parent.name}/", path, line, "extends")]
+    base, base_text, findings = _read(base_path)
+    if findings:
+        return data, text, [Finding(f.rule, f"in the base {base_path.name}: {f.message}", path, line, "extends") for f in findings]
+    base, base_text, findings = resolve_extends(base_path, base, base_text, (*seen, path.resolve()))
+    if findings:
+        return data, text, [Finding(f.rule, f"in the base {base_path.name}: {f.message}", path, line, "extends") for f in findings]
+    if not isinstance(base, dict) or base.get("template") is not True:
+        return data, text, [Finding("E012", f"{base_path.name} isn't a template: add template: true to it (templates aren't built on their own)", path, line, "extends")]
+    remove = data.get("remove", [])
+    if not isinstance(remove, list) or not all(isinstance(r, str) for r in remove):
+        return data, text, [Finding("E012", "remove is a list of the base's part ids to leave out", path, _line(data, "remove"), "remove")]
+    merged: dict[str, Any] = {k: v for k, v in base.items() if k not in OWN_FIELDS}
+    base_parts: list[Any] = base["parts"] if isinstance(base.get("parts"), list) else []
+    kept = [p for p in base_parts if not (isinstance(p, dict) and (p.get("id") in remove or p.get("mirror_id") in remove))]
+    found = {p.get(k) for p in base_parts if isinstance(p, dict) for k in ("id", "mirror_id")}
+    missing = [r for r in remove if r not in found]
+    if missing:
+        findings.append(Finding("E012", f"remove: the base has no part id {', '.join(missing)}", path, _line(data, "remove"), "remove"))
+    gone = set(remove) | {p.get("mirror_id") for p in base_parts if isinstance(p, dict) and p.get("id") in remove}
+    for key, value in data.items():
+        if key in ("rig", "animations", "variants") and isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        elif key == "parts" and isinstance(value, list):
+            merged[key] = kept + value
+        else:
+            merged[key] = value
+    if "parts" not in data and base_parts:
+        merged["parts"] = kept
+    if isinstance(merged.get("rig"), dict):
+        merged["rig"] = {k: v for k, v in merged["rig"].items() if k not in gone}
+    return merged, base_text + "\n---\n" + text, findings
+
+
+def load_model(path: Path, palette: dict[str, str], materials: set[str]) -> tuple[Model | None, list[Finding]]:
+    data, text, findings = _read(path)
+    if findings:
+        return None, findings
+    own = data
+    data, text, findings = resolve_extends(path, data, text)
+    if findings:
+        return None, findings
+    model, more = parse_model(data, path, palette, materials, text)
+    if model is not None and isinstance(own, dict):
+        model.extends = own.get("extends") if isinstance(own.get("extends"), str) else None
+    return model, more
 
 
 __all__ = ["Animation", "Decal", "Model", "Part", "PartPose", "Pattern", "RigEntry", "Source", "load_model", "load_yaml", "parse_model"]

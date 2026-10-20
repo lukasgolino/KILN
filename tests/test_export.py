@@ -41,8 +41,8 @@ def test_static_model_is_one_node_one_mesh(project: Project) -> None:
     assert mesh["name"] == "thing" and len(mesh["primitives"]) == 2
     assert "skins" not in doc and "animations" not in doc
     names = sorted(m["name"] for m in doc["materials"])
-    assert names == ["default_red", "plastic_white"]
-    red = next(m for m in doc["materials"] if m["name"] == "default_red")
+    assert names == ["default_red#e8413c", "plastic_white#f4f4f0"]  # <preset>_<colour>#<hex>: variant scenes recolour by hex
+    red = next(m for m in doc["materials"] if m["name"] == "default_red#e8413c")
     assert red["pbrMetallicRoughness"]["baseColorFactor"][:3] == pytest.approx(srgb_to_linear("#e8413c"))
     assert red["pbrMetallicRoughness"]["roughnessFactor"] == 0.5
     pos = np.concatenate([accessor(doc, binary, p["attributes"]["POSITION"]) for p in mesh["primitives"]])

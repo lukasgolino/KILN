@@ -10,7 +10,7 @@ import pytest
 from conftest import arms_text, errors_of, load, ok_model, parse, sphere_text
 from kiln.notation import ROOT_ID
 from kiln.project import Project
-from pagan.findings import Finding
+from kiln.vendor.findings import Finding
 
 
 def rules(findings: list[Finding]) -> list[str]:
@@ -332,7 +332,7 @@ parts:
         ("rig:\n  a: { pivot: [0, 0] }", "rig.a.pivot", "pivot must be"),
         ("rig:\n  a: { parent: a }", "rig.a.parent", "another part id"),
         ("rig:\n  a: { parent: zz }", "rig.a.parent", "another part id"),
-        ("rig:\n  a: { meta: { x: [1, 2] } }", "rig.a.meta", "plain values"),
+        ("rig:\n  a: { meta: { x: { y: 1 } } }", "rig.a.meta", "plain values"),
         ("rig:\n  a: { separate: 1 }", "rig.a.separate", "true or false"),
         ("rig:\n  a: { parent: b }\n  b: { parent: a }", "rig.a", "cycle: a -> b -> a"),
         ("skin: floppy", "skin", "none (static)"),
@@ -357,7 +357,7 @@ def test_e007_cycle_reports_its_line(project: Project) -> None:
     [
         ("animations: [x]", "animations", "maps names"),
         ("animations:\n  Bad: { poses: [{}] }", "animations.Bad", "lowercase"),
-        ("animations:\n  x: { fps: 12 }", "animations.x", "one of them"),
+        ("animations:\n  x: { fps: 12 }", "animations.x", "or both"),
         ("animations:\n  x: { fps: 500, poses: [{}] }", "animations.x", "fps (1-120)"),
         ("animations:\n  x: { poses: [] }", "animations.x.poses", "a list of poses"),
         ("animations:\n  x: { poses: [{ zz: { rotate: [0, 0, 1] } }] }", "animations.x.poses[0].zz", "unknown part id 'zz'"),

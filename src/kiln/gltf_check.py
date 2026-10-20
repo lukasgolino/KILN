@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from pagan.gltf import FLOAT, UNSIGNED_BYTE, UNSIGNED_INT, UNSIGNED_SHORT, read_glb
+from kiln.vendor.gltf import FLOAT, UNSIGNED_BYTE, UNSIGNED_INT, UNSIGNED_SHORT, read_glb
 
 COMPONENTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
 _NUMPY = {FLOAT: "<f4", UNSIGNED_SHORT: "<u2", UNSIGNED_INT: "<u4", UNSIGNED_BYTE: "u1"}

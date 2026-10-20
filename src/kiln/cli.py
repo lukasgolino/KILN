@@ -17,10 +17,12 @@ from string import Template
 from typing import Any
 
 from kiln import __version__
+from kiln.godot import find_godot_project
+from kiln.importer import external_files, missing_files
 from kiln.notation import MODEL_SUFFIX, NAME_RE
 from kiln.project import CONFIG_NAME, Project, find_project_root, load_project, parse_config
 from kiln.style import STYLE_SUFFIX, builtin_names, load_style, style_summary
-from pagan.findings import Finding, PaganError, display_path
+from kiln.vendor.findings import Finding, PaganError, display_path
 
 SETTINGS = {
     "default_style": "the style every model uses unless it names its own (kiln style list)",
@@ -29,6 +31,7 @@ SETTINGS = {
     "preview_dir": "where previews go",
     "export": 'what kiln build writes: ["glb"] or ["glb", "godot"]',
     "style_version": "the look's version; models made under an older one are flagged (W107)",
+    "variant_glbs": "true: a .glb per variant; false: variants are swap tables (Godot: <name>.<variant>.tscn recolours the base)",
 }
 
 
@@ -98,8 +101,13 @@ def cmd_init(args: argparse.Namespace, out: Output) -> int:
     if not (root / ".gitignore").exists():
         (root / ".gitignore").write_text(_template("gitignore"), encoding="utf-8")
     (root / "styles" / args.style / "inspiration").mkdir(parents=True, exist_ok=True)
+    godot = find_godot_project(root.parent)
+    if godot is not None and not (root / ".gdignore").exists():
+        (root / ".gdignore").write_text("", encoding="utf-8")  # sources, imports and previews aren't game assets
     out.say(f"created KILN project in {display_path(root)} (style {args.style}); next: kiln new model <name>")
-    out.result({"project": display_path(root), "style": args.style})
+    if godot is not None:
+        out.say(f"inside the Godot project {display_path(godot)}: wrote .gdignore; set output_dir to a folder Godot sees, e.g. ../assets/kiln")
+    out.result({"project": display_path(root), "style": args.style, "godot_project": display_path(godot) if godot else None})
     return 0
 
 
@@ -273,11 +281,18 @@ def _engine_preview(project: Project, built: Any, folder: Path) -> str:
     return display_path(path)
 
 
+def _is_template(path: Path) -> bool:
+    try:
+        return any(line.split("#")[0].strip() == "template: true" for line in path.read_text(encoding="utf-8").splitlines())
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 def cmd_lineup(args: argparse.Namespace, out: Output) -> int:
     from kiln import preview as pv
 
     project = _require_project()
-    names = args.models or [p.name[: -len(MODEL_SUFFIX)] for p in project.model_paths()]
+    names = args.models or [p.name[: -len(MODEL_SUFFIX)] for p in project.model_paths() if not _is_template(p)]
     builts = [_built(project, n) for n in names]
     project.preview_dir.mkdir(parents=True, exist_ok=True)
     path = project.preview_dir / "lineup.png"
@@ -423,7 +438,8 @@ def cmd_config(args: argparse.Namespace, out: Output) -> int:
     assert project.config_path is not None
     cfg = project.config
     values = {"default_style": cfg.default_style, "default_palette": cfg.default_palette, "output_dir": cfg.output_dir,
-              "preview_dir": cfg.preview_dir, "export": list(cfg.export), "style_version": cfg.style_version}  # fmt: skip
+              "preview_dir": cfg.preview_dir, "export": list(cfg.export), "style_version": cfg.style_version,
+              "variant_glbs": cfg.variant_glbs}  # fmt: skip
     if args.config_cmd == "show":
         for key, meaning in SETTINGS.items():
             out.say(f"{key:<16} = {json.dumps(values[key]):<24} {meaning}")
@@ -470,15 +486,14 @@ def cmd_import(args: argparse.Namespace, out: Output) -> int:
     dest_dir = project.root / "imports"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / src.name
+    missing = missing_files(src)
+    if missing:
+        raise _usage(f"{args.file} refers to {', '.join(missing)}, which isn't next to it: import from the pack's own folder")
     if src != dest:
         shutil.copy2(src, dest)
-        if src.suffix.lower() == ".gltf":  # bring buffers/images along
-            doc = json.loads(src.read_text(encoding="utf-8"))
-            for item in [*doc.get("buffers", []), *doc.get("images", [])]:
-                uri = item.get("uri", "")
-                if uri and not uri.startswith("data:") and (src.parent / uri).is_file():
-                    (dest_dir / uri).parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src.parent / uri, dest_dir / uri)
+        for uri in external_files(src):  # buffers and textures, keeping their relative paths (Textures/...)
+            (dest_dir / uri).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src.parent / uri, dest_dir / uri)
     path = project.models_dir / f"{name}{MODEL_SUFFIX}"
     if path.exists() and not args.force:
         raise _usage(f"{display_path(path)} already exists (use --force)", path)

@@ -62,7 +62,7 @@ def build_skeleton(model: Model, field: Field) -> Skeleton:
     for pid in order:
         entry = model.rig.get(pid)
         parent = -1 if pid == ROOT_ID else order.index(parent_of[pid])
-        bones.append(Bone(pid, parent, pivots[pid], dict(entry.meta) if entry else {}, bool(entry and entry.separate)))
+        bones.append(Bone(pid, parent, pivots[pid], {k: list(v) if isinstance(v, tuple) else v for k, v in entry.meta} if entry else {}, bool(entry and entry.separate)))
     return Skeleton(bones)
 
 
@@ -118,6 +118,18 @@ def quaternion(degrees: tuple[float, float, float]) -> Array:
 
 def _wave(t: float) -> float:
     return math.sin(2 * math.pi * t)
+
+
+def animation_poses(anim: Animation, model: Model) -> list[dict[str, PartPose]]:
+    """Every frame's poses: the explicit ones, the cycle's, or both: with `cycle` and `poses` together the poses
+    repeat over the cycle's frames and a part named in a pose follows the pose instead of the cycle (walk legs +
+    carrying arms)."""
+    if anim.cycle is None:
+        return anim.poses
+    frames = expand_cycle(anim, model)
+    if not anim.poses:
+        return frames
+    return [{**frame, **anim.poses[i % len(anim.poses)]} for i, frame in enumerate(frames)]
 
 
 def expand_cycle(anim: Animation, model: Model) -> list[dict[str, PartPose]]:
@@ -209,7 +221,7 @@ def tracks(model: Model, skeleton: Skeleton) -> list[Track]:
     n = len(skeleton.bones)
     rest = np.array([skeleton.rest_translation(i) for i in range(n)])
     for anim in model.animations.values():
-        poses = anim.poses if anim.cycle is None else expand_cycle(anim, model)
+        poses = animation_poses(anim, model)
         tr = np.repeat(rest[None], len(poses), axis=0)
         rot = np.tile(np.array([0.0, 0.0, 0.0, 1.0]), (len(poses), n, 1))
         sc = np.ones((len(poses), n, 3))
@@ -254,4 +266,4 @@ def skin_matrices(skeleton: Skeleton, translation: Array, rotation: Array, scale
     return world
 
 
-__all__ = ["Bone", "Skeleton", "Track", "build_skeleton", "expand_cycle", "quaternion", "skin_matrices", "soft_weights", "tracks"]
+__all__ = ["Bone", "Skeleton", "Track", "animation_poses", "build_skeleton", "expand_cycle", "quaternion", "skin_matrices", "soft_weights", "tracks"]

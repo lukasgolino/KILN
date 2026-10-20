@@ -30,7 +30,7 @@ from kiln import __version__
 from kiln.notation import MODEL_SUFFIX, NAME_RE
 from kiln.project import CONFIG_NAME, Project, find_project_root, load_project
 from kiln.style import STYLE_SUFFIX
-from pagan.findings import Finding, PaganError
+from kiln.vendor.findings import Finding, PaganError
 
 MAX_SOURCE_BYTES = 2_000_000
 MAX_IMAGE_SIDE = 1568

@@ -51,7 +51,10 @@ def test_build_writes_glbs_and_manifest(project: Project) -> None:
     assert hero["glb"] == "models/hero.glb" and hero["description"] == "a hero" and hero["tags"] == ["crew"]
     assert hero["class"] == "character" and hero["style"] == "fast" and hero["skin"] == "rigid"
     assert set(hero["parts"]) == {"root", "arm_l", "arm_r"}
-    assert hero["parts"]["arm_r"] == {"parent": "root", "pivot": [-0.3, 0.6, 0.0], "meta": {}, "separate": False}
+    arm = hero["parts"]["arm_r"]
+    assert {k: arm[k] for k in ("parent", "pivot", "meta", "separate", "node_path")} == {
+        "parent": "root", "pivot": [-0.3, 0.6, 0.0], "meta": {}, "separate": False, "node_path": "root/arm_r"}
+    assert arm["aabb"]["max"][0] < -0.25 and arm["aabb"]["min"][1] < 0.6 < arm["aabb"]["max"][1]  # the left arm's box, model space
     assert hero["animations"]["wave"] == {"gltf_name": "wave-loop", "fps": 8.0, "frames": 4, "loop": True, "interpolation": "linear", "duration": 0.5}
     assert hero["animations"]["hold"]["gltf_name"] == "hold"
     lo, hi = hero["bounds"]["min"], hero["bounds"]["max"]
@@ -239,6 +242,12 @@ def test_demo_meshes_stay_on_their_surface() -> None:
         model, style, _ = project.load(project.models_dir / f"{name}.kiln.yaml")
         assert model and style
         built = build_model(model, style, None, palette)
-        distance = field_of(model, built.step).distance(built.painted.vertices[np.unique(built.painted.faces)])
-        assert np.abs(distance).max() < built.step * 2, name
+        field = field_of(model, built.step)
+        points = built.painted.vertices[np.unique(built.painted.faces)]
+        # each piece (the body, a `separate` cap) on its own surface
+        separate = {pid for pid, e in model.rig.items() if e.separate}
+        adding = [i for i, p in enumerate(model.parts) if p.geometry.op == "add"]
+        pieces = [[i for i in adding if model.parts[i].id not in separate]] + [[i for i in adding if model.parts[i].id == s] for s in separate]
+        distance = np.min([np.abs(field.only(piece).distance(points)) for piece in pieces if piece], axis=0)
+        assert distance.max() < built.step * 2, name
         assert len(built.painted.faces) <= style.budget(model.cls) * 1.05, name

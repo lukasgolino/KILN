@@ -112,13 +112,9 @@ def dual_contour(field: Field, step: float) -> Mesh:
     for i in range(len(points_list)):
         normals_list.append(all_normals[offsets[i] : offsets[i + 1]])
 
-    # accumulate each cell's QEF from the (up to 12) crossed edges around it
-    n_cells = cell_dims[0] * cell_dims[1] * cell_dims[2]
-    ata = np.zeros((n_cells, 3, 3))
-    atb = np.zeros((n_cells, 3))
-    mass = np.zeros((n_cells, 3))
-    count = np.zeros(n_cells)
-    quads = []
+    # each crossed edge's four cells (only cells the surface passes through get a vertex: storing just those keeps
+    # memory to the surface, not the whole grid)
+    edges = []
     for (axis, idx, lower_inside), pts, nrm in zip(edges_list, points_list, normals_list, strict=True):
         others = [d for d in range(3) if d != axis]
         cells = []
@@ -131,29 +127,39 @@ def dual_contour(field: Field, step: float) -> Mesh:
         valid = np.all((stacked >= 0) & (stacked < np.array(cell_dims)), axis=(1, 2))
         stacked, pts, nrm, lower_inside = stacked[valid], pts[valid], nrm[valid], lower_inside[valid]
         flat = np.ravel_multi_index(stacked.reshape(-1, 3).T, cell_dims).reshape(-1, 4)
+        edges.append((flat, pts, nrm, lower_inside, axis))
+    active, compact = np.unique(np.concatenate([e[0].reshape(-1) for e in edges]), return_inverse=True)
+    compact = compact.reshape(-1)
+    # accumulate each cell's QEF from the (up to 12) crossed edges around it
+    n = len(active)
+    ata = np.zeros((n, 3, 3))
+    atb = np.zeros((n, 3))
+    mass = np.zeros((n, 3))
+    count = np.zeros(n)
+    quads = []
+    start = 0
+    for flat, pts, nrm, lower_inside, axis in edges:
+        local = compact[start : start + flat.size].reshape(-1, 4)
+        start += flat.size
         outer = nrm[:, :, None] * nrm[:, None, :]
         dot = (nrm * pts).sum(axis=1)
         for k in range(4):
-            np.add.at(ata, flat[:, k], outer)
-            np.add.at(atb, flat[:, k], nrm * dot[:, None])
-            np.add.at(mass, flat[:, k], pts)
-            np.add.at(count, flat[:, k], 1.0)
-        quads.append((flat, lower_inside, axis))
+            np.add.at(ata, local[:, k], outer)
+            np.add.at(atb, local[:, k], nrm * dot[:, None])
+            np.add.at(mass, local[:, k], pts)
+            np.add.at(count, local[:, k], 1.0)
+        quads.append((local, lower_inside, axis))
 
-    active = np.flatnonzero(count)
-    m = mass[active] / count[active, None]
-    a_mat = ata[active] + 0.05 * np.eye(3)
-    rhs = atb[active] - np.einsum("nij,nj->ni", ata[active], m)
+    m = mass / count[:, None]
+    a_mat = ata + 0.05 * np.eye(3)
+    rhs = atb - np.einsum("nij,nj->ni", ata, m)
     x = m + np.linalg.solve(a_mat, rhs[:, :, None])[:, :, 0]
     cell_idx = np.stack(np.unravel_index(active, cell_dims), axis=1)
     cell_lo = lo + cell_idx * step
     x = np.clip(x, cell_lo - 0.25 * step, cell_lo + 1.25 * step)
-    vertex_of = np.full(n_cells, -1, dtype=np.int64)
-    vertex_of[active] = np.arange(len(active))
 
     faces = []
-    for flat, lower_inside, axis in quads:
-        q = vertex_of[flat]  # (E, 4)
+    for q, lower_inside, axis in quads:  # (E, 4) vertex indices
         # orient so the normal points from inside to outside: + axis when the lower end is inside
         q = np.where(lower_inside[:, None], q, q[:, ::-1])
         if axis == 1:  # the cyclic order (others[0], others[1]) is left-handed for y
@@ -167,8 +173,20 @@ def dual_contour(field: Field, step: float) -> Mesh:
         t2 = np.where(use02[:, None], q[:, [0, 2, 3]], q[:, [1, 2, 3]])
         faces.extend([t1, t2])
     f = np.concatenate(faces)
-    keep = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])
-    return Mesh(x, f[keep].astype(np.int64))
+    f = f[(f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])].astype(np.int64)
+    # Along sharp rims a cell's best-fit point can land where its triangles fold over (facing inwards). Those
+    # vertices go back to their cell's crossing centre: a slightly softer edge, but a clean surface (folds also
+    # stop decimation: it won't collapse edges that would flip a triangle).
+    for _ in range(4):
+        p = x[f]
+        normal = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
+        folded = (normal * field.gradient(p.mean(axis=1), step * 0.1)).sum(axis=1) < 0
+        moved = np.unique(f[folded])
+        moved = moved[np.any(x[moved] != m[moved], axis=1)]
+        if not len(moved):
+            break
+        x[moved] = m[moved]
+    return Mesh(x, f)
 
 
 def project(field: Field, vertices: Array, step: float, iterations: int = 2) -> Array:
@@ -226,21 +244,25 @@ def simplify_borders(mesh: Mesh, region: Array, tolerance: float) -> tuple[Mesh,
         cand, a, dev = cand[ok], a[ok], dev[ok]
         if not len(cand):
             break
-        faces_of: dict[int, list[int]] = {}
-        for fi in live:
-            for x in f[fi]:
-                faces_of.setdefault(int(x), []).append(int(fi))
+        # every vertex's faces (CSR): this pass only changes faces around locked vertices, so it stays valid
+        corners = f[live].reshape(-1)
+        by_vertex = np.argsort(corners, kind="stable")
+        first = np.searchsorted(corners[by_vertex], np.arange(len(v) + 1))
+
+        def faces_of(x: int) -> list[int]:
+            return [int(i) for i in live[by_vertex[first[x] : first[x + 1]] // 3]]
+
         locked: set[int] = set()
         removed = 0
         for i in np.lexsort((cand, dev)):
             x, into = int(cand[i]), int(a[i])
             if x in locked or into in locked:
                 continue
-            fan = faces_of[x]
+            fan = faces_of(x)
             ring = {int(y) for fi in fan for y in f[fi]}
             shared = [fi for fi in fan if into in f[fi]]
             # link condition: x and `into` share exactly the two vertices opposite their edge (no pinching)
-            ring_into = {int(y) for fi in faces_of[into] for y in f[fi]}
+            ring_into = {int(y) for fi in faces_of(into) for y in f[fi]}
             if len(shared) != 2 or len((ring & ring_into) - {x, into}) != 2:
                 continue
             moved = [fi for fi in fan if fi not in shared]
@@ -320,14 +342,19 @@ def decimate_regions(
     budget: int,
     step: float,
     border_tolerance: float = BORDER_TOLERANCE,
+    fields: list[Field] | None = None,
+    region_piece: Array | None = None,
 ) -> tuple[Mesh, Array]:
     """Like `decimate`, but the borders between regions (paint groups, cut on the full-resolution mesh) are kept
     exactly: the mesh is pulled apart along them, simplified with its open borders locked, and welded back.
     Collapsing edges across a border is what makes seams jagged, pupils polygonal and blends streaky.
+    With `fields` and `region_piece` (region -> index into fields) the mesh is several pieces (a body and its
+    `separate` helmet) decimated together, each pulled back onto its own surface.
     Returns the mesh and every face's region."""
     if mesh.triangles <= budget or mesh.triangles == 0:
         return mesh, region
-    mesh, region = simplify_borders(mesh, region, step * border_tolerance)
+    if border_tolerance > 0:
+        mesh, region = simplify_borders(mesh, region, step * border_tolerance)
     # one copy of a vertex per region that uses it: borders become open edges
     n_regions = int(region.max()) + 1
     keys = (mesh.faces * n_regions + region[:, None]).reshape(-1)
@@ -335,15 +362,24 @@ def decimate_regions(
     source, vregion = unique // n_regions, unique % n_regions
     cut_v = mesh.vertices[source].astype(np.float64)
     cut_f = inverse.reshape(-1, 3).astype(np.int32)
-    v, f, collapses = fast_simplification.simplify(
-        cut_v, cut_f, target_count=int(budget), agg=6.0, return_collapses=True, preserve_border=True
-    )
-    # replaying the collapses gives which input vertex became which output vertex (same faces, same order);
-    # its own positions aren't used: fast-simplification 0.2.0's replay misplaces some vertices by metres
-    _, replayed, mapping = fast_simplification.replay_simplification(cut_v, cut_f, collapses)
-    v, f, mapping = np.asarray(v, dtype=np.float64), np.asarray(f, dtype=np.int64), np.asarray(mapping, dtype=np.int64)
-    if not np.array_equal(f, np.asarray(replayed, dtype=np.int64)):
-        raise RuntimeError("fast-simplification's replay disagrees with its simplify; please report")
+    # The simplifier stops after a fixed number of rounds, which isn't always enough (a hat's flat brim): run it
+    # again on its own result while that still helps.
+    v, f = cut_v, cut_f.astype(np.int64)
+    mapping = np.arange(len(cut_v))
+    for _ in range(4):
+        out_v, out_f, collapses = fast_simplification.simplify(
+            v, f.astype(np.int32), target_count=int(budget), agg=6.0, return_collapses=True, preserve_border=True
+        )
+        # replaying the collapses gives which input vertex became which output vertex (same faces, same order);
+        # its own positions aren't used: fast-simplification 0.2.0's replay misplaces some vertices by metres
+        _, replayed, step_map = fast_simplification.replay_simplification(v, f.astype(np.int32), collapses)
+        if not np.array_equal(np.asarray(out_f, dtype=np.int64), np.asarray(replayed, dtype=np.int64)):
+            raise RuntimeError("fast-simplification's replay disagrees with its simplify; please report")
+        progress = len(out_f) < len(f) * 0.97
+        v, f = np.asarray(out_v, dtype=np.float64), np.asarray(out_f, dtype=np.int64)
+        mapping = np.asarray(step_map, dtype=np.int64)[mapping]
+        if len(f) <= budget * 1.02 or not progress:
+            break
     out_region = np.zeros(len(v), dtype=np.int64)
     out_region[mapping] = vregion
     face_region = out_region[f[:, 0]]
@@ -362,13 +398,39 @@ def decimate_regions(
     np.maximum.at(vertex_region, f.reshape(-1), np.repeat(face_region, 3))
     border = np.zeros(len(v), dtype=bool)
     np.logical_or.at(border, f.reshape(-1), vertex_region[f.reshape(-1)] != np.repeat(face_region, 3))
-    return relax(field, Mesh(project(field, v, step * 2), f), border, step), face_region
+    if fields is None or region_piece is None:
+        return relax(field, Mesh(project(field, v, step * 2), f), border, step), face_region
+    piece = region_piece[vertex_region]
+    for k, piece_field in enumerate(fields):
+        mine = piece == k
+        v[mine] = project(piece_field, v[mine], step * 2)
+    for k, piece_field in enumerate(fields):
+        v = relax(piece_field, Mesh(v, f), border | (piece != k), step).vertices
+    return Mesh(v, f), face_region
 
 
 
 def remove_unused(mesh: Mesh) -> Mesh:
     used, inverse = np.unique(mesh.faces, return_inverse=True)
     return Mesh(mesh.vertices[used], inverse.reshape(-1, 3).astype(np.int64))
+
+
+def component_labels(mesh: Mesh) -> Array:
+    """A connected-piece label per vertex (unused vertices get their own)."""
+    n = len(mesh.vertices)
+    parent = np.arange(n)
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = int(parent[i])
+        return i
+
+    for a, b in np.concatenate([mesh.faces[:, [0, 1]], mesh.faces[:, [1, 2]]]):
+        ra, rb = find(int(a)), find(int(b))
+        if ra != rb:
+            parent[ra] = rb
+    return np.array([find(i) for i in range(n)])
 
 
 def components(mesh: Mesh) -> int:

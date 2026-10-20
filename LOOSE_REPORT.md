@@ -66,3 +66,34 @@ Each item: what happened, where, a generic proposal. Not fixed here; for KILN's 
   all worked first time (44 models load in Godot with parts, animations, materials).
 - KayKit imports restyle into the palette convincingly.
 - `kiln.api.part` / `dumps` make generator scripts easy; errors say how to fix them.
+
+## 2026-10-20: wiring KILN output into the game (LOOSE branch `kiln`)
+
+### Bugs
+
+17. **glTF extras of the last joint land on the Skeleton3D node.** Every skinned model's `Skeleton3D` carries
+    `extras: {"hitzone": "eye", "kiln_part": "eye_r"}` (the soldier's last bone); the horse's carries eye_r's too.
+    Harmless for LOOSE (it reads bones), wrong for anyone reading node meta.
+
+### Friction / missing
+
+18. **The `.tscn` style script works per instance.** `_ready()` duplicates every surface material and sets surface
+    overrides on each instance: N soldiers = N x 9 unique materials (no material sharing/sorting), and it overwrites
+    any override the game set before `add_child` (team colour swaps were lost). LOOSE loads the `.glb` instead and
+    restyles each imported mesh once (shared materials). Proposal: bake the style into shared material resources
+    (a `materials.tres` library or sub-resources in the `.tscn`) instead of a runtime script.
+19. **One surface per palette colour = many draw calls.** A soldier body is 9 surfaces plus 2-3 rigid items:
+    ~12 draw calls per soldier. 150-soldier bench: 2505 draw calls / 3256 objects (KILN) vs 1494 / 1652 (KayKit,
+    texture atlas). Proposal: an export option with vertex colours and one material per preset (fabric, skin,
+    metal...), so a body is 3-5 surfaces; the variant swap table then maps vertex colours (or a palette texture).
+20. **No way to skip variant files** (follow-up to 14): LOOSE swaps colours from the manifest-style table at run
+    time and excludes `<m>.<v>.glb`, `*.lod*.glb`, `*.tscn` from its export: 28 MB of the 37 MB output is unused.
+    A `[build] variants = "manifest"` (swap table only) setting would avoid writing them.
+21. **Material presets read too shiny under a sky.** `metal` (metallic 0.8, roughness 0.35) and `gold` (1.0/0.3)
+    mirror the sky; `skin` at roughness 0.55 shows a pale horizon band across bald heads. LOOSE caps metal at
+    0.35/0.55, gold 0.5/0.45 and raises skin to 0.8 roughness. Proposal: soft_toy presets closer to that, or a
+    `reflections` knob in the style.
+22. **Rigid machines need geometry the manifest doesn't give.** To swing the trebuchet arm and place its load the
+    game needed the arm's built-in angle (rest = cocked, about -0.53 rad), pivot-to-tip lengths and the sling
+    stone's position: all measured by hand from the source. Proposal: `sockets` (see 10) for tips/loads, and the
+    angle a part is built at in the manifest when an animation's first frame isn't the rest.

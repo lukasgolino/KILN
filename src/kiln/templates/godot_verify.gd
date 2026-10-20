@@ -28,7 +28,10 @@ func _init() -> void:
 		var entry: Dictionary = _manifest["models"][name]
 		var glbs: Array = [entry["glb"]]
 		for v in entry.get("variants", {}):
-			glbs.append(entry["variants"][v]["glb"])
+			if entry["variants"][v].has("glb"):
+				glbs.append(entry["variants"][v]["glb"])
+			if entry["variants"][v].has("godot_scene") and not (load(entry["variants"][v]["godot_scene"]) is PackedScene):
+				fail("%s variant %s can't load %s" % [name, v, entry["variants"][v]["godot_scene"]])
 		for lod in entry.get("lods", []):
 			glbs.append(lod["glb"])
 		for glb in glbs:

@@ -16,7 +16,8 @@ puts PAGAN images on models as decals.
 
 ## 1. Start of every session
 
-1. `kiln status` (or MCP `status`): what exists, what needs review. No `kiln.toml`? `kiln init <dir> --style <preset>`.
+1. `kiln status` (or MCP `status`): what exists, what needs review. No `kiln.toml`? `kiln init <dir> --style <preset>`
+   (inside a Godot project it writes `.gdignore`, so Godot skips the sources; point `output_dir` at a folder Godot sees).
 2. Read `BRIEF.md` (what the game needs, decisions) and `STYLE.md` (how it looks). They are the project's memory.
 3. `kiln style show`: the style's notes (shape language, proportions) and numbers. Follow them.
 
@@ -46,6 +47,9 @@ Write the answers into BRIEF.md and STYLE.md.
      metal, gold, leaf, glass, rubber, paint, glow).
    - Big plain areas read better with geometry than patterns: planks, trims and shields as parts. Patterns cost
      triangles (W110); keep them for clothes and small props.
+   - Things meant to float (flames, bees, sparks, rubble bits): `loose: true` on the part, so W103 stays meaningful.
+   - Many similar models (8 soldier types, 5 trees): one `template: true` base and `extends: <base>` models that
+     `remove:` and add parts (reference.md, Model families), instead of copies.
 4. **Lint:** `kiln lint <name>`. Fix every error; read every warning (W101 a part is hidden, W102 too thin to mesh,
    W103 floating pieces, W106 not standing on the ground, W108 size wrong for the class).
 5. **Look:** `kiln preview <name>` writes a turntable (8 sides x below / eye level / above). Open it and check:
@@ -69,12 +73,14 @@ Write the answers into BRIEF.md and STYLE.md.
   where parts blend: creatures, bean characters). `separate: true` keeps a part rigid inside a soft skin
   (detachable helmet).
 - **Animations:** explicit `poses` (one per frame, per part: offset/rotate/scale) or a `cycle` that writes the
-  poses for you: walk, waddle, hop, bob, spin, swing, breathe, wave, chain (reference.md).
+  poses for you: walk, waddle, hop, bob, spin, swing, breathe, wave, chain (reference.md). Both together: the cycle
+  moves everything, and parts named in the poses follow the poses (walking while carrying).
 - **Cloth and flags:** split them into 3-4 segments along their length, each its own id parented to the previous one
   (pivots on the seams), crisp seams (`blend: 0`), `skin: soft`, and animate with `cycle: { type: chain, parts: [...] }`. Check every animation with
   `kiln preview <name> --pose <animation>`: the filmstrip shows each frame from the front and the side.
-- Gameplay data on parts: `rig: { helmet: { meta: { hitzone: head, detachable: true } } }` -> node metadata in Godot
-  and in the manifest.
+- Gameplay data on parts: `rig: { helmet: { meta: { hitzone: head, detachable: true, socket: [0, 1.6, 0.1] } } }` ->
+  node metadata in Godot and in the manifest, which also gives every part's box (`aabb`) for hit zones.
+- Detachables (`separate: true`) are meshed on their own, so they may overlap the body and leave no hole when removed.
 
 ## 4. Building for the game
 
@@ -82,7 +88,11 @@ Write the answers into BRIEF.md and STYLE.md.
   `models/<name>.tscn` (the glb with the style's materials: toon bands, outlines, rim light) and
   `looks/<style>.tscn` (the look kit: sky, sun, tonemapper, SSAO, glow, grading). Tell the owner to instance the
   look kit once in each scene: half of the style is lighting.
-- `kiln build --verify-godot` loads everything in headless Godot and checks parts, animations and materials.
+- `kiln build --verify-godot` loads everything in headless Godot (in a throwaway copy) and checks parts, animations
+  and materials.
+- Many team colours: `variant_glbs = false` in kiln.toml keeps one glb per model; each variant becomes a Godot scene
+  that recolours it (and a `swap` table in the manifest for other engines).
+- Warnings W111 (a part lost to the triangle budget) and W112 (a LOD well over its target) mean: raise the budget.
 - `kiln preview <name> --engine` renders through Godot itself (needs a display): use it to confirm the look.
 - `manifest.json` lists every model: glb, scene, size and bounds in metres, triangles, parts (pivot, parent, meta),
   animations (Godot names, loop, fps), variants, LODs, licences. That's the contract with game code.

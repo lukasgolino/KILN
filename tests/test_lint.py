@@ -9,7 +9,7 @@ import pytest
 from conftest import make_project, sphere_text, write_model
 from kiln.lint import WARNING_RULES, lint_paths, lint_project
 from kiln.project import Project
-from pagan.findings import Finding
+from kiln.vendor.findings import Finding
 
 
 def lint(project: Project, text: str, name: str = "thing") -> list[Finding]:

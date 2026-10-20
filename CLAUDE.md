@@ -28,7 +28,7 @@ anything that changes output.
   - `mesher.py` sparse sampling + dual contouring + decimation (fast-simplification) + surface projection;
   - `paint.py` part ownership with clean borders (triangle splitting), patterns (refined first), decals, normals;
   - `rig.py` skeleton from part ids, soft weights from the field, poses and procedural cycles, skinning maths;
-  - `export.py` glTF writer (via `pagan.gltf.Document`); `gltf_check.py` reading/validation (incl. skins);
+  - `export.py` glTF writer (via `kiln.vendor.gltf.Document`); `vendor/` PAGAN pieces (palette, findings, YAML, colour, glTF); `gltf_check.py` reading/validation (incl. skins);
   - `builder.py` model -> `Built` with a pickle cache in `.kiln-cache/`; `importer.py` CC0 .glb/.gltf imports;
   - `lint.py` E/W rules; `build.py` `kiln build` (glb, variants, LODs, Godot, manifest, credits, stale cleanup);
   - `render.py` vectorised software renderer; `preview.py` sheets (turntable, closeup, filmstrip, lineup, gallery, vs);
@@ -49,7 +49,7 @@ anything that changes output.
   attribution. Push only when asked; ask before tags.
 - Versioning as PAGAN: bump `version` in pyproject.toml, CHANGELOG entry (Keep a Changelog), tag `vX.Y.Z` for any
   change to the notation, settings, manifest/exporter output or meshes.
-- Dependencies: pagan (git tag), numpy, Pillow, PyYAML, fast-simplification; extra `mcp`. Others only if needed:
+- Dependencies: numpy, Pillow, PyYAML, fast-simplification (PAGAN is vendored, not a dependency); extra `mcp`. Others only if needed:
   log why below.
 
 ## Decisions log
@@ -76,3 +76,8 @@ anything that changes output.
   preserve_border, then welded via its collapse replay. The replay's own positions are wrong for some vertices
   (0.2.0), so only its index mapping is used. Afterwards bad faces (tilted > 25 degrees or slivers) are relaxed
   along the surface; crease vertices within one part stay. Border corners take per-side face-normal averages.
+- 2026-10-20: LOOSE report items 1-16 (owner: "fix them all"). PAGAN is vendored into `kiln.vendor` (v0.9.0 copies of
+  findings, yamlio, palette, color, gltf): a git dependency can't take a version range, and games pin their own PAGAN.
+  Keep the palette format in step by hand. Families copy PAGAN's template/extends/remove. `separate` parts are their
+  own pieces (`Field.only`: same part indices, only some adding parts form the surface). Godot checks run in a sandbox
+  project (copy of output_dir + minimal project.godot with the host's renderer). Lint builds in a forkserver pool.

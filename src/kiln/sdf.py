@@ -34,7 +34,7 @@ def polygon_2d(p: Array, points: Array, skip: Array | None = None) -> Array:
     for i in range(len(points)):
         e = points[j] - points[i]
         w = p - points[i]
-        if skip is None or not skip[i]:
+        if (skip is None or not skip[i]) and float(e @ e) > 0:  # a zero-length edge adds nothing (and would be NaN)
             t = np.clip((w @ e) / float(e @ e), 0.0, 1.0)
             b = w - t[:, None] * e
             d = np.minimum(d, (b * b).sum(axis=1))
@@ -348,6 +348,25 @@ class Geometry:
         return points.min(axis=0) - pad, points.max(axis=0) + pad
 
 
+def thickness(shape: str, p: dict[str, Any]) -> float | None:
+    """A shape's thinnest dimension in metres (None: no simple answer)."""
+    if shape == "sphere":
+        return 2 * float(p["radius"])
+    if shape in ("capsule", "tube"):
+        return 2 * min(float(p["radius"]), float(p["radius_to"]))
+    if shape == "torus":
+        return 2 * float(p["thickness"])
+    if shape in ("box", "wedge"):
+        return min(float(v) for v in p["size"])
+    if shape == "ellipsoid":
+        return 2 * min(float(v) for v in p["radii"])
+    if shape == "cylinder":
+        return min(2 * float(p["radius"]), float(p["height"]))
+    if shape in ("cone", "extrude"):
+        return float(p["height"])
+    return None
+
+
 def box_distance(p: Array, lo: Array, hi: Array) -> Array:
     """Distance to an axis-aligned box (0 inside): a cheap lower bound for points far from a part."""
     q = np.maximum(np.maximum(lo - p, p - hi), 0.0)
@@ -365,19 +384,31 @@ def smooth_max(a: Array, b: Array, k: float) -> Array:
     return -smooth_min(-a, -b, k)
 
 
+BATCH = 262_144  # points per field evaluation
+
+
 class Field:
     """Parts combined in order. `evaluate` returns the surface distance and every adding part's own distance
     (used to paint each part's colour). Far from a part's box, its distance is replaced by the distance to the
     box plus the padding: a stand-in that keeps every sign and never changes the result near the surface,
     but skips most of the work."""
 
-    def __init__(self, parts: list[Geometry], margin: float) -> None:
+    def __init__(self, parts: list[Geometry], margin: float, active: frozenset[int] | None = None) -> None:
         self.parts = parts
         self.margin = margin
         self.boxes = [g.bounds() for g in parts]
+        self.active = active  # the adding parts that make up this surface (None = all); cuts always apply
+
+    def only(self, active: list[int]) -> Field:
+        """The same parts (same indices), but only these adding ones form the surface: a `separate` helmet is its
+        own closed mesh instead of fusing with the head."""
+        return Field(self.parts, self.margin, frozenset(active))
+
+    def _counts(self, i: int) -> bool:
+        return self.parts[i].op != "add" or self.active is None or i in self.active
 
     def bounds(self) -> tuple[Array, Array]:
-        adding = [b for g, b in zip(self.parts, self.boxes, strict=True) if g.op == "add"]
+        adding = [b for i, (g, b) in enumerate(zip(self.parts, self.boxes, strict=True)) if g.op == "add" and self._counts(i)]
         if not adding:
             return np.zeros(3), np.zeros(3)
         lo = np.min([b[0] for b in adding], axis=0)
@@ -397,6 +428,10 @@ class Field:
         f = np.full(len(p), 1e9)
         per_part: list[Array] = []
         for i, g in enumerate(self.parts):
+            if not self._counts(i):
+                if with_parts:
+                    per_part.append(self.part_distance(i, p))
+                continue
             d = self.part_distance(i, p)
             if g.op == "cut":
                 f = smooth_max(f, -d, g.blend)
@@ -409,7 +444,41 @@ class Field:
         return f, per_part
 
     def distance(self, p: Array) -> Array:
-        return self.evaluate(p, with_parts=False)[0]
+        """The surface distance. Big point sets go in batches (memory) split into octants, and in each octant a part
+        whose box is out of reach (beyond the surface so far by more than its blend) is skipped."""
+        if len(p) < 4096:
+            return self._distance(p)
+        out = np.empty(len(p))
+        mid = (p.min(axis=0) + p.max(axis=0)) / 2
+        octant = ((p > mid) * np.array([1, 2, 4])).sum(axis=1)
+        for k in range(8):
+            idx = np.flatnonzero(octant == k)
+            for i in range(0, len(idx), BATCH):
+                part = idx[i : i + BATCH]
+                out[part] = self._distance(p[part])
+        return out
+
+    def _distance(self, p: Array) -> Array:
+        f = np.full(len(p), 1e9)
+        if not len(p):
+            return f
+        lo_p, hi_p = p.min(axis=0), p.max(axis=0)
+        for i, g in enumerate(self.parts):
+            if not self._counts(i):
+                continue
+            if g.op != "intersect":
+                lo, hi = self.boxes[i]
+                gap = float(np.linalg.norm(np.maximum(np.maximum(lo - hi_p, lo_p - hi), 0.0))) - 1e-6  # <= its distance
+                if gap > 0 and gap >= (float(f.max()) if g.op == "add" else float((-f).max())) + g.blend:
+                    continue
+            d = self.part_distance(i, p)
+            if g.op == "cut":
+                f = smooth_max(f, -d, g.blend)
+            elif g.op == "intersect":
+                f = smooth_max(f, d, g.blend)
+            else:
+                f = smooth_min(f, d, g.blend)
+        return f
 
     def gradient(self, p: Array, eps: float) -> Array:
         """Unit surface normals at p (central differences)."""

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kiln"
-version = "0.2.0"
+version = "0.3.0"
 description = "KILN (Keyed Implicit Language & Notation): write smooth stylised 3D models as text, build them into game-ready glTF."
 readme = "README.md"
 license = "MIT"
@@ -12,7 +12,6 @@ license-files = ["LICENSE"]
 authors = [{ name = "Lukas Golino" }]
 requires-python = ">=3.11"
 dependencies = [
-    "pagan @ git+https://github.com/lukasgolino/pagan@v0.9.0",
     "Pillow>=10.1",
     "PyYAML>=6",
     "numpy>=1.26",
@@ -39,10 +38,6 @@ files = ["src/kiln", "tests"]
 [[tool.mypy.overrides]]
 module = ["fast_simplification"]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["pagan", "pagan.*"]
-follow_untyped_imports = true
 
 [[tool.mypy.overrides]]
 # numpy expressions on parameter dicts are Any to mypy; the shape functions return arrays by construction

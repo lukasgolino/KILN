@@ -5,17 +5,22 @@ Geometric warnings need the model built (meshing is cached, so a second lint is 
 
 from __future__ import annotations
 
+import multiprocessing
+import os
+import sys
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
 
-from kiln.builder import build_cached, field_of
+from kiln.builder import build_cached, cached
 from kiln.export import Built
 from kiln.notation import Model
 from kiln.project import Project
+from kiln.sdf import thickness
 from kiln.style import Style
-from pagan.findings import Finding
+from kiln.vendor.findings import Finding
 
 WARNING_RULES = {
     "W101": "a part has no visible surface (covered by later parts, or cut away)",
@@ -27,6 +32,8 @@ WARNING_RULES = {
     "W108": "the model's size is unusual for its class (metres!)",
     "W109": "an animated part has no rig pivot (it turns about its box centre)",
     "W110": "the model is well over its triangle budget (patterns need many small triangles)",
+    "W111": "a part was lost when the mesh was reduced to its triangle budget (budget too low)",
+    "W112": "a LOD came out well above its triangle target",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -50,25 +57,6 @@ class LintResult:
         return [f for f in self.findings if f.severity == "warning"]
 
 
-def _thickness(part_params: dict[str, object], shape: str) -> float | None:
-    p = part_params
-    if shape == "sphere":
-        return 2 * float(p["radius"])  # type: ignore[arg-type]
-    if shape in ("capsule", "tube"):
-        return 2 * min(float(p["radius"]), float(p["radius_to"]))  # type: ignore[arg-type]
-    if shape == "torus":
-        return 2 * float(p["thickness"])  # type: ignore[arg-type]
-    if shape in ("box", "wedge", "ellipsoid"):
-        key = "size" if shape != "ellipsoid" else "radii"
-        scale = 1.0 if shape != "ellipsoid" else 2.0
-        return scale * min(float(v) for v in p[key])  # type: ignore[attr-defined]
-    if shape == "cylinder":
-        return min(2 * float(p["radius"]), float(p["height"]))  # type: ignore[arg-type]
-    if shape == "cone":
-        return float(p["height"])  # type: ignore[arg-type]
-    return None
-
-
 def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -> list[Finding]:
     m = built.model
     out: list[Finding] = []
@@ -77,21 +65,18 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         out.append(Finding(rule, message, m.path, line, where))
 
     if m.source is None:
-        field_ = field_of(m, built.step)
-        verts = built.painted.vertices
-        adding = [i for i, p in enumerate(m.parts) if p.geometry.op == "add"]
-        if adding and len(verts):
-            d = np.array([field_.part_distance(i, verts) for i in adding])
-            near = np.abs(d) < built.step * 1.5
-            for k, i in enumerate(adding):
-                part = m.parts[i]
-                if not near[k].any():
-                    warn("W101", f"part {part.index} ({part.geometry.shape}, {part.color_name}) has no visible surface: later parts cover it or a "
-                         "cut removes it; move it out, or make the covering part a shell", part.line, part.where)  # fmt: skip
+        for i in built.hidden:
+            part = m.parts[i]
+            warn("W101", f"part {part.index} ({part.geometry.shape}, {part.color_name}) has no visible surface: later parts cover it or a "
+                 "cut removes it; move it out, or make the covering part a shell", part.line, part.where)  # fmt: skip
+        for i in built.lost:
+            part = m.parts[i]
+            warn("W111", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is there at full detail but the triangle budget "
+                 f"({m.budget or built.style.budget(m.cls)}) is too low to keep it: raise budget:, or make it thicker", part.line, part.where)  # fmt: skip
         for part in m.parts:
             if part.geometry.op != "add":
                 continue
-            t = _thickness(part.geometry.params, part.geometry.shape)
+            t = thickness(part.geometry.shape, part.geometry.params)
             if t is not None and t < 2 * built.step:
                 warn("W102", f"this {part.geometry.shape} is {t:.3g} m thick but the mesh resolution here is {built.step:.3g} m: it may break "
                      f"into bits; make it at least {2 * built.step:.3g} m thick", part.line, part.where)  # fmt: skip
@@ -126,36 +111,85 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
 
 def _moved(m: Model, anim: str) -> set[str]:
     a = m.animations[anim]
-    if a.cycle is not None:
-        from kiln.rig import expand_cycle
+    from kiln.rig import animation_poses
 
-        poses = expand_cycle(a, m)
-    else:
-        poses = a.poses
+    poses = animation_poses(a, m)
     return {name for pose in poses for name, pp in pose.items() if any(pp.rotate)}
+
+
+def _build_job(job: tuple[Model, Style, dict[str, str], Path]) -> Built | str:
+    try:
+        return build_cached(*job)
+    except ValueError as exc:
+        return str(exc)
+
+
+WORKER_MEMORY = 0.7  # GB a worker may need for a big model (measured: up to ~0.6); more workers than RAM allows thrash
+
+
+def _jobs() -> int:
+    """KILN_JOBS, else every core, but no more workers than the free memory carries."""
+    try:
+        asked = int(os.environ.get("KILN_JOBS", "0"))
+    except ValueError:
+        asked = 0
+    if asked > 0:
+        return asked
+    cores = os.cpu_count() or 1
+    try:
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            info = dict(line.split(":", 1) for line in fh)
+        free_gb = int(info["MemAvailable"].split()[0]) / 1024**2
+        return max(1, min(cores, int(free_gb / WORKER_MEMORY)))
+    except (OSError, KeyError, ValueError):
+        return cores
+
+
+def build_all(jobs: list[tuple[Model, Style, dict[str, str], Path]]) -> list[Built | str]:
+    """Build (or load from the cache) several models, in parallel processes when there are several to mesh.
+    Each model is built exactly as alone, so the output doesn't depend on the number of processes (KILN_JOBS)."""
+    todo = [k for k, (m, st, pal, cache) in enumerate(jobs) if not cached(m, st, pal, cache)]
+    workers = min(_jobs(), len(todo))
+    out: list[Built | str | None] = [None] * len(jobs)
+    if workers > 1:
+        method = "forkserver" if sys.platform.startswith("linux") else "spawn"
+        try:
+            with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context(method)) as pool:
+                for k, built in zip(todo, pool.map(_build_job, [jobs[k] for k in todo]), strict=True):
+                    out[k] = built
+        except BrokenProcessPool:  # a worker died (out of memory): build the rest one at a time
+            pass
+    return [o if o is not None else _build_job(jobs[k]) for k, o in enumerate(out)]
 
 
 def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> LintResult:
     result = LintResult()
     cache = project.root / ".kiln-cache"
+    loaded = []
     for path in paths:
         model, style, findings = project.load(path)
         keep = list(findings)
+        palette: dict[str, str] = {}
         if model is not None and style is not None and not any(f.severity == "error" for f in findings):
             if model.style_version is not None and model.style_version < project.config.style_version:
                 keep.append(Finding("W107", f"made under style_version {model.style_version}; the project is at {project.config.style_version}: "
                                     "check it still fits, then `kiln mark <model> --current`", path, None, "style_version"))  # fmt: skip
-            if geometry:
-                palette, _ = project.palette(model.palette)
-                try:
-                    built = build_cached(model, style, palette, cache)
-                except ValueError as exc:
-                    keep.append(Finding("E009", str(exc), path, None, "parts"))
-                else:
-                    result.built[model.name] = built
-                    keep += geometry_warnings(built, palette, project)
-            if not any(f.severity == "error" for f in keep):
-                result.models[model.name] = (model, style)
+            palette, _ = project.palette(model.palette)
+        loaded.append((path, model, style, palette, keep))
+    # templates are bases, not models: checked as text only
+    meshed = [k for k, (_, m, st, _, keep) in enumerate(loaded) if geometry and m and st and not m.template and not any(f.severity == "error" for f in keep)]
+    builds = dict(zip(meshed, build_all([(loaded[k][1], loaded[k][2], loaded[k][3], cache) for k in meshed]), strict=True))  # type: ignore[misc]
+    for k, (path, model, style, palette, keep) in enumerate(loaded):
+        if k in builds:
+            built = builds[k]
+            if isinstance(built, str):
+                keep.append(Finding("E009", built, path, None, "parts"))
+            else:
+                assert model is not None
+                result.built[model.name] = built
+                keep += geometry_warnings(built, palette, project)
+        if model is not None and style is not None and not any(f.severity == "error" for f in keep) and not model.template:
+            result.models[model.name] = (model, style)
         disabled = set(project.config.lint_disable) | set(model.lint_disable if model else ())
         result.findings += [f for f in keep if not (f.severity == "warning" and f.rule in disabled)]
     return result

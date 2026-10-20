@@ -56,6 +56,7 @@ extends Node3D
 @export var outline := 0.0
 @export var outline_color := Color(0.1, 0.08, 0.12)
 @export var rims: Dictionary = {}
+@export var swap: Dictionary = {}  # variant: "rrggbb" (a material's colour, from its name) -> new colour
 
 func _ready() -> void:
 \tfor node in find_children("*", "MeshInstance3D", true, false):
@@ -66,16 +67,23 @@ func _ready() -> void:
 \t\t\tvar source := mesh_instance.mesh.surface_get_material(i) as BaseMaterial3D
 \t\t\tif source == null:
 \t\t\t\tcontinue
+\t\t\tvar albedo := source.albedo_color
+\t\t\tvar hex := source.resource_name.get_slice("#", 1)
+\t\t\tif swap.has(hex) and source.albedo_texture == null:
+\t\t\t\talbedo = swap[hex]
 \t\t\tvar material: Material
 \t\t\tif shader_kind == "toon":
 \t\t\t\tvar toon := ShaderMaterial.new()
 \t\t\t\ttoon.shader = toon_shader
-\t\t\t\ttoon.set_shader_parameter("albedo", source.albedo_color)
+\t\t\t\ttoon.set_shader_parameter("albedo", albedo)
 \t\t\t\ttoon.set_shader_parameter("emission", Vector3(source.emission.r, source.emission.g, source.emission.b) * source.emission_energy_multiplier if source.emission_enabled else Vector3.ZERO)
 \t\t\t\ttoon.set_shader_parameter("bands", bands)
 \t\t\t\tmaterial = toon
 \t\t\telse:
 \t\t\t\tvar standard := source.duplicate() as BaseMaterial3D
+\t\t\t\tstandard.albedo_color = albedo
+\t\t\t\tif source.emission_enabled and swap.has(hex):
+\t\t\t\t\tstandard.emission = albedo
 \t\t\t\tvar rim: float = rims.get(source.resource_name.get_slice("_", 0), 0.0)
 \t\t\t\tif rim > 0.0:
 \t\t\t\t\tstandard.rim_enabled = true
@@ -113,8 +121,9 @@ def _color(hex_color: str) -> str:
     return f"Color({r:.6g}, {g:.6g}, {b:.6g}, 1)"
 
 
-def model_scene(name: str, glb_res: str, style: Style) -> str:
-    """`<name>.tscn`: the .glb with the style's materials applied by a small built-in tool script."""
+def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | None = None) -> str:
+    """`<name>.tscn`: the .glb with the style's materials applied by a small built-in tool script. With `swap`
+    (a variant, when variant_glbs is false) the script also recolours: the base glb, other colours."""
     look = style.look
     rims = ", ".join(f"{_quote(k)}: {v.rim:.6g}" for k, v in sorted(style.materials.items()) if v.rim > 0)
     lines = [
@@ -140,6 +149,7 @@ def model_scene(name: str, glb_res: str, style: Style) -> str:
         f"outline = {look.outline:.6g}",
         f"outline_color = {_color(look.outline_color)}",
         f"rims = {{{rims}}}",
+        *([f"swap = {{{', '.join(f'{_quote(k[1:])}: {_color(v)}' for k, v in sorted(swap.items()))}}}"] if swap else []),
         f"metadata/kiln_style = {_quote(style.name)}",
         "",
     ]
@@ -224,14 +234,36 @@ class GodotCheck:
     models: int = 0
 
 
+def _sandbox(godot_root: Path, folder_res: str, tmp: Path) -> Path:
+    """A throwaway Godot project holding a copy of KILN's output at the same res:// path, so checking and rendering
+    never import (and rewrite .import files of) anything else in the game's project."""
+    rel = folder_res.removeprefix("res://").strip("/")
+    root = tmp / "project"
+    shutil.copytree(godot_root / rel, root / rel, ignore=shutil.ignore_patterns("*.import"))
+    renderer = ""
+    host = (godot_root / "project.godot").read_text(encoding="utf-8", errors="replace")
+    match = re.search(r'^renderer/rendering_method="[^"]*"$', host, re.MULTILINE)
+    if match:
+        renderer = f"\n[rendering]\n\n{match.group(0)}\n"
+    (root / "project.godot").write_text(f'config_version=5\n\n[application]\n\nconfig/name="kiln check"\n{renderer}', encoding="utf-8")
+    return root
+
+
+def _folder(res: str) -> str:
+    """The output folder of a res:// path inside it (models/, looks/ or the manifest's own folder)."""
+    parent = res.rsplit("/", 1)[0]
+    return parent.rsplit("/", 1)[0] if parent.endswith(("/models", "/looks")) else parent
+
+
 def verify(godot: str, godot_root: Path, manifest_res: str, timeout: int = 300) -> GodotCheck:
     script = files("kiln").joinpath("templates", "godot_verify.gd").read_text(encoding="utf-8")
     with tempfile.TemporaryDirectory(prefix="kiln-verify-") as tmp:
         path = Path(tmp) / "kiln_verify.gd"
         path.write_text(script, encoding="utf-8")
+        project = _sandbox(godot_root, _folder(manifest_res), Path(tmp))
         try:
-            subprocess.run([godot, "--headless", "--path", str(godot_root), "--import"], capture_output=True, text=True, timeout=timeout)
-            run = subprocess.run([godot, "--headless", "--path", str(godot_root), "-s", str(path), "--", manifest_res],
+            subprocess.run([godot, "--headless", "--path", str(project), "--import"], capture_output=True, text=True, timeout=timeout)
+            run = subprocess.run([godot, "--headless", "--path", str(project), "-s", str(path), "--", manifest_res],
                                  capture_output=True, text=True, timeout=timeout)  # fmt: skip
         except (OSError, subprocess.TimeoutExpired) as exc:
             return GodotCheck(False, f"couldn't run Godot: {exc}")
@@ -250,9 +282,10 @@ def render_engine(godot: str, godot_root: Path, scene_res: str, look_res: str, v
         path = Path(tmp) / "kiln_views.gd"
         path.write_text(script, encoding="utf-8")
         pairs = [f"{yaw:g}:{pitch:g}" for yaw, pitch in views]
+        project = _sandbox(godot_root, _folder(scene_res), Path(tmp))
         try:
-            subprocess.run([godot, "--headless", "--path", str(godot_root), "--import"], capture_output=True, text=True, timeout=timeout)
-            run = subprocess.run([godot, "--path", str(godot_root), "-s", str(path), "--", scene_res, look_res, str(out_dir), str(size),
+            subprocess.run([godot, "--headless", "--path", str(project), "--import"], capture_output=True, text=True, timeout=timeout)
+            run = subprocess.run([godot, "--path", str(project), "-s", str(path), "--", scene_res, look_res, str(out_dir), str(size),
                                   f"{radius:g}", f"{centre_y:g}", *pairs], capture_output=True, text=True, timeout=timeout)  # fmt: skip
         except (OSError, subprocess.TimeoutExpired) as exc:
             return [], f"couldn't run Godot: {exc}"

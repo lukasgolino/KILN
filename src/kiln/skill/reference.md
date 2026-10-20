@@ -23,6 +23,7 @@ output_dir = "build"           # inside the Godot project when export has "godot
 preview_dir = "previews"
 export = ["glb", "godot"]
 style_version = 1
+variant_glbs = true            # false: no .glb per variant; Godot gets <name>.<variant>.tscn recolouring the base glb
 [lint]
 disable = ["W106"]
 ```
@@ -44,10 +45,36 @@ parts: [...]                   # the shapes (below)
 rig: {...}                     # optional: bones (below)
 skin: soft                     # none (static) | rigid | soft; default rigid when there is a rig
 animations: {...}              # optional
-variants:                      # optional: recoloured copies (<name>.<variant>.glb)
+variants:                      # optional: recoloured copies (<name>.<variant>.glb, or swap tables: variant_glbs)
   copilot: { swap: { red: green } }
 lint: { disable: [W106] }
 ```
+
+### Model families
+
+A model can `extends: <base>` a `template: true` model in the same folder (templates are checked but not built):
+soldiers sharing one body, trees sharing one trunk.
+
+```yaml
+# models/soldier.kiln.yaml
+name: soldier
+template: true
+class: character
+parts: [...]                   # body, arms, hat (id: hat)
+rig: {...}
+animations: {...}
+
+# models/archer.kiln.yaml
+name: archer
+extends: soldier
+remove: [hat]                  # base parts with these ids (or mirror_ids) are left out
+parts: [...]                   # added after the base's parts
+variants: { blue: { swap: { red: blue } } }
+```
+
+The base's parts come first, then the model's own; `rig`, `animations` and `variants` merge by name (the model's
+win); every other field is inherited unless the model sets it, except its identity (name, description, tags, status,
+style_version, template). Templates can extend templates.
 
 Size classes in the built-in styles: prop, character, hero, creature, vehicle, machine, building, nature (and
 `default` for anything else). Size sanity (W108, largest side): character 0.2-4 m, prop 0.02-6 m, building 1-200 m...
@@ -81,7 +108,7 @@ then y then z, about its centre).
 | `tube` | `points: [[x, y, z], ...]` (2+), `radius`, `radius_to`: ropes, branches, rails, tails |
 | `torus` | `radius` (ring), `thickness` (tube radius); ring in the xz plane (rotate for others) |
 | `lathe` | `profile: [[r, y], ...]` spun around y: vases, bottles, bells, caps, chess pieces, round towers. The profile is a closed outline in the (radius, height) plane: go up the outside and come back down the axis (points with r = 0), e.g. a cap `[[0, 1.06], [0.2, 1.02], [0.3, 0.9], [0.3, 0.8], [0, 0.8]]`. Corners are rounded (`smooth: true`, default); `smooth: false` keeps them sharp |
-| `extrude` | `points: [[x, z], ...]` outline seen from above, `height` (along y), `round`: shields, signs, floor plans, stars |
+| `extrude` | `points: [[x, z], ...]` outline seen from above (3+ different points; repeats and a closing point are dropped), `height` (along y), `round`: shields, signs, floor plans, stars |
 | `wedge` | `size: [x, y, z]`: a roof (ridge along x at the top) |
 
 For `capsule` and `tube`, the points are in the part's frame (moved by `at`, turned by `rotate`). Everything else in a
@@ -106,9 +133,11 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `noise: { amount: 0.01, scale: 0.2, seed: 3 }` | lumpy surface (rocks, bark, clay): amount in metres, scale = bump size |
 | `pattern: {...}` | a second colour painted on the part (below) |
 | `decal: {...}` | an image on the part (below) |
+| `loose: true` | this part may float free (flames, bees, sparks, rubble): W103 doesn't count it |
 
 Order matters: details that sit on a surface come **after** it. A part completely inside later parts shows nothing
-(W101). Parts thinner than about two mesh cells break up (W102): resolution comes from the style (soft_toy: 8 mm
+(W101). A cut removes material from what came before it, and paint follows: a door placed after the cut that made its
+archway is painted as the door, not as the wall. Parts thinner than about two mesh cells break up (W102): resolution comes from the style (soft_toy: 8 mm
 for a ~1 m model, coarser for bigger models).
 
 ### Patterns
@@ -140,7 +169,7 @@ Small images (<= 256 px) are sampled crisp (pixel art).
 rig:
   leg_l: { pivot: [0.12, 0.26, 0] }                 # joint position; parent defaults to root
   arm_l: { pivot: [0.3, 0.6, 0], parent: root }
-  head:  { pivot: [0, 0.8, 0], meta: { hitzone: head } }
+  head:  { pivot: [0, 0.8, 0], meta: { hitzone: head, seat: [0, 1.56, 0] } }
   helmet: { parent: head, meta: { detachable: true }, separate: true }
 skin: soft
 ```
@@ -149,8 +178,10 @@ skin: soft
 - A rig entry for `arm_l` also rigs its `mirror_id` twin (pivot mirrored; parent mapped to its twin if any).
 - `skin: rigid`: each id is a separate mesh node that moves as one piece.
 - `skin: soft`: one skinned mesh; weights come from each part's distance, so blended joints bend smoothly.
-  `separate: true` keeps a part a rigid mesh of its own (detachable things).
-- `meta`: plain values for game code: Godot node metadata (`get_meta("extras")`) and the manifest.
+  `separate: true` makes a part its own closed, rigid mesh (detachable things): it may overlap the body (a helmet
+  on a head) without fusing, and removing it leaves no hole.
+- `meta`: plain values or flat lists (points: `[x, y, z]`, model space) for game code: Godot node metadata
+  (`get_meta("extras")`) and the manifest. Mirrored twins get the same meta (not mirrored).
 
 ## Animations
 
@@ -165,6 +196,10 @@ animations:
       - { arm_r: { rotate: [0, 0, -120] } }
       - { arm_r: { rotate: [0, 0, -150] }, root: { offset: [0, 0.02, 0] } }
   walk: { fps: 12, cycle: { type: waddle, legs: [leg_l, leg_r], arms: [arm_l, arm_r] } }
+  carry:                       # a cycle plus poses: poses repeat over the cycle's frames, and a part named in a
+    fps: 12                    # pose follows the pose instead of the cycle (walking legs + arms holding a crate)
+    cycle: { type: walk, legs: [leg_l, leg_r], arms: [] }
+    poses: [{ arm_l: { rotate: [-70, 0, 0] }, arm_r: { rotate: [-70, 0, 0] } }]
 ```
 
 Pose fields per part: `offset: [x, y, z]` (metres), `rotate: [x, y, z]` (degrees, about the pivot), `scale: s` or
@@ -197,7 +232,8 @@ process: { height: 4.0, recolor: auto, rotate: [0, 90, 0] }   # or scale: 1.0; r
 ```
 
 Static meshes only. Colours snap to the palette (OKLab nearest), the style's materials and budget apply, the model
-stands on y = 0, and the build writes CREDITS.md.
+stands on y = 0, and the build writes CREDITS.md. Files the model refers to (`Textures/colormap.png` in Kenney kits)
+are copied with it by `kiln import`, keeping their folders; a missing one is an error, not a white model.
 
 ## Styles
 
@@ -247,13 +283,15 @@ fog_color = "#c8d8e8"
 
 Errors: E000 usage/config, E001 file/YAML, E002 unknown field, E003 bad value, E004 unknown colour, E005 unknown
 material, E006 style problem, E007 rig problem, E008 animation problem, E009 nothing to mesh, E010 import file
-problem, E011 decal image missing.
+problem, E011 decal image missing, E012 extends problem (no such model, not a template, a loop, unknown remove id).
 
 Warnings: W101 part has no visible surface, W102 part thinner than the mesh resolution, W103 separate pieces,
 W104 colour not in the palette, W106 not standing on y = 0, W107 made under an older style_version, W108 size
 unusual for the class, W109 animated part without a pivot, W110 well over the triangle budget (patterns cost
-triangles: every stripe border is cut into the mesh; prefer few, large patterns, or model details as parts). Disable in `kiln.toml` `[lint] disable` or per model
-`lint: { disable: [...] }`.
+triangles: every stripe border is cut into the mesh; prefer few, large patterns, or model details as parts), W111 a
+part lost when reducing to the triangle budget (raise `budget:`), W112 a LOD well above its target (from `kiln build`).
+Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`. Lint meshes models in parallel
+(`KILN_JOBS` processes, default: every core) and caches them for build and previews.
 
 ## Commands
 
@@ -270,8 +308,11 @@ id (`root` = parts without one) or a part's number in the file (`--closeup 3`).
 `<output_dir>/models/<name>.glb` (+ `.<variant>.glb`, `.lod<N>.glb`), with "godot": `models/<name>.tscn` (glb +
 style materials) and `looks/<style>.tscn` (WorldEnvironment + Sun), `manifest.json`, `CREDITS.md` (imports).
 Manifest per model: `glb`, `godot_scene`, `class`, `style`, `status`, `triangles`, `bounds` and `size` (metres),
-`skin`, `parts` (parent, pivot, meta, separate), `animations` (gltf_name, fps, frames, loop, interpolation,
-duration), `variants`, `lods`, `colors`, `source` (imports).
+`skin`, `parts` (parent, pivot, meta, separate, `node_path`: glTF node names from the root, `aabb`: the part's box
+in model space, rest pose, for hit zones), `animations` (gltf_name, fps, frames, loop, interpolation, duration),
+`variants` (`swap`, `glb` unless variant_glbs = false, `godot_scene`), `lods`, `colors`, `source` (imports).
+`kiln build --verify-godot` checks everything in a throwaway copy of the output (nothing else in the game's project is
+imported or touched).
 
 In Godot:
 

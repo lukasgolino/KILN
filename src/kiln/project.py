@@ -9,8 +9,8 @@ from typing import Any
 
 from kiln.notation import MODEL_SUFFIX, NAME_RE, Model, load_model
 from kiln.style import Style, load_style
-from pagan.findings import Finding, PaganError
-from pagan.palette import PALETTE_SUFFIX, load_palette_file
+from kiln.vendor.findings import Finding, PaganError
+from kiln.vendor.palette import PALETTE_SUFFIX, load_palette_file
 
 CONFIG_NAME = "kiln.toml"
 EXPORTS = ("glb", "godot")
@@ -25,6 +25,7 @@ class Config:
     export: tuple[str, ...] = ("glb",)
     style_version: int = 1
     lint_disable: tuple[str, ...] = ()
+    variant_glbs: bool = True  # false: variants are Godot scenes recolouring the base glb (no glb per variant)
 
 
 @dataclass
@@ -100,17 +101,23 @@ class Project:
         return model, style, findings + mf
 
 
-def _peek(path: Path) -> tuple[str | None, str | None]:
-    """The model's own `style:` and `palette:` (read before parsing, since parsing needs both)."""
-    style = palette = None
+def _peek(path: Path, depth: int = 0) -> tuple[str | None, str | None]:
+    """The model's own `style:` and `palette:` (read before parsing, since parsing needs both), else its base's."""
+    style = palette = base = None
     try:
         for line in path.read_text(encoding="utf-8").splitlines():
+            value = line.split(":", 1)[1].split("#")[0].strip().strip("'\"") or None if ":" in line else None
             if line.startswith("style:"):
-                style = line.split(":", 1)[1].split("#")[0].strip().strip("'\"") or None
+                style = value
             elif line.startswith("palette:"):
-                palette = line.split(":", 1)[1].split("#")[0].strip().strip("'\"") or None
+                palette = value
+            elif line.startswith("extends:"):
+                base = value
     except (OSError, UnicodeDecodeError):
         pass
+    if base and depth < 8 and (style is None or palette is None):
+        base_style, base_palette = _peek(path.parent / f"{base}{MODEL_SUFFIX}", depth + 1)
+        style, palette = style or base_style, palette or base_palette
     return style, palette
 
 
@@ -121,7 +128,7 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
     def bad(message: str, where: str) -> None:
         findings.append(Finding("E000", message, path, None, where))
 
-    allowed = {"default_style", "default_palette", "output_dir", "preview_dir", "export", "style_version", "lint"}
+    allowed = {"default_style", "default_palette", "output_dir", "preview_dir", "export", "style_version", "variant_glbs", "lint"}
     for key in data:
         if key not in allowed:
             bad(f"unknown setting {key!r}; allowed: {', '.join(sorted(allowed))}", key)
@@ -153,6 +160,11 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
             bad("style_version is a whole number >= 1", "style_version")
         else:
             cfg.style_version = sv
+    if "variant_glbs" in data:
+        if not isinstance(data["variant_glbs"], bool):
+            bad("variant_glbs is true (a .glb per variant) or false (variants recolour the base glb's materials)", "variant_glbs")
+        else:
+            cfg.variant_glbs = data["variant_glbs"]
     lint = data.get("lint", {})
     if not isinstance(lint, dict) or any(k != "disable" for k in lint) or not all(isinstance(r, str) and r.startswith("W") for r in lint.get("disable", [])):
         bad("[lint] has disable = [\"W101\", ...] (warnings only)", "lint")

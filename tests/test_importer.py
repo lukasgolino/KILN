@@ -15,7 +15,7 @@ from kiln.export import to_glb
 from kiln.gltf_check import check_glb
 from kiln.importer import mesh_normals, nearest_palette, read_mesh
 from kiln.project import Project
-from pagan.gltf import ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER, Document
+from kiln.vendor.gltf import ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER, Document
 
 BOX_FACES = np.array([
     [0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
@@ -126,7 +126,7 @@ def test_import_credits_in_manifest_and_credits_md(project: Project) -> None:
 
 
 def test_read_gltf_with_external_buffer(tmp_path: Path) -> None:
-    from pagan.gltf import read_glb
+    from kiln.vendor.gltf import read_glb
 
     doc, binary = read_glb(box_glb(tmp_path / "box.glb").read_bytes())
     doc["buffers"] = [{"byteLength": len(binary), "uri": "box.bin"}]

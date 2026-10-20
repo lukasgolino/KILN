@@ -10,6 +10,7 @@
     "models/passenger.glb",
     "models/passenger.tscn",
     "models/pilot.copilot.glb",
+    "models/pilot.copilot.tscn",
     "models/pilot.glb",
     "models/pilot.tscn",
     "models/seat.glb",
@@ -50,14 +51,14 @@
       },
       "bounds": {
         "max": [
-          0.55,
-          1.30177,
+          0.54972,
+          1.3018,
           0.43943
         ],
         "min": [
-          -0.46983,
-          0.00028,
-          -0.45356
+          -0.46901,
+          0.00019,
+          -0.45351
         ]
       },
       "class": "character",
@@ -76,9 +77,22 @@
       "godot_scene": "res://assets/kiln/models/archer.tscn",
       "parts": {
         "arm_l": {
+          "aabb": {
+            "max": [
+              0.54972,
+              0.93167,
+              0.43943
+            ],
+            "min": [
+              0.26,
+              0.16852,
+              -0.07775
+            ]
+          },
           "meta": {
             "holds": "bow"
           },
+          "node_path": "root/arm_l",
           "parent": "root",
           "pivot": [
             0.28,
@@ -88,7 +102,20 @@
           "separate": false
         },
         "arm_r": {
+          "aabb": {
+            "max": [
+              -0.27479,
+              0.67934,
+              0.14958
+            ],
+            "min": [
+              -0.46901,
+              0.33014,
+              -0.07941
+            ]
+          },
           "meta": {},
+          "node_path": "root/arm_r",
           "parent": "root",
           "pivot": [
             -0.28,
@@ -98,7 +125,20 @@
           "separate": false
         },
         "leg_l": {
+          "aabb": {
+            "max": [
+              0.2125,
+              0.09903,
+              0.09271
+            ],
+            "min": [
+              0.04531,
+              0.00058,
+              -0.09403
+            ]
+          },
           "meta": {},
+          "node_path": "root/leg_l",
           "parent": "root",
           "pivot": [
             0.11,
@@ -108,7 +148,20 @@
           "separate": false
         },
         "leg_r": {
+          "aabb": {
+            "max": [
+              -0.04622,
+              0.09883,
+              0.09435
+            ],
+            "min": [
+              -0.21219,
+              0.00019,
+              -0.093
+            ]
+          },
           "meta": {},
+          "node_path": "root/leg_r",
           "parent": "root",
           "pivot": [
             -0.11,
@@ -118,7 +171,20 @@
           "separate": false
         },
         "root": {
+          "aabb": {
+            "max": [
+              0.29002,
+              1.3018,
+              0.34793
+            ],
+            "min": [
+              -0.31306,
+              0.01123,
+              -0.45351
+            ]
+          },
           "meta": {},
+          "node_path": "root",
           "parent": "",
           "pivot": [
             0.0,
@@ -129,9 +195,9 @@
         }
       },
       "size": [
-        1.01983,
-        1.30149,
-        0.89299
+        1.01873,
+        1.30162,
+        0.89294
       ],
       "skin": "rigid",
       "status": "approved",
@@ -141,20 +207,20 @@
         "siege",
         "soldier"
       ],
-      "triangles": 8000
+      "triangles": 7892
     },
     "barrel": {
       "animations": {},
       "bounds": {
         "max": [
-          0.35501,
+          0.35679,
           0.79,
-          0.35666
+          0.35744
         ],
         "min": [
-          -0.35513,
-          0.0,
-          -0.35724
+          -0.35723,
+          -0.0,
+          -0.35786
         ]
       },
       "class": "prop",
@@ -168,7 +234,20 @@
       "godot_scene": "res://assets/kiln/models/barrel.tscn",
       "parts": {
         "root": {
+          "aabb": {
+            "max": [
+              0.35679,
+              0.79,
+              0.35744
+            ],
+            "min": [
+              -0.35723,
+              -0.0,
+              -0.35786
+            ]
+          },
           "meta": {},
+          "node_path": "root",
           "parent": "",
           "pivot": [
             0.0,
@@ -179,9 +258,9 @@
         }
       },
       "size": [
-        0.71014,
+        0.71402,
         0.79,
-        0.7139
+        0.7153
       ],
       "skin": "none",
       "status": "approved",
@@ -191,7 +270,7 @@
         "siege",
         "cabin"
       ],
-      "triangles": 3000
+      "triangles": 2852
     },
     "knight": {
       "animations": {
@@ -214,13 +293,13 @@
       },
       "bounds": {
         "max": [
-          0.62,
-          1.39947,
+          0.61987,
+          1.39884,
           0.31999
         ],
         "min": [
-          -0.546,
-          -0.004,
+          -0.54883,
+          -0.00427,
           -0.31998
         ]
       },
@@ -242,9 +321,22 @@
       "godot_scene": "res://assets/kiln/models/knight.tscn",
       "parts": {
         "arm_l": {
+          "aabb": {
+            "max": [
+              0.61987,
+              0.66802,
+              0.24956
+            ],
+            "min": [
+              0.23617,
+              0.25044,
+              -0.08988
+            ]
+          },
           "meta": {
             "holds": "shield"
           },
+          "node_path": "root/arm_l",
           "parent": "root",
           "pivot": [
             0.3,
@@ -254,9 +346,22 @@
           "separate": false
         },
         "arm_r": {
+          "aabb": {
+            "max": [
+              -0.29021,
+              0.9321,
+              0.17989
+            ],
+            "min": [
+              -0.54883,
+              0.21808,
+              -0.08966
+            ]
+          },
           "meta": {
             "holds": "sword"
           },
+          "node_path": "root/arm_r",
           "parent": "root",
           "pivot": [
             -0.3,
@@ -266,10 +371,23 @@
           "separate": false
         },
         "helmet": {
+          "aabb": {
+            "max": [
+              0.31999,
+              1.39884,
+              0.31999
+            ],
+            "min": [
+              -0.32,
+              0.78,
+              -0.31998
+            ]
+          },
           "meta": {
             "detachable": true,
             "hitzone": "head"
           },
+          "node_path": "root/helmet",
           "parent": "root",
           "pivot": [
             0.0,
@@ -279,7 +397,20 @@
           "separate": true
         },
         "leg_l": {
+          "aabb": {
+            "max": [
+              0.23157,
+              0.09043,
+              0.09017
+            ],
+            "min": [
+              0.07615,
+              -0.00427,
+              -0.09025
+            ]
+          },
           "meta": {},
+          "node_path": "root/leg_l",
           "parent": "root",
           "pivot": [
             0.12,
@@ -289,7 +420,20 @@
           "separate": false
         },
         "leg_r": {
+          "aabb": {
+            "max": [
+              -0.07612,
+              0.09063,
+              0.09138
+            ],
+            "min": [
+              -0.23191,
+              -0.00384,
+              -0.09051
+            ]
+          },
           "meta": {},
+          "node_path": "root/leg_r",
           "parent": "root",
           "pivot": [
             -0.12,
@@ -299,7 +443,20 @@
           "separate": false
         },
         "root": {
+          "aabb": {
+            "max": [
+              0.30995,
+              1.04943,
+              0.30904
+            ],
+            "min": [
+              -0.30971,
+              -0.00284,
+              -0.3
+            ]
+          },
           "meta": {},
+          "node_path": "root",
           "parent": "",
           "pivot": [
             0.0,
@@ -310,8 +467,8 @@
         }
       },
       "size": [
-        1.166,
-        1.40348,
+        1.1687,
+        1.40311,
         0.63997
       ],
       "skin": "soft",
@@ -322,7 +479,7 @@
         "siege",
         "soldier"
       ],
-      "triangles": 8000
+      "triangles": 7812
     },
     "passenger": {
       "animations": {
@@ -345,14 +502,14 @@
       },
       "bounds": {
         "max": [
-          0.40966,
-          1.31994,
-          0.36959
+          0.40888,
+          1.31962,
+          0.36962
         ],
         "min": [
-          -0.4099,
-          0.00139,
-          -0.3
+          -0.40914,
+          0.00089,
+          -0.29972
         ]
       },
       "class": "character",
@@ -370,7 +527,20 @@
       "godot_scene": "res://assets/kiln/models/passenger.tscn",
       "parts": {
         "arm_l": {
+          "aabb": {
+            "max": [
+              0.40888,
+              0.65726,
+              0.13912
+            ],
+            "min": [
+              0.24126,
+              0.20094,
+              -0.07606
+            ]
+          },
           "meta": {},
+          "node_path": "root/arm_l",
           "parent": "root",
           "pivot": [
             0.25,
@@ -380,7 +550,20 @@
           "separate": false
         },
         "arm_r": {
+          "aabb": {
+            "max": [
+              -0.24136,
+              0.65742,
+              0.13954
+            ],
+            "min": [
+              -0.40914,
+              0.20187,
+              -0.07686
+            ]
+          },
           "meta": {},
+          "node_path": "root/arm_r",
           "parent": "root",
           "pivot": [
             -0.25,
@@ -390,9 +573,22 @@
           "separate": false
         },
         "head": {
+          "aabb": {
+            "max": [
+              0.31708,
+              1.31962,
+              0.36962
+            ],
+            "min": [
+              -0.31851,
+              0.76736,
+              -0.29972
+            ]
+          },
           "meta": {
             "hitzone": "head"
           },
+          "node_path": "root/head",
           "parent": "root",
           "pivot": [
             0.0,
@@ -402,7 +598,20 @@
           "separate": false
         },
         "leg_l": {
+          "aabb": {
+            "max": [
+              0.19673,
+              0.21435,
+              0.09641
+            ],
+            "min": [
+              -0.00034,
+              0.00089,
+              -0.0974
+            ]
+          },
           "meta": {},
+          "node_path": "root/leg_l",
           "parent": "root",
           "pivot": [
             0.1,
@@ -412,7 +621,20 @@
           "separate": false
         },
         "leg_r": {
+          "aabb": {
+            "max": [
+              -4e-05,
+              0.21414,
+              0.09677
+            ],
+            "min": [
+              -0.19637,
+              0.00175,
+              -0.09667
+            ]
+          },
           "meta": {},
+          "node_path": "root/leg_r",
           "parent": "root",
           "pivot": [
             -0.1,
@@ -422,7 +644,20 @@
           "separate": false
         },
         "root": {
+          "aabb": {
+            "max": [
+              0.25707,
+              0.7898,
+              0.24994
+            ],
+            "min": [
+              -0.25708,
+              0.12139,
+              -0.24991
+            ]
+          },
           "meta": {},
+          "node_path": "root",
           "parent": "",
           "pivot": [
             0.0,
@@ -433,9 +668,9 @@
         }
       },
       "size": [
-        0.81956,
-        1.31855,
-        0.66958
+        0.81802,
+        1.31873,
+        0.66933
       ],
       "skin": "soft",
       "status": "approved",
@@ -444,7 +679,7 @@
       "tags": [
         "npc"
       ],
-      "triangles": 8000
+      "triangles": 7854
     },
     "pilot": {
       "animations": {
@@ -475,14 +710,14 @@
       },
       "bounds": {
         "max": [
-          0.49801,
+          0.4979,
           1.155,
-          0.36005
+          0.36101
         ],
         "min": [
-          -0.49861,
-          0.00015,
-          -0.29998
+          -0.49921,
+          -1e-05,
+          -0.3
         ]
       },
       "class": "character",
@@ -500,7 +735,20 @@
       "godot_scene": "res://assets/kiln/models/pilot.tscn",
       "parts": {
         "arm_l": {
+          "aabb": {
+            "max": [
+              0.4979,
+              0.68896,
+              0.15893
+            ],
+            "min": [
+              0.29332,
+              0.30015,
+              -0.08968
+            ]
+          },
           "meta": {},
+          "node_path": "root/arm_l",
           "parent": "root",
           "pivot": [
             0.3,
@@ -510,7 +758,20 @@
           "separate": false
         },
         "arm_r": {
+          "aabb": {
+            "max": [
+              -0.29331,
+              0.68597,
+              0.15966
+            ],
+            "min": [
+              -0.49921,
+              0.30073,
+              -0.08863
+            ]
+          },
           "meta": {},
+          "node_path": "root/arm_r",
           "parent": "root",
           "pivot": [
             -0.3,
@@ -520,9 +781,22 @@
           "separate": false
         },
         "cap": {
+          "aabb": {
+            "max": [
+              0.26944,
+              1.155,
+              0.33945
+            ],
+            "min": [
+              -0.26965,
+              0.985,
+              -0.24996
+            ]
+          },
           "meta": {
             "detachable": true
           },
+          "node_path": "root/cap",
           "parent": "root",
           "pivot": [
             0.0,
@@ -532,7 +806,20 @@
           "separate": true
         },
         "leg_l": {
+          "aabb": {
+            "max": [
+              0.23103,
+              0.11037,
+              0.10121
+            ],
+            "min": [
+              0.05156,
+              0.00074,
+              -0.10325
+            ]
+          },
           "meta": {},
+          "node_path": "root/leg_l",
           "parent": "root",
           "pivot": [
             0.12,
@@ -542,7 +829,20 @@
           "separate": false
         },
         "leg_r": {
+          "aabb": {
+            "max": [
+              -0.05083,
+              0.1112,
+              0.09706
+            ],
+            "min": [
+              -0.2325,
+              -1e-05,
+              -0.10338
+            ]
+          },
           "meta": {},
+          "node_path": "root/leg_r",
           "parent": "root",
           "pivot": [
             -0.12,
@@ -552,7 +852,20 @@
           "separate": false
         },
         "root": {
+          "aabb": {
+            "max": [
+              0.30995,
+              1.03962,
+              0.36101
+            ],
+            "min": [
+              -0.30899,
+              0.0118,
+              -0.3
+            ]
+          },
           "meta": {},
+          "node_path": "root",
           "parent": "",
           "pivot": [
             0.0,
@@ -563,9 +876,9 @@
         }
       },
       "size": [
-        0.99661,
-        1.15485,
-        0.66003
+        0.99711,
+        1.15501,
+        0.66101
       ],
       "skin": "soft",
       "status": "approved",
@@ -574,10 +887,11 @@
       "tags": [
         "crew"
       ],
-      "triangles": 7642,
+      "triangles": 7950,
       "variants": {
         "copilot": {
           "glb": "models/pilot.copilot.glb",
+          "godot_scene": "res://assets/kiln/models/pilot.copilot.tscn",
           "swap": {
             "#e8413c": "#3fb6a8"
           }
@@ -588,14 +902,14 @@
       "animations": {},
       "bounds": {
         "max": [
-          0.30476,
+          0.30451,
           1.06,
           0.25
         ],
         "min": [
-          -0.30476,
-          0.00026,
-          -0.27149
+          -0.30491,
+          0.0,
+          -0.27148
         ]
       },
       "class": "prop",
@@ -610,7 +924,20 @@
       "godot_scene": "res://assets/kiln/models/seat.tscn",
       "parts": {
         "root": {
+          "aabb": {
+            "max": [
+              0.30451,
+              1.06,
+              0.25
+            ],
+            "min": [
+              -0.30491,
+              0.0,
+              -0.27148
+            ]
+          },
           "meta": {},
+          "node_path": "root",
           "parent": "",
           "pivot": [
             0.0,
@@ -621,9 +948,9 @@
         }
       },
       "size": [
-        0.60952,
-        1.05974,
-        0.52149
+        0.60942,
+        1.06,
+        0.52148
       ],
       "skin": "none",
       "status": "approved",
@@ -632,7 +959,7 @@
       "tags": [
         "cabin"
       ],
-      "triangles": 3000
+      "triangles": 2954
     },
     "trebuchet": {
       "animations": {
@@ -648,13 +975,13 @@
       "bounds": {
         "max": [
           0.77,
-          3.24404,
+          3.24305,
           1.2
         ],
         "min": [
           -0.77,
-          0.00114,
-          -1.91967
+          0.0,
+          -1.91944
         ]
       },
       "class": "machine",
@@ -670,9 +997,22 @@
       "godot_scene": "res://assets/kiln/models/trebuchet.tscn",
       "parts": {
         "arm": {
+          "aabb": {
+            "max": [
+              0.32,
+              3.24305,
+              0.94
+            ],
+            "min": [
+              -0.32,
+              0.45,
+              -1.91944
+            ]
+          },
           "meta": {
             "fires": true
           },
+          "node_path": "root/arm",
           "parent": "root",
           "pivot": [
             0.0,
@@ -682,7 +1022,20 @@
           "separate": false
         },
         "root": {
+          "aabb": {
+            "max": [
+              0.77,
+              1.85278,
+              1.2
+            ],
+            "min": [
+              -0.77,
+              0.0,
+              -1.2
+            ]
+          },
           "meta": {},
+          "node_path": "root",
           "parent": "",
           "pivot": [
             0.0,
@@ -694,8 +1047,8 @@
       },
       "size": [
         1.54,
-        3.24289,
-        3.11967
+        3.24305,
+        3.11944
       ],
       "skin": "rigid",
       "status": "approved",
@@ -704,20 +1057,20 @@
       "tags": [
         "siege"
       ],
-      "triangles": 14000
+      "triangles": 13844
     },
     "tree": {
       "animations": {},
       "bounds": {
         "max": [
-          0.84,
-          2.46856,
-          0.60516
+          0.83864,
+          2.46928,
+          0.60486
         ],
         "min": [
-          -0.82971,
-          0.01207,
-          -0.6212
+          -0.82912,
+          0.01224,
+          -0.62163
         ]
       },
       "class": "nature",
@@ -732,12 +1085,25 @@
       "lods": [
         {
           "glb": "models/tree.lod1.glb",
-          "triangles": 1500
+          "triangles": 1488
         }
       ],
       "parts": {
         "root": {
+          "aabb": {
+            "max": [
+              0.83864,
+              2.46928,
+              0.60486
+            ],
+            "min": [
+              -0.82912,
+              0.01224,
+              -0.62163
+            ]
+          },
           "meta": {},
+          "node_path": "root",
           "parent": "",
           "pivot": [
             0.0,
@@ -748,9 +1114,9 @@
         }
       },
       "size": [
-        1.6697,
-        2.45649,
-        1.22636
+        1.66776,
+        2.45704,
+        1.22648
       ],
       "skin": "none",
       "status": "approved",
@@ -760,20 +1126,20 @@
         "siege",
         "nature"
       ],
-      "triangles": 6000
+      "triangles": 5986
     },
     "wall": {
       "animations": {},
       "bounds": {
         "max": [
-          2.10387,
-          3.30648,
-          0.60286
+          2.10375,
+          3.30688,
+          0.60315
         ],
         "min": [
-          -2.10389,
-          -0.00705,
-          -0.60755
+          -2.10394,
+          -0.00709,
+          -0.607
         ]
       },
       "class": "building",
@@ -787,7 +1153,20 @@
       "godot_scene": "res://assets/kiln/models/wall.tscn",
       "parts": {
         "root": {
+          "aabb": {
+            "max": [
+              2.10375,
+              3.30688,
+              0.60315
+            ],
+            "min": [
+              -2.10394,
+              -0.00709,
+              -0.607
+            ]
+          },
           "meta": {},
+          "node_path": "root",
           "parent": "",
           "pivot": [
             0.0,
@@ -798,9 +1177,9 @@
         }
       },
       "size": [
-        4.20776,
-        3.31353,
-        1.21041
+        4.20768,
+        3.31397,
+        1.21015
       ],
       "skin": "none",
       "status": "approved",
@@ -809,7 +1188,7 @@
       "tags": [
         "siege"
       ],
-      "triangles": 20000
+      "triangles": 19942
     }
   },
   "units": "metres",

@@ -7,6 +7,7 @@ the style, the palette, decal images, imported files and KILN's version.
 from __future__ import annotations
 
 import hashlib
+import math
 import json
 import pickle
 from pathlib import Path
@@ -15,14 +16,17 @@ import numpy as np
 
 from kiln import __version__
 from kiln.export import Built
-from kiln.mesher import BORDER_TOLERANCE, Mesh, components, decimate_regions, dual_contour, model_step
+from kiln.mesher import Mesh, component_labels, components, decimate_regions, dual_contour, model_step, simplify_borders
 from kiln.notation import ROOT_ID, Model
-from kiln.paint import Regions, corner_normals, paint, regions
+from kiln.paint import PaintGroup, Painted, Regions, corner_normals, paint, regions
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
-from kiln.sdf import Field
+from kiln.sdf import Array, Field, thickness
 from kiln.style import Style
 
-BUILDER_VERSION = 7  # bump when meshing/painting changes output
+BUILDER_VERSION = 8  # bump when meshing/painting changes output
+BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
+PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
+LOST_AREA = 0.25  # a part keeping less of its surface than this through decimation is lost (lint W111)
 
 
 def field_of(model: Model, step: float) -> Field:
@@ -35,35 +39,143 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
 
         return build_imported(model, style, palette)
     field = field_of(model, 0.01)
+    for part in model.parts:
+        lo, hi = part.geometry.bounds()
+        probe = np.array([lo, hi, (lo + hi) / 2])
+        if not (np.isfinite(lo).all() and np.isfinite(hi).all() and np.isfinite(part.geometry.distance(probe)).all()):
+            raise ValueError(f"{part.where} ({part.geometry.shape}) has no valid surface (its numbers give NaN); check its points")
     step = model_step(field, style.resolution)
     field = field_of(model, step)
-    mesh = dual_contour(field, step)
-    if mesh.triangles == 0:
-        raise ValueError("the model has no surface (everything cut away, or all parts are cuts)")
     target = budget or model.budget or style.budget(model.cls)
     rigged = model.skin != "none"
-    cut = regions(mesh, model, field, rigged)  # colour borders cut at full resolution, kept by decimation
-    # colour borders (kept by decimation) cost triangles: decimate harder and let borders stray further
-    # until the painted mesh fits the budget
-    goal, tolerance = target, BORDER_TOLERANCE
-    previous = None
-    for _ in range(4):
-        decimated, owner = decimate_regions(field, cut.mesh, cut.owner, goal, step, tolerance)
-        painted = paint(Regions(decimated, owner, cut.groups, cut.part_group, cut.pattern_groups), model)
-        count = len(painted.faces)
-        if count <= target * 1.05 or goal <= target * 0.2 or (previous is not None and count > previous * 0.95):
-            break  # fits, or the extra triangles come from patterns themselves (lint W110 says so)
-        previous = count
-        goal = max(int(goal * target / count * 0.95), int(target * 0.2))
-        tolerance *= 2
-    mesh = decimated
-    pieces = components(mesh)
-    normals = corner_normals(painted, field, step, style.smooth, style.sharp_angle)
+    # `separate` parts (a detachable helmet) are meshed on their own: their own closed surface, not fused into the
+    # body, so detaching one leaves no hole. The rest is the main piece.
+    separate = sorted(pid for pid, entry in model.rig.items() if entry.separate) if rigged else []
+    adding = [i for i, p in enumerate(model.parts) if p.geometry.op == "add"]
+    groups_of = [[i for i in adding if model.parts[i].id not in separate]]
+    groups_of += [[i for i in adding if model.parts[i].id == pid] for pid in separate]
+    pieces = [(include, field.only(include)) for include in groups_of if include]
+    meshes = [dual_contour(f, step) for _, f in pieces]
+    total = sum(m.triangles for m in meshes)
+    if total == 0:
+        raise ValueError("the model has no surface (everything cut away, or all parts are cuts)")
+    live = [(include, f, mesh) for (include, f), mesh in zip(pieces, meshes, strict=True) if mesh.triangles]
+    # thin parts the budget's triangle size would erase (plates, wheels, posts) keep their outline like a colour
+    area = sum(_area(mesh.vertices, mesh.faces) for _, _, mesh in live)
+    edge = math.sqrt(4 * area / (math.sqrt(3) * target))
+    protect = frozenset(i for i in adding if (t := thickness(model.parts[i].geometry.shape, model.parts[i].geometry.params)) is not None
+                        and t < PROTECT * edge)  # fmt: skip
+    cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect) for include, f, mesh in live])
+    fields = [f for _, f, _ in live]
+    painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, target, [inc for inc, _, _ in live])
+    main = region_piece[painted.face_group] == 0
+    floating = _pieces(model, field, Mesh(painted.vertices, painted.faces[main]), step) if groups_of[0] else 1  # separate parts may float
     skeleton = build_skeleton(model, field) if rigged else Skeleton([Bone(ROOT_ID, -1, np.zeros(3), {}, False)])
     joints = weights = None
     if model.skin == "soft":
         joints, weights = soft_weights(painted.vertices, model, field, skeleton, step)
-    return Built(model, style, painted, normals, skeleton, model.skin, joints, weights, tracks(model, skeleton) if rigged else [], step, pieces)
+    return Built(model, style, painted, normals, skeleton, model.skin, joints, weights, tracks(model, skeleton) if rigged else [], step,
+                 floating, hidden, lost)  # fmt: skip
+
+
+def _pieces(model: Model, field: Field, mesh: Mesh, step: float) -> int:
+    """Connected pieces of the main mesh, not counting pieces made only of `loose: true` parts (lint W103)."""
+    if not any(p.loose for p in model.parts):
+        return components(mesh)
+    labels = component_labels(mesh)[np.unique(mesh.faces)]
+    points = mesh.vertices[np.unique(mesh.faces)]
+    solid = [i for i, p in enumerate(model.parts) if p.geometry.op == "add" and not p.loose]
+    near = np.zeros(len(points), dtype=bool)
+    for i in solid:
+        near |= np.abs(field.part_distance(i, points)) < step * 2
+    return max(1, len(np.unique(labels[near])))
+
+
+def _area(vertices: Array, faces: Array) -> float:
+    p = vertices[faces]
+    return float(np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=1).sum() / 2)
+
+
+def _areas(field: Field, vertices: Array, faces: Array, include: list[int], step: float) -> Array:
+    """Surface area per part (in `include` order): each triangle counts for the part whose surface its centre is on."""
+    if not len(faces) or not include:
+        return np.zeros(len(include))
+    p = vertices[faces]
+    area = np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=1) / 2
+    d = np.abs(np.stack([field.part_distance(i, p.mean(axis=1)) for i in include]))
+    owner = d.argmin(axis=0)
+    on = d.min(axis=0) < step
+    return np.bincount(owner[on], weights=area[on], minlength=len(include))
+
+
+def _join(cuts: list[Regions]) -> tuple[Regions, Array]:
+    """One Regions from the pieces' (body, separate parts), and each paint group's piece."""
+    groups: list[PaintGroup] = []
+    piece_of: list[int] = []
+    vertices, faces, owner = [], [], []
+    part_group: dict[int, int] = {}
+    pattern_groups: dict[int, int] = {}
+    base = 0
+    for k, cut in enumerate(cuts):
+        remap = []
+        for g in cut.groups:
+            if g not in groups:
+                groups.append(g)
+                piece_of.append(k)
+            remap.append(groups.index(g))
+        vertices.append(cut.mesh.vertices)
+        faces.append(cut.mesh.faces + base)
+        owner.append(np.asarray(remap)[cut.owner])
+        part_group.update({i: remap[g] for i, g in cut.part_group.items()})
+        pattern_groups.update({remap[a]: remap[b] for a, b in cut.pattern_groups.items()})
+        base += len(cut.mesh.vertices)
+    mesh = Mesh(np.concatenate(vertices), np.concatenate(faces))
+    return Regions(mesh, np.concatenate(owner), groups, part_group, pattern_groups), np.asarray(piece_of)
+
+
+def _decimate(
+    model: Model, style: Style, fields: list[Field], cut: Regions, region_piece: Array, step: float, target: int, includes: list[list[int]]
+) -> tuple[Painted, Array, tuple[int, ...], tuple[int, ...]]:
+    """Decimate every piece together to the budget, paint decals, and work out normals and hidden/lost parts per
+    piece (each on its own surface)."""
+    # Colour borders are kept, so they cost triangles; next to a full-detail border every triangle is tiny, so the
+    # borders can only be thinned once the surface around them is coarser. So: decimate (borders locked), thin the
+    # borders, decimate again... Borders may stray from the exact curve by a fraction of the target triangle size
+    # (more while over budget); only then are triangles taken from the surfaces between them.
+    edge = math.sqrt(4 * _area(cut.mesh.vertices, cut.mesh.faces) / (math.sqrt(3) * target))  # a typical edge at the budget
+    mesh, owner = cut.mesh, cut.owner
+    goal = target
+
+    def attempt(goal: int) -> tuple[Mesh, Array, Painted]:
+        decimated, face_owner = decimate_regions(fields[0], mesh, owner, goal, step, 0, fields, region_piece)
+        painted = paint(Regions(decimated, face_owner, cut.groups, cut.part_group, cut.pattern_groups), model)
+        return decimated, face_owner, painted
+
+    for k, share in enumerate(BORDER_SCHEDULE):
+        mesh, owner = simplify_borders(mesh, owner, max(step * 0.15, edge * share))
+        mesh, owner, painted = attempt(goal if k else goal * 3)
+        if k >= 2 and len(painted.faces) <= target * 1.05:
+            break
+    else:
+        for _ in range(2):
+            goal = max(int(goal * target / len(painted.faces) * 0.95), int(target * 0.3))
+            mesh, owner, painted = attempt(goal)
+            if len(painted.faces) <= target * 1.05 or goal <= target * 0.3:
+                break  # or the extra triangles come from patterns and borders themselves (lint W110 says so)
+    normals = np.zeros((len(painted.faces), 3, 3))
+    hidden: list[int] = []
+    lost: list[int] = []
+    face_piece = region_piece[painted.face_group]
+    full_piece = region_piece[cut.owner]
+    for k, (field, include) in enumerate(zip(fields, includes, strict=True)):
+        mine = face_piece == k
+        sub = Painted(painted.vertices, painted.faces[mine], painted.face_group[mine], painted.groups, painted.face_decal[mine], painted.decals)
+        normals[mine] = corner_normals(sub, field, step, style.smooth, style.sharp_angle)
+        full = _areas(field, cut.mesh.vertices, cut.mesh.faces[full_piece == k], include, step)
+        final = _areas(field, painted.vertices, painted.faces[mine], include, step)
+        hidden += [i for i, a in zip(include, full, strict=True) if a == 0]
+        lost += [i for i, a, b in zip(include, full, final, strict=True) if a > 0 and b < a * LOST_AREA]
+    return painted, normals, tuple(sorted(hidden)), tuple(sorted(lost))
 
 
 def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int | None = None) -> str:
@@ -73,8 +185,21 @@ def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int |
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())
     if model.source is not None:
+        from kiln.importer import external_files
+
         h.update(model.source.file.read_bytes())
+        for uri in external_files(model.source.file):  # its buffers and textures too
+            other = model.source.file.parent / uri
+            h.update(uri.encode() + (other.read_bytes() if other.is_file() else b"missing"))
     return h.hexdigest()[:32]
+
+
+def _cache_file(model: Model, style: Style, palette: dict[str, str], cache_dir: Path, budget: int | None = None) -> Path:
+    return cache_dir / f"{model.name}.{budget or 'base'}.{cache_key(model, style, palette, budget)}.pickle"
+
+
+def cached(model: Model, style: Style, palette: dict[str, str], cache_dir: Path | None, budget: int | None = None) -> bool:
+    return cache_dir is not None and _cache_file(model, style, palette, cache_dir, budget).is_file()
 
 
 def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir: Path | None, budget: int | None = None) -> Built:

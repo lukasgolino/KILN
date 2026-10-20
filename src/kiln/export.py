@@ -15,7 +15,7 @@ from kiln.paint import Painted, decal_uv
 from kiln.rig import Skeleton, Track
 from kiln.sdf import Array
 from kiln.style import Style
-from pagan.gltf import ARRAY_BUFFER, CLAMP_TO_EDGE, ELEMENT_ARRAY_BUFFER, NEAREST, Document
+from kiln.vendor.gltf import ARRAY_BUFFER, CLAMP_TO_EDGE, ELEMENT_ARRAY_BUFFER, NEAREST, Document
 
 LINEAR = 9729
 LINEAR_MIPMAP_LINEAR = 9987
@@ -36,6 +36,8 @@ class Built:
     tracks: list[Track]
     step: float
     pieces: int
+    hidden: tuple[int, ...] = ()  # adding parts with no visible surface even at full resolution (lint W101)
+    lost: tuple[int, ...] = ()  # adding parts visible at full resolution that decimation removed (lint W111)
 
     @property
     def triangles(self) -> int:
@@ -79,11 +81,13 @@ class _Writer:
         preset = self.b.style.materials.get(preset_name, self.b.style.materials["default"])
         rgb = srgb_to_linear(color)
         pbr: dict[str, Any] = {"baseColorFactor": [*rgb, 1.0], "metallicFactor": preset.metallic, "roughnessFactor": preset.roughness}
+        # name: <preset>_<colour name>[_decal<n>]#<rrggbb>; the hex lets Godot variant scenes find what to recolour
         mat: dict[str, Any] = {"name": f"{preset_name}_{color_name.split('#')[0].lstrip('#')}", "pbrMetallicRoughness": pbr}
         if decal >= 0:
             pbr["baseColorFactor"] = [1.0, 1.0, 1.0, 1.0]
             pbr["baseColorTexture"] = {"index": self.texture(decal, color)}
             mat["name"] += f"_decal{decal}"
+        mat["name"] += color
         if preset.emission > 0:
             strength = preset.emission
             mat["emissiveFactor"] = rgb

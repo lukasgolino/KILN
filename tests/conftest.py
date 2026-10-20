@@ -14,7 +14,7 @@ from kiln.mesher import Mesh
 from kiln.notation import Model, load_model
 from kiln.project import Project, load_project
 from kiln.style import Style
-from pagan.findings import Finding
+from kiln.vendor.findings import Finding
 
 PALETTE = """\
 name: main
@@ -134,7 +134,7 @@ def parse(text: str, palette: dict[str, str] | None = None, materials: set[str] 
     pal = palette if palette is not None else {"red": "#e8413c", "blue": "#2f6fd0", "white": "#f4f4f0", "2": "#e8413c"}
     mats = materials if materials is not None else {"default", "plastic", "metal"}
     if path is None:
-        from pagan.yamlio import parse_yaml
+        from kiln.vendor.yamlio import parse_yaml
 
         from kiln.notation import parse_model
 

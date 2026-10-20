@@ -15,7 +15,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-from pagan.findings import Finding
+from kiln.vendor.findings import Finding
 
 STYLE_SUFFIX = ".style.toml"
 SHADERS = ("standard", "toon")

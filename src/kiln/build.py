@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from kiln import __version__
 from kiln.builder import build_cached
 from kiln.export import Built, gltf_name, to_glb
@@ -18,7 +20,7 @@ from kiln.lint import LintResult, lint_project
 from kiln.notation import Model
 from kiln.project import Project
 from kiln.style import Style
-from pagan.findings import Finding
+from kiln.vendor.findings import Finding
 
 MANIFEST = "manifest.json"
 CREDITS = "CREDITS.md"
@@ -60,13 +62,24 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
     lo, hi = built.bounds()
     sk = built.skeleton
     parts = {}
+    p = built.painted
+    face_bone = np.array([sk.index(g.bone) for g in p.groups] or [0])[p.face_group]
     for i, bone in enumerate(sk.bones):
+        chain, k = [bone.name], bone.parent
+        while k >= 0:
+            chain.insert(0, sk.bones[k].name)
+            k = sk.bones[k].parent
         parts[bone.name] = {
             "parent": sk.bones[bone.parent].name if bone.parent >= 0 else "",
             "pivot": [_f(v) for v in bone.pivot],
             "meta": bone.meta,
             "separate": bone.separate,
+            "node_path": "/".join(chain),  # glTF node names from the root (Godot soft skins: bones of the Skeleton3D)
         }
+        faces = p.faces[face_bone == i]
+        if len(faces):  # the part's box in model space, rest pose (hit zones)
+            v = p.vertices[np.unique(faces)]
+            parts[bone.name]["aabb"] = {"min": [_f(x) for x in v.min(axis=0)], "max": [_f(x) for x in v.max(axis=0)]}
     animations = {}
     for t in built.tracks:
         animations[t.name] = {"gltf_name": gltf_name(t.name, t.loop), "fps": t.fps, "frames": t.frames, "loop": t.loop,
@@ -126,18 +139,28 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         glb = out / "models" / f"{name}.glb"
         write(glb, to_glb(built, generator))
         entry = model_entry(built, out, glb)
-        variants = {}
+        variants: dict[str, dict[str, Any]] = {}
         for vname, swap in sorted(model.variants.items()):
-            vpath = out / "models" / f"{name}.{vname}.glb"
-            write(vpath, to_glb(built, generator, swap))
-            variants[vname] = {"glb": vpath.relative_to(out).as_posix(), "swap": dict(sorted(swap.items()))}
+            variants[vname] = {"swap": dict(sorted(swap.items()))}
+            if project.config.variant_glbs:
+                vpath = out / "models" / f"{name}.{vname}.glb"
+                write(vpath, to_glb(built, generator, swap))
+                variants[vname]["glb"] = vpath.relative_to(out).as_posix()
         if variants:
             entry["variants"] = variants
         lods = []
+        disabled = set(project.config.lint_disable) | set(model.lint_disable)
         for k, budget in enumerate(model.lod, start=1):
             if budget >= built.triangles:
                 continue
             lod_built = build_cached(model, style, palette, cache, budget)
+            if lod_built.triangles > budget * 1.25 and "W112" not in disabled:
+                result.findings.append(Finding("W112", f"lod {k} came out at {lod_built.triangles} triangles for a target of {budget}: colour "
+                                               "borders and small parts need more; raise the target or drop this LOD", model.path, None, "lod"))  # fmt: skip
+            for i in lod_built.lost if "W111" not in disabled else ():
+                part = model.parts[i]
+                result.findings.append(Finding("W111", f"lod {k} ({budget} triangles) loses part {part.index} ({part.geometry.shape}, "
+                                               f"{part.color_name})", model.path, part.line, part.where))  # fmt: skip
             lpath = out / "models" / f"{name}.lod{k}.glb"
             write(lpath, to_glb(lod_built, generator))
             lods.append({"glb": lpath.relative_to(out).as_posix(), "triangles": lod_built.triangles})
@@ -147,6 +170,11 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             scene = out / "models" / f"{name}.tscn"
             write(scene, model_scene(name, res_path(glb, godot_root), style).encode())
             entry["godot_scene"] = res_path(scene, godot_root)
+            for vname, swap in sorted(model.variants.items()):  # a scene per variant: its glb, or the base recoloured
+                vscene = out / "models" / f"{name}.{vname}.tscn"
+                vglb = out / variants[vname]["glb"] if "glb" in variants[vname] else glb
+                write(vscene, model_scene(name, res_path(vglb, godot_root), style, None if "glb" in variants[vname] else swap).encode())
+                variants[vname]["godot_scene"] = res_path(vscene, godot_root)
             entry["glb_res"] = res_path(glb, godot_root)
         styles_used[style.name] = style
         if model.source is not None:

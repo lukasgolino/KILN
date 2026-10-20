@@ -6,6 +6,50 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
+From the LOOSE! dogfooding report (LOOSE_REPORT.md, items 1-16).
+
+### Added
+
+- Model families: `template: true` models are bases; `extends: <base>` inherits parts (base first, minus
+  `remove: [ids]`), rig, animations and variants (merged by name) and every other field except identity. E012.
+- `loose: true` on a part: it may float (flames, bees, rubble) without W103.
+- An animation can have a `cycle` and `poses` together: poses repeat over the cycle's frames and override it per part.
+- Rig `meta` takes flat lists (points such as `seat: [0, 1.56, 0]`).
+- Manifest parts: `aabb` (the part's box in model space, rest pose) and `node_path`.
+- `variant_glbs = false` (kiln.toml): no glb per variant; each variant is a Godot scene recolouring the base glb, and
+  every variant (with or without glbs) gets a `godot_scene` in the manifest.
+- W111 (a part lost when reducing to the triangle budget) and W112 (a LOD well above its target, from `kiln build`).
+- `kiln init` inside a Godot project writes `.gdignore`.
+- Lint meshes models in parallel processes (`KILN_JOBS`, default every core).
+
+### Changed
+
+- KILN no longer depends on PAGAN: the palette format, findings, YAML loader, OKLab colours and glTF writer are
+  vendored (`kiln.vendor`, from PAGAN v0.9.0), so a game can pin any PAGAN version next to KILN.
+- `separate: true` parts are meshed on their own (a closed mesh, not fused into the body); they don't count for W103.
+- W101 is judged on the full-detail mesh, not the decimated one.
+- `--verify-godot` and `preview --engine` run in a throwaway Godot project holding a copy of the output, so nothing else
+  in the game's project is imported or rewritten.
+- glTF material names end in `#rrggbb` (the colour), which variant scenes recolour by.
+- Meshing at tight budgets (characters with many colours, big models): borders are thinned and the mesh decimated in
+  turns (a full-detail border can't be thinned until the surface around it is coarser), border tolerance follows the
+  budget's triangle size, the simplifier runs again while it still helps (it stopped early on flat brims), and parts
+  thinner than two budget-sized triangles keep their outline. Body pieces and `separate` parts are decimated
+  together, each kept on its own surface. Rounder shapes than 0.2.0 at the same budget (LOOSE's peasant: boots,
+  hands, ears and nose kept at 5000 triangles).
+- Dual contouring stores only the cells on the surface (memory: was a 3x3 matrix per grid cell) and moves vertices
+  whose triangles fold back to their cell's centre. Field evaluation is batched and skips parts out of reach.
+
+### Fixed
+
+- An `extrude` outline with repeated points (or closed on its first point) made the whole model NaN: repeats are
+  dropped, fewer than 3 different points is E003, and a NaN shape is an error naming the part.
+- Paint ownership ignored later cuts: a door in a cut archway was painted as the wall.
+- `kiln import` dropped textures in sub-folders (Kenney's `Textures/colormap.png`): they're copied with their folders,
+  a missing one is an error, and the build cache keys on them.
+
 ## [0.2.0] - 2026-10-20
 
 Smoother models: no more jagged seams, polygonal pupils, streaks or creases from decimation. Every built mesh
@@ -51,6 +95,7 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/lukasgolino/KILN/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lukasgolino/KILN/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lukasgolino/KILN/releases/tag/v0.1.0
