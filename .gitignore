@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+spike/out/
+spike/godot/.godot/
+spike/godot/models/
+*.import

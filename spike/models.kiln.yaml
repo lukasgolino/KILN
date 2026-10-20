@@ -1,0 +1,339 @@
+# KILN spike v2: every model here is plain text an agent writes. Metres, +Y up, front +Z, origin at the feet.
+palette:
+  red: "#e8413c"
+  crimson: "#c03a2b"
+  teal: "#3fb6a8"
+  navy: "#2b3a67"
+  navy_dark: "#1f2a4d"
+  gold: "#f2c14e"
+  white: "#f4f4f0"
+  black: "#141414"
+  skin: "#f1b48c"
+  hair: "#5a3825"
+  denim: "#3b3f58"
+  seat_blue: "#2f5fa8"
+  grey: "#8a93a3"
+  steel: "#aeb6c1"
+  iron: "#4a4a52"
+  wood: "#a0663a"
+  wood_dark: "#6e4426"
+  rope: "#c9a66b"
+  leaf: "#4caf50"
+  leaf_dark: "#2e7d32"
+  hood: "#3d8b3d"
+  stone: "#b8b2a7"
+  stone_dark: "#8d877c"
+  bark: "#6b4a2f"
+  shield_blue: "#2f6fd0"
+
+models:
+  - name: seat
+    class: prop
+    parts:
+      - box: { at: [0, 0.28, 0], size: [0.5, 0.14, 0.5], round: 0.06 }
+        color: seat_blue
+        material: fabric
+      - box: { at: [0, 0.62, -0.2], size: [0.48, 0.72, 0.14], round: 0.06 }
+        color: seat_blue
+        material: fabric
+        blend: 0.04
+      - box: { at: [0, 0.98, -0.19], size: [0.4, 0.16, 0.16], round: 0.06 }
+        color: white
+        material: fabric
+      - box: { at: [0.29, 0.42, -0.02], size: [0.07, 0.06, 0.44], round: 0.025 }
+        mirror: x
+        color: grey
+        material: plastic
+      - cylinder: { at: [0.2, 0.11, 0], radius: 0.03, height: 0.22 }
+        mirror: x
+        color: grey
+        material: metal
+
+  - name: passenger
+    class: character
+    parts:
+      - capsule: { from: [0, 0.35, 0], to: [0, 0.6, 0], radius: 0.25 }
+        color: teal
+        material: fabric
+      - capsule: { from: [0.1, -0.05, 0], to: [0.1, 0.3, 0], radius: 0.09 }
+        mirror: x
+        blend: 0.03
+        color: denim
+        material: fabric
+      - capsule: { from: [0.25, 0.58, 0], to: [0.33, 0.3, 0.06], radius: 0.07 }
+        mirror: x
+        blend: 0.03
+        color: teal
+        material: fabric
+      - sphere: { at: [0.34, 0.26, 0.07], radius: 0.07 }
+        mirror: x
+        blend: 0.02
+        color: skin
+        material: skin
+      - capsule: { from: [0, 0.65, 0], to: [0, 0.8, 0], radius: 0.1 }
+        blend: 0.05
+        color: skin
+        material: skin
+      - ellipsoid: { at: [0, 1.0, 0.02], radii: [0.27, 0.3, 0.26] }
+        blend: 0.06
+        color: skin
+        material: skin
+      - ellipsoid: { at: [0, 0.96, 0.28], radii: [0.07, 0.1, 0.09] }
+        blend: 0.03
+        color: skin
+        material: skin
+      - ellipsoid: { at: [0.27, 1.0, 0], radii: [0.05, 0.08, 0.04] }
+        mirror: x
+        blend: 0.02
+        color: skin
+        material: skin
+      - ellipsoid: { at: [0, 1.17, -0.04], radii: [0.28, 0.15, 0.26] }
+        blend: 0.02
+        color: hair
+        material: fabric
+      - sphere: { at: [0.1, 1.07, 0.2], radius: 0.085 }
+        mirror: x
+        color: white
+        material: plastic
+      - sphere: { at: [0.1, 1.07, 0.28], radius: 0.035 }
+        mirror: x
+        color: black
+        material: plastic
+
+  - name: pilot
+    class: character
+    parts:
+      - capsule: { from: [0, 0.3, 0], to: [0, 0.75, 0], radius: 0.3 }
+        color: red
+        material: plastic
+      - capsule: { from: [0.12, 0.05, 0], to: [0.12, 0.25, 0], radius: 0.1 }
+        mirror: x
+        blend: 0.05
+        color: red
+        material: plastic
+      - capsule: { from: [0.3, 0.58, 0], to: [0.42, 0.36, 0.1], radius: 0.08 }
+        mirror: x
+        blend: 0.04
+        color: red
+        material: plastic
+      - box: { at: [0, 0.55, 0.29], size: [0.09, 0.22, 0.05], round: 0.015 }
+        color: navy
+        material: fabric
+      - sphere: { at: [0.1, 0.84, 0.23], radius: 0.1 }
+        mirror: x
+        color: white
+        material: plastic
+      - sphere: { at: [0.11, 0.85, 0.32], radius: 0.042 }
+        mirror: x
+        color: black
+        material: plastic
+      - cylinder: { at: [0, 1.07, 0], radius: 0.25, height: 0.14, round: 0.03 }
+        color: navy
+        material: fabric
+      - cylinder: { at: [0, 1.0, 0.07], radius: 0.27, height: 0.03, round: 0.012 }
+        color: navy_dark
+        material: fabric
+      - sphere: { at: [0, 1.09, 0.245], radius: 0.035 }
+        color: gold
+        material: metal
+
+  - name: knight
+    class: character
+    parts:
+      - capsule: { from: [0, 0.3, 0], to: [0, 0.75, 0], radius: 0.3 }
+        color: crimson
+        material: fabric
+      - capsule: { from: [0.12, 0.05, 0], to: [0.12, 0.25, 0], radius: 0.1 }
+        mirror: x
+        blend: 0.05
+        color: iron
+        material: metal
+      - capsule: { from: [0.3, 0.58, 0], to: [0.42, 0.36, 0.1], radius: 0.08 }
+        mirror: x
+        blend: 0.04
+        color: steel
+        material: metal
+      - cylinder: { at: [0, 0.98, 0], radius: 0.32, height: 0.4, round: 0.07 }
+        color: steel
+        material: metal
+      - box: { at: [0, 0.93, 0.3], size: [0.44, 0.1, 0.2], round: 0.02 }
+        cut: true
+      - sphere: { at: [0.09, 0.93, 0.22], radius: 0.07 }
+        mirror: x
+        color: white
+        material: plastic
+      - sphere: { at: [0.09, 0.93, 0.28], radius: 0.03 }
+        mirror: x
+        color: black
+        material: plastic
+      - ellipsoid: { at: [0, 1.27, -0.04], radii: [0.05, 0.13, 0.17] }
+        blend: 0.03
+        color: red
+        material: fabric
+      - box: { at: [0.45, 0.66, 0.14], size: [0.06, 0.55, 0.018], round: 0.008 }
+        color: steel
+        material: metal
+      - box: { at: [0.45, 0.37, 0.14], size: [0.2, 0.035, 0.045], round: 0.012 }
+        color: gold
+        material: metal
+      - capsule: { from: [0.45, 0.36, 0.14], to: [0.45, 0.24, 0.14], radius: 0.022 }
+        color: wood_dark
+        material: wood
+      - cylinder: { at: [-0.42, 0.45, 0.16], radius: 0.2, height: 0.05, round: 0.015, rotate: [90, 0, 0] }
+        color: shield_blue
+        material: wood
+      - sphere: { at: [-0.42, 0.45, 0.2], radius: 0.05 }
+        color: gold
+        material: metal
+
+  - name: archer
+    class: character
+    parts:
+      - torus: { at: [0.5, 0.55, 0.05], radius: 0.36, thickness: 0.022, rotate: [0, 0, 90] }
+        color: wood
+        material: wood
+      - box: { at: [0.5, 0.55, -0.15], size: [0.2, 0.9, 0.4] }
+        cut: true
+      - capsule: { from: [0.5, 0.2, 0.05], to: [0.5, 0.9, 0.05], radius: 0.012 }
+        color: rope
+        material: fabric
+      - capsule: { from: [0, 0.3, 0], to: [0, 0.75, 0], radius: 0.28 }
+        color: hood
+        material: fabric
+      - capsule: { from: [0.11, 0.05, 0], to: [0.11, 0.25, 0], radius: 0.09 }
+        mirror: x
+        blend: 0.05
+        color: wood_dark
+        material: fabric
+      - capsule: { from: [0.28, 0.6, 0], to: [0.47, 0.55, 0.16], radius: 0.07 }
+        mirror: x
+        blend: 0.04
+        color: hood
+        material: fabric
+      - cone: { at: [0, 1.1, -0.06], height: 0.42, radius: 0.27, radius_top: 0.0, rotate: [-15, 0, 0] }
+        blend: 0.06
+        color: hood
+        material: fabric
+      - ellipsoid: { at: [0, 0.85, 0.2], radii: [0.2, 0.15, 0.1] }
+        color: skin
+        material: skin
+      - sphere: { at: [0.08, 0.87, 0.26], radius: 0.065 }
+        mirror: x
+        color: white
+        material: plastic
+      - sphere: { at: [0.08, 0.87, 0.32], radius: 0.028 }
+        mirror: x
+        color: black
+        material: plastic
+      - cylinder: { at: [-0.18, 0.75, -0.3], radius: 0.08, height: 0.5, round: 0.02, rotate: [20, 0, 15] }
+        color: wood_dark
+        material: wood
+
+  - name: barrel
+    class: prop
+    parts:
+      - ellipsoid: { at: [0, 0.4, 0], radii: [0.34, 0.55, 0.34] }
+        color: wood
+        material: wood
+      - cylinder: { at: [0, 0.4, 0], radius: 1.0, height: 0.76 }
+        intersect: true
+      - torus: { at: [0, 0.24, 0], radius: 0.322, thickness: 0.022 }
+        color: iron
+        material: metal
+      - torus: { at: [0, 0.56, 0], radius: 0.322, thickness: 0.022 }
+        color: iron
+        material: metal
+
+  - name: trebuchet
+    class: machine
+    parts:
+      - box: { at: [0.6, 0.2, 0], size: [0.16, 0.16, 2.4], round: 0.025 }
+        mirror: x
+        color: wood
+        material: wood
+      - box: { at: [0, 0.2, 1.0], size: [1.36, 0.14, 0.14], round: 0.025 }
+        array: { count: 2, step: [0, 0, -2.0] }
+        color: wood
+        material: wood
+      - box: { at: [0.6, 1.0, 0.38], size: [0.14, 1.8, 0.14], round: 0.025, rotate: [22, 0, 0] }
+        mirror: x
+        color: wood
+        material: wood
+      - box: { at: [0.6, 1.0, -0.38], size: [0.14, 1.8, 0.14], round: 0.025, rotate: [-22, 0, 0] }
+        mirror: x
+        color: wood
+        material: wood
+      - cylinder: { at: [0, 1.78, 0], radius: 0.06, height: 1.45, rotate: [0, 0, 90] }
+        color: iron
+        material: metal
+      - capsule: { from: [0, 1.25, 0.8], to: [0, 3.2, -1.45], radius: 0.075, radius_to: 0.045 }
+        color: wood_dark
+        material: wood
+      - box: { at: [0, 0.85, 0.85], size: [0.6, 0.6, 0.6], round: 0.05 }
+        color: wood_dark
+        material: wood
+      - box: { at: [0, 0.85, 0.85], size: [0.64, 0.06, 0.64], round: 0.02 }
+        array: { count: 2, step: [0, 0.36, 0] }
+        color: iron
+        material: metal
+      - capsule: { from: [0, 1.25, 0.8], to: [0, 1.14, 0.85], radius: 0.02 }
+        color: iron
+        material: metal
+      - capsule: { from: [0, 3.2, -1.45], to: [0, 2.35, -1.75], radius: 0.03 }
+        color: rope
+        material: fabric
+      - ellipsoid: { at: [0, 2.3, -1.78], radii: [0.12, 0.08, 0.14] }
+        color: rope
+        material: fabric
+      - cylinder: { at: [0.72, 0.26, 0.9], radius: 0.26, height: 0.1, round: 0.025, rotate: [0, 0, 90] }
+        mirror: x
+        array: { count: 2, step: [0, 0, -1.8] }
+        color: wood_dark
+        material: wood
+
+  - name: wall
+    class: building
+    parts:
+      - box: { at: [0, 0.15, 0], size: [4.2, 0.3, 1.2], round: 0.04 }
+        color: stone_dark
+        material: stone
+        noise: { amount: 0.012, scale: 0.25 }
+      - box: { at: [0, 1.5, 0], size: [4.0, 2.7, 1.0], round: 0.04 }
+        color: stone
+        material: stone
+        noise: { amount: 0.012, scale: 0.3 }
+      - box: { at: [-1.75, 3.05, 0], size: [0.5, 0.5, 1.0], round: 0.04 }
+        array: { count: 4, step: [1.1667, 0, 0] }
+        color: stone
+        material: stone
+        noise: { amount: 0.01, scale: 0.2 }
+      - box: { at: [0, 1.7, 0.5], size: [0.12, 0.7, 0.3], round: 0.02 }
+        cut: true
+
+  - name: tree
+    class: nature
+    parts:
+      - capsule: { from: [0, 0, 0], to: [0, 1.3, 0], radius: 0.15, radius_to: 0.08 }
+        color: bark
+        material: wood
+        noise: { amount: 0.01, scale: 0.1 }
+      - capsule: { from: [0, 0.9, 0], to: [0.35, 1.3, 0.05], radius: 0.06, radius_to: 0.035 }
+        blend: 0.05
+        color: bark
+        material: wood
+      - sphere: { at: [0, 1.65, 0], radius: 0.6 }
+        color: leaf
+        material: leaf
+        noise: { amount: 0.05, scale: 0.25 }
+      - sphere: { at: [0.42, 1.4, 0.1], radius: 0.42 }
+        blend: 0.15
+        color: leaf
+        material: leaf
+      - sphere: { at: [-0.38, 1.45, -0.1], radius: 0.45 }
+        blend: 0.15
+        color: leaf
+        material: leaf
+      - sphere: { at: [0.05, 2.05, -0.05], radius: 0.42 }
+        blend: 0.15
+        color: leaf
+        material: leaf
