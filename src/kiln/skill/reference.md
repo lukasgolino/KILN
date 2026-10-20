@@ -25,6 +25,8 @@ export = ["glb", "godot"]
 style_version = 1
 variant_glbs = true            # false: no .glb per variant; Godot gets <name>.<variant>.tscn recolouring the base glb
 vertex_colors = false          # true: colours in the vertices, one surface per material preset (fewer draw calls)
+atlas = false                  # true: one material per model from small palette textures (1 surface, 2 with decals)
+atlas_ao = false               # true (with atlas): ambient occlusion baked into the vertex colours
 [lint]
 disable = ["W106"]
 ```
@@ -381,6 +383,20 @@ cocked when the animation starts). With `vertex_colors = true`, a game loading t
 `vertex_color_use_as_albedo = true` on the imported materials (KILN's .tscn scenes do it); variants are then swap
 tables for the game (or `variant_glbs = true`). KILN's .tscn scripts share their materials between instances and
 leave any surface override the game set before `add_child` alone.
+
+**Palette atlas** (`atlas = true`; not with `vertex_colors`): every (colour, material preset) pair gets a 4x4-pixel
+cell in `models/<name>.palette.png` (colours), `<name>.material.png` (glTF metallicRoughness: G = roughness,
+B = metallic), `<name>.glow.png` (emission, only when a preset glows) and, with "godot", `<name>.rim.png` (Godot rim
+light: R = rim, G = tint). The glb references them by URI (next to it) and every face's UVs sit on its cell's centre;
+samplers are NEAREST without mipmaps. One material for the whole model: 1 surface per mesh (2 where a decal is), soft
+or rigid skins alike (rigid parts are nodes sharing the material). A variant is a texture swap:
+`<name>.<variant>.palette.png` (+ `.glow.png`), same cells, same mesh; its Godot scene is the base glb with the
+variant's textures (variant glbs are still written unless `variant_glbs = false`). Manifest per model: `atlas`
+(`palette`, `material`, `glow`, `rim`, `size`, `cell`, `cells`: `color`, `material`, `uv`, `pixel`; `ao`), variants
+also `palette` (+ `glow`): to recolour at runtime, write other colours into a copy of the palette at the cells'
+pixels. `atlas_ao = true` bakes ambient occlusion from the model's distance field (imported models: from the mesh's
+dents) into COLOR_0, a grey multiplier glTF viewers apply; in Godot only KILN's .tscn scenes use it
+(`vertex_color_use_as_albedo`). Previews don't show it.
 `kiln build --verify-godot` checks everything in a throwaway copy of the output (nothing else in the game's project is
 imported or touched).
 

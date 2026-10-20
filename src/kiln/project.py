@@ -27,6 +27,8 @@ class Config:
     lint_disable: tuple[str, ...] = ()
     variant_glbs: bool = True  # false: variants are Godot scenes recolouring the base glb (no glb per variant)
     vertex_colors: bool = False  # true: colours in the vertices, one surface per material preset (fewer draw calls)
+    atlas: bool = False  # true: one material per model, colours and presets from small palette textures
+    atlas_ao: bool = False  # true (with atlas): baked ambient occlusion in the vertex colours
 
 
 @dataclass
@@ -129,7 +131,8 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
     def bad(message: str, where: str) -> None:
         findings.append(Finding("E000", message, path, None, where))
 
-    allowed = {"default_style", "default_palette", "output_dir", "preview_dir", "export", "style_version", "variant_glbs", "vertex_colors", "lint"}
+    allowed = {"default_style", "default_palette", "output_dir", "preview_dir", "export", "style_version", "variant_glbs", "vertex_colors",
+               "atlas", "atlas_ao", "lint"}  # fmt: skip
     for key in data:
         if key not in allowed:
             bad(f"unknown setting {key!r}; allowed: {', '.join(sorted(allowed))}", key)
@@ -171,6 +174,17 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
             bad("vertex_colors is true (colours in the vertices: fewer surfaces) or false (a material per colour)", "vertex_colors")
         else:
             cfg.vertex_colors = data["vertex_colors"]
+    for key, meaning in (("atlas", "true (one material per model from palette textures) or false (a material per colour)"),
+                         ("atlas_ao", "true (bake ambient occlusion into the vertex colours; needs atlas = true) or false")):  # fmt: skip
+        if key in data:
+            if not isinstance(data[key], bool):
+                bad(f"{key} is {meaning}", key)
+            else:
+                setattr(cfg, key, data[key])
+    if cfg.atlas and cfg.vertex_colors:
+        bad("atlas and vertex_colors are two ways to cut draw calls: set one (atlas = true gives one surface per model)", "atlas")
+    if cfg.atlas_ao and not cfg.atlas:
+        bad("atlas_ao needs atlas = true", "atlas_ao")
     lint = data.get("lint", {})
     if not isinstance(lint, dict) or any(k != "disable" for k in lint) or not all(isinstance(r, str) and r.startswith("W") for r in lint.get("disable", [])):
         bad("[lint] has disable = [\"W101\", ...] (warnings only)", "lint")

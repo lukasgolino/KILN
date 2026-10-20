@@ -6,6 +6,18 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- Palette atlas (M9): `atlas = true` (kiln.toml) gives every model one material: colours, roughness/metal, glow (and
+  Godot rim light) live in small palette textures next to the glb (`<name>.palette.png`, `.material.png`, `.glow.png`,
+  `.rim.png`), faces' UVs point at their colour's cell. 1 surface per mesh, 2 with a decal (the demo knight: 2 meshes,
+  1 material, instead of 11 surfaces and 10 materials).
+- Variants under `atlas` are texture swaps (`<name>.<variant>.palette.png`): same mesh, and the Godot variant scene is
+  the base glb with the variant's palette. Manifest `atlas` (textures, cells with colour, preset, uv and pixel) and
+  variant `palette`/`glow`.
+- `atlas_ao = true`: ambient occlusion baked into the vertex colours (COLOR_0, a multiplier), from the distance field.
+- `kiln build --verify-godot` checks that atlas models sample their palette texture.
+
 ## [0.4.0] - 2026-10-21
 
 Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).

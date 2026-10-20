@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from kiln import __version__
+from kiln.atlas import CELL, Atlas, AtlasUse, layout
 from kiln.builder import build_cached
 from kiln.export import Built, gltf_name, to_glb
 from kiln.godot import find_godot_project, look_scene, model_scene, res_path
@@ -116,6 +117,13 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
     return entry
 
 
+def atlas_entry(atlas: Atlas, files: dict[str, str], ao: bool) -> dict[str, Any]:
+    """Manifest `atlas`: the textures (paths in the output dir) and where every colour sits in them."""
+    w, h = atlas.size
+    cells = [{"color": c, "material": m, "uv": [_f(v) for v in atlas.uv(i)], "pixel": list(atlas.pixel(i))} for i, (c, m) in enumerate(atlas.cells)]
+    return {**files, "size": [w, h], "cell": CELL, "cells": cells, "ao": ao}
+
+
 def build(project: Project, only_valid: bool = True, progress: Callable[[str], None] | None = None) -> BuildResult:
     out = project.output_dir
     result = BuildResult(out)
@@ -148,23 +156,46 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         palette, _ = project.palette(model.palette)
         built = build_cached(model, style, palette, cache)
         glb = out / "models" / f"{name}.glb"
-        write(glb, to_glb(built, generator, None, project.config.vertex_colors))
+        lod_builts = [(k, budget, build_cached(model, style, palette, cache, budget)) for k, budget in enumerate(model.lod, start=1) if budget < built.triangles]
+        atlas: AtlasUse | None = None
+        atlas_files: dict[str, dict[str, str]] = {}  # "" (base) or variant -> texture kind -> path in models/
+        if project.config.atlas:  # one layout for the model and its LODs; a texture set per variant
+            cells = layout([built, *(b for _, _, b in lod_builts)])
+            glow = cells.glow_strength(built)
+            for vname, swap in [("", {}), *sorted(model.variants.items())]:
+                stem = f"{name}.{vname}" if vname else name
+                atlas_files[vname] = {"palette": f"{stem}.palette.png"}
+                write(out / "models" / f"{stem}.palette.png", cells.palette_png(swap))
+                if glow > 0:
+                    atlas_files[vname]["glow"] = f"{stem}.glow.png"
+                    write(out / "models" / f"{stem}.glow.png", cells.glow_png(built, swap))
+            atlas_files[""]["material"] = f"{name}.material.png"
+            write(out / "models" / f"{name}.material.png", cells.material_png(built))
+            if godot_root is not None and cells.has_rim(built):  # Godot's rim light per cell (glTF has no rim)
+                atlas_files[""]["rim"] = f"{name}.rim.png"
+                write(out / "models" / f"{name}.rim.png", cells.rim_png(built))
+            atlas = AtlasUse(cells, atlas_files[""]["palette"], atlas_files[""]["material"], atlas_files[""].get("glow"),
+                             project.config.atlas_ao, glow)  # fmt: skip
+        write(glb, to_glb(built, generator, None, project.config.vertex_colors, atlas))
         entry = model_entry(built, out, glb)
+        if atlas is not None:
+            entry["atlas"] = atlas_entry(atlas.atlas, {k: f"models/{v}" for k, v in sorted(atlas_files[""].items())}, atlas.ao)
         variants: dict[str, dict[str, Any]] = {}
         for vname, swap in sorted(model.variants.items()):
             variants[vname] = {"swap": dict(sorted(swap.items()))}
+            vatlas = None
+            if atlas is not None:  # a texture swap: same mesh, same cells, other colours
+                vatlas = AtlasUse(atlas.atlas, atlas_files[vname]["palette"], atlas.material, atlas_files[vname].get("glow"), atlas.ao, atlas.glow_strength)
+                variants[vname].update({k: f"models/{v}" for k, v in sorted(atlas_files[vname].items())})
             if project.config.variant_glbs:
                 vpath = out / "models" / f"{name}.{vname}.glb"
-                write(vpath, to_glb(built, generator, swap, project.config.vertex_colors))
+                write(vpath, to_glb(built, generator, swap, project.config.vertex_colors, vatlas))
                 variants[vname]["glb"] = vpath.relative_to(out).as_posix()
         if variants:
             entry["variants"] = variants
         lods = []
         disabled = set(project.config.lint_disable) | set(model.lint_disable)
-        for k, budget in enumerate(model.lod, start=1):
-            if budget >= built.triangles:
-                continue
-            lod_built = build_cached(model, style, palette, cache, budget)
+        for k, budget, lod_built in lod_builts:
             if lod_built.triangles > budget * 1.25 and "W112" not in disabled:
                 result.findings.append(Finding("W112", f"lod {k} came out at {lod_built.triangles} triangles for a target of {budget}: colour "
                                                "borders and small parts need more; raise the target or drop this LOD", model.path, None, "lod"))  # fmt: skip
@@ -173,19 +204,25 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 result.findings.append(Finding("W111", f"lod {k} ({budget} triangles) loses part {part.index} ({part.geometry.shape}, "
                                                f"{part.color_name})", model.path, part.line, part.where))  # fmt: skip
             lpath = out / "models" / f"{name}.lod{k}.glb"
-            write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors))
+            write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors, atlas))
             lods.append({"glb": lpath.relative_to(out).as_posix(), "triangles": lod_built.triangles})
         if lods:
             entry["lods"] = lods
         if godot_root is not None:
             scene = out / "models" / f"{name}.tscn"
-            write(scene, model_scene(name, res_path(glb, godot_root), style).encode())
+            models_dir = out / "models"
+            rim = {"rim_texture": res_path(models_dir / atlas_files[""]["rim"], godot_root)} if "rim" in atlas_files.get("", {}) else {}
+            write(scene, model_scene(name, res_path(glb, godot_root), style, None, rim if atlas else None).encode())
             entry["godot_scene"] = res_path(scene, godot_root)
             recolourable = project.config.variant_glbs or not project.config.vertex_colors  # vertex colours: swap table only
             for vname, swap in sorted(model.variants.items()) if recolourable else ():  # a scene per variant: its glb, or the base recoloured
                 vscene = out / "models" / f"{name}.{vname}.tscn"
-                vglb = out / variants[vname]["glb"] if "glb" in variants[vname] else glb
-                write(vscene, model_scene(name, res_path(vglb, godot_root), style, None if "glb" in variants[vname] else swap).encode())
+                if atlas is not None:  # the base glb with the variant's textures
+                    textures = {**rim, **{k: res_path(models_dir / v, godot_root) for k, v in atlas_files[vname].items()}}
+                    write(vscene, model_scene(name, res_path(glb, godot_root), style, swap, textures).encode())
+                else:
+                    vglb = out / variants[vname]["glb"] if "glb" in variants[vname] else glb
+                    write(vscene, model_scene(name, res_path(vglb, godot_root), style, None if "glb" in variants[vname] else swap).encode())
                 variants[vname]["godot_scene"] = res_path(vscene, godot_root)
             entry["glb_res"] = res_path(glb, godot_root)
         styles_used[style.name] = style
@@ -223,7 +260,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
     result.manifest = manifest
     for rel in previous:
         path = (out / rel).resolve()
-        if path not in produced and path.is_file() and path.is_relative_to(out) and path.suffix in (".glb", ".tscn", ".json", ".md"):
+        if path not in produced and path.is_file() and path.is_relative_to(out) and path.suffix in (".glb", ".tscn", ".json", ".md", ".png"):
             path.unlink()
             result.removed.append(path)
             sidecar = path.with_name(path.name + ".import")
