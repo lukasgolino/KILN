@@ -6,6 +6,26 @@ before 1.0).
 
 ## [Unreleased]
 
+Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).
+
+### Added
+
+- Hard surface (M2): parts made as exact polygons with designed facets and crisp creases, joined by exact CSG.
+  A part is hard with `sides: N` (cylinder, cone, lathe, torus; sphere, ellipsoid, capsule, tube when hard),
+  `chamfer`, `bevel` + `segments`, `blend: none` or `hard: true`; style `[shape] hard_surface = auto | always | never`
+  and `hard_sides` (low_poly: always, 8). `sides` also shapes the smooth field (an octagonal prism). The demo trebuchet
+  in low_poly is 908 triangles with octagonal wheels.
+- `shell: { thickness, side: in | both, open: -y }`: a wall inside the surface with one side open, showing its rim.
+- Rig `under: { color, material, gap }` on a `separate` part: paints what it covers (hair under a helmet).
+- `kiln preview <model> --detach` (and the MCP `preview` tool's `detach`): each separate part off in turn.
+- E013: the built mesh has open edges (cracks).
+
+### Fixed
+
+- Cracks at colour borders (LOOSE 23: 36 open edges on a footman; the demo knight had 48): cutting a border split
+  only one side of an edge, leaving T-junctions. Every demo model is now closed.
+- Zero-volume fins (pairs of opposite faces) that decimation could leave on thin parts are removed.
+
 ## [0.3.0] - 2026-10-20
 
 From the LOOSE! dogfooding report (LOOSE_REPORT.md, items 1-22).

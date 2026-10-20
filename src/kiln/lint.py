@@ -14,8 +14,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+import numpy as np
+
 from kiln.builder import build_cached, cached
 from kiln.export import Built
+from kiln.mesher import open_edges
 from kiln.notation import Model
 from kiln.project import Project
 from kiln.sdf import thickness
@@ -65,6 +68,14 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         out.append(Finding(rule, message, m.path, line, where))
 
     if m.source is None:
+        cracks = open_edges(built.painted.vertices, built.painted.faces)
+        if len(cracks):
+            p = built.painted
+            centre = p.vertices[cracks].reshape(-1, 3).mean(axis=0)
+            on = np.isin(p.faces, cracks).any(axis=1)
+            names = sorted({f"{p.groups[g].color_name.split('#')[0]} ({p.groups[g].bone})" for g in np.unique(p.face_group[on])})
+            warn("E013", f"the mesh has {len(cracks)} open edges (cracks) around [{centre[0]:.2f}, {centre[1]:.2f}, {centre[2]:.2f}] "
+                 f"on {', '.join(names[:4])}: a KILN bug, please report it with the model; meanwhile moving the parts there a little usually helps")  # fmt: skip
         for i in built.hidden:
             part = m.parts[i]
             warn("W101", f"part {part.index} ({part.geometry.shape}, {part.color_name}) has no visible surface: later parts cover it or a "

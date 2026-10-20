@@ -103,14 +103,16 @@ then y then z, about its centre).
 | `sphere` | `radius` |
 | `ellipsoid` | `radii: [x, y, z]` |
 | `box` | `size: [x, y, z]`, `round` (edge radius; size kept) |
-| `cylinder` | `radius`, `height` (along y), `round` |
-| `cone` | `radius` (bottom), `radius_top` (0 = point), `height` (along y) |
+| `cylinder` | `radius`, `height` (along y), `round`, `sides` (8: an octagonal prism, a flat side facing +z) |
+| `cone` | `radius` (bottom), `radius_top` (0 = point), `height` (along y), `sides` (4: a pyramid) |
 | `capsule` | `from: [x, y, z]`, `to: [x, y, z]`, `radius`, `radius_to` (taper) |
 | `tube` | `points: [[x, y, z], ...]` (2+), `radius`, `radius_to`: ropes, branches, rails, tails |
 | `torus` | `radius` (ring), `thickness` (tube radius); ring in the xz plane (rotate for others) |
 | `lathe` | `profile: [[r, y], ...]` spun around y: vases, bottles, bells, caps, chess pieces, round towers. The profile is a closed outline in the (radius, height) plane: go up the outside and come back down the axis (points with r = 0), e.g. a cap `[[0, 1.06], [0.2, 1.02], [0.3, 0.9], [0.3, 0.8], [0, 0.8]]`. Corners are rounded (`smooth: true`, default); `smooth: false` keeps them sharp |
 | `extrude` | `points: [[x, z], ...]` outline seen from above (3+ different points; repeats and a closing point are dropped), `height` (along y), `round`: shields, signs, floor plans, stars |
 | `wedge` | `size: [x, y, z]`: a roof (ridge along x at the top) |
+
+`sides` (3-64) also works on `lathe` and `torus`, and on `sphere`, `ellipsoid`, `capsule` and `tube` for hard parts.
 
 For `capsule` and `tube`, the points are in the part's frame (moved by `at`, turned by `rotate`). Everything else in a
 model (decal `at`, rig pivots, poses' offsets) is in model space.
@@ -129,17 +131,43 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `mirror_id: arm_r` | with `mirror: x`: the copy is a separate part with this id (rig entries are mirrored too) |
 | `array: { count: 4, step: [1, 0, 0] }` | repeat in a row |
 | `array: { count: 8, around: y, center: [0, 0, 0], angle: 360 }` | repeat in a ring |
-| `shell: 0.02` | hollow, walls this thick |
+| `shell: 0.02` | hollow, walls this thick (centred on the surface) |
+| `shell: { thickness: 0.02, open: -y }` | a wall inside the surface (the outside stays put), one side cut open at the shape's centre: helmets, bowls, pots, shields with a visible rim (`side: both` centres it) |
 | `twist: 90` | degrees per metre about the shape's y axis |
 | `noise: { amount: 0.01, scale: 0.2, seed: 3 }` | lumpy surface (rocks, bark, clay): amount in metres, scale = bump size |
 | `pattern: {...}` | a second colour painted on the part (below) |
 | `decal: {...}` | an image on the part (below) |
 | `loose: true` | this part may float free (flames, bees, sparks, rubble): W103 doesn't count it |
+| `blend: none` | a hard part, joined crisply (below) |
+| `hard: true` / `false` | make this part hard (exact polygons) or smooth, whatever the style says |
+| `chamfer: 0.02` | hard parts: one flat band cut along every edge (box, wedge, cylinder, cone, extrude) |
+| `bevel: 0.02` | hard parts: rounded edges in `segments: 1-4` flat bands (default 2) |
 
 Order matters: details that sit on a surface come **after** it. A part completely inside later parts shows nothing
 (W101). A cut removes material from what came before it, and paint follows: a door placed after the cut that made its
 archway is painted as the door, not as the wall. Parts thinner than about two mesh cells break up (W102): resolution comes from the style (soft_toy: 8 mm
 for a ~1 m model, coarser for bigger models).
+
+### Hard surface
+
+Smooth parts are sampled from the distance field and reduced to the budget: soft clay-toy shapes. **Hard** parts are
+made as exact polygons instead: designed facets, crisp creases, octagonal wheels, planks, beams, armour plates, the
+hand-built low-poly look (Kenney, KayKit). A part is hard when it asks (`sides`, `chamfer`, `bevel`, `blend: none` or
+`hard: true`), or always with a style's `hard_surface = "always"` (low_poly), except the body of a soft-skinned
+character (its joints bend by blending) and parts with `twist` or `noise`. Hard parts join each other exactly
+(union, cut, intersect, in order); every later cut or intersect, of any shape, applies to them too. They sit in
+smooth parts without blending. A box's `round` is a chamfer on a hard part. Round hard shapes get the style's
+`hard_sides` (12 by default; low_poly 8) unless they say `sides`. When hard parts would take most of the budget
+(LODs), bevels become chamfers, then go, then round shapes lose sides. Flat faces stay flat; in smooth styles bevel
+bands shade round and designed edges stay crisp.
+
+```yaml
+  - box: { at: [0, 0.3, 0], size: [0.6, 0.6, 0.6] }      # a crate
+    color: wood
+    chamfer: 0.03
+  - cylinder: { at: [0.7, 0.26, 0.9], radius: 0.26, height: 0.1, sides: 8, rotate: [0, 0, 90] }   # a wheel
+    color: wood_dark
+```
 
 ### Patterns
 
@@ -181,7 +209,9 @@ skin: soft
 - `skin: rigid`: each id is a separate mesh node that moves as one piece.
 - `skin: soft`: one skinned mesh; weights come from each part's distance, so blended joints bend smoothly.
   `separate: true` makes a part its own closed, rigid mesh (detachable things): it may overlap the body (a helmet
-  on a head) without fusing, and removing it leaves no hole.
+  on a head) without fusing, and removing it leaves no hole. `under: { color: hair }` (with `separate: true`) paints
+  the body where the part covers it (hair under a helmet; `material`, `gap`: how far from it still counts, 0.02 m),
+  seen once it falls off. Check with `kiln preview <model> --detach`.
 - `meta`: plain values or flat lists (points: `[x, y, z]`, model space) for game code: Godot node metadata
   (`get_meta("extras")`; on soft skins, bone metadata: `skeleton.get_bone_meta(i, "extras")`) and the manifest.
   Mirrored twins get the same meta (not mirrored).
@@ -289,7 +319,8 @@ fog_color = "#c8d8e8"
 
 Errors: E000 usage/config, E001 file/YAML, E002 unknown field, E003 bad value, E004 unknown colour, E005 unknown
 material, E006 style problem, E007 rig problem, E008 animation problem, E009 nothing to mesh, E010 import file
-problem, E011 decal image missing, E012 extends problem (no such model, not a template, a loop, unknown remove id).
+problem, E011 decal image missing, E012 extends problem (no such model, not a template, a loop, unknown remove id),
+E013 the built mesh has open edges (cracks: a KILN bug; report it).
 
 Warnings: W101 part has no visible surface, W102 part thinner than the mesh resolution, W103 separate pieces,
 W104 colour not in the palette, W106 not standing on y = 0, W107 made under an older style_version, W108 size
@@ -302,7 +333,7 @@ Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`.
 ## Commands
 
 `kiln init [dir] --style soft_toy` · `kiln new model <name> --template bean|prop|empty --class C` ·
-`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--engine] [--variant V]` ·
+`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--detach] [--engine] [--variant V]` ·
 `kiln lineup [models]` · `kiln gallery` · `kiln build [--verify-godot]` · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
 `kiln config show|get|set` · `kiln import <file> --licence L` · `kiln credits` · `kiln doctor` ·

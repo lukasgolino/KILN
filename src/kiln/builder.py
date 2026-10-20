@@ -16,22 +16,101 @@ import numpy as np
 
 from kiln import __version__
 from kiln.export import Built
+from kiln.hard import HARD_SHAPES, SHELL_SHAPES, HardMesh, HardSpec, Solid, solid, subtract, to_mesh, union
+from kiln.hard import corner_normals as hard_corner_normals
+from kiln.hard import intersect
 from kiln.mesher import Mesh, component_labels, components, decimate, decimate_regions, dual_contour, model_step, simplify_borders
-from kiln.notation import ROOT_ID, Model
-from kiln.paint import PaintGroup, Painted, Regions, corner_normals, paint, regions
+from kiln.notation import ROOT_ID, Decal, Model, Part
+from kiln.paint import PaintGroup, Painted, Regions, corner_normals, hard_regions, paint, regions
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
 from kiln.sdf import Array, Field, thickness
 from kiln.style import Style
 
-BUILDER_VERSION = 9  # bump when meshing/painting changes output
+BUILDER_VERSION = 10  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
 LOST_AREA = 0.25  # a part keeping less of its surface than this through decimation is lost (lint W111)
+HARD_SHARE = 0.75  # hard parts may take this much of the budget before they lose detail (bevels, then sides)
 
 
 def field_of(model: Model, step: float) -> Field:
     return Field([p.geometry for p in model.parts], margin=step * 3)
+
+
+def hard_parts(model: Model, style: Style) -> frozenset[int]:
+    """Adding parts made as exact polygons: those asking for it (hard: true, sides, bevel, chamfer, blend: none)
+    unless the style says never, and with `hard_surface = "always"` every part that can (the soft-skinned body of a
+    character stays smooth: its joints bend by blending)."""
+    separate = {pid for pid, e in model.rig.items() if e.separate}
+    out = set()
+    for i, p in enumerate(model.parts):
+        g = p.geometry
+        if g.op != "add" or g.shape not in HARD_SHAPES or g.twist or g.noise is not None or (g.shell and g.shape not in SHELL_SHAPES):
+            continue
+        if p.hard is not None:
+            if p.hard:
+                out.add(i)
+            continue
+        if style.hard_surface == "never":
+            continue
+        asks = p.crisp or p.bevel > 0 or "sides" in g.params
+        body = model.skin == "soft" and p.id not in separate
+        if asks or (style.hard_surface == "always" and not body):
+            out.add(i)
+    return frozenset(out)
+
+
+def hard_spec(part: Part, style: Style, level: int = 0) -> HardSpec:
+    """How finely a hard part is made (a shape's `round` is a chamfer). Lower `level`s of detail (LODs, tight
+    budgets) turn bevels into chamfers, then drop them, then halve the sides of round shapes."""
+    g = part.geometry
+    sides = int(g.params.get("sides") or style.hard_sides)
+    bevel, segments = part.bevel, part.segments
+    if not bevel and g.shape in ("box", "cylinder", "extrude") and float(g.params.get("round", 0.0)) > 0:
+        bevel, segments = float(g.params["round"]), 1
+    if level >= 1:
+        segments = 1
+    if level >= 2:
+        bevel = 0.0
+    if level >= 3:
+        sides = max(min(sides, 6), sides >> (level - 2))
+    return HardSpec(sides, bevel, segments)
+
+
+def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int) -> Solid:
+    """The hard parts of one piece combined in order: adding parts unite; every later cut or intersect applies."""
+    acc: Solid = []
+    for i, p in enumerate(model.parts):
+        g = p.geometry
+        if g.op == "add":
+            if i in include:
+                acc = union(acc, solid(g, hard_spec(p, style, level), i))
+        elif acc and g.shape in HARD_SHAPES and not g.twist and g.noise is None and not (g.shell and g.shape not in SHELL_SHAPES):
+            other = solid(g, hard_spec(p, style, level), i)
+            acc = subtract(acc, other) if g.op == "cut" else intersect(acc, other)
+    return acc
+
+
+def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[int]], budget: float, rigged: bool) -> tuple[list[Regions], list[HardMesh]]:
+    """Every piece's hard parts as a mesh (fewer details while they'd go over `budget`), cut into paint groups."""
+    meshes: list[HardMesh] = []
+    for level in range(5):
+        meshes = [to_mesh(_hard_solid(model, style, include, level)) for include in pieces]
+        if sum(m.triangles for m in meshes) <= budget or level == 4:
+            break
+    out = []
+    for include, mesh in zip(pieces, meshes, strict=True):
+        part = mesh.face_part.copy()
+        # faces a cut made (a hole's walls) belong to the part they're in
+        foreign = ~np.isin(part, sorted(include))
+        if foreign.any():
+            centres = mesh.vertices[mesh.faces[foreign]].mean(axis=1)
+            own = sorted(include)
+            d = np.stack([field.part_distance(i, centres) for i in own])
+            part[foreign] = np.asarray(own)[d.argmin(axis=0)]
+        out.append(hard_regions(Mesh(mesh.vertices, mesh.faces), part, model, rigged))
+    return out, meshes
 
 
 def build_model(model: Model, style: Style, budget: int | None = None, palette: dict[str, str] | None = None) -> Built:
@@ -49,39 +128,128 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     field = field_of(model, step)
     target = budget or model.budget or style.budget(model.cls)
     rigged = model.skin != "none"
+    hard = hard_parts(model, style)
     # `separate` parts (a detachable helmet) are meshed on their own: their own closed surface, not fused into the
     # body, so detaching one leaves no hole. The rest is the main piece.
     separate = sorted(pid for pid, entry in model.rig.items() if entry.separate) if rigged else []
     adding = [i for i, p in enumerate(model.parts) if p.geometry.op == "add"]
-    groups_of = [[i for i in adding if model.parts[i].id not in separate]]
-    groups_of += [[i for i in adding if model.parts[i].id == pid] for pid in separate]
+    all_pieces = [[i for i in adding if model.parts[i].id not in separate]]
+    all_pieces += [[i for i in adding if model.parts[i].id == pid] for pid in separate]
+    # hard parts are exact polygons, made first: what they leave of the budget goes to the smooth parts
+    hard_pieces = [frozenset(i for i in inc if i in hard) for inc in all_pieces]
+    hard_pieces = [inc for inc in hard_pieces if inc]
+    any_soft = any(i not in hard for i in adding)
+    hard_cut, hard_meshes = build_hard(model, style, field, hard_pieces, target * (HARD_SHARE if any_soft else 1.0), rigged) if hard_pieces else ([], [])
+    hard_triangles = sum(r.mesh.triangles for r in hard_cut)
+    groups_of = [[i for i in inc if i not in hard] for inc in all_pieces]
     pieces = [(include, field.only(include)) for include in groups_of if include]
     meshes = [dual_contour(f, step) for _, f in pieces]
-    total = sum(m.triangles for m in meshes)
-    if total == 0:
+    if sum(m.triangles for m in meshes) + hard_triangles == 0:
         raise ValueError("the model has no surface (everything cut away, or all parts are cuts)")
     live = [(include, f, mesh) for (include, f), mesh in zip(pieces, meshes, strict=True) if mesh.triangles]
-    # thin parts the budget's triangle size would erase (plates, wheels, posts) keep their outline like a colour
-    area = sum(_area(mesh.vertices, mesh.faces) for _, _, mesh in live)
-    edge = math.sqrt(4 * area / (math.sqrt(3) * target))
-    protect = frozenset(i for i in adding if (t := thickness(model.parts[i].geometry.shape, model.parts[i].geometry.params)) is not None
-                        and t < PROTECT * edge)  # fmt: skip
-    full_areas = [_areas(f, mesh.vertices, mesh.faces, include, step) for include, f, mesh in live]  # (W101, W111)
-    # First shape the surface freely (triangles go where the shape needs them: wheels stay round), then cut the colour
-    # borders into that and keep them through the rest (seams stay clean)
-    total = sum(mesh.triangles for _, _, mesh in live)
-    live = [(include, f, decimate(f, mesh, max(200, round(PRESHAPE * target * mesh.triangles / total)), step)) for include, f, mesh in live]
-    cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect) for include, f, mesh in live])
-    fields = [f for _, f, _ in live]
-    painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, target, [inc for inc, _, _ in live], full_areas)
-    main = region_piece[painted.face_group] == 0
-    floating = _pieces(model, field, Mesh(painted.vertices, painted.faces[main]), step) if groups_of[0] else 1  # separate parts may float
+    soft_target = max(target - hard_triangles, int(target * (1 - HARD_SHARE))) if hard_triangles else target
+    hidden: tuple[int, ...] = ()
+    lost: tuple[int, ...] = ()
+    painted: Painted | None = None
+    normals = np.zeros((0, 3, 3))
+    if live:
+        # thin parts the budget's triangle size would erase (plates, wheels, posts) keep their outline like a colour
+        area = sum(_area(mesh.vertices, mesh.faces) for _, _, mesh in live)
+        edge = math.sqrt(4 * area / (math.sqrt(3) * soft_target))
+        protect = frozenset(i for i in adding if (t := thickness(model.parts[i].geometry.shape, model.parts[i].geometry.params)) is not None
+                            and t < PROTECT * edge)  # fmt: skip
+        full_areas = [_areas(f, mesh.vertices, mesh.faces, include, step) for include, f, mesh in live]  # (W101, W111)
+        # First shape the surface freely (triangles go where the shape needs them: wheels stay round), then cut the colour
+        # borders into that and keep them through the rest (seams stay clean)
+        total = sum(mesh.triangles for _, _, mesh in live)
+        live = [(include, f, decimate(f, mesh, max(200, round(PRESHAPE * soft_target * mesh.triangles / total)), step)) for include, f, mesh in live]
+        cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect) for include, f, mesh in live])
+        fields = [f for _, f, _ in live]
+        painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, soft_target, [inc for inc, _, _ in live], full_areas)
+    floating = 1
+    if groups_of[0] and painted is not None:  # separate parts may float
+        main_faces = np.flatnonzero(region_piece[painted.face_group] == 0)
+        floating = _pieces(model, field, Mesh(painted.vertices, painted.faces[main_faces]), step)
+    n_soft = len(painted.vertices) if painted is not None else 0
+    if hard_cut:
+        hard_painted = [paint(r, model) for r in hard_cut]
+        hard_normals = [hard_corner_normals(HardMesh(hp.vertices, hp.faces, hp.face_group, _face_normals(hp), np.zeros(0, np.int64)),
+                                            style.smooth, style.sharp_angle) for hp in hard_painted]  # fmt: skip
+        painted, normals = _merge([painted] if painted is not None else [], [normals] if len(normals) else [], hard_painted, hard_normals)
+        hidden = tuple(sorted({*hidden, *(i for inc, m in zip(hard_pieces, hard_meshes, strict=True) for i in inc if i not in set(m.face_part.tolist()))}))
+        if hard_pieces[0] <= frozenset(all_pieces[0]):  # the main piece has hard parts: they may float too
+            soft_points = painted.vertices[:n_soft] if n_soft else np.zeros((0, 3))
+            floating = _hard_floating(model, field, hard_meshes[0], soft_points, groups_of[0], step, floating)
+    assert painted is not None
     skeleton = build_skeleton(model, field) if rigged else Skeleton([Bone(ROOT_ID, -1, np.zeros(3), {}, False)])
     joints = weights = None
     if model.skin == "soft":
         joints, weights = soft_weights(painted.vertices, model, field, skeleton, step)
+        if len(painted.vertices) > n_soft:  # hard parts don't bend: each vertex follows its own part's bone
+            names = [b.name for b in skeleton.bones]
+            bone = np.zeros(len(painted.vertices), dtype=np.int64)
+            hard_faces = np.flatnonzero(painted.faces.max(axis=1) >= n_soft)
+            for fi in hard_faces:
+                bone[painted.faces[fi]] = names.index(painted.groups[painted.face_group[fi]].bone)
+            joints[n_soft:] = 0
+            weights[n_soft:] = 0.0
+            joints[n_soft:, 0] = bone[n_soft:]
+            weights[n_soft:, 0] = 1.0
     return Built(model, style, painted, normals, skeleton, model.skin, joints, weights, tracks(model, skeleton) if rigged else [], step,
                  floating, hidden, lost)  # fmt: skip
+
+
+def _face_normals(p: Painted) -> Array:
+    v, f = p.vertices, p.faces
+    n = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    return np.asarray(n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-18))
+
+
+def _merge(soft: list[Painted], soft_normals: list[Array], hard: list[Painted], hard_normals: list[Array]) -> tuple[Painted, Array]:
+    """One Painted from several (soft first): groups and decals merged by value."""
+    groups: list[PaintGroup] = []
+    decals: list[Decal] = []
+    vertices, faces, face_group, face_decal = [], [], [], []
+    base = 0
+    for p in [*soft, *hard]:
+        gmap = []
+        for g in p.groups:
+            if g not in groups:
+                groups.append(g)
+            gmap.append(groups.index(g))
+        dmap = []
+        for d in p.decals:
+            if d not in decals:
+                decals.append(d)
+            dmap.append(decals.index(d))
+        vertices.append(p.vertices)
+        faces.append(p.faces + base)
+        face_group.append(np.asarray(gmap, dtype=np.int64)[p.face_group] if len(p.face_group) else p.face_group)
+        face_decal.append(np.where(p.face_decal >= 0, np.asarray(dmap + [-1], dtype=np.int64)[p.face_decal], -1))
+        base += len(p.vertices)
+    merged = Painted(np.concatenate(vertices), np.concatenate(faces), np.concatenate(face_group), groups, np.concatenate(face_decal), decals)
+    return merged, np.concatenate([*soft_normals, *hard_normals])
+
+
+def _hard_floating(model: Model, field: Field, mesh: HardMesh, soft_points: Array, soft_main: list[int], step: float, soft_pieces: int) -> int:
+    """W103 with hard parts: each connected hard piece that doesn't touch the smooth surface (or is all `loose`
+    parts) counts as one more piece. Touching: a smooth-surface point is near or inside the piece's parts, or one of
+    its corners is near or inside the smooth surface."""
+    if not mesh.triangles:
+        return soft_pieces
+    labels = component_labels(Mesh(mesh.vertices, mesh.faces))
+    soft = field.only(soft_main) if soft_main else None
+    extra = 0
+    for label in sorted(set(labels[np.unique(mesh.faces)].tolist())):
+        verts = np.flatnonzero(labels == label)
+        parts = {int(i) for i in mesh.face_part[np.isin(mesh.faces, verts).any(axis=1)]}
+        if all(model.parts[i].loose for i in parts):
+            continue
+        if soft is not None and ((soft.distance(mesh.vertices[verts]) < step * 1.5).any()
+                                 or any((field.part_distance(i, soft_points) < step * 1.5).any() for i in sorted(parts))):  # fmt: skip
+            continue
+        extra += 1
+    return max(1, extra) if soft is None else soft_pieces + extra
 
 
 def _pieces(model: Model, field: Field, mesh: Mesh, step: float) -> int:

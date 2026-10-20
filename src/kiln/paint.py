@@ -25,14 +25,11 @@ def split(vertices: Array, faces: Array, values: Array, selected: Array) -> tupl
     """Cut the selected faces along the zero line of `values` (one per vertex, linear along edges).
 
     Returns (vertices, faces, negative, parent): `negative` marks faces on the < 0 side, `parent` maps every
-    output face to its input face. New vertices are shared between neighbouring faces (no cracks)."""
+    output face to its input face. New vertices are shared between neighbouring faces, and a face that isn't
+    selected but shares a cut edge is split at the new point too (same side, no T-junction): no cracks."""
     neg_v = values < 0
     n_neg = neg_v[faces].sum(axis=1)
     cut = selected & (n_neg > 0) & (n_neg < 3)
-    keep = np.flatnonzero(~cut)
-    out_faces = [faces[keep]]
-    out_neg = [n_neg[keep] == 3]
-    out_parent = [keep]
     idx = np.flatnonzero(cut)
     if not len(idx):
         return vertices, faces, n_neg == 3, np.arange(len(faces))
@@ -53,6 +50,44 @@ def split(vertices: Array, faces: Array, values: Array, selected: Array) -> tupl
     inverse = inverse.reshape(-1)
     m01 = base + inverse[: len(f)]
     m02 = base + inverse[len(f) :]
+    # faces left whole but sharing a cut edge: split at the new point (their side doesn't change)
+    rest = np.flatnonzero(~cut)
+    lookup = {(int(x), int(y)): base + i for i, (x, y) in enumerate(unique)}
+    out_faces: list[Array] = []
+    out_neg: list[Array] = []
+    out_parent: list[Array] = []
+    whole: Array = rest
+    if lookup:
+        fr = faces[rest]
+        ek = np.sort(np.stack([fr[:, [0, 1]], fr[:, [1, 2]], fr[:, [2, 0]]], axis=1), axis=2)  # (R, 3, 2)
+        flat = ek.reshape(-1, 2)
+        # only edges that were cut can match: test cheaply first
+        cand = np.isin(flat[:, 0], a) & np.isin(flat[:, 1], b)
+        mid_flat = np.full(len(flat), -1)
+        for k in np.flatnonzero(cand):
+            mid_flat[k] = lookup.get((int(flat[k, 0]), int(flat[k, 1])), -1)
+        mid = mid_flat.reshape(-1, 3)
+        touched = (mid >= 0).any(axis=1)
+        whole = rest[~touched]
+        for r in np.flatnonzero(touched):
+            tri = [int(x) for x in fr[r]]
+            ring: list[int] = []
+            for e in range(3):
+                ring.append(tri[e])
+                if mid[r, e] >= 0:
+                    ring.append(int(mid[r, e]))
+            # fan from a corner whose own edges weren't split (exists for 1 or 2 splits; 3: from a new point)
+            start = next((j for j in range(len(ring)) if ring[j] in tri and ring[j - 1] in tri), None)
+            if start is None:
+                start = next(j for j in range(len(ring)) if ring[j] not in tri)
+            ring = ring[start:] + ring[:start]
+            for j in range(1, len(ring) - 1):
+                out_faces.append(np.array([[ring[0], ring[j], ring[j + 1]]]))
+                out_neg.append(np.array([n_neg[rest[r]] == 3]))
+                out_parent.append(np.array([rest[r]]))
+    out_faces = [faces[whole]] + out_faces
+    out_neg = [n_neg[whole] == 3] + out_neg
+    out_parent = [np.asarray(whole, dtype=np.int64)] + out_parent
     out_faces += [np.stack([t0, m01, m02], axis=1), np.stack([m01, t1, t2], axis=1), np.stack([m01, t2, m02], axis=1)]
     out_neg += [lone_is_neg, ~lone_is_neg, ~lone_is_neg]
     out_parent += [idx, idx, idx]
@@ -177,19 +212,7 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
     (thin ones the budget would erase) get their own group, so decimation keeps their outline too."""
     vertices, faces = mesh.vertices, mesh.faces
     adding = [i for i, part in enumerate(model.parts) if part.geometry.op == "add" and (include is None or i in include)]
-    # parts that paint the same way (and move with the same bone) are one group: no cuts between them
-    group_index: dict[PaintGroup, int] = {}
-    groups: list[PaintGroup] = []
-    part_group: dict[int, int] = {}
-    for i in adding:
-        part = model.parts[i]
-        key = PaintGroup(part.id if rigged else "root", part.color, part.color_name, part.material)
-        if part.pattern is not None or part.decal is not None or i in protect:
-            key = PaintGroup(key.bone, key.color, f"{key.color_name}#{i}", key.material)  # its own group
-        if key not in group_index:
-            group_index[key] = len(groups)
-            groups.append(key)
-        part_group[i] = group_index[key]
+    groups, group_index, part_group = _groups(model, adding, rigged, protect)
     members = [[i for i in adding if part_group[i] == g] for g in range(len(groups))]
 
     later = {i: [j for j in range(i + 1, len(model.parts)) if model.parts[j].geometry.op != "add"] for i in adding}
@@ -224,7 +247,66 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
         if len(vertices) > n_before:
             dist = np.concatenate([dist, group_distances(vertices[n_before:])], axis=1)
         owner[(owner < 0) & negative] = g
-    # patterns: a second colour inside the part's own faces
+    vertices, faces, owner, pattern_groups = _patterns(vertices, faces, owner, model, adding, groups, group_index, part_group,
+                                                      lambda x: _project(field, x))  # fmt: skip
+    # `under`: what a detachable (separate) part covers is painted (hair under a helmet), seen once it falls off
+    if rigged and include is not None:
+        for pid, entry in sorted(model.rig.items()):
+            if not entry.separate or entry.under is None or any(model.parts[i].id == pid for i in include):
+                continue
+            covering = [i for i, part in enumerate(model.parts) if part.geometry.op == "add" and part.id == pid]
+            if not covering:
+                continue
+            hexc, name, material, gap = entry.under
+
+            def under_values(x: Array, covering: list[int] = covering, gap: float = gap) -> Array:
+                return np.min([field.parts[i].distance(x, filled=True) for i in covering], axis=0) - gap
+
+            sel = np.ones(len(faces), dtype=bool)
+            vertices, faces, negative, parent = split(vertices, faces, under_values(vertices), sel)
+            owner = owner[parent]
+            changed = negative & (owner >= 0)
+            for g in sorted(set(owner[changed].tolist())):
+                alt = PaintGroup(groups[g].bone, hexc, f"{name}#under_{pid}", material)
+                if alt not in group_index:
+                    group_index[alt] = len(groups)
+                    groups.append(alt)
+                owner[changed & (owner == g)] = group_index[alt]
+    return Regions(Mesh(vertices, faces), owner, groups, part_group, pattern_groups)
+
+
+def _groups(model: Model, adding: list[int], rigged: bool, protect: frozenset[int]) -> tuple[list[PaintGroup], dict[PaintGroup, int], dict[int, int]]:
+    """Parts that paint the same way (and move with the same bone) are one group: no cuts between them."""
+    group_index: dict[PaintGroup, int] = {}
+    groups: list[PaintGroup] = []
+    part_group: dict[int, int] = {}
+    for i in adding:
+        part = model.parts[i]
+        key = PaintGroup(part.id if rigged else "root", part.color, part.color_name, part.material)
+        if part.pattern is not None or part.decal is not None or i in protect:
+            key = PaintGroup(key.bone, key.color, f"{key.color_name}#{i}", key.material)  # its own group
+        if key not in group_index:
+            group_index[key] = len(groups)
+            groups.append(key)
+        part_group[i] = group_index[key]
+    return groups, group_index, part_group
+
+
+def hard_regions(mesh: Mesh, face_part: Array, model: Model, rigged: bool) -> Regions:
+    """Paint groups of a hard mesh: every polygon knows its part, so no cutting is needed (patterns still are)."""
+    adding = sorted({int(i) for i in face_part})
+    groups, group_index, part_group = _groups(model, adding, rigged, frozenset())
+    owner = np.array([part_group[int(i)] for i in face_part], dtype=np.int64).reshape(-1)
+    vertices, faces, owner, pattern_groups = _patterns(mesh.vertices, mesh.faces, owner, model, adding, groups, group_index, part_group,
+                                                      lambda x: x)  # flat faces: new points are already on them  # fmt: skip
+    return Regions(Mesh(vertices, faces), owner, groups, part_group, pattern_groups)
+
+
+def _patterns(
+    vertices: Array, faces: Array, owner: Array, model: Model, adding: list[int], groups: list[PaintGroup], group_index: dict[PaintGroup, int],
+    part_group: dict[int, int], project: Callable[[Array], Array],
+) -> tuple[Array, Array, Array, dict[int, int]]:
+    """Patterns: a second colour cut into each patterned part's own faces."""
     pattern_groups: dict[int, int] = {}
     for i in adding:
         part = model.parts[i]
@@ -249,7 +331,7 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
                 if not sel.any():
                     break
                 n_before = len(faces)
-                vertices, faces, parent = refine(vertices, faces, sel, limit, lambda x: _project(field, x))
+                vertices, faces, parent = refine(vertices, faces, sel, limit, project)
                 owner = owner[parent]
                 if len(faces) == n_before:
                     break
@@ -262,7 +344,7 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
             groups.append(alt)
         pattern_groups[g] = group_index[alt]
         owner[(owner == g) & ~negative] = group_index[alt]
-    return Regions(Mesh(vertices, faces), owner, groups, part_group, pattern_groups)
+    return vertices, faces, owner, pattern_groups
 
 
 def paint(painted: Regions, model: Model) -> Painted:
@@ -344,4 +426,4 @@ def corner_normals(painted: Painted, field: Field, step: float, smooth: bool, sh
     return normals
 
 
-__all__ = ["PaintGroup", "Painted", "Part", "Regions", "corner_normals", "decal_uv", "paint", "regions", "split"]
+__all__ = ["PaintGroup", "Painted", "Part", "Regions", "corner_normals", "decal_uv", "hard_regions", "paint", "regions", "split"]

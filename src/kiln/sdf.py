@@ -53,6 +53,16 @@ def _round_extrude(d2: Array, y: Array, half: float, r: float) -> Array:
     return np.minimum(w.max(axis=1), 0.0) + np.linalg.norm(np.maximum(w, 0.0), axis=1) - r
 
 
+def radial(p: Array, s: dict[str, Any]) -> Array:
+    """Distance from the y axis; with `sides`, the regular polygon's own measure (corners on the radius, the first
+    side facing +z), so a `sides: 8` cylinder is an octagonal prism."""
+    n = s.get("sides")
+    if not n:
+        return np.linalg.norm(p[:, [0, 2]], axis=1)
+    a = 2 * np.pi * np.arange(int(n)) / int(n)
+    return (p[:, [0, 2]] @ np.stack([np.sin(a), np.cos(a)])).max(axis=1) / math.cos(math.pi / int(n))
+
+
 # --- shapes (local frame) -----------------------------------------------------------------------------
 
 
@@ -75,14 +85,13 @@ def box(p: Array, s: dict[str, Any]) -> Array:
 
 
 def cylinder(p: Array, s: dict[str, Any]) -> Array:
-    radial = np.linalg.norm(p[:, [0, 2]], axis=1) - s["radius"]
-    return _round_extrude(radial, p[:, 1], s["height"] / 2, s["round"])
+    return _round_extrude(radial(p, s) - s["radius"], p[:, 1], s["height"] / 2, s["round"])
 
 
 def cone(p: Array, s: dict[str, Any]) -> Array:
     """Capped cone along y: `radius` at the bottom (-height/2), `radius_top` at the top."""
     h, r1, r2 = s["height"] / 2, s["radius"], s["radius_top"]
-    q = np.stack([np.linalg.norm(p[:, [0, 2]], axis=1), p[:, 1]], axis=1)
+    q = np.stack([radial(p, s), p[:, 1]], axis=1)
     k1 = np.array([r2, h])
     k2 = np.array([r2 - r1, 2 * h])
     ca = np.stack([q[:, 0] - np.minimum(q[:, 0], np.where(q[:, 1] < 0, r1, r2)), np.abs(q[:, 1]) - h], axis=1)
@@ -116,7 +125,7 @@ def tube(p: Array, s: dict[str, Any]) -> Array:
 
 def torus(p: Array, s: dict[str, Any]) -> Array:
     """A ring in the xz plane (rotate it for others)."""
-    ring = np.linalg.norm(p[:, [0, 2]], axis=1) - s["radius"]
+    ring = radial(p, s) - s["radius"]
     return np.sqrt(ring * ring + p[:, 1] * p[:, 1]) - s["thickness"]
 
 
@@ -143,7 +152,7 @@ def lathe(p: Array, s: dict[str, Any]) -> Array:
     # profile edges lying on the axis aren't surface (the axis is inside the solid); points exactly on the axis
     # are nudged off it so inside/outside is decided by the profile, not by a tie on that edge
     on_axis = (prof[:, 0] == 0) & (np.roll(prof[:, 0], 1) == 0)
-    q = np.stack([np.maximum(np.linalg.norm(p[:, [0, 2]], axis=1), 1e-9), p[:, 1]], axis=1)
+    q = np.stack([np.maximum(radial(p, s), 1e-9), p[:, 1]], axis=1)
     return polygon_2d(q, prof, on_axis if on_axis.any() else None)
 
 
@@ -201,24 +210,26 @@ def _bounds_extrude(s: dict[str, Any]) -> tuple[Array, Array]:
 
 
 SHAPES: dict[str, ShapeDef] = {
-    "sphere": ShapeDef(sphere, {"radius": "pos"}, ("radius",), {}, lambda s: _sym(np.full(3, s["radius"])), "radius"),
-    "ellipsoid": ShapeDef(ellipsoid, {"radii": "posvec3"}, ("radii",), {}, lambda s: _sym(np.asarray(s["radii"], float)), "radii: [x, y, z]"),
+    "sphere": ShapeDef(sphere, {"radius": "pos", "sides": "sides"}, ("radius",), {}, lambda s: _sym(np.full(3, s["radius"])),
+                       "radius, sides (hard parts)"),
+    "ellipsoid": ShapeDef(ellipsoid, {"radii": "posvec3", "sides": "sides"}, ("radii",), {}, lambda s: _sym(np.asarray(s["radii"], float)),
+                          "radii: [x, y, z], sides (hard parts)"),
     "box": ShapeDef(box, {"size": "posvec3", "round": "nonneg"}, ("size",), {"round": 0.0}, lambda s: _sym(np.asarray(s["size"], float) / 2),
                     "size: [x, y, z], round (edge radius, size kept)"),
-    "cylinder": ShapeDef(cylinder, {"radius": "pos", "height": "pos", "round": "nonneg"}, ("radius", "height"), {"round": 0.0},
-                         lambda s: _sym(np.array([s["radius"], s["height"] / 2, s["radius"]])), "radius, height (along y), round"),
-    "cone": ShapeDef(cone, {"radius": "pos", "radius_top": "nonneg", "height": "pos"}, ("radius", "height"), {"radius_top": 0.0},
+    "cylinder": ShapeDef(cylinder, {"radius": "pos", "height": "pos", "round": "nonneg", "sides": "sides"}, ("radius", "height"), {"round": 0.0},
+                         lambda s: _sym(np.array([s["radius"], s["height"] / 2, s["radius"]])), "radius, height (along y), round, sides (8: an octagon)"),
+    "cone": ShapeDef(cone, {"radius": "pos", "radius_top": "nonneg", "height": "pos", "sides": "sides"}, ("radius", "height"), {"radius_top": 0.0},
                      lambda s: _sym(np.array([max(s["radius"], s["radius_top"]), s["height"] / 2, max(s["radius"], s["radius_top"])])),
-                     "radius (bottom), radius_top, height (along y)"),
-    "capsule": ShapeDef(capsule, {"from": "vec3", "to": "vec3", "radius": "pos", "radius_to": "pos"}, ("from", "to", "radius"), {},
-                        _bounds_capsule, "from: [x, y, z], to: [x, y, z], radius, radius_to (taper)"),
-    "tube": ShapeDef(tube, {"points": "points3", "radius": "pos", "radius_to": "pos"}, ("points", "radius"), {}, _bounds_tube,
-                     "points: [[x, y, z], ...] (2+), radius, radius_to (taper)"),
-    "torus": ShapeDef(torus, {"radius": "pos", "thickness": "pos"}, ("radius", "thickness"), {},
+                     "radius (bottom), radius_top, height (along y), sides (4: a pyramid)"),
+    "capsule": ShapeDef(capsule, {"from": "vec3", "to": "vec3", "radius": "pos", "radius_to": "pos", "sides": "sides"}, ("from", "to", "radius"), {},
+                        _bounds_capsule, "from: [x, y, z], to: [x, y, z], radius, radius_to (taper), sides (hard parts)"),
+    "tube": ShapeDef(tube, {"points": "points3", "radius": "pos", "radius_to": "pos", "sides": "sides"}, ("points", "radius"), {}, _bounds_tube,
+                     "points: [[x, y, z], ...] (2+), radius, radius_to (taper), sides (hard parts)"),
+    "torus": ShapeDef(torus, {"radius": "pos", "thickness": "pos", "sides": "sides"}, ("radius", "thickness"), {},
                       lambda s: _sym(np.array([s["radius"] + s["thickness"], s["thickness"], s["radius"] + s["thickness"]])),
-                      "radius (ring), thickness (tube radius); ring in the xz plane"),
-    "lathe": ShapeDef(lathe, {"profile": "profile", "smooth": "bool"}, ("profile",), {"smooth": True}, _bounds_lathe,
-                      "profile: [[r, y], ...] outline spun around y (closed; points on the axis have r = 0), smooth: true|false"),
+                      "radius (ring), thickness (tube radius), sides; ring in the xz plane"),
+    "lathe": ShapeDef(lathe, {"profile": "profile", "smooth": "bool", "sides": "sides"}, ("profile",), {"smooth": True}, _bounds_lathe,
+                      "profile: [[r, y], ...] outline spun around y (closed; points on the axis have r = 0), smooth: true|false, sides"),
     "extrude": ShapeDef(extrude, {"points": "points2", "height": "pos", "round": "nonneg"}, ("points", "height"), {"round": 0.0},
                         _bounds_extrude, "points: [[x, z], ...] outline seen from above, height (along y), round"),
     "wedge": ShapeDef(wedge, {"size": "posvec3"}, ("size",), {}, lambda s: _sym(np.asarray(s["size"], float) / 2),
@@ -306,8 +317,11 @@ class Geometry:
     shell: float = 0.0
     twist: float = 0.0  # degrees per metre about the local y axis
     noise: Noise | None = None
+    shell_side: str = "both"  # both: the wall is centred on the surface (shell: t); in: inside it (the outside stays put)
+    open: tuple[int, float] | None = None  # (axis, sign): the shell's open side (local frame), showing its rim
 
-    def distance(self, p: Array) -> Array:
+    def distance(self, p: Array, filled: bool = False) -> Array:
+        """Signed distance; `filled`: a shell counts as solid (what it covers), its open side still open."""
         if self.mirror:
             p = p.copy()
             for axis in self.mirror:
@@ -322,12 +336,21 @@ class Geometry:
                 angle = np.radians(self.twist) * q[:, 1]
                 c, s = np.cos(angle), np.sin(angle)
                 q = np.stack([c * q[:, 0] - s * q[:, 2], q[:, 1], s * q[:, 0] + c * q[:, 2]], axis=1)
-            best = np.minimum(best, fn(q, self.params))
-        if self.shell:
-            best = np.abs(best) - self.shell
+            d = fn(q, self.params)
+            if self.open is not None:  # each copy is shelled and opened in its own frame
+                d = d if filled else self._shelled(d)
+                d = np.maximum(d, self.open[1] * q[:, self.open[0]])
+            best = np.minimum(best, d)
+        if self.shell and self.open is None and not filled:
+            best = self._shelled(best)
         if self.noise is not None:
             best = best + self.noise.amount * noise(p, self.noise)
         return best
+
+    def _shelled(self, d: Array) -> Array:
+        if not self.shell:
+            return d
+        return np.maximum(d, -d - self.shell) if self.shell_side == "in" else np.abs(d) - self.shell
 
     def bounds(self) -> tuple[Array, Array]:
         """World bounding box (expanded for noise/twist), mirror and copies included."""
@@ -344,7 +367,7 @@ class Geometry:
             flipped = points.copy()
             flipped[:, axis] = -flipped[:, axis]
             points = np.concatenate([points, flipped])
-        pad = self.shell + (self.noise.amount if self.noise else 0.0)
+        pad = (self.shell if self.shell_side == "both" else 0.0) + (self.noise.amount if self.noise else 0.0)
         return points.min(axis=0) - pad, points.max(axis=0) + pad
 
 

@@ -209,7 +209,8 @@ def decimate(field: Field, mesh: Mesh, budget: int, step: float) -> Mesh:
         if len(f) <= budget * 1.02 or len(f) > before * 0.97:
             break
     v = project(field, np.asarray(v, dtype=np.float64), step * 2)
-    return Mesh(v, np.asarray(f, dtype=np.int64))
+    (f,) = drop_twins(np.asarray(f, dtype=np.int64))
+    return remove_unused(Mesh(v, f))
 
 
 def simplify_borders(mesh: Mesh, region: Array, tolerance: float) -> tuple[Mesh, Array]:
@@ -394,7 +395,8 @@ def decimate_regions(
         src, out = source[kept][order], mapping[kept][order]
         first = np.r_[True, src[1:] != src[:-1]]
         weld[out] = out[np.flatnonzero(first)[np.cumsum(first) - 1]]
-    used, inverse = np.unique(weld[f], return_inverse=True)
+    f, face_region = drop_twins(weld[f], face_region)
+    used, inverse = np.unique(f, return_inverse=True)
     v, f = v[used], inverse.reshape(-1, 3).astype(np.int64)
     # borders (vertices shared by faces of two regions) stay exactly where they are; other vertices belong to one
     vertex_region = np.full(len(v), -1)
@@ -411,6 +413,42 @@ def decimate_regions(
         v = relax(piece_field, Mesh(v, f), border | (piece != k), step).vertices
     return Mesh(v, f), face_region
 
+
+
+def drop_twins(faces: Array, *extra: Array) -> tuple[Array, ...]:
+    """Remove pairs of faces on the same three vertices facing opposite ways: zero-volume fins that decimation can
+    leave on thin parts; they make the mesh non-manifold (four faces on one edge). Other per-face arrays in
+    `extra` are filtered alike."""
+    key = np.sort(faces, axis=1)
+    order = np.lexsort((key[:, 2], key[:, 1], key[:, 0]))
+    k = key[order]
+    same = np.flatnonzero((k[1:] == k[:-1]).all(axis=1))
+    drop = np.zeros(len(faces), dtype=bool)
+    for i in same:
+        a, b = order[i], order[i + 1]
+        if drop[a] or drop[b]:
+            continue
+        # opposite winding: b is a's vertices in reverse cyclic order
+        fa, fb = faces[a].tolist(), faces[b].tolist()
+        rot = fa.index(fb[0])
+        if [fa[rot], fa[(rot - 1) % 3], fa[(rot - 2) % 3]] == fb:
+            drop[a] = drop[b] = True
+    keep = ~drop
+    return (faces[keep], *(x[keep] for x in extra))
+
+
+def open_edges(vertices: Array, faces: Array) -> Array:
+    """Edges (pairs of vertex indices) with a face on one side only: cracks in what should be a closed surface.
+    Vertices at the same place count as one (colour borders may duplicate them)."""
+    if not len(faces):
+        return np.zeros((0, 2), dtype=np.int64)
+    _, first, inverse = np.unique(np.round(vertices, 9), axis=0, return_index=True, return_inverse=True)
+    f = first[inverse.reshape(-1)][faces]
+    e = np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
+    e = e[e[:, 0] != e[:, 1]]
+    fwd = e[:, 0] * len(vertices) + e[:, 1]
+    rev = e[:, 1] * len(vertices) + e[:, 0]
+    return np.asarray(e[~np.isin(fwd, rev)])
 
 
 def remove_unused(mesh: Mesh) -> Mesh:

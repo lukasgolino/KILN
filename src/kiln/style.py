@@ -19,6 +19,7 @@ from kiln.vendor.findings import Finding
 
 STYLE_SUFFIX = ".style.toml"
 SHADERS = ("standard", "toon")
+HARD_MODES = ("auto", "always", "never")
 TONEMAPPERS = ("linear", "filmic", "aces", "agx")
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -69,12 +70,14 @@ class Style:
     notes: str = ""  # proportions and shape language, for the agent
     path: Path | None = None
     text: str = ""  # for cache keys
+    hard_surface: str = "auto"  # auto: parts asking for it (sides, bevel, blend: none); always: every part that can; never
+    hard_sides: int = 12  # sides of round hard shapes that don't say
 
     def budget(self, cls: str) -> int:
         return self.budgets.get(cls, self.budgets.get("default", 4000))
 
 
-SHAPE_KEYS = {"smooth": bool, "sharp_angle": float, "resolution": float}
+SHAPE_KEYS = {"smooth": bool, "sharp_angle": float, "resolution": float, "hard_surface": str, "hard_sides": int}
 LOOK_TYPES: dict[str, type] = {k: type(v) for k, v in Look().__dict__.items()}
 
 
@@ -145,7 +148,7 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
     shape = data.get("shape", {})
     for key in shape:
         if key not in SHAPE_KEYS:
-            bad(f"unknown [shape] field {key!r}; allowed: smooth, sharp_angle, resolution", f"shape.{key}")
+            bad(f"unknown [shape] field {key!r}; allowed: {', '.join(SHAPE_KEYS)}", f"shape.{key}")
     smooth = shape.get("smooth", True)
     sharp = shape.get("sharp_angle", 40.0)
     resolution = shape.get("resolution", 0.008)
@@ -155,6 +158,12 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
         bad("sharp_angle is degrees (0-180)", "shape.sharp_angle")
     if not isinstance(resolution, int | float) or not 0.001 <= resolution <= 0.2:
         bad("resolution is metres per grid cell (0.001-0.2), e.g. 0.008", "shape.resolution")
+    hard_surface = shape.get("hard_surface", "auto")
+    hard_sides = shape.get("hard_sides", 12)
+    if hard_surface not in HARD_MODES:
+        bad("hard_surface is auto (parts with sides, bevel, chamfer or blend: none), always (every part that can) or never", "shape.hard_surface")
+    if not isinstance(hard_sides, int) or isinstance(hard_sides, bool) or not 3 <= hard_sides <= 64:
+        bad("hard_sides is how many sides round hard shapes get (3-64), e.g. 12", "shape.hard_sides")
     budgets = data.get("budgets", {})
     if not isinstance(budgets, dict) or not all(isinstance(v, int) and not isinstance(v, bool) and v >= 12 for v in budgets.values()):
         bad("budgets maps size classes to triangle counts (>= 12), e.g. character = 8000", "budgets")
@@ -190,7 +199,7 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
     if any(f.severity == "error" for f in findings):
         return None, findings
     style = Style(name, str(data.get("description", "")), bool(smooth), float(sharp), float(resolution), dict(budgets), materials, look,
-                  str(data.get("notes", "")), path, text)  # fmt: skip
+                  str(data.get("notes", "")), path, text, str(hard_surface), int(hard_sides))  # fmt: skip
     return style, findings
 
 
@@ -200,6 +209,7 @@ def style_summary(style: Style) -> dict[str, Any]:
         "description": style.description,
         "smooth": style.smooth,
         "resolution": style.resolution,
+        "hard_surface": style.hard_surface,
         "budgets": style.budgets,
         "materials": sorted(style.materials),
         "shader": style.look.shader,

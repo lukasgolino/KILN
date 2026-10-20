@@ -8,6 +8,8 @@ Prefer boxes, cylinders, cones and wedges with little rounding; blend sparingly.
 smooth = false
 sharp_angle = 30
 resolution = 0.02
+hard_surface = "always"  # props, machines and buildings as exact polygons; soft-skinned bodies stay smooth
+hard_sides = 8
 
 [budgets]
 default = 600

@@ -29,7 +29,9 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "noise", "pattern", "decal", "loose"}  # fmt: skip
+               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments"}  # fmt: skip
+BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
+OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
               "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove"}  # fmt: skip
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
@@ -69,6 +71,10 @@ class Part:
     twin_of: str | None = None  # mirror_id copies: the id they mirror
     twin_axis: int = 0
     loose: bool = False  # meant to float (flames, bees, rubble): not a W103 floating piece
+    hard: bool | None = None  # exact polygons (True), the smooth field (False), or the style decides (None)
+    crisp: bool = False  # blend: none (a hard part when the style allows)
+    bevel: float = 0.0  # hard edges rounded in `segments` bands (a chamfer: one band)
+    segments: int = 2
 
 
 @dataclass(frozen=True)
@@ -78,6 +84,7 @@ class RigEntry:
     meta: tuple[tuple[str, Any], ...] = ()
     separate: bool = False  # soft skins: keep this part a rigid mesh of its own (detachable helmet)
     sockets: tuple[tuple[str, tuple[float, float, float]], ...] = ()  # named points (model space, rest pose)
+    under: tuple[str, str, str, float] | None = None  # separate parts: (hex, colour name, material, gap) painted on what it covers
 
 
 @dataclass(frozen=True)
@@ -178,6 +185,8 @@ def _check_value(kind: str, v: Any) -> Any:
         return v if isinstance(v, bool) else None
     if kind == "num":
         return float(v) if _num(v) else None
+    if kind == "sides":
+        return int(v) if isinstance(v, int) and not isinstance(v, bool) and 3 <= v <= 64 else None
     if kind == "pos":
         return float(v) if _num(v) and v > 0 else None
     if kind == "nonneg":
@@ -209,7 +218,7 @@ KIND_HELP = {
     "num": "a number", "pos": "a number > 0", "nonneg": "a number >= 0", "vec3": "[x, y, z]",
     "posvec3": "[x, y, z], each > 0", "points3": "a list of 2+ points [x, y, z]",
     "points2": "a list of 3+ different points [x, z]", "bool": "true or false",
-    "profile": "a list of 3+ different points [r, y] with r >= 0",
+    "profile": "a list of 3+ different points [r, y] with r >= 0", "sides": "a whole number of sides (3-64)",
 }  # fmt: skip
 
 
@@ -293,6 +302,8 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         ctx.error("E003", f"{kind} needs {', '.join(missing)} ({sdef.help})", line, swhere)
         ok = False
     if kind == "lathe" and "profile" in params and params.get("smooth", True):
+        if "smooth" not in spec:
+            params["hard_profile"] = params["profile"]  # hard lathes keep the outline's corners unless asked
         params["profile"] = smooth_profile(params["profile"])
     if kind in ("capsule", "tube") and "radius" in params:
         params.setdefault("radius_to", params["radius"])
@@ -328,13 +339,25 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         ctx.error("E003", "a part can cut or intersect, not both", line, where)
         ok = False
     blend = raw.get("blend", 0.0)
+    crisp = blend == "none"
+    if crisp:
+        blend = 0.0
     if not _num(blend) or blend < 0 or blend > 1:
-        ctx.error("E003", "blend is the smooth-join radius in metres (0 = a crisp seam), e.g. 0.04", line, f"{where}.blend")
+        ctx.error("E003", "blend is the smooth-join radius in metres (0 = a crisp seam), e.g. 0.04, or none (a hard part: exact polygons)", line, f"{where}.blend")
         ok = False
-    shell = raw.get("shell", 0.0)
+    shell, shell_side, open_side = raw.get("shell", 0.0), "both", None
+    if isinstance(shell, dict):
+        sh = shell
+        open_side = sh.get("open")
+        shell = sh.get("thickness")
+        shell_side = sh.get("side", "in")
+        if any(k not in ("thickness", "side", "open") for k in sh) or shell_side not in ("in", "both") or sh.get("open") not in (None, *OPEN_SIDES):
+            ctx.error("E003", "shell is { thickness: metres, side: in|both, open: -y } (open: the side left open, showing the rim)", line, f"{where}.shell")
+            ok = False
     if not _num(shell) or shell < 0:
-        ctx.error("E003", "shell is the wall thickness in metres (a hollow shape), e.g. 0.02", line, f"{where}.shell")
+        ctx.error("E003", "shell is the wall thickness in metres (a hollow shape), e.g. 0.02, or { thickness, side, open }", line, f"{where}.shell")
         ok = False
+        shell = 0.0
     twist = raw.get("twist", 0.0)
     if not _num(twist):
         ctx.error("E003", "twist is degrees per metre about the shape's y axis", line, f"{where}.twist")
@@ -404,11 +427,45 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if not isinstance(loose, bool):
         ctx.error("E003", "loose must be true or false (true: this part may float free; lint W103 ignores it)", line, f"{where}.loose")
         ok = False
+    hard = raw.get("hard")
+    if hard is not None and not isinstance(hard, bool):
+        ctx.error("E003", "hard is true (exact polygons: crisp edges, designed facets) or false (the smooth field)", line, f"{where}.hard")
+        ok = False
+    bevel, chamfer, segments = raw.get("bevel", 0.0), raw.get("chamfer", 0.0), raw.get("segments", 2)
+    for key, value in (("bevel", bevel), ("chamfer", chamfer)):
+        if not _num(value) or value < 0:
+            ctx.error("E003", f"{key} is the width of the band cut along a hard part's edges in metres, e.g. 0.02", line, f"{where}.{key}")
+            ok = False
+    if not isinstance(segments, int) or isinstance(segments, bool) or not 1 <= segments <= 4:
+        ctx.error("E003", "segments is how many flat bands make a bevel (1-4; a chamfer is 1)", line, f"{where}.segments")
+        ok = False
+    if ok and bevel and chamfer:
+        ctx.error("E003", "a part has bevel (rounded bands) or chamfer (one flat band), not both", line, where)
+        ok = False
+    if ok and (bevel or chamfer) and kind not in BEVEL_SHAPES:
+        ctx.error("E003", f"bevel and chamfer work on {', '.join(BEVEL_SHAPES)} (round shapes: use sides)", line, where)
+        ok = False
+    if ok and (bevel or chamfer):
+        limit = (min(params["size"]) if kind in ("box", "wedge") else min(2 * params["radius"], params["height"]) if kind in ("cylinder", "cone")
+                 else params["height"]) / 2  # fmt: skip
+        if max(bevel, chamfer) >= limit:
+            ctx.error("E003", f"{'bevel' if bevel else 'chamfer'} {max(bevel, chamfer):g} must be less than half the {kind}'s smallest side ({limit:g})",
+                      line, where)  # fmt: skip
+            ok = False
+    asks_hard = crisp or bool(bevel or chamfer) or "sides" in spec
+    if ok and (hard is True or (hard is None and asks_hard)) and (twist or noise is not None):
+        ctx.error("E003", "a hard part (sides, bevel, chamfer, blend: none or hard: true) can't twist or have noise: those need the smooth field",
+                  line, where)  # fmt: skip
+        ok = False
     if not ok:
         return []
+    open_axis = None
+    if open_side is not None:
+        open_axis = (AXES[open_side[-1]], -1.0 if open_side.startswith("-") else 1.0)
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
-                    op, float(blend), float(shell), float(twist), noise)  # fmt: skip
-    parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose))]
+                    op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis)  # fmt: skip
+    hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments)}
+    parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
         twin_decal = decal
@@ -417,7 +474,8 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             at_m[mirror[0]] = -at_m[mirror[0]]
             axis_m = decal.axis if decal.axis.lstrip("-") != "xyz"[mirror[0]] else (decal.axis[1:] if decal.axis.startswith("-") else "-" + decal.axis)
             twin_decal = Decal(decal.image, axis_m, (at_m[0], at_m[1], at_m[2]), decal.size)
-        parts.append(Part(index, str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where, str(part_id), mirror[0], bool(loose)))
+        parts.append(Part(index, str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where, str(part_id), mirror[0],
+                          bool(loose), **hard_fields))  # fmt: skip
     return parts
 
 
@@ -428,7 +486,7 @@ def _reflect(g: Geometry, axis: int) -> Geometry:
     flip[axis, axis] = -1.0
     rotation = flip @ (g.rotation if g.rotation is not None else np.eye(3))
     copies = tuple(c if c is IDENTITY else Copy(flip @ c.rotation @ flip, c.pivot @ flip, c.offset @ flip) for c in g.copies)
-    return Geometry(g.shape, g.params, g.at @ flip, rotation, (), copies, g.op, g.blend, g.shell, g.twist, g.noise)
+    return Geometry(g.shape, g.params, g.at @ flip, rotation, (), copies, g.op, g.blend, g.shell, g.twist, g.noise, g.shell_side, g.open)
 
 
 def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern | None:
@@ -490,9 +548,9 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> dict[str
             ctx.error("E007", f"rig: no part has id {part_id!r} (ids: {', '.join(sorted(ids))})", rline, where)
             continue
         spec = spec if spec is not None else {}
-        if not isinstance(spec, dict) or any(k not in ("pivot", "parent", "meta", "separate", "sockets") for k in spec):
-            ctx.error("E007", "a rig entry is { pivot: [x, y, z], parent: id, meta: { key: value }, separate: true|false, sockets: { name: [x, y, z] } }",
-                      rline, where)  # fmt: skip
+        if not isinstance(spec, dict) or any(k not in ("pivot", "parent", "meta", "separate", "sockets", "under") for k in spec):
+            ctx.error("E007", "a rig entry is { pivot: [x, y, z], parent: id, meta: { key: value }, separate: true|false, sockets: { name: [x, y, z] }, "
+                      "under: { color, material, gap } }", rline, where)  # fmt: skip
             continue
         pivot = _vec(spec["pivot"]) if "pivot" in spec else None
         if "pivot" in spec and pivot is None:
@@ -523,9 +581,21 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> dict[str
             ctx.error("E007", "sockets name points on the part (model space, as built): { tip: [0, 2.4, 0.3], load: [0, 1.1, -1.2] }",
                       rline, f"{where}.sockets")  # fmt: skip
             continue
+        under = None
+        if "under" in spec:
+            u = spec["under"]
+            c = _color(ctx, u.get("color"), rline, f"{where}.under.color") if isinstance(u, dict) else None
+            gap: Any = u.get("gap", 0.02) if isinstance(u, dict) else None
+            mat = u.get("material", "default") if isinstance(u, dict) else None
+            if not isinstance(u, dict) or any(k not in ("color", "material", "gap") for k in u) or c is None or not _num(gap) or float(gap) < 0 \
+                    or mat not in ctx.materials or not separate:
+                ctx.error("E007", "under paints what a separate part covers (hair under a helmet): under: { color: hair, material: default, gap: 0.02 } "
+                          "on a rig entry with separate: true", rline, f"{where}.under")  # fmt: skip
+                continue
+            under = (c[0], c[1], str(mat), float(gap))
         rig[str(part_id)] = RigEntry((pivot[0], pivot[1], pivot[2]) if pivot else None,
                                      None if parent in (None, ROOT_ID) else str(parent), tuple(sorted(meta.items())), separate,
-                                     tuple(sorted((k, (v[0], v[1], v[2])) for k, v in sockets.items() if v is not None)))  # fmt: skip
+                                     tuple(sorted((k, (v[0], v[1], v[2])) for k, v in sockets.items() if v is not None)), under)  # fmt: skip
     for part_id in rig:
         seen = [part_id]
         parent = rig[part_id].parent
@@ -556,7 +626,7 @@ def _mirror_rig(rig: dict[str, RigEntry], parts: list[Part]) -> dict[str, RigEnt
                 q = list(point)
                 q[axis] = -q[axis]
                 sockets.append((name, (q[0], q[1], q[2])))
-            out[twin] = RigEntry(pivot, parent, e.meta, e.separate, tuple(sockets))
+            out[twin] = RigEntry(pivot, parent, e.meta, e.separate, tuple(sockets), e.under)
     return out
 
 

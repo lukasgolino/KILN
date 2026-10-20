@@ -265,13 +265,14 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
     @server.tool(annotations=READ, structured_output=False)
     def preview(
         model: str,
-        which: Literal["turntable", "closeup", "pose", "vs", "engine"] = "turntable",
+        which: Literal["turntable", "closeup", "pose", "vs", "detach", "engine"] = "turntable",
         part: str | None = None,
         animation: str | None = None,
         variant: str | None = None,
     ) -> list[Any]:
         """Render a preview sheet and return it as an image: turntable (8 sides x 3 heights), closeup on a part, an
-        animation's frames (pose), the model beside the style's inspiration images (vs), or Godot's own render (engine)."""
+        animation's frames (pose), the model beside the style's inspiration images (vs), each separate part taken off
+        (detach), or Godot's own render (engine)."""
         argv = ["preview", model]
         if which == "closeup":
             if not part:
@@ -283,6 +284,8 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
             argv += ["--pose", animation]
         elif which == "vs":
             argv += ["--vs"]
+        elif which == "detach":
+            argv += ["--detach"]
         elif which == "engine":
             if not kiln.allow_godot:
                 return [{"ok": False, "findings": [{"rule": "E000", "message": "engine previews need the server started with --allow-godot"}]}]

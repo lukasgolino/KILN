@@ -219,7 +219,7 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     swap = built.model.variants.get(args.variant) if args.variant else None
     if args.variant and swap is None:
         raise _usage(f"{name} has no variant {args.variant!r} (variants: {', '.join(built.model.variants) or 'none'})")
-    wanted_any = args.closeup or args.pose or args.vs or args.engine
+    wanted_any = args.closeup or args.pose or args.vs or args.engine or args.detach
     if args.turntable or not wanted_any:
         path = folder / (f"turntable.{args.variant}.png" if args.variant else "turntable.png")
         pv.turntable(built, swap=swap).save(path)
@@ -238,6 +238,13 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
             outputs.setdefault("pose", {})[anim] = display_path(path)
         except KeyError:
             raise _usage(f"{name} has no animation {anim!r} (animations: {', '.join(built.model.animations) or 'none'})") from None
+    if args.detach:
+        try:
+            path = folder / "detach.png"
+            pv.detach(built).save(path)
+            outputs["detach"] = display_path(path)
+        except KeyError:
+            raise _usage(f"{name} has no separate parts (rig: {{ <id>: {{ separate: true }} }}, on a skinned model)") from None
     if args.vs:
         images = pv.inspiration_images(project.styles_dir, built.style.name)
         if not images:
@@ -601,6 +608,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--closeup", action="append", metavar="PART")
     s.add_argument("--pose", action="append", metavar="ANIMATION")
     s.add_argument("--vs", action="store_true", help="beside the style's inspiration images")
+    s.add_argument("--detach", action="store_true", help="each separate part taken off: what's left, and what it covered")
     s.add_argument("--engine", action="store_true", help="render through Godot (needs a display and a build)")
     s.add_argument("--variant")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")

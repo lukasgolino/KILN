@@ -54,7 +54,8 @@ Write the answers into BRIEF.md and STYLE.md.
    W103 floating pieces, W106 not standing on the ground, W108 size wrong for the class).
 5. **Look:** `kiln preview <name>` writes a turntable (8 sides x below / eye level / above). Open it and check:
    silhouette from every side, proportions, nothing floating, nothing poking through, the face reads, colours
-   balanced. Then `--closeup <part>` for anything seen up close (faces, hands, hit zones). Iterate until it's right.
+   balanced. Then `--closeup <part>` for anything seen up close (faces, hands, hit zones), and `--detach` when the
+   model has detachable (`separate`) parts: each one off, and what's under it. Iterate until it's right.
    You will misjudge proportions without looking: always look.
 6. **Fit with the rest:** `kiln lineup` (same scale, one ground line, a 1 m bar) and `kiln preview <name> --vs`
    (beside the inspiration images). Does it look like it belongs in the same game?

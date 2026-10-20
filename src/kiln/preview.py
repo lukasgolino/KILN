@@ -85,6 +85,27 @@ def closeup(built: Built, part_id: str, size: int = 260) -> Image.Image:
     return sheet(f"{built.model.name} closeup: {part_id}", "framed on the part; other parts may cover it, as in the game", rows)
 
 
+def detach(built: Built, size: int = 220) -> Image.Image:
+    """Every detachable (`separate`) part taken off in turn: the whole model without it from four sides, and a
+    closeup of what it covered (the surface the game shows once it falls off)."""
+    p = built.painted
+    separate = [b.name for b in built.skeleton.bones if b.separate]
+    if not separate:
+        raise KeyError("no separate parts")
+    fit = _fit(built)
+    rows = []
+    for bone in separate:
+        mine = np.array([p.groups[g].bone == bone for g in p.face_group], dtype=bool)
+        v = p.vertices[p.faces[mine]].reshape(-1, 3)
+        lo, hi = v.min(axis=0), v.max(axis=0)
+        near = ((lo + hi) / 2, max(float(np.linalg.norm(hi - lo)) / 2 * 1.4, built.step * 8))
+        hidden = frozenset({bone})
+        tiles = [(n, render(built, View(yaw, 15.0), size, fit=fit, background=TILE_BG, hide=hidden)) for n, yaw in HEADINGS[::2]]
+        tiles += [(f"close {n}", render(built, View(yaw, 30.0), size, fit=near, background=TILE_BG, hide=hidden)) for n, yaw in HEADINGS[::2]]
+        rows.append((f"without {bone}", tiles))
+    return sheet(f"{built.model.name} detached", "each separate part off in turn: no holes, and the surface under it is what the game shows", rows)
+
+
 def filmstrip(built: Built, animation: str, size: int = 200) -> Image.Image:
     names = [t.name for t in built.tracks]
     if animation not in names:

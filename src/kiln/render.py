@@ -100,9 +100,10 @@ def render(
     swap: dict[str, str] | None = None,
     fit: tuple[Array, float] | None = None,
     background: tuple[int, int, int, int] = (0, 0, 0, 0),
+    hide: frozenset[str] = frozenset(),
 ) -> Image.Image:
     """One view. `fit` = (centre, half-extent in metres) to frame several renders the same way; default: the
-    model's own bounding sphere."""
+    model's own bounding sphere. `hide`: bones (part ids) left out, e.g. a detached helmet."""
     look: Look = built.style.look
     swap = swap or {}
     corners, normals = posed(built, track, frame)
@@ -122,6 +123,8 @@ def render(
     # back-face culling (meshes are closed)
     area = (sx[:, 1] - sx[:, 0]) * (sy[:, 2] - sy[:, 0]) - (sx[:, 2] - sx[:, 0]) * (sy[:, 1] - sy[:, 0])
     front = area < 0
+    if hide:
+        front &= ~np.array([built.painted.groups[g].bone in hide for g in built.painted.face_group], dtype=bool)
     tri = np.flatnonzero(front)
     x0 = np.floor(sx[tri].min(axis=1)).astype(int).clip(0, res - 1)
     x1 = np.ceil(sx[tri].max(axis=1)).astype(int).clip(0, res - 1)
