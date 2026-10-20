@@ -143,6 +143,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `hard: true` / `false` | make this part hard (exact polygons) or smooth, whatever the style says |
 | `chamfer: 0.02` | hard parts: one flat band cut along every edge (box, wedge, cylinder, cone, extrude) |
 | `bevel: 0.02` | hard parts: rounded edges in `segments: 1-4` flat bands (default 2) |
+| `keep: true` | this detail survives every reduction (LODs) as its own small mesh, sitting in the surface around it. Crisp (`blend` 0) parts smaller than 2% of the model are kept anyway (rivets, pupils, studs); `keep: false` opts out |
 
 Order matters: details that sit on a surface come **after** it. A part completely inside later parts shows nothing
 (W101). A cut removes material from what came before it, and paint follows: a door placed after the cut that made its
@@ -169,6 +170,19 @@ bands shade round and designed edges stay crisp.
   - cylinder: { at: [0.7, 0.26, 0.9], radius: 0.26, height: 0.1, sides: 8, rotate: [0, 0, 90] }   # a wheel
     color: wood_dark
 ```
+
+### Hardware
+
+Written like a shape, each stands for several ordinary parts (hard by default); the part's other fields (colour,
+material, id, mirror, ...) go to each.
+
+| hardware | meaning |
+|---|---|
+| `rivets: { count: 8, along: [[x, y, z], ...], size: 0.03 }` | rivets evenly along a path (model space, ends included); or `around: { center, radius, axis: y }` in a ring |
+| `band: { fit: body, at: [0, 0.12, 0], width: 0.05, thickness: 0.012, axis: y }` | an iron band round an earlier part's surface at `at` (or `radius:` instead of `fit`): barrels, doors, posts |
+| `planks: { size: [1, 2, 0.08], count: 5, gap: 0.015, axis: x, jitter: 0.05, seed: 1 }` | boards side by side along `axis` with gaps, chamfered; `jitter` shortens each by up to that share of its length (with `at`, `rotate`) |
+| `bolt: { at: [x, y, z], radius: 0.02, length: 0.02 }` | a hex bolt head along y (rotate it) |
+| `slit: { at: [x, y, z], size: [0.3, 0.04, 0.3] }` | a cut: visor and arrow slits |
 
 ### Patterns
 

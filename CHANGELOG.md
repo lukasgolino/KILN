@@ -20,6 +20,10 @@ Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).
 - `fit: { to: <id>, gap }` on a shell part (M3): the wall wraps those parts' surface wherever the part's own shape
   reaches, so a helmet encloses the head down to the cheeks instead of perching on it.
 - W113: a part pokes through another part's shell (eyes through a visor slot, a head through a helmet).
+- `keep: true` (M8): the part is its own small mesh (on a finer grid if it's small) that every LOD keeps. Crisp parts
+  under 2% of the model's size are kept anyway (rivets, pupils, studs; `keep: false` opts out).
+- Hardware parts (M8): `rivets`, `band` (with `fit:` round an earlier part's surface), `planks`, `bolt`, `slit`;
+  each expands into ordinary (hard) parts.
 - `kiln preview <model> --detach` (and the MCP `preview` tool's `detach`): each separate part off in turn.
 - E013: the built mesh has open edges (cracks).
 

@@ -32,6 +32,8 @@ PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour bor
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
 LOST_AREA = 0.25  # a part keeping less of its surface than this through decimation is lost (lint W111)
 HARD_SHARE = 0.75  # hard parts may take this much of the budget before they lose detail (bevels, then sides)
+KEEP_SIZE = 0.02  # crisp parts smaller than this share of the model are kept at every LOD (rivets, eyes, crests)
+KEEP_MIN = 48  # triangles a kept part keeps at least
 
 
 def field_of(model: Model, step: float) -> Field:
@@ -58,6 +60,25 @@ def hard_parts(model: Model, style: Style) -> frozenset[int]:
         asks = p.crisp or p.bevel > 0 or "sides" in g.params
         body = model.skin == "soft" and p.id not in separate
         if asks or (style.hard_surface == "always" and not body):
+            out.add(i)
+    return frozenset(out)
+
+
+def kept_parts(model: Model, hard: frozenset[int]) -> frozenset[int]:
+    """Smooth parts made as their own small mesh that every reduction keeps (`keep: true`, or small crisp parts:
+    rivets, pupils, crests). They sit in the surface around them instead of blending, so a part with a blend only
+    goes this way when it asks."""
+    separate = {pid for pid, e in model.rig.items() if e.separate} if model.skin != "none" else set()
+    adding = [i for i, p in enumerate(model.parts) if p.geometry.op == "add"]
+    boxes = [model.parts[i].geometry.bounds() for i in adding]
+    lo, hi = np.min([b[0] for b in boxes], axis=0), np.max([b[1] for b in boxes], axis=0)
+    size = float(np.linalg.norm(hi - lo))
+    out = set()
+    for i, (blo, bhi) in zip(adding, boxes, strict=True):
+        p = model.parts[i]
+        if i in hard or p.id in separate or p.keep is False or len(adding) == 1:
+            continue
+        if p.keep or (p.geometry.blend == 0 and float(np.linalg.norm(bhi - blo)) < KEEP_SIZE * size):
             out.add(i)
     return frozenset(out)
 
@@ -142,13 +163,17 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     any_soft = any(i not in hard for i in adding)
     hard_cut, hard_meshes = build_hard(model, style, field, hard_pieces, target * (HARD_SHARE if any_soft else 1.0), rigged) if hard_pieces else ([], [])
     hard_triangles = sum(r.mesh.triangles for r in hard_cut)
-    groups_of = [[i for i in inc if i not in hard] for inc in all_pieces]
+    kept = kept_parts(model, hard)
+    groups_of = [[i for i in inc if i not in hard and i not in kept] for inc in all_pieces]
     pieces = [(include, field.only(include)) for include in groups_of if include]
     meshes = [dual_contour(f, step) for _, f in pieces]
-    if sum(m.triangles for m in meshes) + hard_triangles == 0:
+    kept_cut, kept_hidden = _kept(model, style, field, sorted(kept), step, target, meshes, rigged)
+    kept_triangles = sum(len(p.faces) for p, _ in kept_cut)
+    if sum(m.triangles for m in meshes) + hard_triangles + kept_triangles == 0:
         raise ValueError("the model has no surface (everything cut away, or all parts are cuts)")
     live = [(include, f, mesh) for (include, f), mesh in zip(pieces, meshes, strict=True) if mesh.triangles]
-    soft_target = max(target - hard_triangles, int(target * (1 - HARD_SHARE))) if hard_triangles else target
+    taken = hard_triangles + kept_triangles
+    soft_target = max(target - taken, int(target * (1 - HARD_SHARE))) if taken else target
     hidden: tuple[int, ...] = ()
     lost: tuple[int, ...] = ()
     painted: Painted | None = None
@@ -171,6 +196,10 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     if groups_of[0] and painted is not None:  # separate parts may float
         main_faces = np.flatnonzero(region_piece[painted.face_group] == 0)
         floating = _pieces(model, field, Mesh(painted.vertices, painted.faces[main_faces]), step)
+    hidden = tuple(sorted({*hidden, *kept_hidden}))
+    if kept_cut:
+        painted, normals = _merge([painted] if painted is not None else [], [normals] if len(normals) else [],
+                                  [p for p, _ in kept_cut], [n for _, n in kept_cut])  # fmt: skip
     n_soft = len(painted.vertices) if painted is not None else 0
     if hard_cut:
         hard_painted = [paint(r, model) for r in hard_cut]
@@ -198,6 +227,28 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
             weights[n_soft:, 0] = 1.0
     return Built(model, style, painted, normals, skeleton, model.skin, joints, weights, tracks(model, skeleton) if rigged else [], step,
                  floating, hidden, lost)  # fmt: skip
+
+
+def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],
+          rigged: bool) -> tuple[list[tuple[Painted, Array]], list[int]]:  # fmt: skip
+    """Each kept part as its own mesh: reduced only to its share of the budget, never below KEEP_MIN triangles.
+    Also the kept parts with no surface at all."""
+    out = []
+    hidden = []
+    total = sum(_area(m.vertices, m.faces) for m in others)
+    for i in kept:
+        f = field.only([i])
+        t = part_thickness(model.parts[i].geometry)
+        fine = min(step, max(t / 6, step / 4)) if t else step  # small enough to show it, however small it is
+        mesh = dual_contour(f, fine)
+        if not mesh.triangles:
+            hidden.append(i)
+            continue
+        share = _area(mesh.vertices, mesh.faces) / max(total, 1e-12)
+        mesh = decimate(f, mesh, max(KEEP_MIN, round(2 * share * target)), fine)
+        painted = paint(regions(mesh, model, f, rigged, [i]), model)
+        out.append((painted, corner_normals(painted, f, fine, style.smooth, style.sharp_angle)))
+    return out, hidden
 
 
 def _face_normals(p: Painted) -> Array:

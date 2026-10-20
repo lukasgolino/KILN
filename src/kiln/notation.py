@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 
+from kiln.hardware import HARDWARE, expand
 from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
 from kiln.vendor.findings import Finding
 from kiln.vendor.yamlio import LineMap, YamlError, load_yaml, parse_yaml
@@ -29,7 +30,7 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit"}  # fmt: skip
+               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
@@ -76,6 +77,7 @@ class Part:
     bevel: float = 0.0  # hard edges rounded in `segments` bands (a chamfer: one band)
     segments: int = 2
     fit: tuple[str, float] | None = None  # a shell wrapping the parts with this id, this far from them
+    keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
 
 
 @dataclass(frozen=True)
@@ -458,6 +460,10 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         ctx.error("E003", "a hard part (sides, bevel, chamfer, blend: none or hard: true) can't twist or have noise: those need the smooth field",
                   line, where)  # fmt: skip
         ok = False
+    keep = raw.get("keep")
+    if keep is not None and not isinstance(keep, bool):
+        ctx.error("E003", "keep is true (this detail survives every LOD at full detail) or false", line, f"{where}.keep")
+        ok = False
     fit = None
     if "fit" in raw:
         f_raw = raw["fit"]
@@ -477,7 +483,8 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         open_axis = (AXES[open_side[-1]], -1.0 if open_side.startswith("-") else 1.0)
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis)  # fmt: skip
-    hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit}
+    hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
+                   "keep": keep}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
@@ -794,7 +801,21 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
             ctx.error("E003", "parts must be a non-empty list, e.g. - sphere: { at: [0, 0.5, 0], radius: 0.5 }", _line(data, "parts"), "parts")
         else:
             for i, raw in enumerate(raw_parts):
-                model.parts.extend(_parse_part(ctx, raw, i, _line(raw) or _line(data, "parts")))
+                pline = _line(raw) or _line(data, "parts")
+                kinds = [k for k in raw if k in HARDWARE] if isinstance(raw, dict) else []
+                if not kinds:
+                    model.parts.extend(_parse_part(ctx, raw, i, pline))
+                    continue
+                if len(kinds) > 1 or any(k in SHAPES for k in raw):
+                    ctx.error("E003", f"each part needs exactly one shape: {', '.join(SHAPES)}, or one hardware part: {', '.join(HARDWARE)}", pline, f"parts[{i}]")
+                    continue
+                earlier = [(p.id, p.geometry) for p in model.parts if p.geometry.op == "add"]
+                subs, problem = expand(kinds[0], raw[kinds[0]], dict(raw), earlier)
+                if problem is not None:
+                    ctx.error("E003", problem, pline, f"parts[{i}].{kinds[0]}")
+                    continue
+                for sub in subs:
+                    model.parts.extend(_parse_part(ctx, sub, i, pline))
             if model.parts and not any(p.geometry.op == "add" for p in model.parts):
                 ctx.error("E009", "the model has no adding parts (only cut/intersect)", _line(data, "parts"), "parts")
             for part in model.parts:

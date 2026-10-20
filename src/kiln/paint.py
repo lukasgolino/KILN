@@ -412,7 +412,7 @@ def corner_normals(painted: Painted, field: Field, step: float, smooth: bool, sh
     # seam between parts) it's the face's own side, elsewhere the same as at the corner. Judging sharpness by the
     # surface, not the triangle, keeps big decimated triangles smooth.
     centre = v[f].mean(axis=1, keepdims=True)
-    inset = field.gradient((v[f] + (centre - v[f]) * 0.3).reshape(-1, 3), step * 0.25).reshape(-1, 3, 3)
+    inset = field.gradient((v[f] + (centre - v[f]) * 0.15).reshape(-1, 3), step * 0.25).reshape(-1, 3, 3)
     # on a crisp edge the field's normal is the bisector: half the edge's angle away from each face
     cos_limit = math.cos(math.radians(sharp_angle / 2))
     agree = (vn * inset).sum(axis=2) >= cos_limit
