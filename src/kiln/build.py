@@ -18,6 +18,7 @@ from kiln.export import Built, gltf_name, to_glb
 from kiln.godot import find_godot_project, look_scene, model_scene, res_path
 from kiln.lint import LintResult, lint_project
 from kiln.notation import Model
+from kiln.rig import animation_poses
 from kiln.project import Project
 from kiln.style import Style
 from kiln.vendor.findings import Finding
@@ -76,6 +77,11 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
             "separate": bone.separate,
             "node_path": "/".join(chain),  # glTF node names from the root (Godot soft skins: bones of the Skeleton3D)
         }
+        if bone.sockets:
+            parts[bone.name]["sockets"] = {
+                name: {"position": [_f(v) for v in point], "offset": [_f(v) for v in point - bone.pivot], "node": f"{bone.name}_{name}"}
+                for name, point in sorted(bone.sockets.items())
+            }
         faces = p.faces[face_bone == i]
         if len(faces):  # the part's box in model space, rest pose (hit zones)
             v = p.vertices[np.unique(faces)]
@@ -84,6 +90,11 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
     for t in built.tracks:
         animations[t.name] = {"gltf_name": gltf_name(t.name, t.loop), "fps": t.fps, "frames": t.frames, "loop": t.loop,
                               "interpolation": t.interpolation, "duration": _f(t.frames / t.fps)}  # fmt: skip
+        first = animation_poses(m.animations[t.name], m)[0] if t.name in m.animations else {}
+        start = {pid: {"rotate": [_f(v) for v in pose.rotate], "offset": [_f(v) for v in pose.offset]}
+                 for pid, pose in sorted(first.items()) if max(map(abs, (*pose.rotate, *pose.offset))) > 1e-4}  # fmt: skip
+        if start:  # where its first frame puts parts (e.g. an arm built level, cocked at the start)
+            animations[t.name]["start"] = start
     entry: dict[str, Any] = {
         "glb": glb.relative_to(out).as_posix(),
         "description": m.description,
@@ -137,14 +148,14 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         palette, _ = project.palette(model.palette)
         built = build_cached(model, style, palette, cache)
         glb = out / "models" / f"{name}.glb"
-        write(glb, to_glb(built, generator))
+        write(glb, to_glb(built, generator, None, project.config.vertex_colors))
         entry = model_entry(built, out, glb)
         variants: dict[str, dict[str, Any]] = {}
         for vname, swap in sorted(model.variants.items()):
             variants[vname] = {"swap": dict(sorted(swap.items()))}
             if project.config.variant_glbs:
                 vpath = out / "models" / f"{name}.{vname}.glb"
-                write(vpath, to_glb(built, generator, swap))
+                write(vpath, to_glb(built, generator, swap, project.config.vertex_colors))
                 variants[vname]["glb"] = vpath.relative_to(out).as_posix()
         if variants:
             entry["variants"] = variants
@@ -162,7 +173,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 result.findings.append(Finding("W111", f"lod {k} ({budget} triangles) loses part {part.index} ({part.geometry.shape}, "
                                                f"{part.color_name})", model.path, part.line, part.where))  # fmt: skip
             lpath = out / "models" / f"{name}.lod{k}.glb"
-            write(lpath, to_glb(lod_built, generator))
+            write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors))
             lods.append({"glb": lpath.relative_to(out).as_posix(), "triangles": lod_built.triangles})
         if lods:
             entry["lods"] = lods
@@ -170,7 +181,8 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             scene = out / "models" / f"{name}.tscn"
             write(scene, model_scene(name, res_path(glb, godot_root), style).encode())
             entry["godot_scene"] = res_path(scene, godot_root)
-            for vname, swap in sorted(model.variants.items()):  # a scene per variant: its glb, or the base recoloured
+            recolourable = project.config.variant_glbs or not project.config.vertex_colors  # vertex colours: swap table only
+            for vname, swap in sorted(model.variants.items()) if recolourable else ():  # a scene per variant: its glb, or the base recoloured
                 vscene = out / "models" / f"{name}.{vname}.tscn"
                 vglb = out / variants[vname]["glb"] if "glb" in variants[vname] else glb
                 write(vscene, model_scene(name, res_path(vglb, godot_root), style, None if "glb" in variants[vname] else swap).encode())

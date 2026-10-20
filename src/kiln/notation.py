@@ -77,6 +77,7 @@ class RigEntry:
     parent: str | None
     meta: tuple[tuple[str, Any], ...] = ()
     separate: bool = False  # soft skins: keep this part a rigid mesh of its own (detachable helmet)
+    sockets: tuple[tuple[str, tuple[float, float, float]], ...] = ()  # named points (model space, rest pose)
 
 
 @dataclass(frozen=True)
@@ -489,8 +490,9 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> dict[str
             ctx.error("E007", f"rig: no part has id {part_id!r} (ids: {', '.join(sorted(ids))})", rline, where)
             continue
         spec = spec if spec is not None else {}
-        if not isinstance(spec, dict) or any(k not in ("pivot", "parent", "meta", "separate") for k in spec):
-            ctx.error("E007", "a rig entry is { pivot: [x, y, z], parent: id, meta: { key: value }, separate: true|false }", rline, where)
+        if not isinstance(spec, dict) or any(k not in ("pivot", "parent", "meta", "separate", "sockets") for k in spec):
+            ctx.error("E007", "a rig entry is { pivot: [x, y, z], parent: id, meta: { key: value }, separate: true|false, sockets: { name: [x, y, z] } }",
+                      rline, where)  # fmt: skip
             continue
         pivot = _vec(spec["pivot"]) if "pivot" in spec else None
         if "pivot" in spec and pivot is None:
@@ -515,8 +517,15 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> dict[str
         if not isinstance(separate, bool):
             ctx.error("E007", "separate must be true or false", rline, f"{where}.separate")
             continue
+        raw_sockets = spec.get("sockets", {})
+        sockets = {k: _vec(v) for k, v in raw_sockets.items()} if isinstance(raw_sockets, dict) else None
+        if sockets is None or any(not isinstance(k, str) or not NAME_RE.match(k) or v is None for k, v in sockets.items()):
+            ctx.error("E007", "sockets name points on the part (model space, as built): { tip: [0, 2.4, 0.3], load: [0, 1.1, -1.2] }",
+                      rline, f"{where}.sockets")  # fmt: skip
+            continue
         rig[str(part_id)] = RigEntry((pivot[0], pivot[1], pivot[2]) if pivot else None,
-                                     None if parent in (None, ROOT_ID) else str(parent), tuple(sorted(meta.items())), separate)  # fmt: skip
+                                     None if parent in (None, ROOT_ID) else str(parent), tuple(sorted(meta.items())), separate,
+                                     tuple(sorted((k, (v[0], v[1], v[2])) for k, v in sockets.items() if v is not None)))  # fmt: skip
     for part_id in rig:
         seen = [part_id]
         parent = rig[part_id].parent
@@ -542,7 +551,12 @@ def _mirror_rig(rig: dict[str, RigEntry], parts: list[Part]) -> dict[str, RigEnt
                 pv[axis] = -pv[axis]
                 pivot = (pv[0], pv[1], pv[2])
             parent = twins[e.parent][0] if e.parent in twins else e.parent
-            out[twin] = RigEntry(pivot, parent, e.meta, e.separate)
+            sockets = []
+            for name, point in e.sockets:
+                q = list(point)
+                q[axis] = -q[axis]
+                sockets.append((name, (q[0], q[1], q[2])))
+            out[twin] = RigEntry(pivot, parent, e.meta, e.separate, tuple(sockets))
     return out
 
 

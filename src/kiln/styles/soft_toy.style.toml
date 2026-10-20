@@ -27,13 +27,13 @@ default = { roughness = 0.5 }
 plastic = { roughness = 0.42 }
 paint = { roughness = 0.55 }
 fabric = { roughness = 0.85 }
-skin = { roughness = 0.55, rim = 0.2 }
+skin = { roughness = 0.8, rim = 0.2 }
 leather = { roughness = 0.7 }
 rubber = { roughness = 0.75 }
 wood = { roughness = 0.75 }
 stone = { roughness = 0.9 }
-metal = { roughness = 0.35, metallic = 0.8 }
-gold = { roughness = 0.3, metallic = 1.0 }
+metal = { roughness = 0.55, metallic = 0.35 }       # toy metal: no sky mirror
+gold = { roughness = 0.45, metallic = 0.5 }
 leaf = { roughness = 0.8 }
 glass = { roughness = 0.1 }
 glow = { roughness = 0.5, emission = 2.0 }

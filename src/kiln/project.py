@@ -26,6 +26,7 @@ class Config:
     style_version: int = 1
     lint_disable: tuple[str, ...] = ()
     variant_glbs: bool = True  # false: variants are Godot scenes recolouring the base glb (no glb per variant)
+    vertex_colors: bool = False  # true: colours in the vertices, one surface per material preset (fewer draw calls)
 
 
 @dataclass
@@ -128,7 +129,7 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
     def bad(message: str, where: str) -> None:
         findings.append(Finding("E000", message, path, None, where))
 
-    allowed = {"default_style", "default_palette", "output_dir", "preview_dir", "export", "style_version", "variant_glbs", "lint"}
+    allowed = {"default_style", "default_palette", "output_dir", "preview_dir", "export", "style_version", "variant_glbs", "vertex_colors", "lint"}
     for key in data:
         if key not in allowed:
             bad(f"unknown setting {key!r}; allowed: {', '.join(sorted(allowed))}", key)
@@ -165,6 +166,11 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
             bad("variant_glbs is true (a .glb per variant) or false (variants recolour the base glb's materials)", "variant_glbs")
         else:
             cfg.variant_glbs = data["variant_glbs"]
+    if "vertex_colors" in data:
+        if not isinstance(data["vertex_colors"], bool):
+            bad("vertex_colors is true (colours in the vertices: fewer surfaces) or false (a material per colour)", "vertex_colors")
+        else:
+            cfg.vertex_colors = data["vertex_colors"]
     lint = data.get("lint", {})
     if not isinstance(lint, dict) or any(k != "disable" for k in lint) or not all(isinstance(r, str) and r.startswith("W") for r in lint.get("disable", [])):
         bad("[lint] has disable = [\"W101\", ...] (warnings only)", "lint")

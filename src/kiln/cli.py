@@ -32,6 +32,7 @@ SETTINGS = {
     "export": 'what kiln build writes: ["glb"] or ["glb", "godot"]',
     "style_version": "the look's version; models made under an older one are flagged (W107)",
     "variant_glbs": "true: a .glb per variant; false: variants are swap tables (Godot: <name>.<variant>.tscn recolours the base)",
+    "vertex_colors": "true: colours in the vertices, one surface per material preset (fewer draw calls); needs variant_glbs",
 }
 
 
@@ -439,7 +440,7 @@ def cmd_config(args: argparse.Namespace, out: Output) -> int:
     cfg = project.config
     values = {"default_style": cfg.default_style, "default_palette": cfg.default_palette, "output_dir": cfg.output_dir,
               "preview_dir": cfg.preview_dir, "export": list(cfg.export), "style_version": cfg.style_version,
-              "variant_glbs": cfg.variant_glbs}  # fmt: skip
+              "variant_glbs": cfg.variant_glbs, "vertex_colors": cfg.vertex_colors}  # fmt: skip
     if args.config_cmd == "show":
         for key, meaning in SETTINGS.items():
             out.say(f"{key:<16} = {json.dumps(values[key]):<24} {meaning}")

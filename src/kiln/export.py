@@ -18,6 +18,7 @@ from kiln.style import Style
 from kiln.vendor.gltf import ARRAY_BUFFER, CLAMP_TO_EDGE, ELEMENT_ARRAY_BUFFER, NEAREST, Document
 
 LINEAR = 9729
+WHITE = "#ffffff"
 LINEAR_MIPMAP_LINEAR = 9987
 
 
@@ -62,9 +63,10 @@ def gltf_name(name: str, loop: bool) -> str:
 
 
 class _Writer:
-    def __init__(self, built: Built, swap: dict[str, str], generator: str) -> None:
+    def __init__(self, built: Built, swap: dict[str, str], generator: str, vertex_colors: bool = False) -> None:
         self.b = built
         self.swap = swap
+        self.vertex_colors = vertex_colors
         self.doc = Document(generator)
         self.materials: dict[tuple[str, str, int], int] = {}
         self.textures: dict[tuple[int, str], int] = {}
@@ -128,23 +130,34 @@ class _Writer:
             names.setdefault(g.color, g.color_name.split("#")[0])
         keys = [(self.color(p.groups[g].color), names[p.groups[g].color], p.groups[g].material, int(dec))
                 for g, dec in zip(p.face_group[faces_idx], p.face_decal[faces_idx], strict=True)]  # fmt: skip
+        face_color = [k[0] for k in keys]
+        if self.vertex_colors:  # colours in the vertices: one primitive per material preset (fewer draw calls)
+            presets = self.b.style.materials
+            keys = [k if k[3] >= 0 or presets.get(k[2], presets["default"]).emission > 0 else (WHITE, "vertex", k[2], -1) for k in keys]
         order = sorted(set(keys))
         index = {k: i for i, k in enumerate(order)}
         keys_arr = np.array([index[k] for k in keys]) if keys else np.zeros(0, dtype=int)
+        palette = sorted(set(face_color))
+        color_id = np.array([palette.index(c) for c in face_color]) if face_color else np.zeros(0, dtype=int)
         for m, key in enumerate(order):
-            sel = faces_idx[keys_arr == m]
+            mask = keys_arr == m
+            sel = faces_idx[mask]
             corners = p.faces[sel].reshape(-1)
             normals = self.b.normals[sel].reshape(-1, 3)
-            rows = np.concatenate([corners[:, None].astype(float), np.round(normals, 5)], axis=1)
+            colors = np.repeat(color_id[mask], 3).astype(float)[:, None]
+            rows = np.concatenate([corners[:, None].astype(float), np.round(normals, 5), colors], axis=1)
             unique, inverse = np.unique(rows, axis=0, return_inverse=True)
             vidx = unique[:, 0].astype(np.int64)
             pos = p.vertices[vidx] - origin
-            nrm = unique[:, 1:]
+            nrm = unique[:, 1:4]
             nrm /= np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-12)
             attributes = {
                 "POSITION": self.doc.accessor(pos.astype(np.float32), target=ARRAY_BUFFER, bounds=True),
                 "NORMAL": self.doc.accessor(nrm.astype(np.float32), target=ARRAY_BUFFER),
             }
+            if key[1] == "vertex":
+                rgb = np.array([srgb_to_linear(palette[int(c)]) for c in unique[:, 4]], dtype=np.float32)
+                attributes["COLOR_0"] = self.doc.accessor(rgb, target=ARRAY_BUFFER)
             if key[3] >= 0:
                 uv = decal_uv(p.decals[key[3]], p.vertices[vidx])
                 attributes["TEXCOORD_0"] = self.doc.accessor(uv.astype(np.float32), target=ARRAY_BUFFER)
@@ -172,20 +185,30 @@ class _Writer:
             kids = [j for j, other in enumerate(sk.bones) if other.parent == i]
             if kids:
                 nodes[i]["children"] = kids
+        for i, bone in enumerate(sk.bones):  # sockets: empty child nodes that move with the part (Godot: markers)
+            for name, point in sorted(bone.sockets.items()):
+                nodes[i].setdefault("children", []).append(len(nodes))
+                nodes.append({"name": f"{bone.name}_{name}", "translation": [float(np.float32(v)) for v in point - bone.pivot],
+                              "extras": {"kiln_socket": name, "kiln_part": bone.name}})  # fmt: skip
         scene_nodes = [0]
         if b.skin == "soft":
             rigid = [i for i, bone in enumerate(sk.bones) if bone.separate]
             soft_faces = np.flatnonzero(~np.isin(np.array([sk.index(p.groups[g].bone) for g in p.face_group]), rigid))
             if len(soft_faces):
                 mesh = self.doc.add("meshes", {"name": b.model.name, "primitives": self.primitives(soft_faces, np.zeros(3), True)})
-                ibm = np.zeros((len(sk.bones), 4, 4), dtype=np.float32)
-                for i, bone in enumerate(sk.bones):
+                # Godot's importer gives the Skeleton3D node the extras of the last joint it processes (a soldier's
+                # skeleton said hitzone: eye). An unweighted last joint carrying the model's own extras fixes that.
+                marker = len(nodes)
+                nodes.append({"name": "kiln_skeleton", "extras": {"kiln_model": b.model.name, "kiln_skeleton": True}})
+                nodes[0].setdefault("children", []).append(marker)
+                ibm = np.zeros((len(sk.bones) + 1, 4, 4), dtype=np.float32)
+                for i, bone in enumerate([*sk.bones, sk.bones[0]]):  # the marker sits on the root
                     m = np.eye(4)
                     m[:3, 3] = -bone.pivot
                     ibm[i] = m.T  # glTF matrices are column-major
                 view = self.doc.buffer_view(np.ascontiguousarray(ibm, dtype="<f4").tobytes())
-                ibm_acc = self.doc.add("accessors", {"bufferView": view, "componentType": 5126, "count": len(sk.bones), "type": "MAT4"})
-                skin = self.doc.add("skins", {"joints": list(range(len(sk.bones))), "skeleton": 0, "inverseBindMatrices": ibm_acc})
+                ibm_acc = self.doc.add("accessors", {"bufferView": view, "componentType": 5126, "count": len(sk.bones) + 1, "type": "MAT4"})
+                skin = self.doc.add("skins", {"joints": [*range(len(sk.bones)), marker], "skeleton": 0, "inverseBindMatrices": ibm_acc})
                 nodes.append({"name": f"{b.model.name}_mesh", "mesh": mesh, "skin": skin})
                 scene_nodes.append(len(nodes) - 1)
             for i in rigid:
@@ -224,8 +247,8 @@ class _Writer:
         self.doc.add("animations", {"name": gltf_name(track.name, track.loop), "samplers": samplers, "channels": channels})
 
 
-def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None) -> bytes:
-    return _Writer(built, swap or {}, generator).write()
+def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, vertex_colors: bool = False) -> bytes:
+    return _Writer(built, swap or {}, generator, vertex_colors).write()
 
 
 __all__ = ["Built", "ROOT_ID", "gltf_name", "srgb_to_linear", "to_glb"]

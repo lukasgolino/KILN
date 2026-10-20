@@ -311,3 +311,51 @@ def test_loose_parts_are_not_floating_pieces(project: Project) -> None:
     text = sphere_text() + "  - sphere: { at: [0, 1.2, 0], radius: 0.1 }\n    color: gold\n"
     assert built_of(project, text).pieces == 2
     assert built_of(project, text + "    loose: true\n").pieces == 1
+
+
+# 18. the scene script shares materials and keeps the game's overrides
+def test_scene_script_shares_materials_and_keeps_overrides() -> None:
+    from kiln.godot import APPLY_SCRIPT
+
+    assert "static var _shared" in APPLY_SCRIPT and "get_surface_override_material(i) != null" in APPLY_SCRIPT
+
+
+# 19. vertex colours: one surface per material preset
+def test_vertex_colors_merge_surfaces(tmp_path: Path) -> None:
+    from kiln.gltf_check import accessor, check_glb
+
+    project = make_project(tmp_path, 'default_style = "fast"\ndefault_palette = "main"\nvertex_colors = true\n')
+    write_model(project, arms_text().replace("color: blue", "color: blue\n    material: plastic"))
+    build(project)
+    data = (project.output_dir / "models" / "thing.glb").read_bytes()
+    assert check_glb(data) == []
+    doc, binary = read_glb(data)
+    prims = [p for m in doc["meshes"] for p in m["primitives"]]
+    names = sorted({doc["materials"][p["material"]]["name"] for p in prims})
+    assert names == ["default_vertex#ffffff", "plastic_vertex#ffffff"]
+    colours = np.concatenate([accessor(doc, binary, p["attributes"]["COLOR_0"]) for p in prims])
+    assert len(np.unique(np.round(colours, 4), axis=0)) == 2  # red body, blue arms
+
+
+# 21. soft toy metal doesn't mirror the sky
+def test_soft_toy_metal_is_soft() -> None:
+    from kiln.style import load_style
+
+    style, _ = load_style("soft_toy")
+    assert style is not None
+    assert style.materials["metal"].metallic <= 0.4 and style.materials["skin"].roughness >= 0.8
+
+
+# 22. sockets: named points that move with their part
+def test_sockets_in_glb_and_manifest(project: Project) -> None:
+    text = arms_text().replace("  arm_l: { pivot: [0.3, 0.6, 0] }", "  arm_l: { pivot: [0.3, 0.6, 0], sockets: { hand: [0.45, 0.35, 0] } }")
+    write_model(project, text)
+    result = build(project)
+    parts = result.manifest["models"]["thing"]["parts"]
+    assert parts["arm_l"]["sockets"]["hand"] == {"position": [0.45, 0.35, 0.0], "offset": [0.15, -0.25, 0.0], "node": "arm_l_hand"}
+    assert parts["arm_r"]["sockets"]["hand"]["position"] == [-0.45, 0.35, 0.0]  # mirrored with the rig
+    doc, _ = read_glb((project.output_dir / "models" / "thing.glb").read_bytes())
+    nodes = {n["name"]: (i, n) for i, n in enumerate(doc["nodes"])}
+    index, hand = nodes["arm_l_hand"]
+    assert index in nodes["arm_l"][1]["children"] and hand["extras"] == {"kiln_socket": "hand", "kiln_part": "arm_l"}
+    np.testing.assert_allclose(hand["translation"], [0.15, -0.25, 0.0], atol=1e-6)

@@ -9,7 +9,7 @@ uniform vec4 albedo : source_color = vec4(1.0);
 uniform vec3 emission = vec3(0.0);
 uniform int bands = 3;
 void fragment() {
-	ALBEDO = albedo.rgb;
+	ALBEDO = albedo.rgb * COLOR.rgb;  // COLOR: white unless the glb has vertex colours (vertex_colors = true)
 	EMISSION = emission;
 }
 void light() {
@@ -45,6 +45,9 @@ extends Node3D
 @export var rims: Dictionary = {}
 @export var swap: Dictionary = {}  # variant: \"rrggbb\" (a material's colour, from its name) -> new colour
 
+# Materials are made once and shared by every instance (and every model) with the same source and settings.
+static var _shared: Dictionary = {}
+
 func _ready() -> void:
 	for node in find_children(\"*\", \"MeshInstance3D\", true, false):
 		var mesh_instance := node as MeshInstance3D
@@ -52,12 +55,16 @@ func _ready() -> void:
 			continue
 		for i in mesh_instance.mesh.get_surface_count():
 			var source := mesh_instance.mesh.surface_get_material(i) as BaseMaterial3D
-			if source == null:
-				continue
+			if source == null or mesh_instance.get_surface_override_material(i) != null:
+				continue  # the game's own override (a team colour set before add_child) wins
 			var albedo := source.albedo_color
 			var hex := source.resource_name.get_slice(\"#\", 1)
 			if swap.has(hex) and source.albedo_texture == null:
 				albedo = swap[hex]
+			var key := \"%d|%s|%s|%d|%s|%s|%s\" % [source.get_instance_id(), shader_kind, albedo.to_html(), bands, outline, outline_color.to_html(), rims]
+			if _shared.has(key):
+				mesh_instance.set_surface_override_material(i, _shared[key])
+				continue
 			var material: Material
 			if shader_kind == \"toon\":
 				var toon := ShaderMaterial.new()
@@ -69,6 +76,8 @@ func _ready() -> void:
 			else:
 				var standard := source.duplicate() as BaseMaterial3D
 				standard.albedo_color = albedo
+				if mesh_instance.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_COLOR:
+					standard.vertex_color_use_as_albedo = true  # vertex_colors = true: glTF colours are linear
 				if source.emission_enabled and swap.has(hex):
 					standard.emission = albedo
 				var rim: float = rims.get(source.resource_name.get_slice(\"_\", 0), 0.0)
@@ -83,6 +92,7 @@ func _ready() -> void:
 				edge.set_shader_parameter(\"width\", outline)
 				edge.set_shader_parameter(\"color\", outline_color)
 				material.next_pass = edge
+			_shared[key] = material
 			mesh_instance.set_surface_override_material(i, material)
 "
 

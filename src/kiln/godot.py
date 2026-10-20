@@ -24,7 +24,7 @@ uniform vec4 albedo : source_color = vec4(1.0);
 uniform vec3 emission = vec3(0.0);
 uniform int bands = 3;
 void fragment() {
-\tALBEDO = albedo.rgb;
+\tALBEDO = albedo.rgb * COLOR.rgb;  // COLOR: white unless the glb has vertex colours (vertex_colors = true)
 \tEMISSION = emission;
 }
 void light() {
@@ -58,6 +58,9 @@ extends Node3D
 @export var rims: Dictionary = {}
 @export var swap: Dictionary = {}  # variant: "rrggbb" (a material's colour, from its name) -> new colour
 
+# Materials are made once and shared by every instance (and every model) with the same source and settings.
+static var _shared: Dictionary = {}
+
 func _ready() -> void:
 \tfor node in find_children("*", "MeshInstance3D", true, false):
 \t\tvar mesh_instance := node as MeshInstance3D
@@ -65,12 +68,16 @@ func _ready() -> void:
 \t\t\tcontinue
 \t\tfor i in mesh_instance.mesh.get_surface_count():
 \t\t\tvar source := mesh_instance.mesh.surface_get_material(i) as BaseMaterial3D
-\t\t\tif source == null:
-\t\t\t\tcontinue
+\t\t\tif source == null or mesh_instance.get_surface_override_material(i) != null:
+\t\t\t\tcontinue  # the game's own override (a team colour set before add_child) wins
 \t\t\tvar albedo := source.albedo_color
 \t\t\tvar hex := source.resource_name.get_slice("#", 1)
 \t\t\tif swap.has(hex) and source.albedo_texture == null:
 \t\t\t\talbedo = swap[hex]
+\t\t\tvar key := "%d|%s|%s|%d|%s|%s|%s" % [source.get_instance_id(), shader_kind, albedo.to_html(), bands, outline, outline_color.to_html(), rims]
+\t\t\tif _shared.has(key):
+\t\t\t\tmesh_instance.set_surface_override_material(i, _shared[key])
+\t\t\t\tcontinue
 \t\t\tvar material: Material
 \t\t\tif shader_kind == "toon":
 \t\t\t\tvar toon := ShaderMaterial.new()
@@ -82,6 +89,8 @@ func _ready() -> void:
 \t\t\telse:
 \t\t\t\tvar standard := source.duplicate() as BaseMaterial3D
 \t\t\t\tstandard.albedo_color = albedo
+\t\t\t\tif mesh_instance.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_COLOR:
+\t\t\t\t\tstandard.vertex_color_use_as_albedo = true  # vertex_colors = true: glTF colours are linear
 \t\t\t\tif source.emission_enabled and swap.has(hex):
 \t\t\t\t\tstandard.emission = albedo
 \t\t\t\tvar rim: float = rims.get(source.resource_name.get_slice("_", 0), 0.0)
@@ -96,6 +105,7 @@ func _ready() -> void:
 \t\t\t\tedge.set_shader_parameter("width", outline)
 \t\t\t\tedge.set_shader_parameter("color", outline_color)
 \t\t\t\tmaterial.next_pass = edge
+\t\t\t_shared[key] = material
 \t\t\tmesh_instance.set_surface_override_material(i, material)
 """
 

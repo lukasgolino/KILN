@@ -55,7 +55,8 @@ def test_build_writes_glbs_and_manifest(project: Project) -> None:
     assert {k: arm[k] for k in ("parent", "pivot", "meta", "separate", "node_path")} == {
         "parent": "root", "pivot": [-0.3, 0.6, 0.0], "meta": {}, "separate": False, "node_path": "root/arm_r"}
     assert arm["aabb"]["max"][0] < -0.25 and arm["aabb"]["min"][1] < 0.6 < arm["aabb"]["max"][1]  # the left arm's box, model space
-    assert hero["animations"]["wave"] == {"gltf_name": "wave-loop", "fps": 8.0, "frames": 4, "loop": True, "interpolation": "linear", "duration": 0.5}
+    assert hero["animations"]["wave"] == {"gltf_name": "wave-loop", "fps": 8.0, "frames": 4, "loop": True, "interpolation": "linear", "duration": 0.5,
+                                          "start": {"arm_r": {"offset": [0.0, 0.0, 0.0], "rotate": [0.0, 0.0, -150.0]}}}  # the first frame's pose
     assert hero["animations"]["hold"]["gltf_name"] == "hold"
     lo, hi = hero["bounds"]["min"], hero["bounds"]["max"]
     assert lo[1] == pytest.approx(0.0, abs=0.03) and hi[1] == pytest.approx(1.0, abs=0.03)

@@ -8,7 +8,7 @@ a body bends smoothly at the blend, because KILN knows which shape every point o
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -25,6 +25,7 @@ class Bone:
     pivot: Array  # world position of the joint at rest
     meta: dict[str, object]
     separate: bool
+    sockets: dict[str, Array] = field(default_factory=dict)  # name -> model-space point at rest
 
 
 @dataclass
@@ -62,7 +63,9 @@ def build_skeleton(model: Model, field: Field) -> Skeleton:
     for pid in order:
         entry = model.rig.get(pid)
         parent = -1 if pid == ROOT_ID else order.index(parent_of[pid])
-        bones.append(Bone(pid, parent, pivots[pid], {k: list(v) if isinstance(v, tuple) else v for k, v in entry.meta} if entry else {}, bool(entry and entry.separate)))
+        meta = {k: list(v) if isinstance(v, tuple) else v for k, v in entry.meta} if entry else {}
+        sockets = {k: np.array(v, float) for k, v in entry.sockets} if entry else {}
+        bones.append(Bone(pid, parent, pivots[pid], meta, bool(entry and entry.separate), sockets))
     return Skeleton(bones)
 
 

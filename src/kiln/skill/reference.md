@@ -24,6 +24,7 @@ preview_dir = "previews"
 export = ["glb", "godot"]
 style_version = 1
 variant_glbs = true            # false: no .glb per variant; Godot gets <name>.<variant>.tscn recolouring the base glb
+vertex_colors = false          # true: colours in the vertices, one surface per material preset (fewer draw calls)
 [lint]
 disable = ["W106"]
 ```
@@ -171,6 +172,7 @@ rig:
   arm_l: { pivot: [0.3, 0.6, 0], parent: root }
   head:  { pivot: [0, 0.8, 0], meta: { hitzone: head, seat: [0, 1.56, 0] } }
   helmet: { parent: head, meta: { detachable: true }, separate: true }
+  arm:   { pivot: [0, 1.6, 0], sockets: { tip: [0, 3.9, -0.2], load: [0, 3.6, -0.5] } }
 skin: soft
 ```
 
@@ -181,7 +183,11 @@ skin: soft
   `separate: true` makes a part its own closed, rigid mesh (detachable things): it may overlap the body (a helmet
   on a head) without fusing, and removing it leaves no hole.
 - `meta`: plain values or flat lists (points: `[x, y, z]`, model space) for game code: Godot node metadata
-  (`get_meta("extras")`) and the manifest. Mirrored twins get the same meta (not mirrored).
+  (`get_meta("extras")`; on soft skins, bone metadata: `skeleton.get_bone_meta(i, "extras")`) and the manifest.
+  Mirrored twins get the same meta (not mirrored).
+- `sockets`: named points on the part (model space, as built): a muzzle, a hand slot, a trebuchet's load. Each is an
+  empty child node `<id>_<name>` that moves with the part (Godot: a Node3D under a BoneAttachment3D on soft skins), and
+  the manifest gives its position and its offset from the pivot. Mirrored twins get mirrored sockets.
 
 ## Animations
 
@@ -310,7 +316,12 @@ style materials) and `looks/<style>.tscn` (WorldEnvironment + Sun), `manifest.js
 Manifest per model: `glb`, `godot_scene`, `class`, `style`, `status`, `triangles`, `bounds` and `size` (metres),
 `skin`, `parts` (parent, pivot, meta, separate, `node_path`: glTF node names from the root, `aabb`: the part's box
 in model space, rest pose, for hit zones), `animations` (gltf_name, fps, frames, loop, interpolation, duration),
-`variants` (`swap`, `glb` unless variant_glbs = false, `godot_scene`), `lods`, `colors`, `source` (imports).
+`variants` (`swap`, `glb` unless variant_glbs = false, `godot_scene`), `lods`, `colors`, `source` (imports);
+parts also have `sockets`, animations a `start` (the parts their first frame moves, e.g. an arm built level but
+cocked when the animation starts). With `vertex_colors = true`, a game loading the .glb itself must set
+`vertex_color_use_as_albedo = true` on the imported materials (KILN's .tscn scenes do it); variants are then swap
+tables for the game (or `variant_glbs = true`). KILN's .tscn scripts share their materials between instances and
+leave any surface override the game set before `add_child` alone.
 `kiln build --verify-godot` checks everything in a throwaway copy of the output (nothing else in the game's project is
 imported or touched).
 

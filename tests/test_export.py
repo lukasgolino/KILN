@@ -80,7 +80,9 @@ def test_soft_skin_is_one_skinned_mesh(project: Project) -> None:
     assert len(skinned) == 1 and skinned[0]["name"] == "thing_mesh"
     assert doc["scenes"][0]["nodes"] == [0, len(doc["nodes"]) - 1]
     skin = doc["skins"][0]
-    assert skin["joints"] == [0, 1, 2] and skin["skeleton"] == 0
+    assert skin["joints"] == [0, 1, 2, 3] and skin["skeleton"] == 0
+    # joint 3: an unweighted marker so Godot's Skeleton3D gets the model's extras, not the last bone's
+    assert doc["nodes"][3] == {"name": "kiln_skeleton", "extras": {"kiln_model": "thing", "kiln_skeleton": True}} and 3 in doc["nodes"][0]["children"]
     ibm = accessor(doc, binary, skin["inverseBindMatrices"]).reshape(-1, 4, 4)
     np.testing.assert_allclose(ibm[1].T[:3, 3], [-0.3, -0.6, 0.0], atol=1e-6)
     prim = doc["meshes"][skinned[0]["mesh"]]["primitives"][0]

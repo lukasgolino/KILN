@@ -81,6 +81,8 @@ Write the answers into BRIEF.md and STYLE.md.
 - Gameplay data on parts: `rig: { helmet: { meta: { hitzone: head, detachable: true, socket: [0, 1.6, 0.1] } } }` ->
   node metadata in Godot and in the manifest, which also gives every part's box (`aabb`) for hit zones.
 - Detachables (`separate: true`) are meshed on their own, so they may overlap the body and leave no hole when removed.
+- Points the game needs on a part (a weapon's muzzle, a hand slot, a catapult's load, a seat): `sockets` in the rig
+  entry; they become nodes that move with the part.
 
 ## 4. Building for the game
 
@@ -92,6 +94,8 @@ Write the answers into BRIEF.md and STYLE.md.
   and materials.
 - Many team colours: `variant_glbs = false` in kiln.toml keeps one glb per model; each variant becomes a Godot scene
   that recolours it (and a `swap` table in the manifest for other engines).
+- Crowds (many instances): `vertex_colors = true` puts colours in the vertices, one surface per material preset,
+  so a character costs 2-4 draw calls instead of one per colour.
 - Warnings W111 (a part lost to the triangle budget) and W112 (a LOD well over its target) mean: raise the budget.
 - `kiln preview <name> --engine` renders through Godot itself (needs a display): use it to confirm the look.
 - `manifest.json` lists every model: glb, scene, size and bounds in metres, triangles, parts (pivot, parent, meta),
