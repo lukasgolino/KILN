@@ -1,0 +1,24 @@
+description = "Clay: matte, slightly lumpy plasticine shapes in soft light (Aardman, Neverhood)"
+notes = """
+Shapes: chunky and hand-made looking; add a little noise (amount 0.004, scale 0.08) to big parts so they look pressed by
+fingers. Muted, warm colours; everything matte.
+"""
+extends = "soft_toy"
+
+[materials]
+default = { roughness = 0.9 }
+plastic = { roughness = 0.88 }
+paint = { roughness = 0.9 }
+skin = { roughness = 0.85, rim = 0.1 }
+metal = { roughness = 0.6, metallic = 0.3 }
+gold = { roughness = 0.55, metallic = 0.5 }
+
+[look]
+saturation = 0.95
+contrast = 1.05
+glow = false
+sun_energy = 0.95
+ambient = 1.0
+sky_top = "#d7c8b6"
+sky_horizon = "#efe4d4"
+ground = "#c9b8a0"

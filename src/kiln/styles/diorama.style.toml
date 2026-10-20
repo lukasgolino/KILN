@@ -1,0 +1,21 @@
+description = "Diorama: small saturated worlds seen from above, soft shadows and haze (Townscaper, Islanders)"
+notes = """
+Shapes: miniature-like, rounded but crisper than soft_toy; buildings with wedge roofs and lathe towers.
+Colours: saturated pastels, warm light, cool shadows. Works best with a high camera.
+"""
+extends = "soft_toy"
+
+[shape]
+sharp_angle = 35
+resolution = 0.012
+
+[look]
+saturation = 1.25
+contrast = 1.05
+ssao = true
+glow = true
+fog = 0.01
+fog_color = "#d8e6f2"
+sun_pitch = -40.0
+sun_yaw = 40.0
+sun_color = "#ffe9cc"

@@ -1,0 +1,746 @@
+"""`models/<name>.kiln.yaml`: parse and validate a model (parts, paint, rig, animations, variants).
+
+Every problem becomes a Finding with a rule id, the file, the line and a `where` path, and all of them are
+collected (not just the first), as in PAGAN.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix
+from pagan.findings import Finding
+from pagan.yamlio import LineMap, YamlError, load_yaml, parse_yaml
+
+MODEL_SUFFIX = ".kiln.yaml"
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+ROOT_ID = "root"
+AXES = {"x": 0, "y": 1, "z": 2}
+PATTERNS = ("stripes", "checker", "dots", "band")
+STATUSES = ("draft", "approved")
+SKINS = ("none", "rigid", "soft")
+CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave")
+INTERPOLATIONS = ("linear", "step")
+
+PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
+               "shell", "twist", "noise", "pattern", "decal"}  # fmt: skip
+TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
+              "skin", "animations", "variants", "lod", "lint", "source", "process"}  # fmt: skip
+
+
+@dataclass(frozen=True)
+class Pattern:
+    type: str
+    color: str  # the second colour (hex); the part's own colour is the first
+    color_name: str
+    size: float
+    axis: tuple[float, float, float]
+    width: float  # stripes: fraction of each repeat in the second colour; dots: dot diameter as a fraction of size
+    at: float = 0.0  # band: where its centre is along the axis (metres); size = its thickness
+
+
+@dataclass(frozen=True)
+class Decal:
+    image: Path
+    axis: str  # x, -x, y, -y, z, -z: the direction the decal faces (it is projected along it)
+    at: tuple[float, float, float]
+    size: tuple[float, float]  # width, height in metres on the surface
+
+
+@dataclass
+class Part:
+    index: int
+    id: str
+    geometry: Geometry
+    color: str  # hex
+    color_name: str
+    material: str
+    pattern: Pattern | None = None
+    decal: Decal | None = None
+    line: int | None = None
+    where: str = ""
+    twin_of: str | None = None  # mirror_id copies: the id they mirror
+    twin_axis: int = 0
+
+
+@dataclass(frozen=True)
+class RigEntry:
+    pivot: tuple[float, float, float] | None  # None = the part's own centre at its lowest point
+    parent: str | None
+    meta: tuple[tuple[str, Any], ...] = ()
+    separate: bool = False  # soft skins: keep this part a rigid mesh of its own (detachable helmet)
+
+
+@dataclass(frozen=True)
+class PartPose:
+    offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    rotate: tuple[float, float, float] = (0.0, 0.0, 0.0)  # degrees, about the part's pivot
+    scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
+
+
+@dataclass
+class Animation:
+    name: str
+    fps: float
+    loop: bool
+    interpolation: str
+    poses: list[dict[str, PartPose]]  # one dict per frame: part id -> pose (missing = rest)
+    cycle: dict[str, Any] | None = None  # expanded into poses once the rig is known
+
+
+@dataclass
+class Source:
+    """An imported mesh (a CC0 pack item) instead of parts."""
+
+    file: Path
+    licence: str
+    author: str
+    url: str
+    height: float | None = None
+    scale: float = 1.0
+    recolor: str = "auto"  # auto (nearest palette colour) | keep
+    rotate: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+
+@dataclass
+class Model:
+    name: str
+    path: Path | None
+    description: str = ""
+    tags: tuple[str, ...] = ()
+    status: str = "draft"
+    style_version: int | None = None
+    cls: str = "prop"
+    style: str | None = None
+    palette: str | None = None
+    budget: int | None = None
+    parts: list[Part] = field(default_factory=list)
+    rig: dict[str, RigEntry] = field(default_factory=dict)
+    skin: str = "none"
+    animations: dict[str, Animation] = field(default_factory=dict)
+    variants: dict[str, dict[str, str]] = field(default_factory=dict)  # name -> {hex: hex}
+    lod: tuple[int, ...] = ()
+    lint_disable: tuple[str, ...] = ()
+    source: Source | None = None
+    text: str = ""
+
+    @property
+    def ids(self) -> list[str]:
+        """Part ids in first-use order (root first)."""
+        seen = [ROOT_ID]
+        for p in self.parts:
+            if p.geometry.op == "add" and p.id not in seen:
+                seen.append(p.id)
+        return seen
+
+
+class _Ctx:
+    def __init__(self, path: Path | None, palette: dict[str, str], materials: set[str]) -> None:
+        self.path = path
+        self.palette = palette  # name or key -> hex
+        self.materials = materials
+        self.findings: list[Finding] = []
+
+    def error(self, rule: str, message: str, line: int | None, where: str) -> None:
+        self.findings.append(Finding(rule, message, self.path, line, where))
+
+
+def _line(data: Any, key: Any = None) -> int | None:
+    if isinstance(data, LineMap):
+        return data.line_of(key) if key is not None else data.line
+    return None
+
+
+def _num(v: Any) -> bool:
+    return isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _vec(v: Any, n: int = 3) -> tuple[float, ...] | None:
+    if isinstance(v, list) and len(v) == n and all(_num(x) for x in v):
+        return tuple(float(x) for x in v)
+    return None
+
+
+def _check_value(kind: str, v: Any) -> Any:
+    """A validated parameter value, or None."""
+    if kind == "num":
+        return float(v) if _num(v) else None
+    if kind == "pos":
+        return float(v) if _num(v) and v > 0 else None
+    if kind == "nonneg":
+        return float(v) if _num(v) and v >= 0 else None
+    if kind == "vec3":
+        return _vec(v)
+    if kind == "posvec3":
+        vec = _vec(v)
+        return vec if vec is not None and min(vec) > 0 else None
+    if kind == "points3":
+        if isinstance(v, list) and len(v) >= 2 and all(_vec(p) is not None for p in v):
+            return [list(_vec(p) or ()) for p in v]
+        return None
+    if kind in ("points2", "profile"):
+        if isinstance(v, list) and len(v) >= 3 and all(_vec(p, 2) is not None for p in v):
+            pts = [list(_vec(p, 2) or ()) for p in v]
+            if kind == "profile" and any(p[0] < 0 for p in pts):
+                return None
+            return pts
+        return None
+    return None
+
+
+KIND_HELP = {
+    "num": "a number", "pos": "a number > 0", "nonneg": "a number >= 0", "vec3": "[x, y, z]",
+    "posvec3": "[x, y, z], each > 0", "points3": "a list of 2+ points [x, y, z]",
+    "points2": "a list of 3+ points [x, z]", "profile": "a list of 3+ points [r, y] with r >= 0",
+}  # fmt: skip
+
+
+def _color(ctx: _Ctx, raw: Any, line: int | None, where: str) -> tuple[str, str] | None:
+    """(hex, name) of a palette colour name/key, or a literal "#rrggbb" (lint warns about those)."""
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        raw = str(raw)
+    if isinstance(raw, str):
+        if raw in ctx.palette:
+            return ctx.palette[raw], raw
+        if re.fullmatch(r"#[0-9a-fA-F]{6}", raw):
+            return raw.lower(), raw.lower()
+    known = ", ".join(sorted(k for k in ctx.palette if len(k) > 1)) or "none"
+    ctx.error("E004", f"unknown colour {raw!r}: use a palette colour name ({known}) or \"#rrggbb\"", line, where)
+    return None
+
+
+def _parse_copies(ctx: _Ctx, raw: Any, line: int | None, where: str) -> tuple[Copy, ...] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("count"), int) or isinstance(raw.get("count"), bool) or not 1 <= raw["count"] <= 256:
+        ctx.error("E003", "array needs count (1-256) and step: [x, y, z] (in a row) or around: x|y|z (in a ring)", line, where)
+        return None
+    count = raw["count"]
+    if "around" in raw:
+        bad = [k for k in raw if k not in ("count", "around", "center", "angle")]
+        axis = raw["around"]
+        center = _vec(raw.get("center", [0, 0, 0]))
+        angle = raw.get("angle", 360)
+        if bad or axis not in AXES or center is None or not _num(angle):
+            ctx.error("E003", "a ring array is { count, around: x|y|z, center: [x, y, z], angle: 360 }", line, where)
+            return None
+        unit = np.zeros(3)
+        unit[AXES[axis]] = 1.0
+        stepdeg = float(angle) / count if abs(float(angle)) >= 360 else float(angle) / max(count - 1, 1)
+        return tuple(Copy(axis_rotation(unit, stepdeg * i), np.array(center), np.zeros(3)) for i in range(count))
+    step = _vec(raw.get("step"))
+    bad = [k for k in raw if k not in ("count", "step")]
+    if step is None or bad:
+        ctx.error("E003", "a row array is { count, step: [x, y, z] }", line, where)
+        return None
+    return tuple(Copy(np.eye(3), np.zeros(3), np.array(step) * i) for i in range(count))
+
+
+def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]:
+    where = f"parts[{index}]"
+    if not isinstance(raw, dict):
+        ctx.error("E003", "each part is a mapping: - sphere: { at: [0, 1, 0], radius: 0.3 }", line, where)
+        return []
+    shapes = [k for k in raw if k in SHAPES]
+    if len(shapes) != 1:
+        ctx.error("E003", f"each part needs exactly one shape: {', '.join(SHAPES)}", line, where)
+        return []
+    kind = shapes[0]
+    unknown = [k for k in raw if k not in PART_FIELDS and k != kind]
+    if unknown:
+        ctx.error("E002", f"unknown part field(s) {', '.join(map(str, unknown))}; allowed: {kind}, {', '.join(sorted(PART_FIELDS))}", line, where)
+    spec = raw[kind]
+    swhere = f"{where}.{kind}"
+    if not isinstance(spec, dict):
+        ctx.error("E003", f"{kind} takes a mapping: {SHAPES[kind].help}", line, swhere)
+        return []
+    sdef = SHAPES[kind]
+    params: dict[str, Any] = dict(sdef.defaults)
+    ok = True
+    for key, value in spec.items():
+        if key in ("at", "rotate"):
+            continue
+        if key not in sdef.fields:
+            ctx.error("E002", f"{kind} has no field {key!r}; it takes {sdef.help}, plus at and rotate", _line(spec, key) or line, f"{swhere}.{key}")
+            ok = False
+            continue
+        checked = _check_value(sdef.fields[key], value)
+        if checked is None:
+            ctx.error("E003", f"{kind} {key} must be {KIND_HELP[sdef.fields[key]]}", _line(spec, key) or line, f"{swhere}.{key}")
+            ok = False
+            continue
+        params[key] = checked
+    missing = [k for k in sdef.required if k not in params]
+    if missing:
+        ctx.error("E003", f"{kind} needs {', '.join(missing)} ({sdef.help})", line, swhere)
+        ok = False
+    if kind in ("capsule", "tube") and "radius" in params:
+        params.setdefault("radius_to", params["radius"])
+    if kind in ("box", "cylinder", "extrude") and ok:
+        limit = min(params["size"]) / 2 if kind == "box" else (min(params["radius"], params["height"] / 2) if kind == "cylinder" else params["height"] / 2)
+        if params["round"] > limit:
+            ctx.error("E003", f"round {params['round']} is bigger than half the {kind}'s smallest side ({limit:g})", line, f"{swhere}.round")
+            ok = False
+    at_raw = spec.get("at", raw.get("at", [0, 0, 0]))
+    at = _vec(at_raw)
+    if at is None:
+        ctx.error("E003", "at must be [x, y, z] in metres (the shape's centre)", line, f"{swhere}.at")
+        ok = False
+    rot_raw = spec.get("rotate", raw.get("rotate"))
+    rotation = None
+    if rot_raw is not None:
+        rot = _vec(rot_raw)
+        if rot is None:
+            ctx.error("E003", "rotate must be [x, y, z] degrees", line, f"{swhere}.rotate")
+            ok = False
+        elif any(rot):
+            rotation = rotation_matrix((rot[0], rot[1], rot[2]))
+
+    op = "add"
+    for flag in ("cut", "intersect"):
+        if flag in raw:
+            if not isinstance(raw[flag], bool):
+                ctx.error("E003", f"{flag} must be true or false", line, f"{where}.{flag}")
+                ok = False
+            elif raw[flag]:
+                op = flag if op == "add" else "conflict"
+    if op == "conflict":
+        ctx.error("E003", "a part can cut or intersect, not both", line, where)
+        ok = False
+    blend = raw.get("blend", 0.0)
+    if not _num(blend) or blend < 0 or blend > 1:
+        ctx.error("E003", "blend is the smooth-join radius in metres (0 = a crisp seam), e.g. 0.04", line, f"{where}.blend")
+        ok = False
+    shell = raw.get("shell", 0.0)
+    if not _num(shell) or shell < 0:
+        ctx.error("E003", "shell is the wall thickness in metres (a hollow shape), e.g. 0.02", line, f"{where}.shell")
+        ok = False
+    twist = raw.get("twist", 0.0)
+    if not _num(twist):
+        ctx.error("E003", "twist is degrees per metre about the shape's y axis", line, f"{where}.twist")
+        ok = False
+    noise = None
+    if "noise" in raw:
+        n = raw["noise"]
+        if not isinstance(n, dict) or not _num(n.get("amount")) or not _num(n.get("scale", 0.2)) or n.get("scale", 0.2) <= 0 \
+                or any(k not in ("amount", "scale", "seed") for k in n) or not isinstance(n.get("seed", 0), int):
+            ctx.error("E003", "noise is { amount: metres (e.g. 0.01), scale: metres per bump (e.g. 0.2), seed: int }", line, f"{where}.noise")
+            ok = False
+        else:
+            noise = Noise(float(n["amount"]), float(n.get("scale", 0.2)), int(n.get("seed", index)))
+    mirror_raw = raw.get("mirror")
+    mirror: tuple[int, ...] = ()
+    if mirror_raw is not None:
+        names = [mirror_raw] if isinstance(mirror_raw, str) else mirror_raw
+        if not isinstance(names, list) or not names or any(m not in AXES for m in names):
+            ctx.error("E003", "mirror is x, y, z or a list of them (the part is copied to the other side of 0)", line, f"{where}.mirror")
+            ok = False
+        else:
+            mirror = tuple(sorted({AXES[m] for m in names}))
+    copies = _parse_copies(ctx, raw.get("array"), line, f"{where}.array") if "array" in raw else None
+    if "array" in raw and copies is None:
+        ok = False
+
+    part_id = raw.get("id", ROOT_ID)
+    if not isinstance(part_id, str) or not NAME_RE.match(part_id):
+        ctx.error("E003", "id must be lowercase letters, digits, _ or - (e.g. arm_l)", line, f"{where}.id")
+        ok = False
+    mirror_id = raw.get("mirror_id")
+    if mirror_id is not None:
+        if not isinstance(mirror_id, str) or not NAME_RE.match(mirror_id) or mirror_id == part_id:
+            ctx.error("E003", "mirror_id names the mirrored copy (e.g. arm_r for arm_l); it needs mirror: x", line, f"{where}.mirror_id")
+            ok = False
+        elif len(mirror) != 1:
+            ctx.error("E003", "mirror_id needs exactly one mirror axis (mirror: x)", line, f"{where}.mirror_id")
+            ok = False
+
+    color = ("#ff00ff", "#ff00ff")
+    material = "default"
+    pattern = decal = None
+    if op == "add":
+        c = _color(ctx, raw.get("color"), line, f"{where}.color") if "color" in raw else None
+        if "color" not in raw:
+            ctx.error("E004", "a part needs a color (a palette colour name)", line, f"{where}.color")
+        if c is None:
+            ok = False
+        else:
+            color = c
+        material = raw.get("material", "default")
+        if not isinstance(material, str) or material not in ctx.materials:
+            ctx.error("E005", f"unknown material {material!r}; the style has: {', '.join(sorted(ctx.materials))}", line, f"{where}.material")
+            ok = False
+        if "pattern" in raw:
+            pattern = _parse_pattern(ctx, raw["pattern"], line, f"{where}.pattern")
+            ok = ok and pattern is not None
+        if "decal" in raw:
+            decal = _parse_decal(ctx, raw["decal"], line, f"{where}.decal")
+            ok = ok and decal is not None
+    else:
+        for paint in ("color", "material", "pattern", "decal", "id"):
+            if paint in raw:
+                ctx.error("E003", f"a {op} part removes material: it has no {paint}", line, f"{where}.{paint}")
+                ok = False
+    if not ok:
+        return []
+    geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
+                    op, float(blend), float(shell), float(twist), noise)  # fmt: skip
+    parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where)]
+    if mirror_id is not None:
+        mirrored = _reflect(geom, mirror[0])
+        twin_decal = decal
+        if decal is not None:
+            at_m = list(decal.at)
+            at_m[mirror[0]] = -at_m[mirror[0]]
+            axis_m = decal.axis if decal.axis.lstrip("-") != "xyz"[mirror[0]] else (decal.axis[1:] if decal.axis.startswith("-") else "-" + decal.axis)
+            twin_decal = Decal(decal.image, axis_m, (at_m[0], at_m[1], at_m[2]), decal.size)
+        parts.append(Part(index, str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where, str(part_id), mirror[0]))
+    return parts
+
+
+def _reflect(g: Geometry, axis: int) -> Geometry:
+    """The part mirrored across 0 on `axis`, as a separate part (mirror_id). The local frame stays the same and
+    the reflection goes into the placement (a reflection matrix instead of a rotation), so every shape works."""
+    flip = np.eye(3)
+    flip[axis, axis] = -1.0
+    rotation = flip @ (g.rotation if g.rotation is not None else np.eye(3))
+    copies = tuple(c if c is IDENTITY else Copy(flip @ c.rotation @ flip, c.pivot @ flip, c.offset @ flip) for c in g.copies)
+    return Geometry(g.shape, g.params, g.at @ flip, rotation, (), copies, g.op, g.blend, g.shell, g.twist, g.noise)
+
+
+def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern | None:
+    if not isinstance(raw, dict) or raw.get("type") not in PATTERNS:
+        ctx.error("E003", f"pattern is {{ type: {'|'.join(PATTERNS)}, color, size (metres), axis: x|y|z }}", line, where)
+        return None
+    bad = [k for k in raw if k not in ("type", "color", "size", "axis", "width", "at")]
+    size, width = raw.get("size", 0.1), raw.get("width", 0.5)
+    axis = raw.get("axis", "y")
+    c = _color(ctx, raw.get("color"), line, f"{where}.color")
+    at = raw.get("at", 0.0)
+    if bad or not _num(size) or size <= 0 or not _num(width) or not 0 < width < 1 or axis not in AXES or not _num(at) or c is None:
+        if c is not None:
+            ctx.error("E003", "pattern: size > 0 (metres per repeat; band: thickness), width 0..1, axis x|y|z, at (band centre); "
+                      "fields type, color, size, axis, width, at", line, where)
+        return None
+    unit = [0.0, 0.0, 0.0]
+    unit[AXES[axis]] = 1.0
+    return Pattern(str(raw["type"]), c[0], c[1], float(size), (unit[0], unit[1], unit[2]), float(width), float(at))
+
+
+def _parse_decal(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal | None:
+    if not isinstance(raw, dict) or not isinstance(raw.get("image"), str):
+        ctx.error("E003", "decal is { image: decals/logo.png, axis: z, at: [x, y, z], size: [w, h] }", line, where)
+        return None
+    axis = raw.get("axis", "z")
+    at, size = _vec(raw.get("at")), _vec(raw.get("size"), 2)
+    bad = [k for k in raw if k not in ("image", "axis", "at", "size")]
+    if axis not in ("x", "-x", "y", "-y", "z", "-z") or at is None or size is None or min(size) <= 0 or bad:
+        ctx.error("E003", "decal: axis x|-x|y|-y|z|-z (the way it faces), at: [x, y, z] (its centre), size: [w, h] metres", line, where)
+        return None
+    base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+    image = (base / raw["image"]).resolve()
+    if not image.is_file():
+        ctx.error("E011", f"decal image {raw['image']} not found (paths are relative to the project folder)", line, f"{where}.image")
+        return None
+    return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]))
+
+
+def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> dict[str, RigEntry]:
+    rig: dict[str, RigEntry] = {}
+    if raw is None:
+        return rig
+    if not isinstance(raw, dict):
+        ctx.error("E007", "rig maps part ids to { pivot: [x, y, z], parent: id, meta: {...}, separate: true }", line, "rig")
+        return rig
+    for part_id, spec in raw.items():
+        rline = _line(raw, part_id) or line
+        where = f"rig.{part_id}"
+        if part_id not in ids:
+            ctx.error("E007", f"rig: no part has id {part_id!r} (ids: {', '.join(sorted(ids))})", rline, where)
+            continue
+        spec = spec if spec is not None else {}
+        if not isinstance(spec, dict) or any(k not in ("pivot", "parent", "meta", "separate") for k in spec):
+            ctx.error("E007", "a rig entry is { pivot: [x, y, z], parent: id, meta: { key: value }, separate: true|false }", rline, where)
+            continue
+        pivot = _vec(spec["pivot"]) if "pivot" in spec else None
+        if "pivot" in spec and pivot is None:
+            ctx.error("E007", "pivot must be [x, y, z] metres (the joint: shoulder, hip, hinge)", rline, f"{where}.pivot")
+            continue
+        parent = spec.get("parent")
+        if parent is not None and (parent not in ids or parent == part_id):
+            ctx.error("E007", f"parent must be another part id ({', '.join(sorted(ids))})", rline, f"{where}.parent")
+            continue
+        meta = spec.get("meta", {})
+        if not isinstance(meta, dict) or not all(isinstance(k, str) and (isinstance(v, str | bool) or _num(v)) for k, v in meta.items()):
+            ctx.error("E007", "meta maps names to plain values, e.g. { hitzone: head, damage: 2, detachable: true }", rline, f"{where}.meta")
+            continue
+        separate = spec.get("separate", False)
+        if not isinstance(separate, bool):
+            ctx.error("E007", "separate must be true or false", rline, f"{where}.separate")
+            continue
+        rig[str(part_id)] = RigEntry((pivot[0], pivot[1], pivot[2]) if pivot else None,
+                                     None if parent in (None, ROOT_ID) else str(parent), tuple(sorted(meta.items())), separate)  # fmt: skip
+    for part_id in rig:
+        seen = [part_id]
+        parent = rig[part_id].parent
+        while parent is not None:
+            if parent in seen:
+                ctx.error("E007", f"rig parents form a cycle: {' -> '.join([*seen, parent])}", _line(raw, part_id) or line, f"rig.{part_id}")
+                break
+            seen.append(parent)
+            parent = rig[parent].parent if parent in rig else None
+    return rig
+
+
+def _mirror_rig(rig: dict[str, RigEntry], parts: list[Part]) -> dict[str, RigEntry]:
+    """A rig entry for arm_l also rigs its mirror_id twin (pivot mirrored, parent's twin if it has one)."""
+    twins = {p.twin_of: (p.id, p.twin_axis) for p in parts if p.twin_of is not None}
+    out = dict(rig)
+    for src, (twin, axis) in twins.items():
+        if src in rig and twin not in rig:
+            e = rig[src]
+            pivot = None
+            if e.pivot is not None:
+                pv = list(e.pivot)
+                pv[axis] = -pv[axis]
+                pivot = (pv[0], pv[1], pv[2])
+            parent = twins[e.parent][0] if e.parent in twins else e.parent
+            out[twin] = RigEntry(pivot, parent, e.meta, e.separate)
+    return out
+
+
+def _pose(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, where: str) -> dict[str, PartPose] | None:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        ctx.error("E008", "a pose maps part ids to { offset: [x, y, z], rotate: [x, y, z], scale: s | [x, y, z] }", line, where)
+        return None
+    out: dict[str, PartPose] = {}
+    for part_id, change in raw.items():
+        pwhere = f"{where}.{part_id}"
+        if part_id not in ids:
+            ctx.error("E008", f"unknown part id {part_id!r} (ids: {', '.join(sorted(ids))})", line, pwhere)
+            return None
+        if not isinstance(change, dict) or any(k not in ("offset", "rotate", "scale") for k in change):
+            ctx.error("E008", "a part's pose is { offset: [x, y, z] metres, rotate: [x, y, z] degrees, scale: s | [x, y, z] }", line, pwhere)
+            return None
+        offset = _vec(change.get("offset", [0, 0, 0]))
+        rotate = _vec(change.get("rotate", [0, 0, 0]))
+        sc = change.get("scale", 1.0)
+        scale = (float(sc),) * 3 if _num(sc) else _vec(sc)
+        if offset is None or rotate is None or scale is None or min(scale) <= 0:
+            ctx.error("E008", "offset and rotate are [x, y, z]; scale is a number or [x, y, z] (> 0)", line, pwhere)
+            return None
+        out[str(part_id)] = PartPose((offset[0], offset[1], offset[2]), (rotate[0], rotate[1], rotate[2]), (scale[0], scale[1], scale[2]))
+    return out
+
+
+def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None) -> dict[str, Animation]:
+    out: dict[str, Animation] = {}
+    if raw is None:
+        return out
+    if not isinstance(raw, dict):
+        ctx.error("E008", "animations maps names to { fps, loop, poses: [...] } or { cycle: { type: walk, ... } }", line, "animations")
+        return out
+    for name, spec in raw.items():
+        aline = _line(raw, name) or line
+        where = f"animations.{name}"
+        if not isinstance(name, str) or not NAME_RE.match(name):
+            ctx.error("E008", "animation names are lowercase letters, digits, _ or -", aline, where)
+            continue
+        if not isinstance(spec, dict) or ("poses" in spec) == ("cycle" in spec):
+            ctx.error("E008", "an animation has poses: [...] or cycle: { type: ... } (one of them)", aline, where)
+            continue
+        bad = [k for k in spec if k not in ("fps", "loop", "interpolation", "poses", "cycle")]
+        fps = spec.get("fps", 12)
+        loop = spec.get("loop", True)
+        interp = spec.get("interpolation", "linear")
+        if bad or not _num(fps) or not 0 < fps <= 120 or not isinstance(loop, bool) or interp not in INTERPOLATIONS:
+            ctx.error("E008", "animation fields: fps (1-120), loop (true/false), interpolation (linear|step), poses or cycle", aline, where)
+            continue
+        if "poses" in spec:
+            raw_poses = spec["poses"]
+            if not isinstance(raw_poses, list) or not raw_poses:
+                ctx.error("E008", "poses is a list of poses (one per frame): - { arm_r: { rotate: [0, 0, -60] } }", aline, f"{where}.poses")
+                continue
+            poses = [_pose(ctx, p, ids, _line(p) or aline, f"{where}.poses[{i}]") for i, p in enumerate(raw_poses)]
+            if any(p is None for p in poses):
+                continue
+            out[name] = Animation(name, float(fps), loop, interp, [p for p in poses if p is not None])
+        else:
+            cycle = spec["cycle"]
+            if not isinstance(cycle, dict) or cycle.get("type") not in CYCLES:
+                ctx.error("E008", f"cycle needs type: {'|'.join(CYCLES)} (see the reference for each one's options)", aline, f"{where}.cycle")
+                continue
+            named = [v for k, v in cycle.items() if k in ("legs", "arms", "parts", "part", "body", "head")]
+            flat = [x for v in named for x in (v if isinstance(v, list) else [v])]
+            unknown = [x for x in flat if x not in ids]
+            if unknown:
+                ctx.error("E008", f"cycle names unknown part id(s) {', '.join(map(str, unknown))} (ids: {', '.join(sorted(ids))})", aline, f"{where}.cycle")
+                continue
+            out[name] = Animation(name, float(fps), loop, interp, [], dict(cycle))
+    return out
+
+
+def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials: set[str], text: str = "") -> tuple[Model | None, list[Finding]]:
+    ctx = _Ctx(path, palette, materials)
+    if not isinstance(data, dict):
+        ctx.error("E001", "a model file is a mapping (name, parts, ...)", None, None or "")
+        return None, ctx.findings
+    unknown = [k for k in data if k not in TOP_FIELDS]
+    if unknown:
+        ctx.error("E002", f"unknown field(s) {', '.join(map(str, unknown))}; allowed: {', '.join(sorted(TOP_FIELDS))}", _line(data, unknown[0]), str(unknown[0]))
+    name = data.get("name")
+    expected = path.name[: -len(MODEL_SUFFIX)] if path is not None and path.name.endswith(MODEL_SUFFIX) else None
+    if not isinstance(name, str) or not NAME_RE.match(name):
+        ctx.error("E003", "name must be lowercase letters, digits, _ or - (and match the file name)", _line(data, "name"), "name")
+        name = expected or "model"
+    elif expected is not None and name != expected:
+        ctx.error("E003", f"name {name!r} must match the file name ({expected}{MODEL_SUFFIX})", _line(data, "name"), "name")
+    model = Model(name=str(name), path=path, text=text)
+    model.description = str(data.get("description", ""))
+    tags = data.get("tags", [])
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        ctx.error("E003", "tags is a list of words", _line(data, "tags"), "tags")
+    else:
+        model.tags = tuple(tags)
+    status = data.get("status", "draft")
+    if status not in STATUSES:
+        ctx.error("E003", "status is draft or approved (approved = the owner looked at it)", _line(data, "status"), "status")
+    else:
+        model.status = str(status)
+    sv = data.get("style_version")
+    if sv is not None and (not isinstance(sv, int) or isinstance(sv, bool) or sv < 1):
+        ctx.error("E003", "style_version is a whole number (the project's style_version when this was made)", _line(data, "style_version"), "style_version")
+    else:
+        model.style_version = sv
+    cls = data.get("class", "prop")
+    if not isinstance(cls, str) or not NAME_RE.match(cls):
+        ctx.error("E003", "class is a size class from the style's budgets (character, prop, building, ...)", _line(data, "class"), "class")
+    else:
+        model.cls = cls
+    for key in ("style", "palette"):
+        v = data.get(key)
+        if v is not None and (not isinstance(v, str) or not NAME_RE.match(v)):
+            ctx.error("E003", f"{key} is a name ({key}s/<name>...)", _line(data, key), key)
+        else:
+            setattr(model, key, v)
+    budget = data.get("budget")
+    if budget is not None and (not isinstance(budget, int) or isinstance(budget, bool) or not 12 <= budget <= 500_000):
+        ctx.error("E003", "budget is a triangle count (12-500000); it overrides the style's budget for the class", _line(data, "budget"), "budget")
+    else:
+        model.budget = budget
+    lod = data.get("lod", [])
+    if not isinstance(lod, list) or not all(isinstance(n, int) and not isinstance(n, bool) and n >= 12 for n in lod):
+        ctx.error("E003", "lod is a list of smaller triangle budgets, e.g. [2000, 600]", _line(data, "lod"), "lod")
+    else:
+        model.lod = tuple(lod)
+    lint = data.get("lint", {})
+    if not isinstance(lint, dict) or any(k != "disable" for k in lint) or not all(isinstance(r, str) for r in lint.get("disable", [])):
+        ctx.error("E003", "lint is { disable: [W101, ...] }", _line(data, "lint"), "lint")
+    else:
+        model.lint_disable = tuple(lint.get("disable", []))
+
+    if "source" in data:
+        if "parts" in data:
+            ctx.error("E003", "a model has parts (made in KILN) or source (an imported mesh), not both", _line(data, "source"), "source")
+        model.source = _parse_source(ctx, data["source"], data.get("process"), _line(data, "source"))
+    else:
+        raw_parts = data.get("parts")
+        if not isinstance(raw_parts, list) or not raw_parts:
+            ctx.error("E003", "parts must be a non-empty list, e.g. - sphere: { at: [0, 0.5, 0], radius: 0.5 }", _line(data, "parts"), "parts")
+        else:
+            for i, raw in enumerate(raw_parts):
+                model.parts.extend(_parse_part(ctx, raw, i, _line(raw) or _line(data, "parts")))
+            if model.parts and not any(p.geometry.op == "add" for p in model.parts):
+                ctx.error("E009", "the model has no adding parts (only cut/intersect)", _line(data, "parts"), "parts")
+    ids = set(model.ids) if model.parts else {ROOT_ID}
+    model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig")), model.parts)
+    skin = data.get("skin", "rigid" if model.rig else "none")
+    if skin not in SKINS:
+        ctx.error("E007", "skin is none (static), rigid (each part moves as one piece) or soft (blended joints bend)", _line(data, "skin"), "skin")
+    else:
+        model.skin = str(skin)
+    model.animations = _parse_animations(ctx, data.get("animations"), ids, _line(data, "animations"))
+    if model.animations and model.skin == "none":
+        ctx.error("E008", "animations move parts: give the model a rig (pivots and parents) or skin: rigid", _line(data, "animations"), "animations")
+    variants = data.get("variants", {})
+    if not isinstance(variants, dict):
+        ctx.error("E003", "variants maps names to { swap: { colour: colour } }", _line(data, "variants"), "variants")
+    else:
+        for vname, spec in variants.items():
+            vline = _line(variants, vname)
+            if not isinstance(vname, str) or not NAME_RE.match(vname) or not isinstance(spec, dict) or set(spec) != {"swap"} or not isinstance(spec["swap"], dict):
+                ctx.error("E003", "a variant is { swap: { red: green, ... } } (palette colours)", vline, f"variants.{vname}")
+                continue
+            swap = {}
+            for a, b in spec["swap"].items():
+                ca = _color(ctx, a, vline, f"variants.{vname}.swap")
+                cb = _color(ctx, b, vline, f"variants.{vname}.swap")
+                if ca and cb:
+                    swap[ca[0]] = cb[0]
+            model.variants[str(vname)] = swap
+    return model, ctx.findings
+
+
+def _parse_source(ctx: _Ctx, raw: Any, process: Any, line: int | None) -> Source | None:
+    if not isinstance(raw, dict) or not isinstance(raw.get("file"), str):
+        ctx.error("E010", "source is { file: imports/tree.glb, licence: CC0-1.0, author: ..., url: ... }", line, "source")
+        return None
+    bad = [k for k in raw if k not in ("file", "licence", "author", "url")]
+    if bad:
+        ctx.error("E002", f"unknown source field(s) {', '.join(map(str, bad))}; allowed: file, licence, author, url", line, "source")
+    base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+    file = (base / raw["file"]).resolve()
+    if not file.is_file() or file.suffix.lower() not in (".glb", ".gltf"):
+        ctx.error("E010", f"source file {raw['file']} not found or not .glb/.gltf (paths are relative to the project)", line, "source.file")
+        return None
+    licence = raw.get("licence")
+    if not isinstance(licence, str) or not licence:
+        ctx.error("E010", "source needs licence (an SPDX id: CC0-1.0, CC-BY-4.0, ...) so credits and checks work", line, "source.licence")
+        return None
+    src = Source(file, licence, str(raw.get("author", "")), str(raw.get("url", "")))
+    if process is not None:
+        if not isinstance(process, dict) or any(k not in ("height", "scale", "recolor", "rotate") for k in process):
+            ctx.error("E003", "process is { height: metres | scale: factor, recolor: auto|keep, rotate: [x, y, z] }", line, "process")
+            return None
+        if "height" in process:
+            if not _num(process["height"]) or process["height"] <= 0:
+                ctx.error("E003", "process height is metres (> 0)", line, "process.height")
+                return None
+            src.height = float(process["height"])
+        if "scale" in process:
+            if not _num(process["scale"]) or process["scale"] <= 0:
+                ctx.error("E003", "process scale is a factor (> 0)", line, "process.scale")
+                return None
+            src.scale = float(process["scale"])
+        if process.get("recolor", "auto") not in ("auto", "keep"):
+            ctx.error("E003", "recolor is auto (snap to the palette) or keep", line, "process.recolor")
+            return None
+        src.recolor = str(process.get("recolor", "auto"))
+        if "rotate" in process:
+            rot = _vec(process["rotate"])
+            if rot is None:
+                ctx.error("E003", "process rotate is [x, y, z] degrees", line, "process.rotate")
+                return None
+            src.rotate = (rot[0], rot[1], rot[2])
+    return src
+
+
+def load_model(path: Path, palette: dict[str, str], materials: set[str]) -> tuple[Model | None, list[Finding]]:
+    try:
+        text = path.read_text(encoding="utf-8")
+        data = parse_yaml(text)
+    except (OSError, UnicodeDecodeError) as exc:
+        return None, [Finding("E001", f"cannot read file: {exc}", path)]
+    except YamlError as exc:
+        return None, [Finding("E001", exc.message, path, exc.line)]
+    return parse_model(data, path, palette, materials, text)
+
+
+__all__ = ["Animation", "Decal", "Model", "Part", "PartPose", "Pattern", "RigEntry", "Source", "load_model", "load_yaml", "parse_model"]

@@ -1,0 +1,18 @@
+description = "Toon: cel-shaded bands and dark outlines on smooth shapes (Wind Waker, Sable-lite)"
+notes = """
+Shapes: smooth and simple; outlines draw the silhouette, so keep parts readable at a distance. Avoid noise.
+Colours: bright and flat, 2-3 per object; the cel bands do the shading.
+"""
+extends = "soft_toy"
+
+[look]
+shader = "toon"
+toon_bands = 3
+outline = 0.012
+outline_color = "#1a1420"
+tonemapper = "linear"
+exposure = 1.0
+saturation = 1.05
+ssao = false
+glow = false
+ambient = 0.55

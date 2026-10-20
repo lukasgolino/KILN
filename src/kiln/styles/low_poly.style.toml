@@ -1,0 +1,50 @@
+description = "Low poly: faceted flat-shaded shapes, few triangles, flat colours (Kenney, Monument Valley)"
+notes = """
+Shapes: simple silhouettes that read from far away; facets ARE the detail, so avoid tiny parts (< 0.05 m vanish).
+Prefer boxes, cylinders, cones and wedges with little rounding; blend sparingly. 4-8 colours per scene, no gradients.
+"""
+
+[shape]
+smooth = false
+sharp_angle = 30
+resolution = 0.02
+
+[budgets]
+default = 600
+prop = 400
+character = 900
+hero = 1500
+creature = 900
+vehicle = 1500
+machine = 2000
+building = 2500
+nature = 500
+
+[materials]
+default = { roughness = 0.85 }
+plastic = { roughness = 0.8 }
+paint = { roughness = 0.85 }
+fabric = { roughness = 0.9 }
+skin = { roughness = 0.8 }
+rubber = { roughness = 0.9 }
+wood = { roughness = 0.9 }
+stone = { roughness = 0.95 }
+metal = { roughness = 0.5, metallic = 0.5 }
+gold = { roughness = 0.45, metallic = 0.8 }
+leaf = { roughness = 0.9 }
+glass = { roughness = 0.3 }
+glow = { roughness = 0.8, emission = 1.5 }
+
+[look]
+shader = "standard"
+tonemapper = "filmic"
+saturation = 1.1
+ssao = true
+glow = false
+ambient = 0.85
+sky_top = "#5aa0e8"
+sky_horizon = "#cfe3f5"
+ground = "#9fbf7a"
+sun_pitch = -52.0
+sun_yaw = 35.0
+sun_energy = 1.2

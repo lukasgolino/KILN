@@ -1,0 +1,10 @@
+# KILN project: smooth stylised 3D models written as text. `kiln config show` lists every setting.
+default_style = "$style"       # kiln style list; or your own in styles/<name>.style.toml
+default_palette = "main"       # palettes/main.pal.yaml (PAGAN's palette format); models use its colour names
+output_dir = "build"           # put this inside your Godot project, e.g. "../game/assets/kiln"
+preview_dir = "previews"
+export = ["glb"]               # add "godot" for .tscn scenes + look kits (output_dir must be in a Godot project)
+style_version = 1              # `kiln style bump` raises it when the look changes; models record theirs
+
+[lint]
+disable = []                   # warnings to turn off project-wide, e.g. ["W106"]

@@ -1,0 +1,53 @@
+description = "Soft toys: smooth rounded shapes, saturated flat colours, soft light, no outlines (Dear Passengers, Fall Guys)"
+notes = """
+Shapes: big and simple, every edge rounded (box round >= 15% of the smallest side), parts joined with blend 0.03-0.06.
+Characters: bean or pear bodies, short stubby limbs, heads 0.5-0.7 of the body, BIG eyes (white sclera + black pupil,
+crisp seam: blend 0), tiny or no mouth. Colours: one strong colour per character, white/black accents, 3-5 colours total.
+Props: chunky, slightly oversized details (big buttons, thick handles). No thin wires: ropes >= 0.02 m.
+"""
+
+[shape]
+smooth = true
+sharp_angle = 50
+resolution = 0.008
+
+[budgets]
+default = 4000
+prop = 3000
+character = 8000
+hero = 15000
+creature = 8000
+vehicle = 12000
+machine = 14000
+building = 20000
+nature = 6000
+
+[materials]
+default = { roughness = 0.5 }
+plastic = { roughness = 0.42 }
+paint = { roughness = 0.55 }
+fabric = { roughness = 0.85 }
+skin = { roughness = 0.55, rim = 0.2 }
+rubber = { roughness = 0.75 }
+wood = { roughness = 0.75 }
+stone = { roughness = 0.9 }
+metal = { roughness = 0.35, metallic = 0.8 }
+gold = { roughness = 0.3, metallic = 1.0 }
+leaf = { roughness = 0.8 }
+glass = { roughness = 0.1 }
+glow = { roughness = 0.5, emission = 2.0 }
+
+[look]
+shader = "standard"
+tonemapper = "filmic"
+exposure = 1.0
+saturation = 1.15
+ssao = true
+glow = true
+ambient = 0.9
+sky_top = "#4f8fe0"
+sky_horizon = "#bcd7f2"
+ground = "#a9c48f"
+sun_pitch = -48.0
+sun_yaw = 30.0
+sun_energy = 1.1

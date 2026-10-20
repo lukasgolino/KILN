@@ -1,0 +1,30 @@
+name: main
+# A starter palette for KILN (PAGAN's palette format). Models use the names: `color: red`.
+# Change hexes freely; every model using a name follows. Keep 16-32 colours so the game stays coherent.
+colors:
+  "0": { hex: "#141414", name: black }
+  "1": { hex: "#f4f4f0", name: white }
+  "2": { hex: "#8a93a3", name: grey }
+  "3": { hex: "#4a4a52", name: iron }
+  "4": { hex: "#e8413c", name: red }
+  "5": { hex: "#c03a2b", name: crimson }
+  "6": { hex: "#f28c28", name: orange }
+  "7": { hex: "#f2c14e", name: gold }
+  "8": { hex: "#4caf50", name: green }
+  "9": { hex: "#2e7d32", name: leaf }
+  "a": { hex: "#3fb6a8", name: teal }
+  "b": { hex: "#2f6fd0", name: blue }
+  "c": { hex: "#2b3a67", name: navy }
+  "d": { hex: "#8e5bd0", name: purple }
+  "e": { hex: "#f1b48c", name: skin }
+  "f": { hex: "#c08458", name: skin_tan }
+  "g": { hex: "#6b4a2f", name: brown }
+  "h": { hex: "#a0663a", name: wood }
+  "i": { hex: "#5a3825", name: hair }
+  "j": { hex: "#b8b2a7", name: stone }
+  "k": { hex: "#8d877c", name: stone_dark }
+  "l": { hex: "#c9a66b", name: rope }
+  "m": { hex: "#bcd7f2", name: sky }
+  "n": { hex: "#ffd6e0", name: pink }
+ramps:
+  greys: ["0", "3", "2", "1"]
