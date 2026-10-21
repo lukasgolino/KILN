@@ -6,6 +6,20 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-21
+
+### Added
+
+- The skill asks agents to report what got in their way (crashes, misleading messages, workarounds, missing
+  features) as GitHub issues at https://github.com/lukasgolino/KILN/issues: a minimal-repro draft, a duplicate
+  check, and filing only with the user's OK. `.github/ISSUE_TEMPLATE/agent-report.md` and the `agent-report` label.
+  Run `kiln skill install` to update a project's copy of the skill.
+
+### Fixed
+
+- Hard-surface planar merge no longer crashes (`KeyError` in `_outline_points`) on a patch whose outline doesn't
+  close (its edges only meet other patches' at T-points); such a patch keeps all its points (LOOSE #45).
+
 ## [0.7.0] - 2026-10-21
 
 Effects and font text (LOOSE #41, #26).
@@ -231,7 +245,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/lukasgolino/KILN/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/lukasgolino/KILN/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/lukasgolino/KILN/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/lukasgolino/KILN/compare/v0.4.0...v0.5.0
