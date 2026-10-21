@@ -265,7 +265,7 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
     @server.tool(annotations=READ, structured_output=False)
     def preview(
         model: str,
-        which: Literal["turntable", "closeup", "pose", "vs", "detach", "engine"] = "turntable",
+        which: Literal["turntable", "closeup", "pose", "vs", "detach", "effect", "engine"] = "turntable",
         part: str | None = None,
         animation: str | None = None,
         variant: str | None = None,
@@ -274,7 +274,7 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
     ) -> list[Any]:
         """Render a preview sheet and return it as an image: turntable (8 sides x 3 heights), closeup on a part, an
         animation's frames (pose), the model beside the style's inspiration images (vs), each separate part taken off
-        (detach), or Godot's own render (engine). vs with `reference` (a .glb/.gltf in the project, e.g. imports/x.glb;
+        (detach), the model's effect: block played out over time (effect), or Godot's own render (engine). vs with `reference` (a .glb/.gltf in the project, e.g. imports/x.glb;
         `ref_height` metres to scale it): the model against it at one scale, with metrics in `compare` (silhouette IoU
         over 8 views, triangles and ratio, surfaces, materials, colours, facet regularity, open edges)."""
         argv = ["preview", model]
@@ -300,6 +300,8 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
                 argv += ["--ref-height", repr(float(ref_height))]
         elif which == "detach":
             argv += ["--detach"]
+        elif which == "effect":
+            argv += ["--effect"]
         elif which == "engine":
             if not kiln.allow_godot:
                 return [{"ok": False, "findings": [{"rule": "E000", "message": "engine previews need the server started with --allow-godot"}]}]

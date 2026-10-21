@@ -603,6 +603,62 @@ def test_extrude_path_with_counter_and_island(project: Project, hard: bool) -> N
     assert any(f.rule == "E003" and "path:" in f.message for f in errors_of(project, text.replace(path, "M0 0 X")))
 
 
+def _test_font(path: Path) -> Path:
+    """A 1000-unit font: O = a square ring (outer + counter), I = a bar, advances 600 and 300."""
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+
+    def glyph(loops: list[list[tuple[int, int]]]) -> Any:
+        pen = TTGlyphPen(None)
+        for loop in loops:
+            pen.moveTo(loop[0])
+            for pt in loop[1:]:
+                pen.lineTo(pt)
+            pen.closePath()
+        return pen.glyph()
+
+    fb = FontBuilder(1000, isTTF=True)
+    fb.setupGlyphOrder([".notdef", "O", "I", "space"])
+    fb.setupCharacterMap({ord("O"): "O", ord("I"): "I", 32: "space"})
+    fb.setupGlyf({".notdef": glyph([]), "space": glyph([]), "I": glyph([[(100, 0), (200, 0), (200, 700), (100, 700)]]),
+                  "O": glyph([[(50, 0), (550, 0), (550, 700), (50, 700)], [(150, 100), (150, 600), (450, 600), (450, 100)]])})  # fmt: skip
+    fb.setupHorizontalMetrics({".notdef": (500, 0), "O": (600, 50), "I": (300, 100), "space": (250, 0)})
+    fb.setupHorizontalHeader(ascent=800, descent=-200)
+    fb.setupNameTable({"familyName": "KilnTest", "styleName": "Regular"})
+    fb.setupOS2()
+    fb.setupPost()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fb.save(str(path))
+    return path
+
+
+# 26. text set in a font file
+def test_extrude_text_from_font(project: Project) -> None:
+    from kiln.fonttext import text_path
+    from kiln.svgpath import outlines
+
+    font = _test_font(project.root / "fonts" / "test.ttf")
+    loops = outlines(text_path(font, "OI", 1.0, align="left"))
+    assert len(loops) == 3  # O's outline and counter, I
+    xs = np.array([x for loop in loops for x, _ in loop])
+    ys = np.array([y for loop in loops for _, y in loop])
+    assert xs.min() == pytest.approx(0.05) and xs.max() == pytest.approx(0.8)  # I starts at its 600 advance + 100
+    assert ys.min() == pytest.approx(-0.7) and ys.max() == pytest.approx(0.0)  # y down: the glyphs stand above the baseline
+    centred = np.array([x for loop in outlines(text_path(font, "OI", 1.0)) for x, _ in loop])
+    assert centred.min() == pytest.approx(0.05 - 0.45) and centred.max() == pytest.approx(0.8 - 0.45)
+    text = "name: thing\nparts:\n  - extrude: { text: OI, font: fonts/test.ttf, text_size: 1, height: 0.1 }\n    color: red\n"
+    model, _ = ok_model(project, text)
+    g = model.parts[0].geometry
+    assert len(g.params["holes"]) == 2  # the counter and the island I
+    from kiln.sdf import SHAPES
+
+    p = np.array([[-0.35, 0, -0.35], [-0.15, 0, -0.35], [0.3, 0, -0.35]])  # O's wall, O's counter, I
+    assert (SHAPES["extrude"].fn(p, g.params) < 0).tolist() == [True, False, True]
+    assert any(f.rule == "E003" and "no glyph" in f.message for f in errors_of(project, text.replace("text: OI", "text: OX")))
+    assert any(f.rule == "E011" for f in errors_of(project, text.replace("test.ttf", "none.ttf")))
+    assert any(f.rule == "E003" for f in errors_of(project, text.replace("height", 'path: "M0 0 H1 V1 Z", height')))
+
+
 # 34. a style-level rim light: a fresnel pass in the Godot scene, and in previews
 def test_rim_light_pass_in_godot_scene() -> None:
     from dataclasses import replace
@@ -617,3 +673,57 @@ def test_rim_light_pass_in_godot_scene() -> None:
     lit = model_scene("thing", "res://thing.glb", replace(style, look=replace(style.look, rim_light=0.8, rim_light_color="#ffd27a")))
     assert 'rim_shader = SubResource("Shader_rim")' in lit and "rim_light = 0.8" in lit and "blend_add" in lit
     assert "last.next_pass = glow_rim" in lit
+
+
+# 41. effect: a burst of other models, written as JSON with every particle rolled
+def test_effect_block(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+    from kiln.cli import main
+    from kiln.effect import particles, state
+
+    write_model(project, sphere_text("spark"), "spark")
+    burst = sphere_text("burst") + """effect:
+  seed: 3
+  emit:
+    - model: spark
+      count: 6
+      at: [0, 0.5, 0]
+      life: [0.5, 1.0]
+      delay: [0, 0.2]
+      burst: [1, 2]
+      gravity: 9.8
+      drag: 1.5
+      spin: [-90, 90]
+      scale: { 0: 0.2, 0.2: 0.5, 1: 0 }
+      fade: { 0.8: 1, 1: 0 }
+"""
+    write_model(project, burst, "burst")
+    model, _ = ok_model(project, burst, "burst")
+    effect = model.effect
+    assert effect is not None and effect.duration == pytest.approx(1.2)
+    rolled = particles(effect)
+    assert len(rolled) == 6 and rolled == particles(effect)  # seeded: the same every time
+    p = rolled[0]
+    s0 = state(effect, p, p.delay)
+    assert s0 is not None and np.allclose(s0.position, p.at) and s0.scale == pytest.approx(0.2)
+    assert state(effect, p, p.delay + p.life + 0.01) is None and state(effect, p, p.delay - 0.01) is None
+    s = state(effect, p, p.delay + 0.3)  # drag + gravity: the closed form
+    assert s is not None
+    g, v, k, age = np.array([0, -9.8, 0]), np.array(p.velocity), 1.5, 0.3
+    assert np.allclose(s.position, np.array(p.at) + g / k * age + (v - g / k) * (1 - math.exp(-k * age)) / k)
+    result = build(project)
+    assert not [f for f in result.findings if f.severity == "error"], [f.format() for f in result.findings]
+    out = project.output_dir
+    data = json.loads((out / "models" / "burst.effect.json").read_text())
+    assert data["format"] == 1 and data["emitters"][0]["glb"] == "models/spark.glb" and len(data["particles"]) == 6
+    assert data["particles"][0]["at"] == list(p.at) and data["emitters"][0]["gravity"] == [0.0, -9.8, 0.0]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["models"]["burst"]["effect"] == "models/burst.effect.json"
+    assert "models/burst.effect.json" in manifest["files"]
+    monkeypatch.chdir(project.root)
+    assert main(["preview", "burst", "--effect"]) == 0
+    assert (project.preview_dir / "burst" / "effect.png").is_file()
+    bad = burst.replace("model: spark", "model: nothing")
+    write_model(project, bad, "burst")
+    assert any(f.rule == "E011" and "nothing" in f.message for f in lint_project(project, geometry=False).findings)
+    assert any(f.rule == "E003" and "drag" in f.message for f in errors_of(project, burst.replace("drag: 1.5", "drag: -1"), "burst"))
+    assert any(f.rule == "E003" for f in errors_of(project, burst.replace("count: 6", "count: 6\n      speed: 3"), "burst"))

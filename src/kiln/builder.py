@@ -26,7 +26,7 @@ from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
 from kiln.sdf import Array, Field, part_thickness
 from kiln.style import Style
 
-BUILDER_VERSION = 11  # bump when meshing/painting changes output
+BUILDER_VERSION = 12  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -415,6 +415,8 @@ def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int |
     for part in model.parts:
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())
+        if part.geometry.shape == "extrude":  # outlines from a font file aren't in the model text
+            h.update(json.dumps([part.geometry.params.get("points"), part.geometry.params.get("holes")]).encode())
     if model.fit_to is not None:  # the character it's fitted to
         h.update(model.fit_to[0].read_bytes())
     for anim in model.animations.values():  # retargeted clips

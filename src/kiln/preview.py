@@ -147,6 +147,48 @@ def filmstrip(built: Built, animation: str, size: int = 200) -> Image.Image:
     return sheet(f"{built.model.name} · {animation}", f"{t.frames} frames at {t.fps:g} fps ({t.frames / t.fps:.2f} s), {loop}, {t.interpolation}", rows)
 
 
+def effect_strip(built: Built, pieces: dict[str, Built], frames: int = 8, size: int = 200) -> Image.Image:
+    """A model's `effect:` over its duration: every live particle's mesh moved, turned and scaled as the effect file
+    says (fade only hides a piece once it's gone, < 1%; heat isn't shown). Lit with the effect model's style."""
+    from dataclasses import replace
+
+    from kiln.builder import _merge
+    from kiln.effect import particles, state
+
+    effect = built.model.effect
+    if effect is None:
+        raise KeyError("no effect")
+    rolled = particles(effect)
+    times = [effect.duration * i / max(frames - 1, 1) for i in range(frames)]
+    scenes: list[Built | None] = []
+    for t in times:
+        paints, normals = [], []
+        for p in rolled:
+            s = state(effect, p, t)
+            if s is None or s.fade < 0.01 or s.scale <= 0:
+                continue
+            b = pieces[effect.emitters[p.emitter].model]
+            v = ((b.painted.vertices - b.origin()) @ s.rotation.T) * s.scale + s.position
+            paints.append(replace(b.painted, vertices=v))
+            normals.append(b.normals @ s.rotation.T)
+        if not paints:
+            scenes.append(None)
+            continue
+        painted, merged = _merge(paints, normals, [], [])
+        scenes.append(replace(built, painted=painted, normals=merged, skin="none", tracks=[], joints=None, weights=None))
+    boxes = [s.bounds() for s in scenes if s is not None]
+    if not boxes:
+        raise ValueError("no particle is alive at any frame")
+    lo, hi = np.min([b[0] for b in boxes], axis=0), np.max([b[1] for b in boxes], axis=0)
+    fit = ((lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2 * 1.1)
+    blank = Image.new("RGBA", (size, size), TILE_BG)
+    rows = []
+    for label, view in (("3/4 front", View(30.0, 12.0)), ("from above", View(30.0, 55.0))):
+        rows.append((label, [(f"{t:.2f}s", render(s, view, size, fit=fit, background=TILE_BG) if s is not None else blank) for t, s in zip(times, scenes, strict=True)]))
+    loop = "loops" if effect.loop else "plays once"
+    return sheet(f"{built.model.name} · effect", f"{len(rolled)} particles, {effect.duration:g} s, {loop}, seed {effect.seed}", rows)
+
+
 def lineup(builts: list[Built], height_px: int = 480) -> Image.Image:
     """Models side by side at one scale (pixels per metre), standing on one ground line, with a 1 m bar."""
     if not builts:

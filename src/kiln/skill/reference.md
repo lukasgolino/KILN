@@ -113,7 +113,7 @@ then y then z, about its centre).
 | `tube` | `points: [[x, y, z], ...]` (2+), `radius`, `radius_to`: ropes, branches, rails, tails |
 | `torus` | `radius` (ring), `thickness` (tube radius); ring in the xz plane (rotate for others) |
 | `lathe` | `profile: [[r, y], ...]` spun around y: vases, bottles, bells, caps, chess pieces, round towers. The profile is a closed outline in the (radius, height) plane: go up the outside and come back down the axis (points with r = 0), e.g. a cap `[[0, 1.06], [0.2, 1.02], [0.3, 0.9], [0.3, 0.8], [0, 0.8]]`. Corners are rounded (`smooth: true`, default); `smooth: false` keeps them sharp |
-| `extrude` | `points: [[x, z], ...]` outline seen from above (3+ different points; repeats and a closing point are dropped), `height` (along y), `round`, `holes: [[[x, z], ...], ...]` (outlines cut through: letters O, A, B; `round` rounds their edges too; hard parts: hole edges stay sharp), `offset` (grow the outline by metres, < 0 shrinks: inset face plates). Or `path: "M 0 0 L 1 0 Q 1 1 0 1 Z"` (SVG path data: M L H V C S Q T A Z, absolute and relative; y runs down onto z, so `rotate: [90, 0, 0]` stands it up reading right from the front) with `path_scale` (metres per unit: 0.001 for a 1000-unit font em) and `path_tolerance` (0.002 m): every subpath is an outline, even-odd (counters are holes, separate shapes are islands). Font glyphs: export the text as an SVG path from a vector editor or a font tool. Shields, signs, floor plans, stars, letters |
+| `extrude` | `points: [[x, z], ...]` outline seen from above (3+ different points; repeats and a closing point are dropped), `height` (along y), `round`, `holes: [[[x, z], ...], ...]` (outlines cut through: letters O, A, B; `round` rounds their edges too; hard parts: hole edges stay sharp), `offset` (grow the outline by metres, < 0 shrinks: inset face plates). Or `path: "M 0 0 L 1 0 Q 1 1 0 1 Z"` (SVG path data: M L H V C S Q T A Z, absolute and relative; y runs down onto z, so `rotate: [90, 0, 0]` stands it up reading right from the front) with `path_scale` (metres per unit: 0.001 for a 1000-unit font em) and `path_tolerance` (0.002 m): every subpath is an outline, even-odd (counters are holes, separate shapes are islands). Or `text: "OPEN"` in `font: fonts/sign.ttf` (.ttf/.otf, relative to the project folder) with `text_size` (metres per em, 0.1), `text_align` (left, center, right: about x = 0), `letter_spacing` (metres), `line_spacing` (ems, 1.2; `\n` starts a line): first baseline at z = 0, glyphs toward -z; no kerning or shaping. Check the font's licence before shipping its shapes. Shields, signs, floor plans, stars, letters |
 | `wedge` | `size: [x, y, z]`: a roof (ridge along x at the top) |
 
 `sides` (3-64) also works on `lathe` and `torus`, and on `sphere`, `ellipsoid`, `capsule` and `tube` for hard parts.
@@ -302,6 +302,36 @@ The model is made in the character file's space (its units); the glb is exported
 bone }`. W113 warns when it sinks into the character. `kiln preview <model> --fit` shows it on the character and the
 character without it.
 
+## Effects
+
+A burst (an explosion's debris, sparks, puffs of smoke) as other models thrown out over time. KILN doesn't play
+effects: `kiln build` writes `models/<name>.effect.json` (manifest `effect`) with every particle already rolled from
+the seed, so an engine-side player shows exactly what `kiln preview <model> --effect` shows.
+
+```yaml
+effect:
+  seed: 3                    # same seed, same particles
+  duration: 1.2              # seconds (default: the last particle's end); loop: false
+  emit:
+    - model: spark           # another model in the project (its glb; `origin: center` so it spins about its middle)
+      count: 12
+      at: [0, 0.5, 0]        # spawn point, spread: 0.1 (a ball's radius)
+      delay: [0, 0.2]        # seconds, a number or [lo, hi]; life: [0.5, 1.0]
+      velocity: { min: [-0.5, 1, -0.5], max: [0.5, 2, 0.5] }   # m/s, or one [x, y, z]
+      burst: [1, 2]          # m/s outward, any direction (added to velocity)
+      gravity: 9.8           # m/s^2 down, or [x, y, z]; drag: 1.5 (1/s)
+      spin: [-90, 90]        # degrees/s about a random axis
+      scale: { 0: 0.2, 0.2: 1, 1: 0 }   # over life (0..1), linear between keys; or one number
+      heat: { 0: 1, 1: 0 }   # for the game's shader (e.g. into the attr it reads)
+      fade: { 0.8: 1, 1: 0 } # opacity for the game; previews only hide gone pieces
+```
+
+The JSON: `format`, `duration`, `loop`, `seed`, `motion` (the formula), `emitters` (model, `glb`, `godot_scene`,
+`origin`, gravity vector, drag, envelopes as `[life fraction, value]` pairs) and `particles` (`emitter`, `delay`,
+`life`, `at`, `velocity`, `axis`, `spin`). Position at `age = t - delay` (alive while 0 <= age <= life):
+`at + g/k*age + (velocity - g/k)*(1 - exp(-k*age))/k` with drag k > 0, `at + velocity*age + g*age^2/2` with k = 0.
+E011 when an emitted model doesn't exist.
+
 ## Animations
 
 ```yaml
@@ -420,7 +450,7 @@ Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`.
 ## Commands
 
 `kiln init [dir] --style soft_toy` · `kiln new model <name> --template bean|prop|empty --class C` ·
-`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--detach] [--fit] [--engine] [--variant V]` ·
+`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--detach] [--fit] [--effect] [--engine] [--variant V]` ·
 `kiln lineup [models]` · `kiln gallery` · `kiln build [--verify-godot]` · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
 `kiln config show|get|set` · `kiln import <file> --licence L` · `kiln credits` · `kiln doctor` ·
@@ -446,7 +476,7 @@ style materials) and `looks/<style>.tscn` (WorldEnvironment + Sun), `manifest.js
 Manifest per model: `glb`, `godot_scene`, `class`, `style`, `status`, `triangles`, `bounds` and `size` (metres),
 `skin`, `parts` (parent, pivot, meta, separate, `node_path`: glTF node names from the root, `aabb`: the part's box
 in model space, rest pose, for hit zones), `animations` (gltf_name, fps, frames, loop, interpolation, duration),
-`variants` (`swap`, `glb` unless variant_glbs = false, `godot_scene`), `lods`, `colors`, `source` (imports);
+`variants` (`swap`, `glb` unless variant_glbs = false, `godot_scene`), `lods`, `colors`, `source` (imports), `effect`;
 parts also have `sockets`, animations a `start` (the parts their first frame moves, e.g. an arm built level but
 cocked when the animation starts). With `vertex_colors = true`, a game loading the .glb itself must set
 `vertex_color_use_as_albedo = true` on the imported materials (KILN's .tscn scenes do it); variants are then swap

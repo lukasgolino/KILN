@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kiln"
-version = "0.6.0"
+version = "0.7.0"
 description = "KILN (Keyed Implicit Language & Notation): write smooth stylised 3D models as text, build them into game-ready glTF."
 readme = "README.md"
 license = "MIT"
@@ -16,6 +16,7 @@ dependencies = [
     "PyYAML>=6",
     "numpy>=1.26",
     "fast-simplification>=0.2.0",
+    "fonttools>=4.40",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +37,7 @@ strict = true
 files = ["src/kiln", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["fast_simplification"]
+module = ["fast_simplification", "fontTools.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

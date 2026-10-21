@@ -31,8 +31,9 @@ around any direction, 30 pattern lists + frame: part, 38 attr (custom _NAME + CO
 attributes, verified), 26 as SVG `path:` on extrude (src/kiln/svgpath.py; real font glyphs would need fontTools =
 owner decision), 42 bloom (render._bloom when look.glow), 34 [look] rim_light (godot.RIM_SHADER next pass, only
 written when set). 35: Godot 4.7.2 has no KHR_mesh_quantization / EXT_meshopt_compression (checked the binary), so
-glb compression isn't viable for Godot; size levers stay budget/lod and variant_glbs = false / atlas. 41 effect
-block: not done (needs a schema decision from the owner). Tests in tests/test_loose_report.py. All in
+glb compression isn't viable for Godot; size levers stay budget/lod and variant_glbs = false / atlas (#35 dropped,
+owner). 0.7.0: #41 `effect:` block (src/kiln/effect.py, models/<name>.effect.json, preview --effect) and #26 font
+text (`text` + `font` on extrude, fonttools; src/kiln/fonttext.py). Whole LOOSE backlog 26-43 closed. Tests in tests/test_loose_report.py. All in
 CHANGELOG [0.6.0], tagged v0.6.0 locally (not pushed). Full suite 425 passed; demo unchanged + Godot verify OK.
 
 LOOSE_REPORT.md backlog (items 26-43, filed after this plan; not part of it, do after M5/M6/M4 or if the owner asks):

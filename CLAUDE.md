@@ -49,7 +49,7 @@ anything that changes output.
   attribution. Push only when asked; ask before tags.
 - Versioning as PAGAN: bump `version` in pyproject.toml, CHANGELOG entry (Keep a Changelog), tag `vX.Y.Z` for any
   change to the notation, settings, manifest/exporter output or meshes.
-- Dependencies: numpy, Pillow, PyYAML, fast-simplification (PAGAN is vendored, not a dependency); extra `mcp`. Others only if needed:
+- Dependencies: numpy, Pillow, PyYAML, fast-simplification, fonttools (font text for extrudes; owner approved 2026-10-21) (PAGAN is vendored, not a dependency); extra `mcp`. Others only if needed:
   log why below.
 
 ## Decisions log
@@ -108,3 +108,7 @@ anything that changes output.
   Polygon distance is tiled (exact; sign from the nearest edge/corner pseudo-normal, even-odd fallback for crossing
   outlines). Text is SVG `path:` on extrude, not fonts (fontTools would be a new dependency: owner). No glb
   quantization: Godot 4.7.2 doesn't support KHR_mesh_quantization or meshopt (checked).
+- 2026-10-21: Owner approved fonttools: extrude `text` + `font` (glyph outlines via SVGPathPen -> svgpath; no
+  kerning/shaping). `effect:` (LOOSE #41, owner: "why not"): KILN only describes; `models/<name>.effect.json` holds
+  every particle pre-rolled with Python's `random.Random(seed)` (stable across machines, unlike numpy streams) so the
+  game's player and `preview --effect` match; closed-form motion with linear drag. LOOSE #35 (glb size) dropped.

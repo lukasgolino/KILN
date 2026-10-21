@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from kiln.effect import Effect
+from kiln.effect import parse as parse_effect
 from kiln.hardware import HARDWARE, expand
 from kiln.retarget import REQUIRED
 from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
@@ -38,7 +40,7 @@ BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
-              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin"}  # fmt: skip
+              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect"}  # fmt: skip
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
@@ -157,6 +159,7 @@ class Model:
     skeleton: str | None = None  # humanoid: standard joint names, clip retargeting
     fit_to: tuple[Path, str, tuple[str, ...]] | None = None  # (glb, bone, meshes): an attachment made around a CC0 character
     origin: str | tuple[float, float, float] | None = None  # base | center | a model-space point: the exported files' origin
+    effect: Effect | None = None  # a burst of other models' meshes (models/<name>.effect.json)
 
     @property
     def ids(self) -> list[str]:
@@ -310,7 +313,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     params: dict[str, Any] = dict(sdef.defaults)
     ok = True
     for key, value in spec.items():
-        if key in ("at", "rotate", "aim") or (kind == "extrude" and key in PATH_KEYS):
+        if key in ("at", "rotate", "aim") or (kind == "extrude" and key in PATH_KEYS + TEXT_KEYS):
             continue
         if key not in sdef.fields:
             ctx.error("E002", f"{kind} has no field {key!r}; it takes {sdef.help}, plus at and rotate", _line(spec, key) or line, f"{swhere}.{key}")
@@ -322,12 +325,12 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             ok = False
             continue
         params[key] = checked
-    if kind == "extrude" and "path" in spec:
+    if kind == "extrude" and ("path" in spec or "text" in spec):
         loops = _parse_path(ctx, spec, line, swhere)
         if loops is None:
             ok = False
-        elif "points" in spec or "holes" in spec:
-            ctx.error("E003", "an extrude has points (+ holes) or path, not both", line, swhere)
+        elif sum(k in spec for k in ("points", "path", "text")) > 1 or "holes" in spec:
+            ctx.error("E003", "an extrude has points (+ holes), path or text, only one", line, swhere)
             ok = False
         else:
             loops.sort(key=lambda lp: -abs(_loop_area(lp)))
@@ -579,6 +582,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
 
 
 PATH_KEYS = ("path", "path_scale", "path_tolerance")
+TEXT_KEYS = ("text", "font", "text_size", "text_align", "letter_spacing", "line_spacing")
 
 
 def _loop_area(loop: list[list[float]]) -> float:
@@ -586,20 +590,53 @@ def _loop_area(loop: list[list[float]]) -> float:
 
 
 def _parse_path(ctx: _Ctx, spec: dict[str, Any], line: int | None, where: str) -> list[list[list[float]]] | None:
-    """An extrude's SVG `path` as outlines [[x, z], ...] (the biggest one becomes `points`, the rest `holes`)."""
+    """An extrude's SVG `path` (or `text` in a `font`) as outlines [[x, z], ...] (the biggest one becomes `points`,
+    the rest `holes`)."""
     from kiln.svgpath import PathError, outlines
 
-    scale, tol = spec.get("path_scale", 1.0), spec.get("path_tolerance", 0.002)
-    if not isinstance(spec["path"], str) or not _num(scale) or scale == 0 or not _num(tol) or tol <= 0:
+    if "text" in spec:
+        d = _text_path(ctx, spec, line, where)
+        if d is None:
+            return None
+        scale, tol = 1.0, spec.get("path_tolerance", 0.002)
+        where = f"{where}.text"
+    else:
+        d, scale, tol = spec["path"], spec.get("path_scale", 1.0), spec.get("path_tolerance", 0.002)
+        where = f"{where}.path"
+    if not isinstance(d, str) or not _num(scale) or scale == 0 or not _num(tol) or tol <= 0:
         ctx.error("E003", "path is SVG path data (\"M 0 0 L 1 0 Q 1 1 0 1 Z\"; y runs down, onto z); path_scale: metres per path unit "
-                  "(a 1000-unit font em at 0.001), path_tolerance: metres a curve may be off (0.002)", line, f"{where}.path")  # fmt: skip
+                  "(a 1000-unit font em at 0.001), path_tolerance: metres a curve may be off (0.002)", line, where)  # fmt: skip
         return None
     try:
-        loops = outlines(spec["path"], float(scale), float(tol))
+        loops = outlines(d, float(scale), float(tol))
     except PathError as e:
-        ctx.error("E003", f"path: {e}", line, f"{where}.path")
+        ctx.error("E003", f"{where.rsplit('.', 1)[1]}: {e}", line, where)
         return None
     return [[[x, y] for x, y in loop] for loop in loops]
+
+
+def _text_path(ctx: _Ctx, spec: dict[str, Any], line: int | None, where: str) -> str | None:
+    from kiln.fonttext import ALIGN, FontError, text_path
+
+    text, font = spec.get("text"), spec.get("font")
+    size, align = spec.get("text_size", 0.1), spec.get("text_align", "center")
+    letter, rows = spec.get("letter_spacing", 0.0), spec.get("line_spacing", 1.2)
+    if (not isinstance(text, str) or not text.strip() or not isinstance(font, str) or not _num(size) or size <= 0 or align not in ALIGN
+            or not _num(letter) or not _num(rows) or rows <= 0 or any(k in spec for k in ("path", "path_scale"))):  # fmt: skip
+        ctx.error("E003", "text: \"KILN\" (\\n for more lines) with font: fonts/sign.ttf (a .ttf or .otf, relative to the project "
+                  "folder), text_size: metres per em (0.1), text_align: left|center|right, letter_spacing: metres (0), "
+                  "line_spacing: ems (1.2); not with path", line, f"{where}.text")  # fmt: skip
+        return None
+    base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+    file = (base / font).resolve()
+    if not file.is_file():
+        ctx.error("E011", f"font {font} not found (paths are relative to the project folder)", line, f"{where}.font")
+        return None
+    try:
+        return text_path(file, text, float(size), str(align), float(letter), float(rows))
+    except FontError as e:
+        ctx.error("E003", str(e), line, f"{where}.font")
+        return None
 
 
 def _parse_aim(raw: Any) -> tuple[tuple[float, ...], np.ndarray, float, float] | None:
@@ -958,6 +995,8 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                       "origin, e.g. center for debris that spins", _line(data, "origin"), "origin")  # fmt: skip
         if "fit_to" in data:
             ctx.error("E003", "an attachment (fit_to) is exported in its bone's space: drop origin", _line(data, "origin"), "origin")
+    if "effect" in data:
+        model.effect = parse_effect(data["effect"], lambda message, where: ctx.error("E003", message, _line(data, "effect"), where))
     lod = data.get("lod", [])
     if not isinstance(lod, list) or not all(isinstance(n, int) and not isinstance(n, bool) and n >= 12 for n in lod):
         ctx.error("E003", "lod is a list of smaller triangle budgets, e.g. [2000, 600]", _line(data, "lod"), "lod")

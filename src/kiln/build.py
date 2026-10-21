@@ -15,6 +15,7 @@ import numpy as np
 from kiln import __version__
 from kiln.atlas import CELL, Atlas, AtlasUse, layout
 from kiln.builder import build_cached
+from kiln.effect import to_json
 from kiln.retarget import HUMANOID, OPTIONAL
 from kiln.export import Built, attr_names, gltf_name, to_glb, uv_channel
 from kiln.godot import find_godot_project, look_scene, model_scene, res_path
@@ -248,6 +249,18 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                             "author": model.source.author, "url": model.source.url})  # fmt: skip
         models[name] = entry
         result.models.append(name)
+    for name, (model, _) in sorted(lint.models.items()):  # effects: after every model, so emitters can name any of them
+        if model.effect is None or name not in models:
+            continue
+        missing = sorted({e.model for e in model.effect.emitters} - set(models))
+        if missing:
+            result.findings.append(Finding("E011", f"effect emits {', '.join(missing)}: no such model in this project (or it didn't build)",
+                                           model.path, None, "effect"))  # fmt: skip
+            continue
+        emitted = {e.model: {k: models[e.model][k] for k in ("glb", "godot_scene", "origin") if k in models[e.model]} for e in model.effect.emitters}
+        path = out / "models" / f"{name}.effect.json"
+        write(path, (json.dumps(to_json(model.effect, emitted), indent=1) + "\n").encode())
+        models[name]["effect"] = path.relative_to(out).as_posix()
     looks = {}
     if godot_root is not None:
         for sname, style in sorted(styles_used.items()):

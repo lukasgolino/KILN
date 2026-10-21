@@ -6,6 +6,24 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-21
+
+Effects and font text (LOOSE #41, #26).
+
+### Added
+
+- `effect:` on models (LOOSE #41): emitters throw other models out with velocity/burst, gravity, drag and spin, with
+  scale/heat/fade envelopes over life. `kiln build` writes `models/<name>.effect.json` (manifest `effect`) with every
+  particle rolled from the seed and the motion formula; `kiln preview <model> --effect` (MCP `preview` which=effect)
+  plays it out. E011 when an emitted model doesn't exist.
+- Extrude `text: "OPEN"` in `font: fonts/sign.ttf` (.ttf/.otf) with `text_size`, `text_align`, `letter_spacing`,
+  `line_spacing` (LOOSE #26): glyph outlines from the font (counters are holes); no kerning or shaping.
+- Dependency: fonttools.
+
+### Changed
+
+- Build cache keys include extrude outlines (a font file's edits rebuild); BUILDER_VERSION 12.
+
 ## [0.6.0] - 2026-10-21
 
 LOOSE backlog: text outlines, holes, UVs, origins, per-vertex numbers, aim, pattern lists, rim light, bloom.
@@ -213,7 +231,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/lukasgolino/KILN/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/lukasgolino/KILN/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/lukasgolino/KILN/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lukasgolino/KILN/compare/v0.3.0...v0.4.0

@@ -254,6 +254,11 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                                     "check it still fits, then `kiln mark <model> --current`", path, None, "style_version"))  # fmt: skip
             palette, _ = project.palette(model.palette)
         loaded.append((path, model, style, palette, keep))
+    names = {p.name.split(".")[0] for p in project.model_paths()}
+    for path, model, _, _, keep in loaded:  # an effect's emitters are other models in the project
+        missing = sorted({e.model for e in model.effect.emitters} - names) if model is not None and model.effect is not None else []
+        if missing:
+            keep.append(Finding("E011", f"effect emits {', '.join(missing)}: no models/<name>.kiln.yaml for it", path, None, "effect"))
     # templates are bases, not models: checked as text only
     meshed = [k for k, (_, m, st, _, keep) in enumerate(loaded) if geometry and m and st and not m.template and not any(f.severity == "error" for f in keep)]
     builds = dict(zip(meshed, build_all([(loaded[k][1], loaded[k][2], loaded[k][3], cache) for k in meshed]), strict=True))  # type: ignore[misc]
