@@ -993,7 +993,8 @@ def _boundary(tris: list[list[int]]) -> dict[int, int] | None:
     directed = {(t[i], t[(i + 1) % 3]) for t in tris for i in range(3)}
     edges = sorted((a, b) for a, b in directed if (b, a) not in directed)
     boundary = dict(edges)
-    return boundary if len(boundary) == len(edges) else None  # None: the outline touches itself
+    # None: the outline touches itself, or doesn't close (a patch whose edges only meet other patches' at T-points)
+    return boundary if len(boundary) == len(edges) and set(boundary.values()) == set(boundary) else None
 
 
 def _outline_points(tris: list[list[int]], v: list[list[float]], normal: Array) -> tuple[set[int], set[int]]:

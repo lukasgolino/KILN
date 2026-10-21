@@ -171,3 +171,15 @@ parts:
     assert p.vertices[:, 1].min() == pytest.approx(0.3, abs=1e-9)
     radii = np.linalg.norm(p.vertices - [0, 0.3, 0], axis=1)
     assert 0.25 < radii.min() < 0.28
+
+
+def test_planar_merge_survives_an_outline_that_does_not_close() -> None:
+    # LOOSE #45: a patch with a back-to-back sliver pair (from a rotated 4-sided cone on an aimed blade) left an open
+    # outline chain; looking up its end crashed lint with a KeyError
+    from kiln.hard import _outline_points, _retriangulate
+
+    tris = [[3, 1, 0], [3, 0, 1], [3, 0, 2]]
+    v = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.3, 0.0, 0.3]]
+    normal = np.array([0.0, 1.0, 0.0])
+    assert _outline_points(tris, v, normal) == (set(), {0, 1, 2, 3})
+    assert _retriangulate(tris, v, normal, set()) is None  # left as it is

@@ -262,7 +262,7 @@ Plan: 0.7.1 = bugs 44 (hard shell), 45 (KeyError _outline_points), 46 (E013 at f
 50 (humanoid pivots), 51 (node_prefix). 0.8.0 = 47 (revealed:), 49 (shared animation library glb), 53 (rigid skin as
 one skinned mesh), 52 (--vs restyle metrics). Status per item below (update as you go).
 - 44: open
-- 45: open
+- 45: done (open outline chains in _boundary -> fallback)
 - 46: open
 - 48: open
 - 50: open
