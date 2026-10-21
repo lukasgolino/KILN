@@ -335,11 +335,16 @@ effect:
       scale: { 0: 0.2, 0.2: 1, 1: 0 }   # over life (0..1), linear between keys; or one number
       heat: { 0: 1, 1: 0 }   # for the game's shader (e.g. into the attr it reads)
       fade: { 0.8: 1, 1: 0 } # opacity for the game; previews only hide gone pieces
+      bounce: 0.3            # with a floor: vertical speed kept at a hit (0 = stops dead); friction: 0.6 (horizontal)
+      settle: true           # with a floor: rest once slower than 0.2 m/s on it (no motion, no spin)
+  floor: 0                   # optional: a height (effect frame) debris bounces on and settles on, instead of falling through
 ```
 
 The JSON: `format`, `duration`, `loop`, `seed`, `motion` (the formula), `emitters` (model, `glb`, `godot_scene`,
 `origin`, gravity vector, drag, envelopes as `[life fraction, value]` pairs) and `particles` (`emitter`, `delay`,
-`life`, `at`, `velocity`, `axis`, `spin`). Position at `age = t - delay` (alive while 0 <= age <= life):
+`life`, `at`, `velocity`, `axis`, `spin`; with a `floor`: `hits`, each `[age, position, velocity]` where the motion
+starts again from that position and velocity, `[0, 0, 0]` = resting there without spin). Position at `age = t - delay`
+(alive while 0 <= age <= life):
 `at + g/k*age + (velocity - g/k)*(1 - exp(-k*age))/k` with drag k > 0, `at + velocity*age + g*age^2/2` with k = 0.
 E011 when an emitted model doesn't exist.
 

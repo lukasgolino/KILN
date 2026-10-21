@@ -7,6 +7,12 @@ Motion of a particle `age` seconds after its delay, with drag k (1/s) and gravit
     k > 0: x = at + g/k * age + (v - g/k) * (1 - exp(-k age)) / k
     k = 0: x = at + v * age + g * age^2 / 2
 It turns about `axis` at `spin` degrees per second; scale/heat/fade are envelopes over life (0..1), linear between keys.
+
+With a `floor` (a height in the effect's frame), a particle that comes down onto it bounces: its vertical speed
+reverses times `bounce`, its horizontal speed keeps `friction` of itself, and the motion starts again from there (a
+"hit"). Once it is slower than SETTLE_SPEED on the floor (or after MAX_HITS) it rests: no motion, no spin. Every hit
+is rolled here and written to the JSON, so players switch segments at the same moments. Without `settle` a particle
+keeps bouncing until it can't (bounce 0) or MAX_HITS, then rests too: nothing ever falls through the floor.
 """
 
 from __future__ import annotations
@@ -14,7 +20,7 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -22,12 +28,16 @@ import numpy as np
 from kiln.sdf import Array, axis_rotation
 
 FORMAT = 1
-EMIT_FIELDS = ("model", "count", "at", "spread", "delay", "life", "velocity", "burst", "gravity", "drag", "spin", "scale", "heat", "fade")
-EFFECT_FIELDS = ("emit", "duration", "loop", "seed")
+EMIT_FIELDS = ("model", "count", "at", "spread", "delay", "life", "velocity", "burst", "gravity", "drag", "spin", "scale", "heat", "fade",
+               "bounce", "friction", "settle")  # fmt: skip
+EFFECT_FIELDS = ("emit", "duration", "loop", "seed", "floor")
+SETTLE_SPEED = 0.2  # m/s: slower than this on the floor, a settling particle rests
+MAX_HITS = 16
 HELP = ("effect is { emit: [{ model: spark, count: 12, at: [x, y, z], spread: m, delay: s | [lo, hi], life: s | [lo, hi], "
         "velocity: [x, y, z] | { min: [x, y, z], max: [x, y, z] }, burst: m/s | [lo, hi] (outward, any direction), "
         "gravity: m/s^2 down | [x, y, z], drag: 1/s, spin: deg/s | [lo, hi], scale | heat | fade: v | { 0: v, 0.5: v, 1: v } "
-        "(over life) }], duration: s, loop: false, seed: 0 }")  # fmt: skip
+        "(over life), bounce: 0-1, friction: 0-1, settle: true (with a floor) }], floor: y (optional), duration: s, loop: false, "
+        "seed: 0 }")  # fmt: skip
 
 Range = tuple[float, float]
 Envelope = tuple[tuple[float, float], ...]  # (life fraction, value), sorted
@@ -49,6 +59,12 @@ class Emitter:
     scale: Envelope = ((0.0, 1.0),)
     heat: Envelope = ((0.0, 1.0),)
     fade: Envelope = ((0.0, 1.0),)
+    bounce: float = 0.3  # with a floor: vertical speed kept (reversed) at a hit; 0 = stops dead
+    friction: float = 0.6  # with a floor: horizontal speed kept at a hit
+    settle: bool = True  # with a floor: rest once slow on it
+
+
+Hit = tuple[float, tuple[float, float, float], tuple[float, float, float]]  # age, position, velocity after the hit
 
 
 @dataclass(frozen=True)
@@ -60,6 +76,7 @@ class Particle:
     velocity: tuple[float, float, float]
     axis: tuple[float, float, float]
     spin: float  # degrees per second
+    hits: tuple[Hit, ...] = ()  # floor contacts; a hit with velocity (0, 0, 0) and no spin after it = resting
 
 
 @dataclass(frozen=True)
@@ -68,6 +85,7 @@ class Effect:
     duration: float
     loop: bool = False
     seed: int = 0
+    floor: float | None = None
 
 
 def _num(v: Any) -> bool:
@@ -147,6 +165,9 @@ def parse(raw: Any, error: Callable[[str, str], None]) -> Effect | None:
         drag = e.get("drag", 0)
         if not _num(drag) or drag < 0:
             problems.append("drag is >= 0 (1/s: velocity falls by e every 1/drag seconds)")
+        bounce, friction, settle = e.get("bounce", 0.3), e.get("friction", 0.6), e.get("settle", True)
+        if not (_num(bounce) and 0 <= bounce <= 1 and _num(friction) and 0 <= friction <= 1 and isinstance(settle, bool)):
+            problems.append("bounce and friction are 0-1 (speed kept at a floor hit: vertical, horizontal), settle true or false")
         envs = {k: _envelope(e.get(k, 1)) for k in ("scale", "heat", "fade")}
         problems += [f"{k} is a number or { {0: 0.2, 0.3: 1, 1: 0} } (life fraction 0-1: value)" for k, v in envs.items() if v is None]
         if problems:
@@ -155,7 +176,7 @@ def parse(raw: Any, error: Callable[[str, str], None]) -> Effect | None:
             continue
         assert at and delay and life and burst and spin and velocity and gravity
         emitters.append(Emitter(e["model"], count, at, float(spread), delay, life, velocity, burst, gravity, float(drag), spin,
-                                envs["scale"] or (), envs["heat"] or (), envs["fade"] or ()))  # fmt: skip
+                                envs["scale"] or (), envs["heat"] or (), envs["fade"] or (), float(bounce), float(friction), settle))  # fmt: skip
     seed, loop = raw.get("seed", 0), raw.get("loop", False)
     if not isinstance(seed, int) or isinstance(seed, bool) or not isinstance(loop, bool):
         error("seed is a whole number, loop true or false", "effect")
@@ -165,9 +186,13 @@ def parse(raw: Any, error: Callable[[str, str], None]) -> Effect | None:
     if not _num(duration) or duration <= 0:
         error("duration is seconds > 0 (default: the last particle's end)", "effect.duration")
         ok = False
+    floor = raw.get("floor")
+    if floor is not None and not _num(floor):
+        error("floor is a height y (m, in the effect's frame) that particles bounce on and settle on", "effect.floor")
+        ok = False
     if not ok:
         return None
-    return Effect(tuple(emitters), float(duration), bool(loop), int(seed))
+    return Effect(tuple(emitters), float(duration), bool(loop), int(seed), float(floor) if floor is not None else None)
 
 
 def _r(x: float) -> float:
@@ -195,9 +220,61 @@ def particles(effect: Effect) -> list[Particle]:
             out_dir = direction()
             v = np.array([between((lo, hi)) for lo, hi in zip(*em.velocity, strict=True)]) + out_dir * between(em.burst)
             axis, spin = direction(), between(em.spin)
-            out.append(Particle(k, _r(delay), _r(life), tuple(_r(float(a + b)) for a, b in zip(em.at, offset, strict=True)),  # type: ignore[arg-type]
-                                tuple(_r(float(x)) for x in v), tuple(_r(float(x)) for x in axis), _r(spin)))  # type: ignore[arg-type]
+            p = Particle(k, _r(delay), _r(life), tuple(_r(float(a + b)) for a, b in zip(em.at, offset, strict=True)),  # type: ignore[arg-type]
+                         tuple(_r(float(x)) for x in v), tuple(_r(float(x)) for x in axis), _r(spin))  # type: ignore[arg-type]
+            out.append(replace(p, hits=_hits(em, p, effect.floor)) if effect.floor is not None else p)
     return out
+
+
+def _flight(em: Emitter, at: Array, v: Array, age: float) -> tuple[Array, Array]:
+    """Position and velocity `age` seconds into one ballistic segment."""
+    g, k = np.array(em.gravity), em.drag
+    if k > 0:
+        decay = math.exp(-k * age)
+        return at + g / k * age + (v - g / k) * (1 - decay) / k, g / k + (v - g / k) * decay
+    return at + v * age + g * age * age / 2, v + g * age
+
+
+def _hits(em: Emitter, p: Particle, floor: float) -> tuple[Hit, ...]:
+    """Floor contacts of one particle over its life (bisection on the closed-form height: the same everywhere)."""
+    hits: list[Hit] = []
+    start, at, v = 0.0, np.array(p.at, dtype=float), np.array(p.velocity, dtype=float)
+    if at[1] < floor:
+        return ()  # starts below the floor: it never meets it from above
+    steps = 256
+    while len(hits) < MAX_HITS:
+        span = p.life - start
+        if span <= 1e-9:
+            break
+        found = None
+        prev = 0.0
+        for i in range(1, steps + 1):  # first crossing downwards, then bisect it
+            t = span * i / steps
+            pos, vel = _flight(em, at, v, t)
+            if pos[1] < floor and vel[1] < 0:
+                lo, hi = prev, t
+                for _ in range(48):
+                    mid = (lo + hi) / 2
+                    if _flight(em, at, v, mid)[0][1] < floor:
+                        hi = mid
+                    else:
+                        lo = mid
+                found = hi
+                break
+            prev = t
+        if found is None:
+            break
+        pos, vel = _flight(em, at, v, found)
+        pos[1] = floor
+        bounced = np.array([vel[0] * em.friction, -vel[1] * em.bounce, vel[2] * em.friction])
+        start += found
+        slow = em.settle and float(np.linalg.norm(bounced)) < SETTLE_SPEED
+        if slow or len(hits) == MAX_HITS - 1 or abs(bounced[1]) < 1e-6:  # rests (it can't bounce any more, or it's done)
+            hits.append((_r(start), tuple(_r(float(x)) for x in pos), (0.0, 0.0, 0.0)))  # type: ignore[arg-type]
+            break
+        hits.append((_r(start), tuple(_r(float(x)) for x in pos), tuple(_r(float(x)) for x in bounced)))  # type: ignore[arg-type]
+        at, v = np.array(hits[-1][1]), np.array(hits[-1][2])
+    return tuple(hits)
 
 
 @dataclass(frozen=True)
@@ -215,13 +292,15 @@ def state(effect: Effect, p: Particle, t: float) -> State | None:
     age = t - p.delay
     if age < 0 or age > p.life:
         return None
-    g, v, k = np.array(em.gravity), np.array(p.velocity), em.drag
-    if k > 0:
-        pos = np.array(p.at) + g / k * age + (v - g / k) * (1 - math.exp(-k * age)) / k
-    else:
-        pos = np.array(p.at) + v * age + g * age * age / 2
+    start, at, v, resting = 0.0, np.array(p.at, dtype=float), np.array(p.velocity, dtype=float), False
+    for hit_age, hit_at, hit_v in p.hits:  # the segment since the last floor hit
+        if hit_age > age:
+            break
+        start, at, v = hit_age, np.array(hit_at), np.array(hit_v)
+        resting = hit_v == (0.0, 0.0, 0.0)  # it stays put and stops turning
+    pos = at if resting else _flight(em, at, v, age - start)[0]
     life = age / p.life
-    rot = axis_rotation(np.array(p.axis), p.spin * age)
+    rot = axis_rotation(np.array(p.axis), p.spin * (start if resting else age))
     return State(pos, rot, value(em.scale, life), value(em.heat, life), value(em.fade, life))
 
 
@@ -234,7 +313,8 @@ def to_json(effect: Effect, files: dict[str, dict[str, str]]) -> dict[str, Any]:
     emitters = []
     for em in effect.emitters:
         emitters.append({"model": em.model, **files.get(em.model, {}), "count": em.count, "gravity": [_r(x) for x in em.gravity],
-                         "drag": _r(em.drag), "scale": env(em.scale), "heat": env(em.heat), "fade": env(em.fade)})  # fmt: skip
+                         "drag": _r(em.drag), "scale": env(em.scale), "heat": env(em.heat), "fade": env(em.fade),
+                         **({"bounce": _r(em.bounce), "friction": _r(em.friction), "settle": em.settle} if effect.floor is not None else {})})  # fmt: skip
     return {
         "format": FORMAT,
         "duration": _r(effect.duration),
@@ -242,10 +322,14 @@ def to_json(effect: Effect, files: dict[str, dict[str, str]]) -> dict[str, Any]:
         "seed": effect.seed,
         "motion": "k = drag > 0: x = at + g/k*age + (velocity - g/k)*(1 - exp(-k*age))/k; k = 0: x = at + velocity*age + g*age^2/2; "
                   "rotation = spin degrees/s * age about axis; age = time - delay, alive while 0 <= age <= life; "
-                  "scale/heat/fade: linear between [life fraction, value] keys",  # fmt: skip
+                  "scale/heat/fade: linear between [life fraction, value] keys"
+                  + ("; floor hits: at each [age, position, velocity] in a particle's hits the motion starts again from that position "
+                     "and velocity (age counted from the hit); a hit with velocity [0, 0, 0] = resting there, no more spin" if effect.floor is not None else ""),  # fmt: skip
+        **({"floor": _r(effect.floor)} if effect.floor is not None else {}),
         "emitters": emitters,
         "particles": [{"emitter": p.emitter, "delay": p.delay, "life": p.life, "at": list(p.at), "velocity": list(p.velocity),
-                       "axis": list(p.axis), "spin": p.spin} for p in particles(effect)],  # fmt: skip
+                       "axis": list(p.axis), "spin": p.spin, **({"hits": [[h[0], list(h[1]), list(h[2])] for h in p.hits]} if effect.floor is not None else {})}
+                      for p in particles(effect)],  # fmt: skip
     }
 
 
