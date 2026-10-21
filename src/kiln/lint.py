@@ -81,7 +81,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             for g in groups[:CRACKS_SHOWN]:
                 centre = p.vertices[cracks[g]].reshape(-1, 3).mean(axis=0)
                 on = np.isin(p.faces, np.unique(cracks[g])).sum(axis=1) >= 2  # faces along this crack
-                names = sorted({f"{p.groups[k].color_name.split('#')[0]} ({p.groups[k].bone})" for k in np.unique(p.face_group[on])})
+                names = sorted({f"{p.groups[k].color_name.split('#')[0] or p.groups[k].color_name} ({p.groups[k].bone})" for k in np.unique(p.face_group[on])})
                 places.append(f"{len(g)} at [{centre[0]:.3f}, {centre[1]:.3f}, {centre[2]:.3f}] on {', '.join(names[:3])}")
             more = f"; and {len(groups) - CRACKS_SHOWN} more" if len(groups) > CRACKS_SHOWN else ""
             warn("E013", f"the mesh has {len(cracks)} open edges (cracks) in {len(groups)} place(s): {'; '.join(places)}{more}: a KILN bug, "

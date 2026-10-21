@@ -510,11 +510,60 @@ def _capsule_profile(length: float, ra: float, rb: float, sides: int) -> list[li
     return out  # up the outside; it closes back down the axis
 
 
-def _offset_outline(pts: list[tuple[float, float]], d: float) -> list[tuple[float, float]]:
-    """A counter-clockwise outline moved inwards by d (mitred corners)."""
+INSET_SHARE = 0.9  # of the room a vertex has before it meets the outline moving towards it
+
+
+def inset_limits(pts: list[tuple[float, float]]) -> list[float]:
+    """Per vertex of a counter-clockwise outline, the most an inset may move it before the mitred outline folds over
+    itself: the vertex travels along its bisector (by d / cos(half angle)) while the edge it heads for comes towards
+    it by d along that edge's normal, so they meet at d = distance / (vertex travel + edge travel, both per unit d,
+    measured along the bisector). Thin sections (font serifs, hairlines) get small limits; elsewhere the limit is far
+    above any bevel."""
+    k = len(pts)
+    out = []
+    for i in range(k):
+        p0, p1, p2 = pts[i - 1], pts[i], pts[(i + 1) % k]
+        e0 = (p1[0] - p0[0], p1[1] - p0[1])
+        e1 = (p2[0] - p1[0], p2[1] - p1[1])
+        l0, l1 = math.hypot(*e0), math.hypot(*e1)
+        if l0 == 0 or l1 == 0:
+            out.append(math.inf)
+            continue
+        n0 = (-e0[1] / l0, e0[0] / l0)
+        n1 = (-e1[1] / l1, e1[0] / l1)
+        m = (n0[0] + n1[0], n0[1] + n1[1])
+        dotn = 1 + n0[0] * n1[0] + n0[1] * n1[1]
+        travel = math.hypot(*m) / max(dotn, 0.2)  # how far the vertex moves per unit of inset (as _offset_outline)
+        length = math.hypot(*m)
+        if length < 1e-12:
+            out.append(math.inf)
+            continue
+        dx, dy = m[0] / length, m[1] / length
+        room = math.inf
+        for j in range(k):
+            if j in (i, (i - 1) % k):  # the two edges at this vertex
+                continue
+            (ax, ay), (bx, by) = pts[j], pts[(j + 1) % k]
+            ex, ey = bx - ax, by - ay
+            denom = dx * ey - dy * ex
+            if abs(denom) < 1e-15:
+                continue
+            t = ((ax - p1[0]) * ey - (ay - p1[1]) * ex) / denom  # along the bisector
+            u = ((ax - p1[0]) * dy - (ay - p1[1]) * dx) / denom  # along the edge
+            if t > 1e-12 and -1e-9 <= u <= 1 + 1e-9:
+                facing = abs(dx * -ey + dy * ex) / math.hypot(ex, ey)  # bisector . the edge's normal
+                room = min(room, t / (travel + 1.0 / max(facing, 0.2)))
+        out.append(INSET_SHARE * room)
+    return out
+
+
+def _offset_outline(pts: list[tuple[float, float]], d: float | Sequence[float]) -> list[tuple[float, float]]:
+    """A counter-clockwise outline moved inwards by d (mitred corners); d may be one value per vertex."""
     out = []
     k = len(pts)
+    each = [float(d)] * k if isinstance(d, int | float) else [float(v) for v in d]
     for i in range(k):
+        d = each[i]
         p0, p1, p2 = pts[i - 1], pts[i], pts[(i + 1) % k]
         e0 = (p1[0] - p0[0], p1[1] - p0[1])
         e1 = (p2[0] - p1[0], p2[1] - p1[1])
@@ -562,8 +611,8 @@ def _extrude_polys(points: Sequence[Sequence[float]], height: float, bevel: floa
     area = sum(uv[i][0] * uv[(i + 1) % len(uv)][1] - uv[(i + 1) % len(uv)][0] * uv[i][1] for i in range(len(uv)))
     if area < 0:
         uv.reverse()
-    if offset:
-        uv = _offset_outline(uv, -offset)
+    if offset:  # a shrink is clamped like a bevel's inset: thin sections stay (thinner) instead of folding over
+        uv = _offset_outline(uv, [min(-offset, lim) for lim in inset_limits(uv)] if offset < 0 else -offset)
     h = height / 2
     # rings from the bottom cap up to the top cap: (inset, y)
     rings: list[tuple[float, float]] = []
@@ -575,13 +624,21 @@ def _extrude_polys(points: Sequence[Sequence[float]], height: float, bevel: floa
         rings += [(inset, -y) for inset, y in reversed(rings)]
     else:
         rings = [(0.0, -h), (0.0, h)]
-    outlines = [[(x, y, z) for z, x in (_offset_outline(uv, inset) if inset else uv)] for inset, y in rings]
+    # Thin sections (font serifs, hairlines) can't take the full bevel: each vertex insets at most its own limit, so
+    # the bevel flattens there instead of the outline folding over itself (cracks).
+    limits = inset_limits(uv) if bevel > 0 else []
+    insets = [[min(inset, lim) for lim in limits] if inset else [0.0] * len(uv) for inset, _ in rings]
+    outlines = [[(x, y, z) for z, x in (_offset_outline(uv, each) if any(each) else uv)] for each, (_, y) in zip(insets, rings, strict=True)]
     polys: list[list[Point]] = []
     k = len(uv)
-    for lo, hi in zip(outlines[:-1], outlines[1:], strict=True):
+    for (lo, lo_in), (hi, hi_in) in zip(zip(outlines[:-1], insets[:-1], strict=True), zip(outlines[1:], insets[1:], strict=True), strict=True):
         for i in range(k):
             j = (i + 1) % k
-            polys.append([lo[i], lo[j], hi[j], hi[i]])
+            if math.isclose(lo_in[i], lo_in[j], abs_tol=1e-12) and math.isclose(hi_in[i], hi_in[j], abs_tol=1e-12):
+                polys.append([lo[i], lo[j], hi[j], hi[i]])  # parallel edges: a flat quad
+            else:  # a clamped vertex bends the band: two triangles keep every face flat
+                polys.append([lo[i], lo[j], hi[j]])
+                polys.append([lo[i], hi[j], hi[i]])
     convex_outline = all(
         (uv[(i + 1) % k][0] - uv[i][0]) * (uv[(i + 2) % k][1] - uv[(i + 1) % k][1])
         - (uv[(i + 1) % k][1] - uv[i][1]) * (uv[(i + 2) % k][0] - uv[(i + 1) % k][0]) >= -1e-12

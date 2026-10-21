@@ -255,3 +255,19 @@ parts:
         else:  # stripes across x over everything, cut along their planes
             on = np.cos(2 * np.pi * c[:, 0] / 0.1) - np.cos(np.pi * 0.5) > 1e-6
             assert on.any() and set(colour[on]) == {"black"} and "black" not in set(colour[~on])
+
+
+@pytest.mark.parametrize("edge", ["bevel: 0.02", "chamfer: 0.02", "chamfer: 0.02\n    offset_shrink: true"])
+def test_bevel_on_a_thin_outline_stays_closed(project: Project, edge: str) -> None:
+    """#28: a bevel wider than half of a thin section (a font serif) is clamped there instead of cracking (E013)."""
+    from kiln.hard import inset_limits
+
+    outline = "[[0, 0], [0.4, 0], [0.4, 0.015], [0.3, 0.015], [0.3, 0.6], [0.1, 0.6], [0.1, 0.015], [0, 0.015]]"
+    offset = ", offset: -0.04" if "offset_shrink" in edge else ""
+    text = f"name: thing\nclass: prop\nparts:\n  - extrude: {{ points: {outline}, height: 0.3{offset} }}\n    color: \"#aa3322\"\n    {edge.split(chr(10))[0]}\n"
+    built = built_of(project, text)
+    assert len(open_edges(built.painted.vertices, built.painted.faces)) == 0
+    limits = inset_limits([(0, 0), (0.4, 0), (0.4, 0.015), (0.3, 0.015), (0.3, 0.6), (0.1, 0.6), (0.1, 0.015), (0, 0.015)])
+    assert max(limits[:4]) < 0.0075 < min(limits[4:6])  # the 15 mm foot limits its corners; the stem doesn't
+    square = inset_limits([(0, 0), (1, 0), (1, 1), (0, 1)])
+    assert min(square) > 0.3  # ordinary shapes never clamp a normal bevel
