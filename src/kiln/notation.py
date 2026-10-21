@@ -26,6 +26,7 @@ from kiln.vendor.yamlio import LineMap, YamlError, load_yaml, parse_yaml
 
 MODEL_SUFFIX = ".kiln.yaml"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+ANIMATION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")  # imported clips keep their library names (Idle_A)
 ROOT_ID = "root"
 AXES = {"x": 0, "y": 1, "z": 2}
 PATTERNS = ("stripes", "checker", "dots", "band")
@@ -885,8 +886,12 @@ def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, huma
     for name, spec in raw.items():
         aline = _line(raw, name) or line
         where = f"animations.{name}"
-        if not isinstance(name, str) or not NAME_RE.match(name):
-            ctx.error("E008", "animation names are lowercase letters, digits, _ or -", aline, where)
+        if not isinstance(name, str) or not ANIMATION_RE.match(name):
+            ctx.error("E008", "animation names are letters, digits, _ or - (e.g. walk, Idle_A)", aline, where)
+            continue
+        twin = next((k for k in out if k.lower() == name.lower()), None)
+        if twin is not None:  # the same file name on case-insensitive systems (previews), and easily confused
+            ctx.error("E008", f"animations {twin!r} and {name!r} differ only in case: rename one", aline, where)
             continue
         if isinstance(spec, dict) and "import" in spec:
             imported = _parse_import(ctx, name, spec, aline, where, humanoid)

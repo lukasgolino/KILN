@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- Animation names may use capitals (`Idle_A`: imported clips keep their library names); names differing only in
+  case are E008 (#4).
 - `kiln build <models>` (MCP `build` models): builds only those; the other models keep what the last build wrote,
   so one broken model doesn't block the rest (#13).
 - `kiln preview --vs <ref.glb>` metrics for restyles (#8): `band_iou`/`band_ious` (silhouette IoU per body band,

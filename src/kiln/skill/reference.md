@@ -334,6 +334,9 @@ E011 when an emitted model doesn't exist.
 
 ## Animations
 
+Names are letters, digits, `_` or `-`, any case (imported clips can keep their library names: `Idle_A`); two names
+that differ only in case are an error.
+
 ```yaml
 animations:
   wave:

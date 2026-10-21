@@ -356,7 +356,8 @@ def test_e007_cycle_reports_its_line(project: Project) -> None:
     ("anims", "where", "words"),
     [
         ("animations: [x]", "animations", "maps names"),
-        ("animations:\n  Bad: { poses: [{}] }", "animations.Bad", "lowercase"),
+        ("animations:\n  -bad: { poses: [{}] }", "animations.-bad", "letters, digits"),
+        ("animations:\n  Idle: { poses: [{}] }\n  idle: { poses: [{}] }", "animations.idle", "differ only in case"),
         ("animations:\n  x: { fps: 12 }", "animations.x", "or both"),
         ("animations:\n  x: { fps: 500, poses: [{}] }", "animations.x", "fps (1-120)"),
         ("animations:\n  x: { poses: [] }", "animations.x.poses", "a list of poses"),
@@ -373,6 +374,12 @@ def test_e008_animation_problems(project: Project, anims: str, where: str, words
     assert f.where == where
     assert words in f.message, f.message
     assert f.line is not None
+
+
+def test_animation_names_keep_their_case(project: Project) -> None:
+    # #4: imported clips keep their library names (Idle_A), so a game keyed on them needs no second table
+    model, _ = ok_model(project, RIG_BASE + "skin: rigid\nanimations:\n  Idle_A: { poses: [{}, { a: { rotate: [0, 0, 10] } }] }\n")
+    assert list(model.animations) == ["Idle_A"]
 
 
 def test_e008_animations_need_a_rig(project: Project) -> None:
