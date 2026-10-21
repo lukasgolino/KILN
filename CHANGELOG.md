@@ -6,11 +6,19 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- `font_axes: { wght: 900 }` on text extrudes picks a variable font's instance (any axis), so no pre-instanced copy of the
+  font is needed (#29).
+
 ### Fixed
 
 - `bevel`/`chamfer` (and a shrinking `offset`) on an extrude whose outline has sections thinner than about twice the
   bevel (font serifs, hairlines) no longer cracks (E013): the inset is limited per vertex to what fits there (#28).
 - E013 names the colour of a crack on a hex-coloured part instead of an empty name (#28).
+- Text extrudes fill glyphs by the nonzero rule, like font renderers: overlapping contours (static instances of
+  variable fonts, many hand-made fonts) join instead of being cut out, so letters no longer fall apart (W103), mesh
+  slowly or crack with bevels. Fonts without overlaps give the same outlines as before; SVG `path:` stays even-odd (#29).
 
 ## [0.8.0] - 2026-10-21
 
