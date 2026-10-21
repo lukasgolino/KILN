@@ -590,7 +590,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
 
 
 PATH_KEYS = ("path", "path_scale", "path_tolerance")
-TEXT_KEYS = ("text", "font", "text_size", "text_align", "letter_spacing", "line_spacing")
+TEXT_KEYS = ("text", "font", "text_size", "text_align", "letter_spacing", "line_spacing", "font_axes")
 
 
 def _loop_area(loop: list[list[float]]) -> float:
@@ -620,7 +620,12 @@ def _parse_path(ctx: _Ctx, spec: dict[str, Any], line: int | None, where: str) -
     except PathError as e:
         ctx.error("E003", f"{where.rsplit('.', 1)[1]}: {e}", line, where)
         return None
-    return [[[x, y] for x, y in loop] for loop in loops]
+    out = [[[x, y] for x, y in loop] for loop in loops]
+    if "text" in spec:  # fonts fill nonzero: overlapping contours of a glyph join (SVG paths keep even-odd)
+        from kiln.fillrule import nonzero
+
+        out = nonzero(out)
+    return out
 
 
 def _text_path(ctx: _Ctx, spec: dict[str, Any], line: int | None, where: str) -> str | None:
@@ -629,6 +634,10 @@ def _text_path(ctx: _Ctx, spec: dict[str, Any], line: int | None, where: str) ->
     text, font = spec.get("text"), spec.get("font")
     size, align = spec.get("text_size", 0.1), spec.get("text_align", "center")
     letter, rows = spec.get("letter_spacing", 0.0), spec.get("line_spacing", 1.2)
+    axes = spec.get("font_axes")
+    if axes is not None and not (isinstance(axes, dict) and axes and all(isinstance(k, str) and len(k) == 4 and _num(v) for k, v in axes.items())):
+        ctx.error("E003", "font_axes picks a variable font's instance: { wght: 900 } (4-letter axis tags: wght, wdth, slnt, opsz, ...)", line, f"{where}.font_axes")
+        return None
     if (not isinstance(text, str) or not text.strip() or not isinstance(font, str) or not _num(size) or size <= 0 or align not in ALIGN
             or not _num(letter) or not _num(rows) or rows <= 0 or any(k in spec for k in ("path", "path_scale"))):  # fmt: skip
         ctx.error("E003", "text: \"KILN\" (\\n for more lines) with font: fonts/sign.ttf (a .ttf or .otf, relative to the project "
@@ -641,7 +650,7 @@ def _text_path(ctx: _Ctx, spec: dict[str, Any], line: int | None, where: str) ->
         ctx.error("E011", f"font {font} not found (paths are relative to the project folder)", line, f"{where}.font")
         return None
     try:
-        return text_path(file, text, float(size), str(align), float(letter), float(rows))
+        return text_path(file, text, float(size), str(align), float(letter), float(rows), {k: float(v) for k, v in axes.items()} if axes else None)
     except FontError as e:
         ctx.error("E003", str(e), line, f"{where}.font")
         return None

@@ -14,14 +14,28 @@ class FontError(ValueError):
     pass
 
 
-def text_path(font: Path, text: str, size: float, align: str = "center", letter_spacing: float = 0.0, line_spacing: float = 1.2) -> str:
-    """SVG path data in metres for `text` at `size` metres per em, each line aligned about x = 0."""
+def text_path(font: Path, text: str, size: float, align: str = "center", letter_spacing: float = 0.0, line_spacing: float = 1.2,
+              axes: dict[str, float] | None = None) -> str:  # fmt: skip
+    """SVG path data in metres for `text` at `size` metres per em, each line aligned about x = 0. `axes` picks a
+    variable font's instance (e.g. {"wght": 900}); without it the font's default instance is used."""
     from fontTools.pens.svgPathPen import SVGPathPen
     from fontTools.pens.transformPen import TransformPen
     from fontTools.ttLib import TTFont, TTLibError
 
     try:
-        tt = TTFont(str(font), lazy=True, fontNumber=0)
+        tt = TTFont(str(font), lazy=not axes, fontNumber=0)
+        if axes:
+            if "fvar" not in tt:
+                raise FontError(f"font {font.name} isn't a variable font: font_axes needs one (or use a static font of that weight)")
+            known = {a.axisTag: (a.minValue, a.maxValue) for a in tt["fvar"].axes}
+            for tag, value in axes.items():
+                if tag not in known:
+                    raise FontError(f"font {font.name} has no axis {tag!r} (axes: {', '.join(sorted(known))})")
+                if not known[tag][0] <= value <= known[tag][1]:
+                    raise FontError(f"font {font.name}: {tag} {value:g} is outside {known[tag][0]:g}-{known[tag][1]:g}")
+            from fontTools.varLib import instancer
+
+            tt = instancer.instantiateVariableFont(tt, dict(axes))  # overlaps kept: the extrude fills nonzero
         cmap = tt.getBestCmap() or {}
         glyphs = tt.getGlyphSet()
         em = float(tt["head"].unitsPerEm)

@@ -35,6 +35,7 @@ anything that changes output.
   - `lint.py` E/W rules; `build.py` `kiln build` (glb, variants, LODs, Godot, manifest, credits, stale cleanup);
   - `render.py` vectorised software renderer; `preview.py` sheets (turntable, closeup, filmstrip, lineup, gallery, vs);
   - `godot.py` model scenes, look kits, headless verify, engine renders; `templates/` Godot scripts, init files;
+  - `fonttext.py` font glyphs as SVG path data; `fillrule.py` nonzero fill (overlapping glyph contours joined);
   - `cli.py`, `mcp_server.py`, `api.py` (generator scripts), `skill/` (SKILL.md + reference.md).
 - `examples/demo/` the demo project; `examples/godot/` the Godot project it builds into (showcase scene + CI check).
 - `spike/` the throwaway spikes that justified the design (kept for reference; not part of the package).
@@ -125,3 +126,7 @@ anything that changes output.
   opt-in: games hide parts by node. Shared clips (#5) are an explicit carrier (`animations_only`) other models name
   (`animation_library`); Godot imports it as an AnimationLibrary. KILN writes Godot `.import` settings only for its
   palette textures and carriers, merging into what Godot wrote (idempotent builds, #14).
+- 2026-10-21: #29: text extrudes fill nonzero (fonts' rule): when contours overlap, each outer contour minus its own
+  holes becomes a thin prism, the prisms are unioned with the hard CSG and the union's top face gives the outlines
+  (no polygon-clipping dependency). Non-overlapping outlines pass through unchanged; SVG `path:` stays even-odd.
+  `font_axes` instances variable fonts with fontTools' instancer (overlaps kept, the fill handles them).
