@@ -1,10 +1,12 @@
 """Preview sheets an agent (or a person) looks at: turntable, closeup, animation filmstrip, line-up at a common
 scale, gallery, the model beside the style's inspiration images, and the model against a reference mesh (a CC0
-pack item) with metrics: silhouette IoU, triangles, surfaces, materials, colours, facet regularity, open edges."""
+pack item) with metrics: silhouette IoU (whole and per body band), visual mass, on-screen height, triangles, surfaces,
+materials, colours, facet regularity, open edges."""
 
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,17 @@ def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default(size)
 
 
+def _wrap(text: str, font: Any, width: int) -> list[str]:
+    """`text` in lines that fit `width` px, broken after " | " or " · " separators (a piece wider than that stays whole)."""
+    pieces = re.split(r"(?<= \| )|(?<= · )", text)
+    lines = [""]
+    for piece in pieces:
+        if lines[-1] and font.getlength(lines[-1] + piece) > width:
+            lines.append("")
+        lines[-1] += piece
+    return [line.rstrip(" |·") for line in lines]
+
+
 def sheet(title: str, subtitle: str, rows: list[tuple[str, list[tuple[str, Image.Image]]]], gap: int = 10) -> Image.Image:
     """Rows of labelled tiles under a title."""
     title_font, label_font = _font(20), _font(13)
@@ -36,12 +49,15 @@ def sheet(title: str, subtitle: str, rows: list[tuple[str, list[tuple[str, Image
     tile_h = max((im.height for _, row in rows for _, im in row), default=64)
     cols = max((len(row) for _, row in rows), default=1)
     width = max(cols * (tile_w + gap) + gap, 640)
-    height = 64 + len(rows) * (tile_h + 40) + gap
+    lines = _wrap(subtitle, label_font, width - 2 * gap)
+    top = 48 + 16 * len(lines)
+    height = top + len(rows) * (tile_h + 40) + gap
     out = Image.new("RGB", (width, height), BG)
     draw = ImageDraw.Draw(out)
     draw.text((gap, 10), title, fill=TEXT, font=title_font)
-    draw.text((gap, 36), subtitle, fill=DIM, font=label_font)
-    y = 64
+    for k, line in enumerate(lines):
+        draw.text((gap, 36 + 16 * k), line, fill=DIM, font=label_font)
+    y = top
     for label, row in rows:
         draw.text((gap, y), label, fill=DIM, font=label_font)
         y += 18
@@ -320,23 +336,142 @@ def _masks(built: Built, ref: Built) -> list[tuple[str, Array, Array]]:
     return [(name, silhouette(a, view, MASK_SIZE, fit), silhouette(b, view, MASK_SIZE, fit)) for name, view in COMPARE_VIEWS]
 
 
-def compare(built: Built, ref: Built, counts: dict[str, int], ref_counts: dict[str, int]) -> dict[str, Any]:
+BAND_VIEWS = [("front", View(0.0, 0.0)), ("front-left", View(45.0, 0.0)), ("left", View(90.0, 0.0)), ("back-left", View(135.0, 0.0))]
+BAND_MASK = 512  # side-on masks (pitch 0: image rows are heights) the bands are cut from
+BAND_HEIGHT = 128  # every band is scaled to this height before IoU
+THIRDS = (("bottom", 0.0, 1 / 3), ("middle", 1 / 3, 2 / 3), ("top", 2 / 3, 1.0))
+GAME_FOV = 60.0  # degrees, vertical
+GAME_SCREEN = 1080  # px, screen height
+DISTANCES = (30.0, 60.0)  # metres
+DISTANCE_VIEW = View(30.0, 15.0)
+
+
+def humanoid_joints(built: Built) -> dict[str, float]:
+    """A `skeleton: humanoid` model's head (its bottom) and hips (their middle) heights as fractions of its height."""
+    if built.model.skeleton != "humanoid":
+        return {}
+    lo, hi = built.bounds()
+    span = float(hi[1] - lo[1])
+    names = {b.name: b for b in built.skeleton.bones}
+    return {k: (float(names[k].pivot[1]) - float(lo[1])) / span for k in ("head", "hips") if k in names and span > 0}
+
+
+def body_bands(joints: dict[str, float], ref_joints: dict[str, float]) -> tuple[str, list[tuple[str, float, float, float, float]]]:
+    """("humanoid" | "thirds", [(band, model lo, model hi, reference lo, reference hi)]) as height fractions:
+    head / torso / legs cut at the head and hips joints when both have them (in order), else thirds."""
+    def usable(j: dict[str, float]) -> bool:
+        return "head" in j and "hips" in j and 0.0 < j["hips"] < j["head"] < 1.0
+
+    if usable(joints) and usable(ref_joints):
+        a, b = joints, ref_joints
+        return "humanoid", [("legs", 0.0, a["hips"], 0.0, b["hips"]), ("torso", a["hips"], a["head"], b["hips"], b["head"]),
+                            ("head", a["head"], 1.0, b["head"], 1.0)]  # fmt: skip
+    return "thirds", [(n, lo, hi, lo, hi) for n, lo, hi in THIRDS]
+
+
+def _band(mask: Array, lo: float, hi: float) -> Array:
+    """The rows of a side-on mask between height fractions lo..hi of its silhouette, cropped to its columns and
+    scaled (aspect kept) to BAND_HEIGHT rows."""
+    rows = np.flatnonzero(mask.any(axis=1))
+    if not len(rows):
+        return np.zeros((BAND_HEIGHT, 0), dtype=bool)
+    top, n = int(rows[0]), int(rows[-1]) + 1 - int(rows[0])
+    crop = mask[top + int(round(n * (1 - hi))) : top + int(round(n * (1 - lo)))]
+    cols = np.flatnonzero(crop.any(axis=0)) if len(crop) else np.zeros(0, dtype=np.int64)
+    if not len(cols):
+        return np.zeros((BAND_HEIGHT, 0), dtype=bool)
+    crop = crop[:, cols[0] : cols[-1] + 1]
+    width = max(1, int(round(crop.shape[1] * BAND_HEIGHT / crop.shape[0])))
+    im = Image.fromarray(crop.astype(np.uint8) * 255, "L").resize((width, BAND_HEIGHT), Image.Resampling.BOX)
+    return np.asarray(im) >= 128
+
+
+def _centred_iou(a: Array, b: Array) -> float:
+    w = max(a.shape[1], b.shape[1])
+    pa, pb = np.zeros((BAND_HEIGHT, w), dtype=bool), np.zeros((BAND_HEIGHT, w), dtype=bool)
+    pa[:, (w - a.shape[1]) // 2 : (w - a.shape[1]) // 2 + a.shape[1]] = a
+    pb[:, (w - b.shape[1]) // 2 : (w - b.shape[1]) // 2 + b.shape[1]] = b
+    union = int((pa | pb).sum())
+    return int((pa & pb).sum()) / union if union else 1.0
+
+
+def band_ious(built: Built, ref: Built, ref_joints: dict[str, float] | None = None) -> tuple[str, dict[str, float]]:
+    """Silhouette IoU per body band, each band scaled to one height and centred on its own (so a big head on a
+    short body still matches a small head on a tall one), averaged over BAND_VIEWS."""
+    method, bands = body_bands(humanoid_joints(built), ref_joints or {})
+    a, b = _corners(built), _corners(ref)
+    scores: dict[str, list[float]] = {name: [] for name, *_ in bands}
+    for _, view in BAND_VIEWS:
+        ma, mb = silhouette(a, view, BAND_MASK, _fit(built)), silhouette(b, view, BAND_MASK, _fit(ref))
+        for name, alo, ahi, blo, bhi in bands:
+            scores[name].append(_centred_iou(_band(ma, alo, ahi), _band(mb, blo, bhi)))
+    return method, {name: round(float(np.mean(v)), 4) for name, v in scores.items()}
+
+
+def visual_mass(mask: Array) -> float:
+    """Silhouette area / its bounding box's area (1 = a box, ~0.79 = a disc, low = spindly)."""
+    rows, cols = np.flatnonzero(mask.any(axis=1)), np.flatnonzero(mask.any(axis=0))
+    if not len(rows):
+        return 0.0
+    return int(mask.sum()) / ((int(rows[-1]) - int(rows[0]) + 1) * (int(cols[-1]) - int(cols[0]) + 1))
+
+
+def screen_ppm(distance: float) -> float:
+    """Pixels per metre at `distance` with a GAME_FOV vertical field of view on a GAME_SCREEN px high screen."""
+    return GAME_SCREEN / (2 * distance * math.tan(math.radians(GAME_FOV / 2)))
+
+
+def compare(built: Built, ref: Built, counts: dict[str, int], ref_counts: dict[str, int], ref_joints: dict[str, float] | None = None) -> dict[str, Any]:
     """Metrics of a model against a reference at one scale: silhouette IoU per view (8 views, binary masks at the
-    same framing), its mean and minimum, triangle ratio (model / reference) and both meshes' stats."""
-    views = {}
+    same framing), its mean and minimum; per body band IoU (bands normalised: proportions don't count), visual mass
+    (silhouette / bounding box) of both and their ratio, on-screen heights at gameplay distances, triangle ratio
+    (model / reference) and both meshes' stats. `ref_joints`: the reference's head/hips height fractions."""
+    views, mass, mass_ref = {}, [], []
     for name, a, b in _masks(built, ref):
         union = int((a | b).sum())
         views[name] = round(int((a & b).sum()) / union, 4) if union else 1.0
+        mass.append(visual_mass(a))
+        mass_ref.append(visual_mass(b))
+    method, bands = band_ious(built, ref, ref_joints)
+    m, mr = float(np.mean(mass)), float(np.mean(mass_ref))
     stats, ref_stats = mesh_stats(built, counts), mesh_stats(ref, ref_counts)
+    screen = {f"{d:g} m": {"model": round(stats["size"][1] * screen_ppm(d), 1), "reference": round(ref_stats["size"][1] * screen_ppm(d), 1)} for d in DISTANCES}
     return {"iou": round(float(np.mean(list(views.values()))), 4), "iou_min": min(views.values()), "iou_views": views,
+            "band_iou": round(float(np.mean(list(bands.values()))), 4), "bands": method, "band_ious": bands,
+            "mass": round(m, 4), "mass_ref": round(mr, 4), "mass_ratio": round(m / mr, 4) if mr > 0 else 0.0, "screen_px": screen,
             "triangle_ratio": round(stats["triangles"] / max(ref_stats["triangles"], 1), 4), "model": stats, "reference": ref_stats}  # fmt: skip
 
 
 def compare_summary(metrics: dict[str, Any]) -> list[str]:
     m, r = metrics["model"], metrics["reference"]
     pairs = " · ".join(f"{k.replace('_', ' ')} {m[k]} vs {r[k]}" for k in ("surfaces", "materials", "colors", "facet_regularity", "open_edges"))
+    bands = " · ".join(f"{k} {v:.3f}" for k, v in metrics["band_ious"].items())
+    screen = " · ".join(f"{d} {h['model']:g} vs {h['reference']:g} px" for d, h in metrics["screen_px"].items())
     return [f"silhouette IoU {metrics['iou']:.3f} (min {metrics['iou_min']:.3f}) · triangles {m['triangles']} vs {r['triangles']} "
-            f"(x{metrics['triangle_ratio']:.2f})", pairs]  # fmt: skip
+            f"(x{metrics['triangle_ratio']:.2f})", pairs,
+            f"band IoU ({metrics['bands']}) {metrics['band_iou']:.3f}: {bands} · visual mass {metrics['mass']:.3f} vs {metrics['mass_ref']:.3f} "
+            f"(x{metrics['mass_ratio']:.2f}) · height on screen {screen}"]  # fmt: skip
+
+
+def distance_row(built: Built, ref: Built, size: int = 180) -> tuple[str, list[tuple[str, Image.Image]]]:
+    """Reference and model as they'd look at DISTANCES (GAME_FOV, GAME_SCREEN; the style's outline if it has one),
+    one scale per distance, upscaled nearest by one factor so the far ones stay smaller."""
+    centre, half = _shared_fit(built, ref)
+    rendered = []
+    for d in DISTANCES:
+        ppm = screen_ppm(d)
+        n = max(4, int(math.ceil(2 * half * ppm)))
+        for who, b in (("reference", ref), ("kiln", built)):
+            rendered.append((f"{who} {d:g} m", render(b, DISTANCE_VIEW, n, fit=(centre, n / 2 / ppm), background=TILE_BG)))
+    k = max(1, size // rendered[0][1].width)
+    tiles = []
+    for name, im in rendered:
+        big = im.resize((im.width * k, im.height * k), Image.Resampling.NEAREST)
+        tile = Image.new("RGBA", (size, size), TILE_BG)
+        tile.paste(big, ((size - big.width) // 2, (size - big.height) // 2))
+        tiles.append((name, tile))
+    label = f"at gameplay distance ({GAME_FOV:g} degree vertical FOV, {GAME_SCREEN} px screen), shown x{k} nearest"
+    return label, tiles
 
 
 def _head_fit(built: Built, ref: Built) -> tuple[Array, float]:
@@ -352,7 +487,7 @@ def _head_fit(built: Built, ref: Built) -> tuple[Array, float]:
 
 def versus_reference(built: Built, ref: Built, metrics: dict[str, Any], label: str, size: int = 180) -> Image.Image:
     """Reference and model in paired rows at one scale (turntable from below, eye level, above), their head regions
-    (top fifth) close up, and the silhouette difference in each metric view."""
+    (top fifth) close up, the silhouette difference in each metric view, and both at gameplay distances."""
     fit = _shared_fit(built, ref)
     rows: list[tuple[str, list[tuple[str, Image.Image]]]] = []
     for pitch, height in ((-20.0, "from below"), (15.0, "eye level"), (50.0, "from above")):
@@ -371,8 +506,9 @@ def versus_reference(built: Built, ref: Built, metrics: dict[str, Any], label: s
         tile = Image.fromarray(im, "RGBA").resize((size, size), Image.Resampling.NEAREST)
         diff.append((f"{name} {metrics['iou_views'][name]:.2f}", tile))
     rows.append(("silhouettes: grey both, red kiln only, blue reference only (IoU per view)", diff))
+    rows.append(distance_row(built, ref, size))
     return sheet(f"{built.model.name} vs {label}", " | ".join(compare_summary(metrics)), rows)
 
 
-__all__ = ["closeup", "compare", "compare_summary", "detach", "facet_regularity", "filmstrip", "gallery", "inspiration_images", "lineup",
-           "mesh_stats", "sheet", "turntable", "versus", "versus_reference"]
+__all__ = ["band_ious", "body_bands", "closeup", "compare", "compare_summary", "detach", "distance_row", "facet_regularity", "filmstrip", "gallery",
+           "humanoid_joints", "inspiration_images", "lineup", "mesh_stats", "screen_ppm", "sheet", "turntable", "versus", "versus_reference", "visual_mass"]

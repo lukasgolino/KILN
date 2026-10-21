@@ -6,6 +6,18 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- `kiln preview --vs <ref.glb>` metrics for restyles (#8): `band_iou`/`band_ious` (silhouette IoU per body band,
+  each band normalised; head/torso/legs for humanoids against a rigged reference, else thirds), `mass`/`mass_ref`/
+  `mass_ratio` (visual mass), `screen_px`; the sheet gains a row at 30 m and 60 m (60 degree FOV, 1080 px screen).
+
+### Fixed
+
+- Hard `lathe` parts take `shell:`, and `open: -y`/`+y` on a lathe cuts just its end wall (the profile sits anywhere
+  on its axis; before, it cut at local y = 0): hollow hard helmets with a visible rim (#1). Hard parts no longer get
+  W102 (thinner than the mesh resolution): they're exact polygons.
+
 ## [0.7.1] - 2026-10-21
 
 ### Added

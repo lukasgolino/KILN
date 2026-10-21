@@ -182,6 +182,30 @@ def read_mesh(path: Path) -> tuple[Array, Array, Array, list[str]]:
     return np.concatenate(verts), np.concatenate(faces), np.concatenate(colors), kinds
 
 
+def joint_heights(path: Path, names: tuple[str, ...] = ("head", "hips")) -> dict[str, float]:
+    """Heights of the scene's nodes with these names (case-insensitive, after a `prefix:` such as `mixamorig:`) as
+    fractions of the mesh's height (0 = its bottom, 1 = its top): a rigged reference's head and hips, for `--vs` bands."""
+    v, f, _, _ = read_mesh(path)
+    used = v[np.unique(f)]
+    lo, span = float(used[:, 1].min()), float(np.ptp(used[:, 1]))
+    doc, _ = _load(path)
+    scene = doc.get("scenes", [{}])[doc.get("scene", 0)] if doc.get("scenes") else {"nodes": list(range(len(doc.get("nodes", []))))}
+    found: dict[str, float] = {}
+
+    def visit(index: int, parent: Array) -> None:
+        node = doc["nodes"][index]
+        world = parent @ _node_matrix(node)
+        key = str(node.get("name", "")).rsplit(":", 1)[-1].lower()
+        if key in names and key not in found and span > 0:
+            found[key] = (float(world[1, 3]) - lo) / span
+        for child in node.get("children", []):
+            visit(child, world)
+
+    for root in scene.get("nodes", []):
+        visit(root, np.eye(4))
+    return found
+
+
 def nearest_palette(colors: Array, palette_hex: list[str]) -> list[str]:
     """Each colour's nearest palette colour (OKLab distance)."""
     labs = [rgb_to_oklab((int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16))) for h in palette_hex]
@@ -337,5 +361,5 @@ def load_reference(path: Path, style: Style, height: float | None = None, centre
     return Built(Model(path.stem, path), style, painted, read_normals(path), skeleton, "none", None, None, [], max(size / 200, 0.002), 1)
 
 
-__all__ = ["ImportError_", "build_imported", "external_files", "gltf_counts", "load_reference", "mesh_normals", "missing_files", "nearest_palette",
+__all__ = ["ImportError_", "build_imported", "external_files", "gltf_counts", "joint_heights", "load_reference", "mesh_normals", "missing_files", "nearest_palette",
            "read_mesh", "read_normals"]
