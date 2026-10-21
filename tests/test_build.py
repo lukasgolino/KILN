@@ -433,3 +433,39 @@ def test_demo_meshes_stay_on_their_surface() -> None:
         distance = np.min([np.abs(field.only(piece).distance(points)) for piece in pieces if piece], axis=0)
         assert distance.max() < built.step * 2, name
         assert len(built.painted.faces) <= style.budget(model.cls) * 1.05, name
+
+
+def test_build_removes_stale_extracted_decal_textures(project: Project) -> None:
+    """#32: Godot extracts a glb's embedded decal texture as models/<name>_decal<N>_<hex>.png; when the colour (and so the
+    image name) changes, or the model goes, the old texture and its .import are removed."""
+    from PIL import Image
+
+    from kiln.build import _embedded_images
+
+    Image.new("RGBA", (16, 16), (0, 0, 255, 255)).save(project.root / "decals" / "logo.png")
+    decal = "    decal: { image: decals/logo.png, axis: z, at: [0, 0.3, 0.3], size: [0.2, 0.2] }\n"
+    write_model(project, sphere_text("sign") + decal, "sign")
+    assert build(project).errors == []
+    models = project.output_dir / "models"
+
+    def godot_import() -> list[str]:  # what Godot's first import of the glbs writes next to them
+        names = []
+        for glb in models.glob("*.glb"):
+            for image in _embedded_images(glb.read_bytes()):
+                png = models / f"{glb.name[:-4]}_{image}.png"
+                png.write_bytes(b"png")
+                png.with_name(png.name + ".import").write_text("[remap]\n")
+                names.append(png.name)
+        return sorted(names)
+
+    first = godot_import()
+    assert first and all(n.startswith("sign_decal0_") for n in first)
+    write_model(project, (sphere_text("sign") + decal).replace("color: red", 'color: "#22aa44"'), "sign")
+    result = build(project)
+    assert result.errors == [] and all(not (models / n).exists() and not (models / f"{n}.import").exists() for n in first)
+    second = godot_import()
+    assert second and second != first
+    assert build(project).errors == [] and all((models / n).exists() for n in second)  # current textures stay
+    (project.models_dir / "sign.kiln.yaml").unlink()
+    build(project)
+    assert not list(models.glob("sign_decal*"))  # the model is gone: so are its textures
