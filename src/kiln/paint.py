@@ -26,13 +26,16 @@ def split(vertices: Array, faces: Array, values: Array, selected: Array) -> tupl
 
     Returns (vertices, faces, negative, parent): `negative` marks faces on the < 0 side, `parent` maps every
     output face to its input face. New vertices are shared between neighbouring faces, and a face that isn't
-    selected but shares a cut edge is split at the new point too (same side, no T-junction): no cracks."""
+    selected but shares a cut edge is split at the new point too (same side, no T-junction): no cracks. A vertex
+    exactly on the line (value 0) is a point of the cut itself: faces only touching the line aren't cut."""
     neg_v = values < 0
     n_neg = neg_v[faces].sum(axis=1)
-    cut = selected & (n_neg > 0) & (n_neg < 3)
+    has_pos = (values > 0)[faces].any(axis=1)
+    whole_neg = (n_neg > 0) & ~has_pos  # every vertex < 0 or on the line
+    cut = selected & (n_neg > 0) & has_pos
     idx = np.flatnonzero(cut)
     if not len(idx):
-        return vertices, faces, n_neg == 3, np.arange(len(faces))
+        return vertices, faces, whole_neg, np.arange(len(faces))
     f = faces[idx]
     fn = neg_v[f]
     lone_is_neg = n_neg[idx] == 1
@@ -45,14 +48,19 @@ def split(vertices: Array, faces: Array, values: Array, selected: Array) -> tupl
     a, b = unique[:, 0], unique[:, 1]
     va, vb = values[a], values[b]
     t = np.clip(va / np.where(va == vb, 1.0, va - vb), 0.0, 1.0)
-    new_points = vertices[a] + (vertices[b] - vertices[a]) * t[:, None]
+    on_line = (va == 0) | (vb == 0)  # the cut passes through an end: that vertex, no new point
+    at_end = np.where(va == 0, a, b)
+    real = np.flatnonzero(~on_line)
+    new_points = (vertices[a] + (vertices[b] - vertices[a]) * t[:, None])[real]
     base = len(vertices)
+    point_of = np.where(on_line, at_end, 0)
+    point_of[real] = base + np.arange(len(real))
     inverse = inverse.reshape(-1)
-    m01 = base + inverse[: len(f)]
-    m02 = base + inverse[len(f) :]
+    m01 = point_of[inverse[: len(f)]]
+    m02 = point_of[inverse[len(f) :]]
     # faces left whole but sharing a cut edge: split at the new point (their side doesn't change)
     rest = np.flatnonzero(~cut)
-    lookup = {(int(x), int(y)): base + i for i, (x, y) in enumerate(unique)}
+    lookup = {(int(unique[i, 0]), int(unique[i, 1])): base + k for k, i in enumerate(real)}
     out_faces: list[Array] = []
     out_neg: list[Array] = []
     out_parent: list[Array] = []
@@ -62,7 +70,7 @@ def split(vertices: Array, faces: Array, values: Array, selected: Array) -> tupl
         ek = np.sort(np.stack([fr[:, [0, 1]], fr[:, [1, 2]], fr[:, [2, 0]]], axis=1), axis=2)  # (R, 3, 2)
         flat = ek.reshape(-1, 2)
         # only edges that were cut can match: test cheaply first
-        cand = np.isin(flat[:, 0], a) & np.isin(flat[:, 1], b)
+        cand = np.isin(flat[:, 0], a[real]) & np.isin(flat[:, 1], b[real])
         mid_flat = np.full(len(flat), -1)
         for k in np.flatnonzero(cand):
             mid_flat[k] = lookup.get((int(flat[k, 0]), int(flat[k, 1])), -1)
@@ -83,15 +91,17 @@ def split(vertices: Array, faces: Array, values: Array, selected: Array) -> tupl
             ring = ring[start:] + ring[:start]
             for j in range(1, len(ring) - 1):
                 out_faces.append(np.array([[ring[0], ring[j], ring[j + 1]]]))
-                out_neg.append(np.array([n_neg[rest[r]] == 3]))
+                out_neg.append(np.array([whole_neg[rest[r]]]))
                 out_parent.append(np.array([rest[r]]))
     out_faces = [faces[whole]] + out_faces
-    out_neg = [n_neg[whole] == 3] + out_neg
+    out_neg = [whole_neg[whole]] + out_neg
     out_parent = [np.asarray(whole, dtype=np.int64)] + out_parent
     out_faces += [np.stack([t0, m01, m02], axis=1), np.stack([m01, t1, t2], axis=1), np.stack([m01, t2, m02], axis=1)]
     out_neg += [lone_is_neg, ~lone_is_neg, ~lone_is_neg]
     out_parent += [idx, idx, idx]
-    return np.concatenate([vertices, new_points]), np.concatenate(out_faces), np.concatenate(out_neg), np.concatenate(out_parent)
+    faces_out, neg_out, parent_out = np.concatenate(out_faces), np.concatenate(out_neg), np.concatenate(out_parent)
+    keep = (faces_out[:, 0] != faces_out[:, 1]) & (faces_out[:, 1] != faces_out[:, 2]) & (faces_out[:, 2] != faces_out[:, 0])
+    return np.concatenate([vertices, new_points]), faces_out[keep], neg_out[keep], parent_out[keep]
 
 
 def refine(vertices: Array, faces: Array, selected: Array, max_edge: float, project: Callable[[Array], Array]) -> tuple[Array, Array, Array]:
@@ -159,6 +169,10 @@ class PaintGroup:
     color_name: str
     material: str
     part: int = -1  # the part (index) whose own data (`uv:` projection, `attr:` values) these faces carry; -1: none
+
+
+ON_BORDER = 1e-9  # metres: a vertex this close to a flat pattern's border is on it
+MAX_STRIPES = 64  # flat faces: more stripes than this are cut the general way
 
 
 def _pattern_fn(p: Pattern, geometry: Geometry | None = None) -> ScalarFn:
@@ -321,15 +335,17 @@ def hard_regions(mesh: Mesh, face_part: Array, model: Model, rigged: bool) -> Re
     groups, group_index, part_group = _groups(model, adding, rigged, frozenset())
     owner = np.array([part_group[int(i)] for i in face_part], dtype=np.int64).reshape(-1)
     vertices, faces, owner, pattern_groups = _patterns(mesh.vertices, mesh.faces, owner, model, adding, groups, group_index, part_group,
-                                                      lambda x: x)  # flat faces: new points are already on them  # fmt: skip
+                                                      lambda x: x, flat=True)  # flat faces: new points are already on them  # fmt: skip
     return Regions(Mesh(vertices, faces), owner, groups, part_group, pattern_groups)
 
 
 def _patterns(
     vertices: Array, faces: Array, owner: Array, model: Model, adding: list[int], groups: list[PaintGroup], group_index: dict[PaintGroup, int],
-    part_group: dict[int, int], project: Callable[[Array], Array],
+    part_group: dict[int, int], project: Callable[[Array], Array], flat: bool = False,
 ) -> tuple[Array, Array, Array, dict[int, tuple[int, ...]]]:
-    """Patterns: a second colour cut into each patterned part's own faces (several: in order, each over the last)."""
+    """Patterns: a second colour cut into each patterned part's own faces (several: in order, each over the last).
+    `flat`: the faces are exact polygons (hard parts), so bands and stripes are cut along their border planes as they
+    are, without refining: no extra triangles beyond the cuts."""
     pattern_groups: dict[int, tuple[int, ...]] = {}
     for i in adding:
         part = model.parts[i]
@@ -340,6 +356,17 @@ def _patterns(
             sel = np.isin(owner, own)
             if not sel.any():
                 break
+            borders = _border_planes(pat, vertices[np.unique(faces[sel])]) if flat else None
+            if borders is not None:
+                for value in borders:
+                    sel = np.isin(owner, own)
+                    d = value(vertices)
+                    vertices, faces, _, parent = split(vertices, faces, np.where(np.abs(d) < ON_BORDER, 0.0, d), sel)
+                    owner = owner[parent]
+                sel = np.isin(owner, own)
+                inside = fn(vertices[faces].mean(axis=1)) >= -ON_BORDER  # every face is now on one side of every border
+                owner = _paint_alt(owner, own, sel & inside, pat, part, g, groups, group_index, pattern_groups)
+                continue
             # A pattern needs edges shorter than its repeat (or a stripe could fall between vertices), then short edges
             # along its borders to cut them cleanly; areas between borders stay coarse (the budget).
             for limit, border_only in ((pat.size / 2 if pat.type != "band" else pat.size, False), (pat.size / 4, True)):
@@ -360,14 +387,42 @@ def _patterns(
             sel = np.isin(owner, own)
             vertices, faces, negative, parent = split(vertices, faces, fn(vertices), sel)
             owner = owner[parent]
-            alt = PaintGroup(groups[g].bone, pat.color, pat.color_name, part.material, groups[g].part)
-            if alt not in group_index:
-                group_index[alt] = len(groups)
-                groups.append(alt)
-            if group_index[alt] not in own:
-                pattern_groups[g] = (*pattern_groups.get(g, ()), group_index[alt])
-            owner[np.isin(owner, own) & ~negative] = group_index[alt]
+            owner = _paint_alt(owner, own, np.isin(owner, own) & ~negative, pat, part, g, groups, group_index, pattern_groups)
     return vertices, faces, owner, pattern_groups
+
+
+def _paint_alt(owner: Array, own: list[int], faces: Array, pat: Pattern, part: Part, g: int, groups: list[PaintGroup],
+               group_index: dict[PaintGroup, int], pattern_groups: dict[int, tuple[int, ...]]) -> Array:  # fmt: skip
+    """`faces` take the pattern's colour (a paint group of the part's bone)."""
+    alt = PaintGroup(groups[g].bone, pat.color, pat.color_name, part.material, groups[g].part)
+    if alt not in group_index:
+        group_index[alt] = len(groups)
+        groups.append(alt)
+    if group_index[alt] not in own:
+        pattern_groups[g] = (*pattern_groups.get(g, ()), group_index[alt])
+    owner = owner.copy()
+    owner[faces] = group_index[alt]
+    return owner
+
+
+def _border_planes(pat: Pattern, points: Array) -> list[Callable[[Array], Array]] | None:
+    """A model-space band's or stripes' borders across `points` as linear functions (zero on a border), or None for
+    patterns whose borders aren't planes."""
+    if pat.frame == "part" or pat.type not in ("band", "stripes"):
+        return None
+    axis = np.array(pat.axis, float)
+    if pat.type == "band":
+        levels = [pat.at - pat.size / 2, pat.at + pat.size / 2]
+    else:  # cos(2 pi t / size) = cos(pi width): t = size * (n +- width / 2)
+        t = points @ axis
+        first, last = math.floor(float(t.min()) / pat.size) - 1, math.ceil(float(t.max()) / pat.size) + 1
+        if last - first > MAX_STRIPES:
+            return None
+        levels = sorted({pat.size * (n + sgn * pat.width / 2) for n in range(first, last + 1) for sgn in (-1, 1)})
+    def plane(c: float) -> Callable[[Array], Array]:
+        return lambda x: np.asarray(x @ axis - c)
+
+    return [plane(c) for c in levels]
 
 
 def paint(painted: Regions, model: Model) -> Painted:

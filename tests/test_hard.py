@@ -226,3 +226,32 @@ def test_union_of_near_coplanar_facets_stays_closed() -> None:
     kept = intersect(acc, solid(Geometry("sphere", {"radius": 0.1, "sides": 8}, at=np.array([0, 1.7, 0])), HardSpec(8, 0.0, 1), 9))
     m = mesh(kept)
     assert len(open_edges(m.vertices, m.faces)) == 0 and len(m.faces)
+
+
+def test_bands_on_a_hard_lathe_cost_only_their_cuts(project: Project) -> None:
+    # #12: three bands on a stepped hard lathe came out at ~30x the budget: they were cut the soft way (refined first)
+    text = """\
+name: thing
+budget: 600
+parts:
+  - lathe: { profile: [[0, 0], [0.3, 0], [0.3, 0.2], [0.25, 0.2], [0.25, 0.5], [0.28, 0.5], [0.28, 0.6], [0.2, 0.6], [0.2, 0.9], [0, 0.9]], sides: 10, smooth: false }
+    hard: true
+    color: grey
+    pattern:
+      - { type: band, color: red, size: 0.2, at: 0.1, axis: y }
+      - { type: band, color: blue, size: 0.1, at: 0.55, axis: y }
+      - { type: band, color: white, size: 0.3, at: 0.75, axis: y }
+"""
+    for extra, limit in (("", 200), ("      - { type: stripes, color: black, size: 0.1, width: 0.5, axis: x }\n", 2000)):
+        p = built_of(project, text + extra).painted
+        assert len(p.faces) < limit and len(open_edges(p.vertices, p.faces)) == 0
+        v = p.vertices[p.faces]
+        assert (np.linalg.norm(np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0]), axis=1) > 1e-10).all()  # no slivers
+        c = v.mean(axis=1)
+        colour = np.array([p.groups[g].color_name.split("#")[0] for g in p.face_group])
+        if not extra:  # the bands sit on the profile's steps: the top cap is in the last one
+            assert set(colour[c[:, 1] < 0.2]) == {"red"} and set(colour[(c[:, 1] > 0.5) & (c[:, 1] < 0.6)]) == {"blue"}
+            assert set(colour[c[:, 1] > 0.6]) == {"white"} and set(colour[(c[:, 1] > 0.21) & (c[:, 1] < 0.49)]) == {"grey"}
+        else:  # stripes across x over everything, cut along their planes
+            on = np.cos(2 * np.pi * c[:, 0] / 0.1) - np.cos(np.pi * 0.5) > 1e-6
+            assert on.any() and set(colour[on]) == {"black"} and "black" not in set(colour[~on])

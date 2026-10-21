@@ -22,6 +22,9 @@ before 1.0).
 - Soft parts blended at one spot (a straw tuft of capsules) bulge out of their boxes by up to a quarter of the blend
   per join; where that left the sampling grid, the mesh had a hole (E013). The grid grows on any side the surface
   reaches (#11).
+- Bands and stripes (model space) on hard parts are cut along their border planes on the exact faces, without
+  refining the mesh first: three bands on a stepped hard lathe went from 30x the budget to its cuts (#12). A colour
+  border through a vertex no longer leaves zero-area slivers there.
 - E013 lists each crack with its place and parts (up to five), not one centroid of all of them (#10).
 - Hard `lathe` parts take `shell:`, and `open: -y`/`+y` on a lathe cuts just its end wall (the profile sits anywhere
   on its axis; before, it cut at local y = 0): hollow hard helmets with a visible rim (#1). Hard parts no longer get
