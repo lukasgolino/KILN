@@ -102,6 +102,7 @@ class RigEntry:
     separate: bool = False  # soft skins: keep this part a rigid mesh of its own (detachable helmet)
     sockets: tuple[tuple[str, tuple[float, float, float]], ...] = ()  # named points (model space, rest pose)
     under: tuple[str, str, str, float] | None = None  # separate parts: (hex, colour name, material, gap) painted on what it covers
+    revealed: tuple[str, ...] = ()  # shown only once one of these parts is gone (a stump cap); separate, hidden by default
 
 
 @dataclass(frozen=True)
@@ -745,9 +746,9 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, template: b
                 ctx.error("E007", f"rig: no part has id {part_id!r} (ids: {', '.join(sorted(ids))})", rline, where)
             continue
         spec = spec if spec is not None else {}
-        if not isinstance(spec, dict) or any(k not in ("pivot", "parent", "meta", "separate", "sockets", "under") for k in spec):
+        if not isinstance(spec, dict) or any(k not in ("pivot", "parent", "meta", "separate", "sockets", "under", "revealed") for k in spec):
             ctx.error("E007", "a rig entry is { pivot: [x, y, z], parent: id, meta: { key: value }, separate: true|false, sockets: { name: [x, y, z] }, "
-                      "under: { color, material, gap } }", rline, where)  # fmt: skip
+                      "under: { color, material, gap }, revealed: [ids] }", rline, where)  # fmt: skip
             continue
         pivot = _vec(spec["pivot"]) if "pivot" in spec else None
         if "pivot" in spec and pivot is None:
@@ -772,6 +773,17 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, template: b
         if not isinstance(separate, bool):
             ctx.error("E007", "separate must be true or false", rline, f"{where}.separate")
             continue
+        revealed = spec.get("revealed", [])
+        if isinstance(revealed, str):
+            revealed = [revealed]
+        if not isinstance(revealed, list) or not all(isinstance(r, str) and (r in ids or template) and r not in (part_id, ROOT_ID) for r in revealed):
+            ctx.error("E007", f"revealed lists the parts whose loss shows this one (a stump cap under an arm): revealed: [arm_l] "
+                      f"(ids: {', '.join(sorted(i for i in ids if i not in (part_id, ROOT_ID)))})", rline, f"{where}.revealed")  # fmt: skip
+            continue
+        if revealed and separate is False and "separate" in spec:
+            ctx.error("E007", "a revealed part is its own piece (separate): drop separate: false", rline, f"{where}.separate")
+            continue
+        separate = separate or bool(revealed)
         raw_sockets = spec.get("sockets", {})
         sockets = {k: _vec(v) for k, v in raw_sockets.items()} if isinstance(raw_sockets, dict) else None
         if sockets is None or any(not isinstance(k, str) or not NAME_RE.match(k) or v is None for k, v in sockets.items()):
@@ -792,7 +804,8 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, template: b
             under = (c[0], c[1], str(mat), float(gap))
         rig[str(part_id)] = RigEntry((pivot[0], pivot[1], pivot[2]) if pivot else None,
                                      None if parent in (None, ROOT_ID) else str(parent), tuple(sorted(meta.items())), separate,
-                                     tuple(sorted((k, (v[0], v[1], v[2])) for k, v in sockets.items() if v is not None)), under)  # fmt: skip
+                                     tuple(sorted((k, (v[0], v[1], v[2])) for k, v in sockets.items() if v is not None)), under,
+                                     tuple(str(r) for r in revealed))  # fmt: skip
     for part_id in rig:
         seen = [part_id]
         parent = rig[part_id].parent
@@ -823,7 +836,8 @@ def _mirror_rig(rig: dict[str, RigEntry], parts: list[Part]) -> dict[str, RigEnt
                 q = list(point)
                 q[axis] = -q[axis]
                 sockets.append((name, (q[0], q[1], q[2])))
-            out[twin] = RigEntry(pivot, parent, e.meta, e.separate, tuple(sockets), e.under)
+            revealed = tuple(twins[r][0] if r in twins else r for r in e.revealed)
+            out[twin] = RigEntry(pivot, parent, e.meta, e.separate, tuple(sockets), e.under, revealed)
     return out
 
 

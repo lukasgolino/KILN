@@ -328,6 +328,51 @@ def test_godot_loads_a_carrier_as_a_library(tmp_path: Path) -> None:
     assert check.ok, check.output[-3000:]
 
 
+STUMPS = """\
+  - sphere: { at: [0.3, 0.6, 0], radius: 0.07 }
+    id: stump_l
+    mirror: x
+    mirror_id: stump_r
+    color: red
+"""
+
+
+def with_stumps(text: str) -> str:
+    """Arms with stump caps under them (revealed once the arm is gone)."""
+    text = text.replace("rig:\n", STUMPS + "rig:\n  stump_l: { revealed: [arm_l], pivot: [0.3, 0.6, 0] }\n")
+    return text.replace("  arm_l: { pivot: [0.3, 0.6, 0] }\n", "  arm_l: { pivot: [0.3, 0.6, 0], separate: true }\n")
+
+
+def test_revealed_parts(project: Project) -> None:
+    # #3: a stump cap shown only once its limb is gone: its own piece, flagged in the glb and manifest
+    write_model(project, with_stumps(arms_text("hero", skin="soft")), "hero")
+    result = build(project)
+    assert result.errors == [], [f.format() for f in result.errors]
+    parts = result.manifest["models"]["hero"]["parts"]
+    assert parts["stump_l"]["revealed_by"] == ["arm_l"] and parts["stump_r"]["revealed_by"] == ["arm_r"]
+    assert parts["stump_l"]["separate"] is True and "revealed_by" not in parts["arm_l"]
+    doc, _ = read_glb((project.output_dir / "models" / "hero.glb").read_bytes())
+    stump = next(n for n in doc["nodes"] if n["name"] == "stump_r")
+    assert stump["extras"]["kiln_revealed_by"] == ["arm_r"] and "mesh" in stump
+    bad = arms_text("hero").replace("rig:\n", "rig:\n  arm_r: { revealed: [nope] }\n")
+    assert any("revealed lists" in f.message for f in errors_of(project, bad, "hero"))
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(find_godot_binary() is None, reason="needs a Godot 4 binary (GODOT=/path)")
+@pytest.mark.parametrize(("skin", "prefix"), [("soft", "Hero_"), ("rigid", "Hero_"), ("soft", ""), ("rigid", "")])
+def test_godot_hides_revealed_parts(tmp_path: Path, skin: str, prefix: str) -> None:
+    project = godot_project(tmp_path)
+    extra = f"class: character\nnode_prefix: {prefix}\n" if prefix else "class: character\n"
+    write_model(project, with_stumps(arms_text("hero", skin=skin)).replace("class: character\n", extra), "hero")
+    result = build(project)
+    godot = find_godot_binary()
+    assert godot is not None and result.godot_root is not None and result.errors == []
+    assert f'revealed = ["{prefix}stump_l", "{prefix}stump_r"]' in (project.output_dir / "models" / "hero.tscn").read_text()
+    check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
+    assert check.ok, check.output[-3000:]
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(find_godot_binary() is None, reason="needs a Godot 4 binary (GODOT=/path)")
 def test_godot_loads_a_toon_style(tmp_path: Path) -> None:

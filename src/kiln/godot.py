@@ -194,6 +194,20 @@ void fragment() {
 """
 
 
+def _with_revealed(script: str) -> str:
+    """The apply script, also hiding `revealed` parts until the game shows them (only written for models with some)."""
+    return _swap_lines(script, [
+        ("@export var rims: Dictionary = {}\n",
+         "@export var rims: Dictionary = {}\n@export var revealed: Array = []  # node names hidden until the game shows them (stump caps)\n"),
+        ("func _ready() -> void:\n",
+         "func _ready() -> void:\n"
+         "\tfor hidden_name in revealed:\n"
+         "\t\tvar hidden := find_child(hidden_name, true, false) as Node3D\n"
+         "\t\tif hidden != null:\n"
+         "\t\t\thidden.visible = false\n"),
+    ])  # fmt: skip
+
+
 def _with_rim(script: str) -> str:
     """The apply script, also chaining the rim pass (only written for styles with rim_light, so others stay as they were)."""
     return _swap_lines(script, [
@@ -215,10 +229,12 @@ def _with_rim(script: str) -> str:
     ])  # fmt: skip
 
 
-def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | None = None, textures: dict[str, str] | None = None) -> str:
+def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | None = None, textures: dict[str, str] | None = None,
+                revealed: list[str] | None = None) -> str:
     """`<name>.tscn`: the .glb with the style's materials applied by a small built-in tool script. With `swap`
     (a variant, when variant_glbs is false) the script also recolours: the base glb, other colours. `textures`
-    (atlas = true): res:// paths by script property (`palette` and `glow` for a variant, `rim_texture`)."""
+    (atlas = true): res:// paths by script property (`palette` and `glow` for a variant, `rim_texture`). `revealed`:
+    node names the script hides (parts shown once another is gone)."""
     look = style.look
     rims = ", ".join(f"{_quote(k)}: {v.rim:.6g}" for k, v in sorted(style.materials.items()) if v.rim > 0)
     atlas = textures is not None
@@ -240,7 +256,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         "",
         *(['[sub_resource type="Shader" id="Shader_rim"]', f"code = {_quote(RIM_SHADER)}", ""] if rim else []),
         '[sub_resource type="GDScript" id="GDScript_apply"]',
-        f"script/source = {_quote(_with_rim(script) if rim else script)}",
+        f"script/source = {_quote(_with_revealed(_with_rim(script) if rim else script) if revealed else (_with_rim(script) if rim else script))}",
         "",
         f'[node name={_quote(name)} instance=ExtResource("1_glb")]',
         'script = SubResource("GDScript_apply")',
@@ -251,6 +267,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         f"outline = {look.outline:.6g}",
         f"outline_color = {_color(look.outline_color)}",
         f"rims = {{{rims}}}",
+        *([f"revealed = [{', '.join(_quote(n) for n in revealed)}]"] if revealed else []),
         *(['rim_shader = SubResource("Shader_rim")', f"rim_light = {look.rim_light:.6g}", f"rim_light_color = {_color(look.rim_light_color)}",
            f"rim_light_power = {look.rim_light_power:.6g}"] if rim else []),  # fmt: skip
         *([f"swap = {{{', '.join(f'{_quote(k[1:])}: {_color(v)}' for k, v in sorted(swap.items()))}}}"] if swap else []),

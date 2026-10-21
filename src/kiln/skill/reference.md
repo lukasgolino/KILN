@@ -242,6 +242,10 @@ skin: soft
   on a head) without fusing, and removing it leaves no hole. `under: { color: hair }` (with `separate: true`) paints
   the body where the part covers it (hair under a helmet; `material`, `gap`: how far from it still counts, 0.02 m),
   seen once it falls off. Check with `kiln preview <model> --detach`.
+- `revealed: [arm_l]`: a part shown only once one of those is gone (a stump cap at the shoulder, under a
+  detachable arm). It is its own piece (separate), hidden by KILN's .tscn scenes, `kiln_revealed_by` in its node's
+  extras and `revealed_by` in the manifest's part: the game shows it when it removes the arm. Mirrored twins
+  are revealed by the twins (`arm_r`).
 - `meta`: plain values or flat lists (points: `[x, y, z]`, model space) for game code: Godot node metadata
   (`get_meta("extras")`; on soft skins, bone metadata: `skeleton.get_bone_meta(i, "extras")`) and the manifest.
   Mirrored twins get the same meta (not mirrored).

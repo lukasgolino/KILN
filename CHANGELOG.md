@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- `revealed: [ids]` on a rig entry (#3): a part shown only once one of those parts is gone (gore stump caps). It is
+  its own piece, hidden by KILN's .tscn scenes, marked `kiln_revealed_by` in the glb and `revealed_by` in the
+  manifest; `--verify-godot` checks it starts hidden.
 - `merge_rigid = true` in kiln.toml (#9): a rigid skin is exported as one skinned mesh, every vertex 100% on its
   part's bone (rigid look, one draw call instead of one per id); `separate` parts stay their own nodes. Hide a part by
   scaling its bone to 0. Manifest: `merged_rigid`.

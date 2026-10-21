@@ -98,6 +98,11 @@ func check_model(name: String, node: Node) -> void:
 			found = skeleton.find_bone(part) >= 0
 		if not found:
 			fail("%s has no node or bone %s" % [name, part])
+	for part in entry.get("parts", {}):
+		if entry["parts"][part].has("revealed_by"):  # hidden until the game shows it
+			var cap := node.find_child(entry.get("node_prefix", "") + part, true, false) as Node3D
+			if cap == null or cap.is_visible_in_tree():
+				fail("%s revealed part %s isn't hidden" % [name, part])
 	var player: AnimationPlayer = node.find_child("AnimationPlayer", true, false)
 	var animations: Dictionary = entry.get("animations", {})
 	if entry.has("animation_library"):  # its clips are in the carrier's library (checked there)

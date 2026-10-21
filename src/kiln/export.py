@@ -301,6 +301,9 @@ class _Writer:
             if np.any(t):
                 node["translation"] = [float(np.float32(v)) for v in t]
             extras = {"kiln_part": bone.name, **bone.meta}
+            rig = b.model.rig.get(bone.name)
+            if rig is not None and rig.revealed:  # hidden until one of these parts is gone
+                extras["kiln_revealed_by"] = list(rig.revealed)
             node["extras"] = extras
             nodes.append(node)
         for i, bone in enumerate(sk.bones):

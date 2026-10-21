@@ -81,6 +81,9 @@ def model_entry(built: Built, out: Path, glb: Path, merged: bool = False) -> dic
             "separate": bone.separate,
             "node_path": "/".join(chain),  # glTF node names from the root (Godot soft skins: bones of the Skeleton3D)
         }
+        rig_entry = m.rig.get(bone.name)
+        if rig_entry is not None and rig_entry.revealed:  # hidden until one of these is gone (KILN's .tscn hides it)
+            parts[bone.name]["revealed_by"] = list(rig_entry.revealed)
         own_mesh = (built.skin != "soft" and not merged) or bone.separate
         if m.node_prefix and own_mesh and (face_bone == i).any():  # the part's mesh node, a child of its node
             parts[bone.name]["mesh_node"] = f"{'/'.join(chain)}/{m.node_prefix}{bone.name}"
@@ -339,17 +342,18 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             scene = out / "models" / f"{name}.tscn"
             models_dir = out / "models"
             rim = {"rim_texture": res_path(models_dir / atlas_files[""]["rim"], godot_root)} if "rim" in atlas_files.get("", {}) else {}
-            write(scene, model_scene(name, res_path(glb, godot_root), style, None, rim if atlas else None).encode())
+            revealed = [f"{model.node_prefix}{pid}" for pid, e in sorted(model.rig.items()) if e.revealed]
+            write(scene, model_scene(name, res_path(glb, godot_root), style, None, rim if atlas else None, revealed).encode())
             entry["godot_scene"] = res_path(scene, godot_root)
             recolourable = project.config.variant_glbs or not project.config.vertex_colors  # vertex colours: swap table only
             for vname, swap in sorted(model.variants.items()) if recolourable else ():  # a scene per variant: its glb, or the base recoloured
                 vscene = out / "models" / f"{name}.{vname}.tscn"
                 if atlas is not None:  # the base glb with the variant's textures
                     textures = {**rim, **{k: res_path(models_dir / v, godot_root) for k, v in atlas_files[vname].items()}}
-                    write(vscene, model_scene(name, res_path(glb, godot_root), style, swap, textures).encode())
+                    write(vscene, model_scene(name, res_path(glb, godot_root), style, swap, textures, revealed).encode())
                 else:
                     vglb = out / variants[vname]["glb"] if "glb" in variants[vname] else glb
-                    write(vscene, model_scene(name, res_path(vglb, godot_root), style, None if "glb" in variants[vname] else swap).encode())
+                    write(vscene, model_scene(name, res_path(vglb, godot_root), style, None if "glb" in variants[vname] else swap, None, revealed).encode())
                 variants[vname]["godot_scene"] = res_path(vscene, godot_root)
             entry["glb_res"] = res_path(glb, godot_root)
         styles_used[style.name] = style
