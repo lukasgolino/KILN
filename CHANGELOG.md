@@ -16,6 +16,13 @@ before 1.0).
 
 ### Fixed
 
+- Hard-surface CSG cracked (E013) where near-coplanar facets of several parts meet (a faceted skull, jaw and hair):
+  each union, cut and intersect built its BSP trees from only the polygons near the other solid. The trees are now
+  built from whole solids; only the nearby polygons are clipped (#2).
+- Soft parts blended at one spot (a straw tuft of capsules) bulge out of their boxes by up to a quarter of the blend
+  per join; where that left the sampling grid, the mesh had a hole (E013). The grid grows on any side the surface
+  reaches (#11).
+- E013 lists each crack with its place and parts (up to five), not one centroid of all of them (#10).
 - Hard `lathe` parts take `shell:`, and `open: -y`/`+y` on a lathe cuts just its end wall (the profile sits anywhere
   on its axis; before, it cut at local y = 0): hollow hard helmets with a visible rim (#1). Hard parts no longer get
   W102 (thinner than the mesh resolution): they're exact polygons.

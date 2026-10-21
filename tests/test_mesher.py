@@ -145,3 +145,16 @@ def test_decimate_regions_keeps_borders_and_stays_closed() -> None:
     a = {tuple(np.round(p, 9)) for p in out.vertices[np.unique(out.faces[out_region == 1])]}
     b = {tuple(np.round(p, 9)) for p in out.vertices[np.unique(out.faces[out_region == 0])]}
     assert a & b and len(a & b) < len(border_full)  # thinned out, but present
+
+
+def test_grid_grows_where_blends_bulge_out_of_the_boxes() -> None:
+    # a straw tuft: seven capsules blended at one hub; the smooth unions bulge below every part's box, out of the
+    # sampling grid, and dual contouring left a hole in the bottom (E013, #11)
+    ends = [(0.121, 0.205, -0.433), (-0.448, 0.065, 0.042), (0.45, 0.166, 0.001), (-0.442, 0.19, 0.084), (-0.314, 0.193, 0.322),
+            (-0.064, 0.2, 0.445), (-0.057, 0.104, -0.446)]  # fmt: skip
+    parts = [Geometry("capsule", {**SHAPES["capsule"].defaults, "from": (0, 0.05, 0), "to": e, "radius": 0.035, "radius_to": 0.02}, blend=0.03)
+             for e in ends]  # fmt: skip
+    f = Field(parts, margin=0.06)
+    step = 0.005
+    assert f.distance(np.array([[0.0, f.bounds()[0][1] - 2.5 * step, 0.0]]))[0] < 0  # the surface is below the old grid
+    check_closed_outward(dual_contour(f, step))

@@ -97,6 +97,14 @@ def test_e013_reports_cracks(project: Project) -> None:
     cracked = replace(built, painted=replace(p, faces=p.faces[1:], face_group=p.face_group[1:], face_decal=p.face_decal[1:]))
     found = [f for f in geometry_warnings(cracked, {}, project) if f.rule == "E013"]
     assert found and found[0].severity == "error" and "3 open edges" in found[0].message
+    # #10: each crack on its own, with where it is and what it's on
+    far = int(np.argmax(p.vertices[p.faces].mean(axis=1)[:, 1]))  # a face at the top, away from face 0
+    keep = np.setdiff1d(np.arange(len(p.faces)), [0, far])
+    two = replace(built, painted=replace(p, faces=p.faces[keep], face_group=p.face_group[keep], face_decal=p.face_decal[keep]))
+    message = [f for f in geometry_warnings(two, {}, project) if f.rule == "E013"][0].message
+    assert "6 open edges (cracks) in 2 place(s): 3 at [" in message and message.count("on red (root)") == 2
+    top = p.vertices[p.faces[far]].mean(axis=0)  # a missing triangle's crack is centred on it
+    assert f"[{top[0]:.3f}, {top[1]:.3f}, {top[2]:.3f}]" in message
 
 
 def test_detach_preview(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:

@@ -232,6 +232,21 @@ def _overlaps(box: tuple[Array, Array], poly: Polygon) -> bool:
                 or min(zs) > hi[2] + EPS or max(zs) < lo[2] - EPS)  # fmt: skip
 
 
+def _flip(polys: list[Polygon]) -> list[Polygon]:
+    return [p.flipped() for p in polys]
+
+
+def _inverted_tree(polys: Solid) -> _Node:
+    t = _tree(polys)
+    t.invert()
+    return t
+
+
+# The operations follow csg.js (clipTo, invert, build) with each side's tree built from its whole solid: a tree of
+# only some of a solid's polygons classifies points by planes that no longer close it, which drops or keeps the
+# wrong pieces (cracks). Only the polygons near the other solid are clipped: the rest can't touch it.
+
+
 def union(a: Solid, b: Solid) -> Solid:
     if not a or not b:
         return a + b
@@ -241,13 +256,11 @@ def union(a: Solid, b: Solid) -> Solid:
     if not near_a or not near_b:
         return a + b
     far = [p for p in a if not _overlaps(box_b, p)] + [p for p in b if not _overlaps(box_a, p)]
-    ta, tb = _tree(near_a), _tree(near_b)
-    ta.clip_to(tb)
-    tb.clip_to(ta)
-    tb.invert()
-    tb.clip_to(ta)
-    tb.invert()
-    return far + ta.all_polygons() + tb.all_polygons()
+    ta, tb = _tree(a), _tree(b)
+    kept_a = tb.clip_polygons(near_a)  # a.clipTo(b)
+    kept_b = ta.clip_polygons(near_b)  # b.clipTo(a)
+    kept_b = _flip(ta.clip_polygons(_flip(kept_b)))  # b.invert(); b.clipTo(a); b.invert(): coplanar faces once
+    return far + kept_a + kept_b
 
 
 def subtract(a: Solid, b: Solid) -> Solid:
@@ -259,34 +272,27 @@ def subtract(a: Solid, b: Solid) -> Solid:
     if not near_a or not near_b:
         return a
     far = [p for p in a if not _overlaps(box_b, p)]
-    ta, tb = _tree(near_a), _tree(b)
-    ta.invert()
-    ta.clip_to(tb)
-    tb.clip_to(ta)
-    tb.invert()
-    tb.clip_to(ta)
-    tb.invert()
-    ta.build(tb.all_polygons())
-    ta.invert()
-    return far + ta.all_polygons()
+    ta_inv, tb = _inverted_tree(a), _tree(b)
+    kept_a = tb.clip_polygons(_flip(near_a))  # a.invert(); a.clipTo(b)
+    kept_b = ta_inv.clip_polygons(near_b)  # b.clipTo(a)
+    kept_b = _flip(ta_inv.clip_polygons(_flip(kept_b)))  # b.invert(); b.clipTo(a); b.invert()
+    return far + _flip(kept_a + kept_b)  # a.build(b.allPolygons()); a.invert()
 
 
 def intersect(a: Solid, b: Solid) -> Solid:
     if not a or not b:
         return []
-    box_b = _box(b)
+    box_b, box_a = _box(b), _box(a)
     near_a = [p for p in a if _overlaps(box_b, p)]
-    if not near_a:
+    near_b = [p for p in b if _overlaps(box_a, p)]
+    if not near_a or not near_b:
         return []
-    ta, tb = _tree(near_a), _tree(b)
-    ta.invert()
-    tb.clip_to(ta)
-    tb.invert()
-    ta.clip_to(tb)
-    tb.clip_to(ta)
-    ta.build(tb.all_polygons())
-    ta.invert()
-    return ta.all_polygons()
+    ta_inv, tb_inv = _inverted_tree(a), _inverted_tree(b)
+    kept_b = ta_inv.clip_polygons(near_b)  # a.invert(); b.clipTo(a)
+    kept_b = _flip(kept_b)  # b.invert()
+    kept_a = tb_inv.clip_polygons(_flip(near_a))  # a.clipTo(b)
+    kept_b = ta_inv.clip_polygons(kept_b)  # b.clipTo(a)
+    return _flip(kept_a + kept_b)  # a.build(b.allPolygons()); a.invert()
 
 
 # --- convex shapes from planes (with bevels) -----------------------------------------------------------------

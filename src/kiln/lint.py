@@ -18,7 +18,7 @@ import numpy as np
 
 from kiln.builder import build_cached, cached, field_of, hard_parts, kept_parts
 from kiln.export import Built
-from kiln.mesher import open_edges
+from kiln.mesher import crack_groups, open_edges
 from kiln.notation import Model
 from kiln.project import Project
 from kiln.sdf import Array, part_thickness
@@ -61,6 +61,9 @@ class LintResult:
         return [f for f in self.findings if f.severity == "warning"]
 
 
+CRACKS_SHOWN = 5  # E013 lists this many cracks
+
+
 def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -> list[Finding]:
     m = built.model
     out: list[Finding] = []
@@ -72,11 +75,16 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         cracks = open_edges(built.painted.vertices, built.painted.faces)
         if len(cracks):
             p = built.painted
-            centre = p.vertices[cracks].reshape(-1, 3).mean(axis=0)
-            on = np.isin(p.faces, cracks).any(axis=1)
-            names = sorted({f"{p.groups[g].color_name.split('#')[0]} ({p.groups[g].bone})" for g in np.unique(p.face_group[on])})
-            warn("E013", f"the mesh has {len(cracks)} open edges (cracks) around [{centre[0]:.2f}, {centre[1]:.2f}, {centre[2]:.2f}] "
-                 f"on {', '.join(names[:4])}: a KILN bug, please report it with the model; meanwhile moving the parts there a little usually helps")  # fmt: skip
+            places = []
+            groups = crack_groups(cracks)
+            for g in groups[:CRACKS_SHOWN]:
+                centre = p.vertices[cracks[g]].reshape(-1, 3).mean(axis=0)
+                on = np.isin(p.faces, np.unique(cracks[g])).sum(axis=1) >= 2  # faces along this crack
+                names = sorted({f"{p.groups[k].color_name.split('#')[0]} ({p.groups[k].bone})" for k in np.unique(p.face_group[on])})
+                places.append(f"{len(g)} at [{centre[0]:.3f}, {centre[1]:.3f}, {centre[2]:.3f}] on {', '.join(names[:3])}")
+            more = f"; and {len(groups) - CRACKS_SHOWN} more" if len(groups) > CRACKS_SHOWN else ""
+            warn("E013", f"the mesh has {len(cracks)} open edges (cracks) in {len(groups)} place(s): {'; '.join(places)}{more}: a KILN bug, "
+                 "please report it with the model; meanwhile moving the parts there a little usually helps")  # fmt: skip
         for i in built.hidden:
             part = m.parts[i]
             warn("W101", f"part {part.index} ({part.geometry.shape}, {part.color_name}) has no visible surface: later parts cover it or a "

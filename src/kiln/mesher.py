@@ -68,6 +68,10 @@ def sample(field: Field, lo: Array, step: float, dims: tuple[int, int, int]) -> 
     return values
 
 
+GROW = 8  # cells added to a side of the grid the surface reaches
+GROW_TRIES = 6
+
+
 def model_step(field: Field, resolution: float) -> float:
     """Grid step for a model: the style's resolution for a ~1 m model, coarser (by the square root of the size)
     for bigger ones, and never more than MAX_CELLS cells across."""
@@ -76,12 +80,31 @@ def model_step(field: Field, resolution: float) -> float:
     return grid_step(size, resolution * max(size, 1.0) ** 0.5)
 
 
-def dual_contour(field: Field, step: float) -> Mesh:
+def _grid(field: Field, step: float) -> tuple[Array, tuple[int, int, int], Array]:
+    """The sampling grid's corner, size and values: the parts' boxes plus a margin, grown on any side the surface
+    reaches (smooth unions bulge out of their parts' boxes, by up to a quarter of the blend radius per join)."""
     lo, hi = field.bounds()
-    lo = lo - 2.5 * step
-    dims = tuple(int(math.ceil(v)) + 1 for v in ((hi + 2.5 * step - lo) / step))
+    pad_lo, pad_hi = np.full(3, 2.5 * step), np.full(3, 2.5 * step)
+    for _ in range(GROW_TRIES):
+        corner = lo - pad_lo
+        dims = tuple(int(math.ceil(v)) + 1 for v in ((hi + pad_hi - corner) / step))
+        values = sample(field, corner, step, dims)  # type: ignore[arg-type]
+        grown = False
+        for axis in range(3):
+            if (values.take([0, 1], axis=axis) < 0).any():
+                pad_lo[axis] += GROW * step
+                grown = True
+            if (values.take([-2, -1], axis=axis) < 0).any():
+                pad_hi[axis] += GROW * step
+                grown = True
+        if not grown:
+            break
+    return corner, dims, values  # type: ignore[return-value]
+
+
+def dual_contour(field: Field, step: float) -> Mesh:
+    lo, dims, values = _grid(field, step)
     nx, ny, nz = dims
-    values = sample(field, lo, step, dims)  # type: ignore[arg-type]
     inside = values < 0
     cell_dims = (nx - 1, ny - 1, nz - 1)
 
@@ -449,6 +472,26 @@ def open_edges(vertices: Array, faces: Array) -> Array:
     fwd = e[:, 0] * len(vertices) + e[:, 1]
     rev = e[:, 1] * len(vertices) + e[:, 0]
     return np.asarray(e[~np.isin(fwd, rev)])
+
+
+def crack_groups(edges: Array) -> list[Array]:
+    """Open edges (from `open_edges`) grouped into connected cracks, biggest first (ties: lowest vertex first)."""
+    parent: dict[int, int] = {}
+
+    def find(i: int) -> int:
+        parent.setdefault(i, i)
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a, b in edges.tolist():
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+    roots = np.array([find(int(a)) for a in edges[:, 0]], dtype=np.int64) if len(edges) else np.zeros(0, np.int64)
+    groups = [np.flatnonzero(roots == r) for r in np.unique(roots)]
+    return sorted(groups, key=lambda g: (-len(g), int(edges[g].min())))
 
 
 def remove_unused(mesh: Mesh) -> Mesh:

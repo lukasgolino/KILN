@@ -205,3 +205,24 @@ parts:
     assert inner.min() == pytest.approx(0.142 - 0.012, abs=0.005)  # the rim: an inside wall at the open end
     palette, _ = project.palette(built.model.palette)
     assert not [f for f in geometry_warnings(built, palette, project) if f.rule == "W102"]  # exact polygons: no resolution
+
+
+def test_union_of_near_coplanar_facets_stays_closed() -> None:
+    # #2: a faceted skull, a jaw box and faceted hair cracked open (8 open edges at the back of the head): each
+    # union's BSP trees were built from only the polygons near the other solid, which classify points wrongly
+    from kiln.hard import to_mesh as mesh
+
+    parts = [Geometry("ellipsoid", {"radii": (0.088, 0.108, 0.102), "sides": 8}, at=np.array([0, 1.73, -0.008])),
+             Geometry("box", {"size": (0.142, 0.1, 0.15), "round": 0.0}, at=np.array([0, 1.625, 0.02])),
+             Geometry("ellipsoid", {"radii": (0.092, 0.09, 0.098), "sides": 8}, at=np.array([0, 1.76, -0.025]))]  # fmt: skip
+    acc: list = []  # type: ignore[type-arg]
+    for k, g in enumerate(parts):
+        acc = union(acc, solid(g, HardSpec(8, 0.0, 1), k))
+    m = mesh(acc)
+    assert len(open_edges(m.vertices, m.faces)) == 0 and closed_faces(m.faces)
+    cut = subtract(acc, solid(Geometry("box", {"size": (0.3, 0.05, 0.3), "round": 0.0}, at=np.array([0, 1.76, -0.025])), HardSpec(), 9))
+    m = mesh(cut)
+    assert len(open_edges(m.vertices, m.faces)) == 0
+    kept = intersect(acc, solid(Geometry("sphere", {"radius": 0.1, "sides": 8}, at=np.array([0, 1.7, 0])), HardSpec(8, 0.0, 1), 9))
+    m = mesh(kept)
+    assert len(open_edges(m.vertices, m.faces)) == 0 and len(m.faces)
