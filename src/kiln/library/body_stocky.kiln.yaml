@@ -1,0 +1,98 @@
+name: body_stocky
+description: a stocky humanoid body (standard joints) in a tunic over trousers, belt, gloves and boots; extend with a head
+template: true
+palette: people
+class: character
+skeleton: humanoid
+skin: soft
+budget: 14000
+rig:
+  hips: {pivot: [0, 0.86, 0]}
+  spine: {pivot: [0, 0.98, 0]}
+  chest: {pivot: [0, 1.16, 0]}
+  upperarm_l: {pivot: [0.21, 1.35, 0]}
+  lowerarm_l: {pivot: [0.3, 1.1, 0]}
+  hand_l: {pivot: [0.345, 0.87, 0.01], sockets: {grip: [0.36, 0.8, 0.07]}}
+  upperleg_l: {pivot: [0.11, 0.84, 0]}
+  lowerleg_l: {pivot: [0.12, 0.48, 0]}
+  foot_l: {pivot: [0.12, 0.12, 0]}
+  head: {pivot: [0, 1.42, 0]}
+parts:
+  - capsule: {from: [0.11, 0.84, 0], to: [0.12, 0.48, 0], radius: 0.08}
+    id: upperleg_l
+    color: cloth_brown
+    material: fabric
+    blend: 0.04
+    mirror: x
+    mirror_id: upperleg_r
+  - capsule: {from: [0.12, 0.48, 0], to: [0.12, 0.16, 0], radius: 0.066}
+    id: lowerleg_l
+    color: cloth_brown
+    material: fabric
+    blend: 0.03
+    mirror: x
+    mirror_id: lowerleg_r
+  - capsule: {from: [0.12, 0.34, 0], to: [0.12, 0.12, 0.01], radius: 0.076}
+    id: lowerleg_l
+    color: leather_dark
+    material: leather
+    mirror: x
+    mirror_id: lowerleg_r
+  - box: {at: [0.12, 0.05, 0.05], size: [0.13, 0.1, 0.25], round: 0.045}
+    id: foot_l
+    color: leather_dark
+    material: leather
+    blend: 0.03
+    mirror: x
+    mirror_id: foot_r
+  - capsule: {from: [0, 0.94, 0], to: [0, 1.1, 0], radius: 0.19}
+    id: spine
+    color: cloth_red
+    material: fabric
+    blend: 0.04
+  - cone: {at: [0, 0.78, 0], radius: 0.23320000000000002, radius_top: 0.19, height: 0.22}
+    id: hips
+    color: cloth_red
+    material: fabric
+    blend: 0.02
+  - capsule: {from: [0, 1.14, 0], to: [0, 1.19, 0], radius: 0.2}
+    id: chest
+    color: cloth_red
+    material: fabric
+    blend: 0.05
+  - torus: {at: [0, 1.385, 0], radius: 0.085, thickness: 0.03}
+    id: chest
+    color: cloth_linen
+    material: fabric
+    blend: 0.02
+  - band: {fit: spine, at: [0, 0.97, 0], width: 0.07, thickness: 0.014}
+    id: spine
+    color: leather
+    material: leather
+  - box: {at: [0, 0.97, 0.21], size: [0.08, 0.07, 0.03]}
+    id: spine
+    color: gold
+    material: gold
+    chamfer: 0.008
+    hard: true
+  - capsule: {from: [0.21, 1.35, 0], to: [0.3, 1.1, 0], radius: 0.07}
+    id: upperarm_l
+    color: cloth_red
+    material: fabric
+    blend: 0.04
+    mirror: x
+    mirror_id: upperarm_r
+  - capsule: {from: [0.3, 1.1, 0], to: [0.345, 0.88, 0.01], radius: 0.057}
+    id: lowerarm_l
+    color: cloth_linen
+    material: fabric
+    blend: 0.03
+    mirror: x
+    mirror_id: lowerarm_r
+  - sphere: {at: [0.355, 0.8, 0.02], radius: 0.062}
+    id: hand_l
+    color: leather_dark
+    material: leather
+    blend: 0.03
+    mirror: x
+    mirror_id: hand_r

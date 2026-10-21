@@ -1,0 +1,50 @@
+name: head_old
+description: 'an old face: bald, grey fringe, big nose, moustache'
+template: true
+palette: people
+parts:
+  - ellipsoid: {at: [0, 1.63, 0], radii: [0.19, 0.21, 0.19]}
+    id: head
+    color: skin_mid
+    material: skin
+    blend: 0.04
+  - ellipsoid: {at: [0, 1.535, 0.04], radii: [0.15, 0.1, 0.14]}
+    id: head
+    color: skin_mid
+    material: skin
+    blend: 0.07
+  - ellipsoid: {at: [0, 1.6, 0.185], radii: [0.048, 0.0675, 0.06]}
+    id: head
+    color: skin_mid
+    material: skin
+    blend: 0.02
+  - ellipsoid: {at: [0.185, 1.61, 0], radii: [0.03, 0.05, 0.035]}
+    id: head
+    color: skin_mid
+    material: skin
+    blend: 0.02
+    mirror: x
+  - ellipsoid: {at: [0.065, 1.645, 0.165], radii: [0.026, 0.034, 0.02]}
+    id: head
+    color: eye
+    material: default
+    mirror: x
+  - capsule: {from: [0.035, 1.7, 0.172], to: [0.1, 1.705, 0.16], radius: 0.016}
+    id: head
+    color: hair_grey
+    material: default
+    mirror: x
+  - capsule: {from: [-0.04, 1.525, 0.168], to: [0.04, 1.525, 0.168], radius: 0.012}
+    id: head
+    color: lip
+    material: default
+  - torus: {at: [0, 1.6, -0.03], radius: 0.17, thickness: 0.045, rotate: [-12, 0, 0]}
+    id: head
+    color: hair_grey
+    material: default
+    blend: 0.02
+  - capsule: {from: [0.0, 1.56, 0.19], to: [0.07, 1.54, 0.17], radius: 0.018}
+    id: head
+    color: hair_grey
+    material: default
+    mirror: x

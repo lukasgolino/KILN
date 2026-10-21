@@ -57,6 +57,8 @@ Write the answers into BRIEF.md and STYLE.md.
    balanced. Then `--closeup <part>` for anything seen up close (faces, hands, hit zones), and `--detach` when the
    model has detachable (`separate`) parts: each one off, and what's under it. Iterate until it's right.
    You will misjudge proportions without looking: always look.
+   For people, start from the template library (`kiln library`; `extends: [body_..., head_..., helmet_..., armour_...]`)
+   and add or override parts, instead of building bodies and faces from scratch.
 6. **Fit with the rest:** `kiln lineup` (same scale, one ground line, a 1 m bar) and `kiln preview <name> --vs`
    (beside the inspiration images). Does it look like it belongs in the same game?
 7. **Report** to the owner with the preview images. When they approve: `kiln mark <name> --approved`, tick it in

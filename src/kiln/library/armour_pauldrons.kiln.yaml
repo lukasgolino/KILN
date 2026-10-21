@@ -1,0 +1,15 @@
+name: armour_pauldrons
+description: steel shoulder plates
+template: true
+palette: people
+rig:
+  pauldron_l: {parent: upperarm_l}
+parts:
+  - sphere: {at: [0.24, 1.28, 0], radius: 0.15}
+    id: pauldron_l
+    color: steel
+    material: metal
+    shell: {thickness: 0.045, open: -y}
+    fit: {to: [upperarm_l, chest], gap: 0.025}
+    mirror: x
+    mirror_id: pauldron_r

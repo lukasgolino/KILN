@@ -1,0 +1,13 @@
+name: armour_breastplate
+description: a steel breastplate over the chest and belly
+template: true
+palette: people
+rig:
+  breastplate: {parent: chest}
+parts:
+  - ellipsoid: {at: [0, 0.98, 0.04], radii: [0.32, 0.5, 0.32]}
+    id: breastplate
+    color: steel
+    material: metal
+    shell: {thickness: 0.045, open: -y}
+    fit: {to: [chest, spine, upperarm_l, upperarm_r], gap: 0.025}

@@ -1,0 +1,15 @@
+name: armour_gauntlets
+description: steel gauntlets over the hands and wrists
+template: true
+palette: people
+rig:
+  gauntlet_l: {parent: hand_l}
+parts:
+  - sphere: {at: [0.35, 0.84, 0.02], radius: 0.12}
+    id: gauntlet_l
+    color: steel
+    material: metal
+    shell: {thickness: 0.045, open: -y}
+    fit: {to: [hand_l, lowerarm_l], gap: 0.025}
+    mirror: x
+    mirror_id: gauntlet_r

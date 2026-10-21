@@ -1,0 +1,27 @@
+name: people
+# KILN's template library colours (heads, bodies, helmets, armour). A project overrides a model's look with variants,
+# or copies this file into palettes/ and edits it.
+colors:
+  "0": { hex: "#1b1a1f", name: eye }
+  "1": { hex: "#f4f1ea", name: white }
+  "2": { hex: "#f2c3a0", name: skin_light }
+  "3": { hex: "#d99a6c", name: skin_mid }
+  "4": { hex: "#8d5a3b", name: skin_dark }
+  "5": { hex: "#b5503f", name: lip }
+  "6": { hex: "#e3c26a", name: hair_blond }
+  "7": { hex: "#6b4228", name: hair_brown }
+  "8": { hex: "#2a2220", name: hair_black }
+  "9": { hex: "#b9b4ad", name: hair_grey }
+  "a": { hex: "#b5532e", name: hair_red }
+  "b": { hex: "#b8342c", name: cloth_red }
+  "c": { hex: "#2f5ea8", name: cloth_blue }
+  "d": { hex: "#3f7a3a", name: cloth_green }
+  "e": { hex: "#8a6a45", name: cloth_brown }
+  "f": { hex: "#6e6f78", name: cloth_grey }
+  "g": { hex: "#e6dcc3", name: cloth_linen }
+  "h": { hex: "#7a4b2a", name: leather }
+  "i": { hex: "#4a3020", name: leather_dark }
+  "j": { hex: "#a9b2bf", name: steel }
+  "k": { hex: "#5a5f69", name: iron }
+  "l": { hex: "#d9a93c", name: gold }
+  "m": { hex: "#9c6b3f", name: wood }

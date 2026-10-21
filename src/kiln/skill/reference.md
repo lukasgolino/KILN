@@ -236,6 +236,28 @@ skin: soft
   empty child node `<id>_<name>` that moves with the part (Godot: a Node3D under a BoneAttachment3D on soft skins), and
   the manifest gives its position and its offset from the pivot. Mirrored twins get mirrored sockets.
 
+## Template library
+
+`kiln library` lists KILN's own templates: bodies (`body_slim`, `body_stocky`, `body_big`: standard joints, layered
+clothes, gloves, boots, a `grip` socket per hand), heads (`head_young`, `head_old`, `head_bearded`, `head_stern`,
+`head_goofy`, `head_female`), helmets (`helmet_kettle`, `helmet_nasal`, `helmet_barbute`, `helmet_great`,
+`helmet_sallet`, `helmet_crown`: detachable, fitted to whatever head they go on) and armour (`armour_breastplate`,
+`armour_pauldrons`, `armour_gauntlets`, `armour_cape`, `armour_hood`: shells fitted to the body). Combine them:
+
+```yaml
+name: sergeant
+class: character
+extends: [body_stocky, head_bearded, helmet_nasal, armour_cape]   # in order; a project template of the same name wins
+variants: { blue: { swap: { cloth_red: cloth_blue } } }
+animations:
+  walk: { import: imports/Rig_Medium_MovementBasic.glb, clip: Walking_A }
+```
+
+or `kiln new model sergeant --extends body_stocky,head_bearded,helmet_nasal,armour_cape`. Their colours are the
+library palette `people` (found without copying; copy it into palettes/ to change it). `extends` takes a list (bases
+combine in order); `cut: <id>` cuts only that id (a helmet's face opening, not the face); `fit: { to: [ids] }` wraps
+several parts. Fitted shells are their own meshes.
+
 ## Humanoids and clip libraries
 
 `skeleton: humanoid` names a character's parts after the standard joints: `hips`, `spine`, `chest`, `head`,

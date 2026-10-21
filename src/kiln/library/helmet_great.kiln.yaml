@@ -1,0 +1,29 @@
+name: helmet_great
+description: 'a great helm: a flat-topped steel pot with an eye slit and breaths'
+template: true
+palette: people
+rig:
+  helmet: {parent: head, separate: true, meta: {detachable: true}}
+parts:
+  - cylinder: {at: [0, 1.42, 0], radius: 0.26, height: 0.84, sides: 16}
+    id: helmet
+    color: steel
+    material: metal
+    hard: true
+    shell: {thickness: 0.025, open: -y}
+  - box: {at: [0, 1.65, 0.2], size: [0.3, 0.035, 0.2]}
+    cut: helmet
+  - cylinder: {at: [0.09, 1.55, 0.25], radius: 0.012, height: 0.1, rotate: [90, 0, 0]}
+    cut: helmet
+    array: {count: 3, step: [0, -0.05, 0]}
+    mirror: x
+  - box: {at: [0, 1.6, 0.255], size: [0.03, 0.26, 0.02]}
+    id: helmet
+    color: gold
+    material: gold
+    hard: true
+  - box: {at: [0, 1.7, 0.255], size: [0.26, 0.03, 0.02]}
+    id: helmet
+    color: gold
+    material: gold
+    hard: true

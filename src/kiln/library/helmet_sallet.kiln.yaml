@@ -1,0 +1,21 @@
+name: helmet_sallet
+description: 'a sallet: a rounded dome with a flared tail and an eye slit'
+template: true
+palette: people
+rig:
+  helmet: {parent: head, separate: true, meta: {detachable: true}}
+parts:
+  - sphere: {at: [0, 1.6, -0.03], radius: 0.38}
+    id: helmet
+    color: steel
+    material: metal
+    shell: {thickness: 0.03, open: -y}
+    fit: {to: head, gap: 0.018}
+  - box: {at: [0, 1.645, 0.22], size: [0.3, 0.04, 0.2]}
+    cut: helmet
+  - box: {at: [0, 1.55, -0.24], size: [0.36, 0.025, 0.2], rotate: [-30, 0, 0]}
+    id: helmet
+    color: steel
+    material: metal
+    chamfer: 0.006
+    hard: true

@@ -1,0 +1,60 @@
+name: head_goofy
+description: 'a goofy face: big round eyes, big nose, a blond tuft'
+template: true
+palette: people
+parts:
+  - ellipsoid: {at: [0, 1.63, 0], radii: [0.19, 0.21, 0.19]}
+    id: head
+    color: skin_light
+    material: skin
+    blend: 0.04
+  - ellipsoid: {at: [0, 1.535, 0.04], radii: [0.15, 0.1, 0.14]}
+    id: head
+    color: skin_light
+    material: skin
+    blend: 0.07
+  - ellipsoid: {at: [0, 1.6, 0.185], radii: [0.0512, 0.072, 0.064]}
+    id: head
+    color: skin_light
+    material: skin
+    blend: 0.02
+  - ellipsoid: {at: [0.185, 1.61, 0], radii: [0.03, 0.05, 0.035]}
+    id: head
+    color: skin_light
+    material: skin
+    blend: 0.02
+    mirror: x
+  - sphere: {at: [0.07, 1.645, 0.155], radius: 0.04571428571428572}
+    id: head
+    color: white
+    material: default
+    mirror: x
+  - sphere: {at: [0.07, 1.645, 0.18928571428571428], radius: 0.020571428571428574}
+    id: head
+    color: eye
+    material: default
+    mirror: x
+  - capsule: {from: [0.035, 1.7, 0.172], to: [0.1, 1.705, 0.16], radius: 0.012}
+    id: head
+    color: hair_blond
+    material: default
+    mirror: x
+  - capsule: {from: [-0.04, 1.525, 0.168], to: [0.04, 1.525, 0.168], radius: 0.012}
+    id: head
+    color: lip
+    material: default
+  - ellipsoid: {at: [0, 1.67, -0.03], radii: [0.2, 0.185, 0.2]}
+    id: head
+    color: hair_blond
+    material: default
+    blend: 0.01
+  - cone: {at: [0.0, 1.87, 0.02], radius: 0.07, radius_top: 0.0, height: 0.12, rotate: [0, 0, 15]}
+    id: head
+    color: hair_blond
+    material: default
+    blend: 0.03
+  - cone: {at: [0.06, 1.85, 0.06], radius: 0.05, radius_top: 0.0, height: 0.1, rotate: [0, 0, -25]}
+    id: head
+    color: hair_blond
+    material: default
+    blend: 0.03

@@ -1,0 +1,17 @@
+name: helmet_barbute
+description: 'a barbute: down to the jaw with a T-shaped face opening'
+template: true
+palette: people
+rig:
+  helmet: {parent: head, separate: true, meta: {detachable: true}}
+parts:
+  - sphere: {at: [0, 1.47, -0.02], radius: 0.48}
+    id: helmet
+    color: steel
+    material: metal
+    shell: {thickness: 0.03, open: -y}
+    fit: {to: head, gap: 0.018}
+  - box: {at: [0, 1.645, 0.2], size: [0.24, 0.055, 0.25]}
+    cut: helmet
+  - box: {at: [0, 1.55, 0.2], size: [0.1, 0.15, 0.25]}
+    cut: helmet

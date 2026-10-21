@@ -1,0 +1,50 @@
+name: head_stern
+description: 'a stern face: square jaw, angled brows, black hair'
+template: true
+palette: people
+parts:
+  - ellipsoid: {at: [0, 1.63, 0], radii: [0.19, 0.21, 0.19]}
+    id: head
+    color: skin_dark
+    material: skin
+    blend: 0.04
+  - ellipsoid: {at: [0, 1.535, 0.04], radii: [0.18, 0.1, 0.14]}
+    id: head
+    color: skin_dark
+    material: skin
+    blend: 0.07
+  - ellipsoid: {at: [0, 1.6, 0.185], radii: [0.032, 0.045, 0.04]}
+    id: head
+    color: skin_dark
+    material: skin
+    blend: 0.02
+  - ellipsoid: {at: [0.185, 1.61, 0], radii: [0.03, 0.05, 0.035]}
+    id: head
+    color: skin_dark
+    material: skin
+    blend: 0.02
+    mirror: x
+  - ellipsoid: {at: [0.065, 1.645, 0.165], radii: [0.026, 0.034, 0.02]}
+    id: head
+    color: eye
+    material: default
+    mirror: x
+  - capsule: {from: [0.035, 1.72, 0.172], to: [0.1, 1.685, 0.16], radius: 0.012}
+    id: head
+    color: hair_black
+    material: default
+    mirror: x
+  - capsule: {from: [-0.04, 1.525, 0.168], to: [0.04, 1.525, 0.168], radius: 0.012}
+    id: head
+    color: eye
+    material: default
+  - ellipsoid: {at: [0, 1.67, -0.03], radii: [0.2, 0.185, 0.2]}
+    id: head
+    color: hair_black
+    material: default
+    blend: 0.01
+  - ellipsoid: {at: [0.04, 1.77, 0.12], radii: [0.12, 0.06, 0.08]}
+    id: head
+    color: hair_black
+    material: default
+    blend: 0.02

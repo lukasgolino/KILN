@@ -24,6 +24,11 @@ before 1.0).
 - Attachments for CC0 characters (M6): `fit_to: { file, bone, meshes }` and `fit: { to: target, gap }` wrap a shell
   around the character's own mesh (an exact distance to its triangles); the glb is exported in the bone's space,
   manifest `attach`; W113 when it sinks into the character; `kiln preview --fit`.
+- Template library (M4): 3 bodies, 6 heads, 6 helmets and 5 armour pieces in the package (`kiln library`, preview in
+  docs/templates.png), combined with `extends: [a, b, ...]` (a list; project templates of the same name win) or
+  `kiln new model <name> --extends a,b,c`; library palette `people`. `cut: <id>` cuts only that id; `fit` takes a list
+  of ids; fitted shells are their own mesh pieces; templates may be partial (rig and fit names another template
+  brings).
 
 ### Fixed
 

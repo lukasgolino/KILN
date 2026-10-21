@@ -1,0 +1,24 @@
+name: helmet_nasal
+description: 'a nasal helm: a pointed dome to the brow and a nose bar'
+template: true
+palette: people
+rig:
+  helmet: {parent: head, separate: true, meta: {detachable: true}}
+parts:
+  - sphere: {at: [0, 1.66, 0], radius: 0.34}
+    id: helmet
+    color: steel
+    material: metal
+    shell: {thickness: 0.03, open: -y}
+    fit: {to: head, gap: 0.018}
+  - cone: {at: [0, 1.86, -0.01], radius: 0.12, radius_top: 0.0, height: 0.12, sides: 8}
+    id: helmet
+    color: steel
+    material: metal
+    hard: true
+  - box: {at: [0, 1.6, 0.215], size: [0.035, 0.13, 0.025]}
+    id: helmet
+    color: steel
+    material: metal
+    chamfer: 0.006
+    hard: true

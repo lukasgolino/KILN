@@ -215,7 +215,7 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
     groups, group_index, part_group = _groups(model, adding, rigged, protect)
     members = [[i for i in adding if part_group[i] == g] for g in range(len(groups))]
 
-    later = {i: [j for j in range(i + 1, len(model.parts)) if model.parts[j].geometry.op != "add"] for i in adding}
+    later = {i: [j for j in range(i + 1, len(model.parts)) if model.parts[j].geometry.op != "add" and _cuts(model, j, i)] for i in adding}
 
     def group_distances(points: Array) -> Array:
         if not len(points):
@@ -265,7 +265,7 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
                     d = field.parts[i].distance(x, filled=True)
                     for j in range(i + 1, len(model.parts)):
                         g = model.parts[j].geometry
-                        if g.op == "cut":
+                        if g.op == "cut" and _cuts(model, j, i):
                             d = np.maximum(d, -field.part_distance(j, x))
                         elif g.op == "intersect":
                             d = np.maximum(d, field.part_distance(j, x))
@@ -283,6 +283,12 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
                     groups.append(alt)
                 owner[changed & (owner == g)] = group_index[alt]
     return Regions(Mesh(vertices, faces), owner, groups, part_group, pattern_groups)
+
+
+def _cuts(model: Model, j: int, i: int) -> bool:
+    """Does part j (a cut or intersect) apply to part i?"""
+    only = model.parts[j].geometry.cut_only
+    return only is None or i in only
 
 
 def _groups(model: Model, adding: list[int], rigged: bool, protect: frozenset[int]) -> tuple[list[PaintGroup], dict[PaintGroup, int], dict[int, int]]:

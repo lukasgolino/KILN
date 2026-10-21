@@ -1,0 +1,15 @@
+name: armour_hood
+description: a cloth hood with a face opening
+template: true
+palette: people
+rig:
+  hood: {parent: head}
+parts:
+  - sphere: {at: [0, 1.48, -0.03], radius: 0.45}
+    id: hood
+    color: cloth_brown
+    material: fabric
+    shell: {thickness: 0.03, open: -y}
+    fit: {to: head, gap: 0.015}
+  - box: {at: [0, 1.6, 0.25], size: [0.26, 0.34, 0.3]}
+    cut: hood

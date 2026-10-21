@@ -114,6 +114,23 @@ def cmd_init(args: argparse.Namespace, out: Output) -> int:
     return 0
 
 
+def cmd_library(args: argparse.Namespace, out: Output) -> int:
+    """KILN's template library: bodies, heads, helmets and armour to combine with `extends: [...]`."""
+    from kiln.notation import MODEL_SUFFIX as SUFFIX
+    from kiln.notation import library_dir
+    from kiln.vendor.yamlio import parse_yaml
+
+    items = []
+    for path in sorted(library_dir().glob(f"*{SUFFIX}")):
+        data = parse_yaml(path.read_text(encoding="utf-8"))
+        name = path.name[: -len(SUFFIX)]
+        items.append({"name": name, "kind": name.split("_")[0], "description": str(data.get("description", ""))})
+        out.say(f"{name:22s} {data.get('description', '')}")
+    out.say("combine: `kiln new model <name> --extends body_stocky,head_bearded,helmet_nasal,armour_cape`")
+    out.result({"templates": items})
+    return 0
+
+
 def cmd_new(args: argparse.Namespace, out: Output) -> int:
     project = _require_project()
     name = args.name
@@ -122,7 +139,17 @@ def cmd_new(args: argparse.Namespace, out: Output) -> int:
     path = project.models_dir / f"{name}{MODEL_SUFFIX}"
     if path.exists() and not args.force:
         raise _usage(f"{display_path(path)} already exists (use --force to overwrite)", path)
-    text = Template(_template(f"model_{args.template}.kiln.yaml")).safe_substitute(name=name, description=json.dumps(args.description or ""))
+    if args.extends:  # a character from KILN's library (or the project's templates): body, head, helmet, armour
+        from kiln.notation import base_path
+
+        bases = [b.strip() for b in args.extends.split(",") if b.strip()]
+        missing = [b for b in bases if not base_path(project.models_dir, b).is_file()]
+        if missing:
+            raise _usage(f"no template {', '.join(missing)} (see `kiln library`)")
+        text = (f"name: {name}\ndescription: {json.dumps(args.description or '')}\nclass: character\nstatus: draft\n"
+                f"extends: [{', '.join(bases)}]\n# parts: add your own; remove: [ids] drops a base's parts; variants recolour\n")  # fmt: skip
+    else:
+        text = Template(_template(f"model_{args.template}.kiln.yaml")).safe_substitute(name=name, description=json.dumps(args.description or ""))
     if args.cls:
         text = re.sub(r"^class: .*$", f"class: {args.cls}", text, count=1, flags=re.M)
     text = text.replace("status: draft\n", f"status: draft\nstyle_version: {project.config.style_version}\n", 1)
@@ -635,9 +662,11 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("kind", choices=["model"])
     s.add_argument("name")
     s.add_argument("--template", choices=["bean", "prop", "empty"], default="empty")
+    s.add_argument("--extends", help="comma-separated library templates, e.g. body_stocky,head_bearded,helmet_nasal (see `kiln library`)")
     s.add_argument("--class", dest="cls")
     s.add_argument("--description")
     s.add_argument("--force", action="store_true")
+    sub.add_parser("library", parents=[common], help="KILN's templates: bodies, heads, helmets, armour")
     s = sub.add_parser("lint", parents=[common], help="check models (errors and warnings)")
     s.add_argument("paths", nargs="*")
     s.add_argument("--fast", action="store_true", help="skip geometric checks (no meshing)")
@@ -707,7 +736,7 @@ def parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_build, "preview": cmd_preview, "lineup": cmd_lineup,
             "gallery": cmd_gallery, "status": cmd_status, "mark": cmd_mark, "style": cmd_style, "config": cmd_config,
-            "import": cmd_import, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "mcp": cmd_mcp}  # fmt: skip
+            "import": cmd_import, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "mcp": cmd_mcp, "library": cmd_library}  # fmt: skip
 
 
 def main(argv: Sequence[str] | None = None) -> int:

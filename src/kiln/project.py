@@ -72,6 +72,11 @@ class Project:
             return {}, []
         if key not in self._palettes:
             path = self.palettes_dir / f"{key}{PALETTE_SUFFIX}"
+            if not path.is_file():  # KILN's library palettes (its templates' colours)
+                from kiln.notation import library_dir
+
+                lib = library_dir() / f"{key}{PALETTE_SUFFIX}"
+                path = lib if lib.is_file() else path
             if not path.is_file():
                 self._palettes[key] = ({}, [Finding("E004", f"palette {key!r} not found ({path.name} in palettes/)", self.config_path)])
             else:
@@ -119,8 +124,11 @@ def _peek(path: Path, depth: int = 0) -> tuple[str | None, str | None]:
     except (OSError, UnicodeDecodeError):
         pass
     if base and depth < 8 and (style is None or palette is None):
-        base_style, base_palette = _peek(path.parent / f"{base}{MODEL_SUFFIX}", depth + 1)
-        style, palette = style or base_style, palette or base_palette
+        from kiln.notation import base_path
+
+        for name in [n.strip().strip("'\"") for n in base.strip("[]").split(",")] if base.startswith("[") else [base]:
+            base_style, base_palette = _peek(base_path(path.parent, name), depth + 1)
+            style, palette = style or base_style, palette or base_palette
     return style, palette
 
 

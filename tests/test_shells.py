@@ -88,4 +88,4 @@ def test_fit_needs_a_shell_and_a_target(project: Project) -> None:
     base = "name: thing\nparts:\n  - sphere: { radius: 0.3 }\n    id: head\n    color: red\n  - sphere: { radius: 0.4 }\n    color: grey\n{extra}"
     assert any("fit wraps a shell" in f.message for f in errors_of(project, base.replace("{extra}", "    fit: head\n")))
     no_target = base.replace("{extra}", "    shell: { thickness: 0.02 }\n    fit: hat\n")
-    assert any("no other part has id 'hat'" in f.message for f in errors_of(project, no_target))
+    assert any("no other part has id hat" in f.message for f in errors_of(project, no_target))

@@ -1,0 +1,25 @@
+name: helmet_crown
+description: 'a crown: a gold band with points and jewels'
+template: true
+palette: people
+rig:
+  helmet: {parent: head, separate: true, meta: {detachable: true}}
+parts:
+  - cylinder: {at: [0, 1.79, 0], radius: 0.215, height: 0.2, sides: 16}
+    id: helmet
+    color: gold
+    material: gold
+    hard: true
+    shell: {thickness: 0.025, open: +y}
+  - cone: {at: [0, 1.82, 0.205], radius: 0.035, radius_top: 0.0, height: 0.08, sides: 4}
+    id: helmet
+    color: gold
+    material: gold
+    hard: true
+    array: {count: 8, around: y, center: [0, 0, 0]}
+  - sphere: {at: [0, 1.74, 0.22], radius: 0.02, sides: 6}
+    id: helmet
+    color: cloth_red
+    material: glass
+    hard: true
+    array: {count: 4, around: y, center: [0, 0, 0]}

@@ -108,7 +108,8 @@ def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int)
         if g.op == "add":
             if i in include:
                 acc = union(acc, solid(g, hard_spec(p, style, level), i))
-        elif acc and g.shape in HARD_SHAPES and not g.twist and g.noise is None and not (g.shell and g.shape not in SHELL_SHAPES):
+        elif acc and g.shape in HARD_SHAPES and not g.twist and g.noise is None and not (g.shell and g.shape not in SHELL_SHAPES) \
+                and (g.cut_only is None or bool(g.cut_only & include)):
             other = solid(g, hard_spec(p, style, level), i)
             acc = subtract(acc, other) if g.op == "cut" else intersect(acc, other)
     return acc
@@ -155,8 +156,12 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     # body, so detaching one leaves no hole. The rest is the main piece.
     separate = sorted(pid for pid, entry in model.rig.items() if entry.separate) if rigged else []
     adding = [i for i, p in enumerate(model.parts) if p.geometry.op == "add"]
-    all_pieces = [[i for i in adding if model.parts[i].id not in separate]]
-    all_pieces += [[i for i in adding if model.parts[i].id == pid] for pid in separate]
+    # fitted shells (armour wrapping a body, a gap away) are their own pieces too: meshed with what they wrap, the thin
+    # air gap between the two surfaces would tear both
+    fitted = sorted({model.parts[i].id for i in adding if model.parts[i].geometry.fit is not None and model.parts[i].id not in separate})
+    own = set(separate) | set(fitted)
+    all_pieces = [[i for i in adding if model.parts[i].id not in own]]
+    all_pieces += [[i for i in adding if model.parts[i].id == pid] for pid in [*separate, *fitted]]
     # hard parts are exact polygons, made first: what they leave of the budget goes to the smooth parts
     hard_pieces = [frozenset(i for i in inc if i in hard) for inc in all_pieces]
     hard_pieces = [inc for inc in hard_pieces if inc]

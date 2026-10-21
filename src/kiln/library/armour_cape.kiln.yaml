@@ -1,0 +1,18 @@
+name: armour_cape
+description: a cloak over the shoulders and back, with gold clasps
+template: true
+palette: people
+rig:
+  cape: {parent: chest}
+parts:
+  - box: {at: [0, 1.1, -0.35], size: [0.9, 0.9, 0.7]}
+    id: cape
+    color: cloth_red
+    material: fabric
+    shell: {thickness: 0.025}
+    fit: {to: [chest, spine, hips, upperarm_l, upperarm_r], gap: 0.015}
+  - sphere: {at: [0.15, 1.37, 0.12], radius: 0.035}
+    id: cape
+    color: gold
+    material: gold
+    mirror: x

@@ -1,0 +1,103 @@
+name: body_big
+description: a big humanoid body (standard joints) with a belly and broad shoulders, in blue; extend with a head
+template: true
+palette: people
+class: character
+skeleton: humanoid
+skin: soft
+budget: 14000
+rig:
+  hips: {pivot: [0, 0.86, 0]}
+  spine: {pivot: [0, 0.98, 0]}
+  chest: {pivot: [0, 1.16, 0]}
+  upperarm_l: {pivot: [0.21, 1.35, 0]}
+  lowerarm_l: {pivot: [0.3, 1.1, 0]}
+  hand_l: {pivot: [0.345, 0.87, 0.01], sockets: {grip: [0.36, 0.8, 0.07]}}
+  upperleg_l: {pivot: [0.11, 0.84, 0]}
+  lowerleg_l: {pivot: [0.12, 0.48, 0]}
+  foot_l: {pivot: [0.12, 0.12, 0]}
+  head: {pivot: [0, 1.42, 0]}
+parts:
+  - capsule: {from: [0.11, 0.84, 0], to: [0.12, 0.48, 0], radius: 0.08690224392960172}
+    id: upperleg_l
+    color: cloth_brown
+    material: fabric
+    blend: 0.04
+    mirror: x
+    mirror_id: upperleg_r
+  - capsule: {from: [0.12, 0.48, 0], to: [0.12, 0.16, 0], radius: 0.07169435124192142}
+    id: lowerleg_l
+    color: cloth_brown
+    material: fabric
+    blend: 0.03
+    mirror: x
+    mirror_id: lowerleg_r
+  - capsule: {from: [0.12, 0.34, 0], to: [0.12, 0.12, 0.01], radius: 0.08255713173312162}
+    id: lowerleg_l
+    color: leather_dark
+    material: leather
+    mirror: x
+    mirror_id: lowerleg_r
+  - box: {at: [0.12, 0.05, 0.05], size: [0.13, 0.1, 0.25], round: 0.045}
+    id: foot_l
+    color: leather_dark
+    material: leather
+    blend: 0.03
+    mirror: x
+    mirror_id: foot_r
+  - capsule: {from: [0, 0.94, 0], to: [0, 1.1, 0], radius: 0.22419999999999998}
+    id: spine
+    color: cloth_blue
+    material: fabric
+    blend: 0.04
+  - cone: {at: [0, 0.8, 0], radius: 0.2738, radius_top: 0.22419999999999998, height: 0.18}
+    id: hips
+    color: cloth_blue
+    material: fabric
+    blend: 0.02
+  - ellipsoid: {at: [0, 1.0, 0.04], radii: [0.24779999999999996, 0.2, 0.2924]}
+    id: spine
+    color: cloth_blue
+    material: fabric
+    blend: 0.06
+  - capsule: {from: [0, 1.14, 0], to: [0, 1.19, 0], radius: 0.266}
+    id: chest
+    color: cloth_blue
+    material: fabric
+    blend: 0.05
+  - torus: {at: [0, 1.385, 0], radius: 0.085, thickness: 0.03}
+    id: chest
+    color: cloth_linen
+    material: fabric
+    blend: 0.02
+  - band: {fit: spine, at: [0, 0.97, 0], width: 0.07, thickness: 0.014}
+    id: spine
+    color: leather
+    material: leather
+  - box: {at: [0, 0.97, 0.3242], size: [0.08, 0.07, 0.03]}
+    id: spine
+    color: gold
+    material: gold
+    chamfer: 0.008
+    hard: true
+  - capsule: {from: [0.21, 1.35, 0], to: [0.3, 1.1, 0], radius: 0.0860394634384015}
+    id: upperarm_l
+    color: cloth_blue
+    material: fabric
+    blend: 0.04
+    mirror: x
+    mirror_id: upperarm_r
+  - capsule: {from: [0.3, 1.1, 0], to: [0.345, 0.88, 0.01], radius: 0.061917848799841226}
+    id: lowerarm_l
+    color: cloth_linen
+    material: fabric
+    blend: 0.03
+    mirror: x
+    mirror_id: lowerarm_r
+  - sphere: {at: [0.355, 0.8, 0.02], radius: 0.062}
+    id: hand_l
+    color: leather_dark
+    material: leather
+    blend: 0.03
+    mirror: x
+    mirror_id: hand_r

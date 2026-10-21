@@ -320,6 +320,7 @@ class Geometry:
     shell_side: str = "both"  # both: the wall is centred on the surface (shell: t); in: inside it (the outside stays put)
     open: tuple[int, float] | None = None  # (axis, sign): the shell's open side (local frame), showing its rim
     fit: tuple[tuple[Any, ...], float] | None = None  # (parts or a mesh's distance, gap): the shell wraps their surface
+    cut_only: frozenset[int] | None = None  # cuts: only these adding parts (indices); None = everything before it
 
     def distance(self, p: Array, filled: bool = False) -> Array:
         """Signed distance; `filled`: a shell counts as solid (what it covers), its open side still open. A fitted
@@ -448,7 +449,10 @@ class Field:
         return Field(self.parts, self.margin, frozenset(active))
 
     def _counts(self, i: int) -> bool:
-        return self.parts[i].op != "add" or self.active is None or i in self.active
+        g = self.parts[i]
+        if g.op == "cut" and g.cut_only is not None and self.active is not None:
+            return bool(g.cut_only & self.active)  # a cut aimed at other parts (a helmet's opening, not the face)
+        return g.op != "add" or self.active is None or i in self.active
 
     def bounds(self) -> tuple[Array, Array]:
         adding = [b for i, (g, b) in enumerate(zip(self.parts, self.boxes, strict=True)) if g.op == "add" and self._counts(i)]
