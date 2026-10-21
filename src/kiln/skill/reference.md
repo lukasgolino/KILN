@@ -271,8 +271,9 @@ several parts. Fitted shells are their own meshes.
 
 `skeleton: humanoid` names a character's parts after the standard joints: `hips`, `spine`, `chest`, `head`,
 `upperarm_l`, `lowerarm_l`, `hand_l`, `upperleg_l`, `lowerleg_l`, `foot_l` (and `_r`, usually by `mirror_id`;
-optional `toes_l/_r`). Parents come from the standard hierarchy and pivots default to the joints (limbs at their end
-nearest the parent; spine, chest, head at their bottom); give `rig:` pivots where that guess is off. Skin defaults to
+optional `toes_l/_r`). Parents come from the standard hierarchy and pivots default to the joints (limbs at the end of
+their longest capsule/cylinder/cone/tube nearest the parent, else of their box; hands, feet and toes where the limb
+above them ends, on their own box: wrist, ankle; spine, chest, head at their bottom); give `rig:` pivots where that guess is off. Skin defaults to
 soft. The manifest maps each joint to its KayKit, Mixamo and Godot SkeletonProfileHumanoid name.
 
 Then any CC0 clip library on the same joints (KayKit Character Animations' `Rig_Medium_*.glb`: Idle_A, Walking_A,

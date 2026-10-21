@@ -14,7 +14,7 @@ import numpy as np
 
 from kiln.notation import ROOT_ID, Animation, Model, PartPose
 from kiln.retarget import JOINTS, default_pivot, load_clip, retarget
-from kiln.sdf import Array, Field, rotation_matrix
+from kiln.sdf import IDENTITY, Array, Field, Geometry, rotation_matrix
 
 MAX_INFLUENCES = 4
 
@@ -41,6 +41,28 @@ class Skeleton:
         return b.pivot - (self.bones[b.parent].pivot if b.parent >= 0 else np.zeros(3))
 
 
+ENDS = ("hand_l", "hand_r", "foot_l", "foot_r", "toes_l", "toes_r")  # humanoid joints at the end of the limb above
+
+
+def limb_segment(g: Geometry) -> tuple[Array, Array] | None:
+    """The model-space ends of a part's axis (capsule from/to, cylinder or cone height, tube end points), or None
+    (other shapes, mirrored or repeated parts)."""
+    if g.op != "add" or g.mirror or len(g.copies) != 1 or g.copies[0] is not IDENTITY:
+        return None
+    if g.shape == "capsule":
+        a, b = np.asarray(g.params["from"], float), np.asarray(g.params["to"], float)
+    elif g.shape in ("cylinder", "cone"):
+        h = float(g.params["height"]) / 2
+        a, b = np.array([0.0, -h, 0.0]), np.array([0.0, h, 0.0])
+    elif g.shape == "tube":
+        pts = np.asarray(g.params["points"], float)
+        a, b = pts[0], pts[-1]
+    else:
+        return None
+    r = g.rotation if g.rotation is not None else np.eye(3)
+    return g.at + r @ a, g.at + r @ b
+
+
 def build_skeleton(model: Model, field: Field) -> Skeleton:
     """Root first, then parents before children (glTF needs no order, but previews and tests like it)."""
     ids = model.ids
@@ -56,14 +78,51 @@ def build_skeleton(model: Model, field: Field) -> Skeleton:
         return ROOT_ID
 
     parent_of: dict[str, str] = {pid: (model.rig[pid].parent or default_parent(pid)) if pid in model.rig else default_parent(pid) for pid in ids[1:]}
+
+    def centre(pid: str) -> Array | None:
+        return None if pid == ROOT_ID else (box(pid)[0] + box(pid)[1]) / 2
+
+    def ends(pid: str) -> tuple[Array, Array] | None:
+        """A limb's (joint end, far end): its longest capsule/cylinder/cone/tube's axis ends (the centres of a
+        capsule's round caps, not the tops of its box), the joint end nearest its parent; None without one."""
+        segments = [seg for i, p in enumerate(model.parts) if p.id == pid and (seg := limb_segment(p.geometry)) is not None]
+        if not segments:
+            return None
+        a, b = max(segments, key=lambda seg: float(np.linalg.norm(seg[1] - seg[0])))
+        up = centre(parent_of[pid])
+        if up is not None and np.linalg.norm(b - up) < np.linalg.norm(a - up):
+            a, b = b, a
+        return a, b
+
+    def joint_pivot(pid: str) -> Array:
+        up = parent_of[pid]
+        if pid in ENDS and up != ROOT_ID:  # hands, feet, toes: where the limb above them ends (wrist, ankle), on their box
+            limb = ends(up)
+            far = limb[1] if limb is not None else default_far(up)
+            lo, hi = box(pid)
+            return np.clip(far, lo, hi)
+        if pid not in ("hips", "spine", "chest", "head"):
+            limb = ends(pid)
+            if limb is not None:
+                return limb[0]
+        return default_pivot(pid, box(pid), centre(up))
+
+    def default_far(pid: str) -> Array:
+        """The end of a part's box opposite its joint (box limbs)."""
+        lo, hi = box(pid)
+        mid = (lo + hi) / 2
+        axis = int(np.argmax(hi - lo))
+        a, b = mid.copy(), mid.copy()
+        a[axis], b[axis] = lo[axis], hi[axis]
+        near = default_pivot(pid, (lo, hi), centre(parent_of[pid]))
+        return b if np.allclose(near, a) else a
     pivots: dict[str, Array] = {ROOT_ID: np.zeros(3)}
     for pid in ids[1:]:
         entry = model.rig.get(pid)
         if entry is not None and entry.pivot is not None:
             pivots[pid] = np.array(entry.pivot, float)
-        elif humanoid and pid in JOINTS:  # standard joints: hips' middle, bottoms of spine/chest/head, limbs at their top end
-            up = parent_of[pid]
-            pivots[pid] = default_pivot(pid, box(pid), None if up == ROOT_ID else (box(up)[0] + box(up)[1]) / 2)
+        elif humanoid and pid in JOINTS:  # standard joints: hips' middle, bottoms of spine/chest/head, limbs at their joint
+            pivots[pid] = joint_pivot(pid)
         else:  # default: the centre of the part's box
             lo, hi = box(pid)
             pivots[pid] = (lo + hi) / 2

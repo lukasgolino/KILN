@@ -20,6 +20,10 @@ before 1.0).
 
 ### Fixed
 
+- Default `skeleton: humanoid` pivots sit on the joints: a capsule (cylinder, cone, tube) limb pivots at its axis
+  end, not the top of its rounded box (upper legs were 8 cm above the hip, upper arms at the top of a shoulder ball);
+  hands, feet and toes where the limb above them ends (wrist, ankle; feet were at the heel) (#6).
+
 - Hard-surface CSG cracked (E013) where near-coplanar facets of several parts meet (a faceted skull, jaw and hair):
   each union, cut and intersect built its BSP trees from only the polygons near the other solid. The trees are now
   built from whole solids; only the nearby polygons are clipped (#2).

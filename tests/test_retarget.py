@@ -90,6 +90,18 @@ animations:
 """
 
 
+def test_default_humanoid_pivots_sit_on_the_joints(project: Project) -> None:
+    # #6: capsule limbs pivot at their segment ends (not the tops of their boxes), hands and feet where the limb above
+    # ends (wrist, ankle; not the heel)
+    rig = HERO[HERO.index("rig:\n") : HERO.index("animations:\n")]
+    built = built_of(project, HERO.replace(rig, "").split("animations:\n")[0])
+    pivot = {b.name: b.pivot for b in built.skeleton.bones}
+    expected = {"upperarm_l": [0.2, 1.02, 0], "lowerarm_l": [0.24, 0.8, 0], "hand_l": [0.26, 0.6, 0], "upperleg_l": [0.09, 0.58, 0],
+                "lowerleg_l": [0.09, 0.33, 0], "foot_l": [0.09, 0.08, 0], "upperarm_r": [-0.2, 1.02, 0], "foot_r": [-0.09, 0.08, 0]}  # fmt: skip
+    for name, at in expected.items():
+        assert pivot[name] == pytest.approx(at, abs=1e-9), name
+
+
 @pytest.fixture
 def clips(project: Project) -> Project:
     for name in ("Rig_Medium_General.glb", "Rig_Medium_MovementBasic.glb"):
