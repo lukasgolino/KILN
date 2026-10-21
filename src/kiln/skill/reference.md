@@ -451,7 +451,7 @@ Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`.
 
 `kiln init [dir] --style soft_toy` · `kiln new model <name> --template bean|prop|empty --class C` ·
 `kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--detach] [--fit] [--effect] [--engine] [--variant V]` ·
-`kiln lineup [models]` · `kiln gallery` · `kiln build [--verify-godot]` · `kiln status` ·
+`kiln lineup [models]` · `kiln gallery` · `kiln build [models] [--verify-godot]` (named models only: the others keep their last output) · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
 `kiln config show|get|set` · `kiln import <file> --licence L` · `kiln credits` · `kiln doctor` ·
 `kiln skill install` · `kiln mcp`. Every command takes `--json` (before or after the command). `--closeup` takes a part

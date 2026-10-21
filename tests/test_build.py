@@ -110,6 +110,26 @@ def test_stale_files_are_removed(project: Project) -> None:
     assert "ball" not in json.loads((out / MANIFEST).read_text())["models"]
 
 
+def test_build_only_some_models(project: Project) -> None:
+    # #13: `kiln build <models>`: one broken model doesn't block building the others; the rest keep their output
+    write_model(project, rich_model(), "hero")
+    write_model(project, sphere_text("ball"), "ball")
+    full = build(project)
+    out = project.output_dir
+    write_model(project, sphere_text("broken").replace("color: red", "color: mauve"), "broken")
+    write_model(project, sphere_text("ball").replace("radius: 0.3", "radius: 0.25"), "ball")
+    assert [f.rule for f in build(project).errors] == ["E004"]  # a full build stops
+    result = build(project, paths=[project.models_dir / "ball.kiln.yaml"])
+    assert result.errors == [] and result.models == ["ball"] and result.removed == []
+    assert sorted(result.written) == sorted([out / "models" / "ball.glb", out / MANIFEST])
+    manifest = json.loads((out / MANIFEST).read_text())
+    assert manifest["models"]["hero"] == full.manifest["models"]["hero"] and set(manifest["models"]) == {"ball", "hero"}
+    assert manifest["files"] == full.manifest["files"]
+    (project.models_dir / "broken.kiln.yaml").unlink()
+    again = build(project)  # a full build afterwards: the same as building everything from scratch
+    assert again.written == [] and again.removed == []
+
+
 def test_build_is_deterministic(tmp_path: Path) -> None:
     a = make_project(tmp_path / "a")
     b = make_project(tmp_path / "b")

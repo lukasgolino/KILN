@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `kiln build <models>` (MCP `build` models): builds only those; the other models keep what the last build wrote,
+  so one broken model doesn't block the rest (#13).
 - `kiln preview --vs <ref.glb>` metrics for restyles (#8): `band_iou`/`band_ious` (silhouette IoU per body band,
   each band normalised; head/torso/legs for humanoids against a rigged reference, else thirds), `mass`/`mass_ref`/
   `mass_ratio` (visual mass), `screen_px`; the sheet gains a row at 30 m and 60 m (60 degree FOV, 1080 px screen).

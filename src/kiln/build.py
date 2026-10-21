@@ -19,8 +19,8 @@ from kiln.effect import to_json
 from kiln.retarget import HUMANOID, OPTIONAL
 from kiln.export import Built, attr_names, gltf_name, to_glb, uv_channel
 from kiln.godot import find_godot_project, look_scene, model_scene, res_path
-from kiln.lint import LintResult, lint_project
-from kiln.notation import Model
+from kiln.lint import LintResult, lint_paths, lint_project
+from kiln.notation import MODEL_SUFFIX, Model
 from kiln.rig import animation_poses
 from kiln.project import Project
 from kiln.style import Style
@@ -136,10 +136,11 @@ def atlas_entry(atlas: Atlas, files: dict[str, str], ao: bool) -> dict[str, Any]
     return {**files, "size": [w, h], "cell": CELL, "cells": cells, "ao": ao}
 
 
-def build(project: Project, only_valid: bool = True, progress: Callable[[str], None] | None = None) -> BuildResult:
+def build(project: Project, only_valid: bool = True, progress: Callable[[str], None] | None = None, paths: list[Path] | None = None) -> BuildResult:
+    """Build every model (or only the models at `paths`: the rest keep what the last build wrote) into the output dir."""
     out = project.output_dir
     result = BuildResult(out)
-    lint: LintResult = lint_project(project)
+    lint: LintResult = lint_project(project) if paths is None else lint_paths(project, paths)
     result.findings = list(lint.findings)
     if lint.errors and only_valid:
         return result
@@ -155,8 +156,25 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
     generator = f"kiln {__version__}"
     models: dict[str, Any] = {}
     styles_used: dict[str, Style] = {}
-    credits: list[dict[str, str]] = []
     cache = project.root / ".kiln-cache"
+    manifest_path = out / MANIFEST
+    old: dict[str, Any] = {}
+    if manifest_path.is_file():
+        try:
+            old = dict(json.loads(manifest_path.read_text(encoding="utf-8")))
+        except (OSError, ValueError, TypeError):
+            old = {}
+    previous = [str(f) for f in old.get("files", [])] if isinstance(old.get("files"), list) else []
+    if paths is not None:  # a partial build: the other models' entries and files stay as they are
+        rebuilt = {p.name[: -len(MODEL_SUFFIX)] for p in paths}
+        existing = {p.name[: -len(MODEL_SUFFIX)] for p in project.model_paths()}
+        kept = {k: v for k, v in dict(old.get("models") or {}).items() if k not in rebuilt and k in existing}
+        models.update(kept)
+        for rel in previous:
+            top = rel.split("/")[0]
+            stem = rel.split("/")[-1].split(".")[0]
+            if top == "models" and stem in kept:
+                produced.add((out / rel).resolve())
 
     def write(path: Path, data: bytes) -> None:
         _write(path, data, result)
@@ -244,9 +262,6 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 variants[vname]["godot_scene"] = res_path(vscene, godot_root)
             entry["glb_res"] = res_path(glb, godot_root)
         styles_used[style.name] = style
-        if model.source is not None:
-            credits.append({"model": name, "file": model.source.file.name, "licence": model.source.licence,
-                            "author": model.source.author, "url": model.source.url})  # fmt: skip
         models[name] = entry
         result.models.append(name)
     for name, (model, _) in sorted(lint.models.items()):  # effects: after every model, so emitters can name any of them
@@ -261,12 +276,19 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         path = out / "models" / f"{name}.effect.json"
         write(path, (json.dumps(to_json(model.effect, emitted), indent=1) + "\n").encode())
         models[name]["effect"] = path.relative_to(out).as_posix()
-    looks = {}
+    looks: dict[str, str] = {}
+    if godot_root is not None and paths is not None:  # the kept models' looks
+        kept_styles = {str(e.get("style")) for k, e in models.items() if k not in result.models}
+        for sname, res in dict(old.get("looks") or {}).items():
+            if sname in kept_styles and sname not in styles_used:
+                looks[sname] = res
+                produced.add((out / "looks" / f"{sname}.tscn").resolve())
     if godot_root is not None:
         for sname, style in sorted(styles_used.items()):
             path = out / "looks" / f"{sname}.tscn"
             write(path, look_scene(style).encode())
             looks[sname] = res_path(path, godot_root)
+    credits = [{"model": k, **e["source"]} for k, e in sorted(models.items()) if isinstance(e.get("source"), dict)]
     if credits:
         lines = ["# Credits", "", "Models made from other people's work (written by `kiln build` from each model's `source:`).", ""]
         for c in sorted(credits, key=lambda c: c["model"]):
@@ -279,13 +301,6 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         manifest["looks"] = looks
     files = sorted(p.relative_to(out).as_posix() for p in produced)
     manifest["files"] = [*files, MANIFEST]
-    manifest_path = out / MANIFEST
-    previous: list[str] = []
-    if manifest_path.is_file():
-        try:
-            previous = list(json.loads(manifest_path.read_text(encoding="utf-8")).get("files", []))
-        except (OSError, ValueError, AttributeError):
-            previous = []
     write(manifest_path, (json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode())
     result.manifest = manifest
     for rel in previous:

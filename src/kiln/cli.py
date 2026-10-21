@@ -188,7 +188,8 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
 
     project = _require_project()
     progress = (lambda s: print(f"kiln: {s}", file=sys.stderr)) if not out.as_json else None
-    result = build(project, progress=progress)
+    paths = [_model_path(project, m) for m in args.models] if args.models else None
+    result = build(project, progress=progress, paths=paths)
     for f in result.findings:
         out.say(f.format())
     data: dict[str, Any] = {"output_dir": display_path(result.output_dir), "models": result.models,
@@ -679,7 +680,8 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("lint", parents=[common], help="check models (errors and warnings)")
     s.add_argument("paths", nargs="*")
     s.add_argument("--fast", action="store_true", help="skip geometric checks (no meshing)")
-    s = sub.add_parser("build", parents=[common], help="build every model into the output dir")
+    s = sub.add_parser("build", parents=[common], help="build every model (or the ones named) into the output dir")
+    s.add_argument("models", nargs="*", help="only these models; the others keep what the last build wrote")
     s.add_argument("--verify-godot", action="store_true", help="load everything in headless Godot afterwards")
     s = sub.add_parser("preview", parents=[common], help="preview sheets for one model (default: turntable)")
     s.add_argument("model")

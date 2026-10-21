@@ -326,12 +326,12 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
         return _with_images(result, [kiln.root / result["gallery"]] if result.get("gallery") else [])
 
     @server.tool(annotations=WRITE)
-    def build(verify_godot: bool = False) -> dict[str, Any]:
-        """Build every model into the output dir (glb, Godot scenes, look kits, manifest). verify_godot loads it all in
-        headless Godot (server needs --allow-godot)."""
+    def build(verify_godot: bool = False, models: list[str] | None = None) -> dict[str, Any]:
+        """Build every model (or only `models`: the others keep their last output) into the output dir (glb, Godot
+        scenes, look kits, manifest). verify_godot loads it all in headless Godot (server needs --allow-godot)."""
         if verify_godot and not kiln.allow_godot:
             return {"ok": False, "findings": [{"rule": "E000", "message": "verify_godot needs the server started with --allow-godot"}]}
-        return kiln.cli("build", *(["--verify-godot"] if verify_godot else []))
+        return kiln.cli("build", *(models or []), *(["--verify-godot"] if verify_godot else []))
 
     @server.tool(annotations=WRITE)
     def mark(models: list[str], approved: bool | None = None, current: bool = False) -> dict[str, Any]:
