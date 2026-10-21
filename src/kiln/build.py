@@ -123,6 +123,10 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
     }
     if m.source is not None:
         entry["source"] = {"file": m.source.file.name, "licence": m.source.licence, "author": m.source.author, "url": m.source.url}
+    if m.animation_library is not None:  # its clips are in the carrier's glb (Godot: an AnimationLibrary)
+        entry["animation_library"] = {"model": m.animation_library, "glb": f"models/{m.animation_library}.glb"}
+    if m.animations_only:
+        entry["animations_only"] = True
     if m.node_prefix:
         entry["node_prefix"] = m.node_prefix
         if built.skin == "soft":
@@ -134,6 +138,71 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
     if m.skeleton == "humanoid":  # the standard names of its joints, for engines' retargeting (Godot: SkeletonProfileHumanoid)
         entry["humanoid"] = {kid: {"kaykit": kk, "mixamo": mx, "godot": gd} for kid, _, kk, mx, gd in HUMANOID + OPTIONAL if kid in parts}
     return entry
+
+
+LIBRARY_PIVOT = 0.01  # metres: joints further than this from the carrier's move when its clips play (W114)
+
+
+def library_findings(project: Project, built: Built, cache: Path) -> list[Finding]:
+    """A model playing a carrier's clips needs the same bones (E008) at the same places (W114: a clip's position
+    tracks put each bone where the carrier has it)."""
+    m = built.model
+    path = project.models_dir / f"{m.animation_library}{MODEL_SUFFIX}"
+    lib, style, _ = project.load(path)
+    assert lib is not None and style is not None  # load() checked it
+    palette, _ = project.palette(lib.palette)
+    other = build_cached(lib, style, palette, cache).skeleton
+    sk = built.skeleton
+    mine = {b.name: (sk.bones[b.parent].name if b.parent >= 0 else "", b.pivot) for b in sk.bones}
+    theirs = {b.name: (other.bones[b.parent].name if b.parent >= 0 else "", b.pivot) for b in other.bones}
+    differ = sorted(k for k in mine if k in theirs and mine[k][0] != theirs[k][0])
+    if set(mine) != set(theirs) or differ:
+        return [Finding("E008", f"animation_library {m.animation_library!r} has another skeleton (parents differ: {', '.join(differ) or '-'}): "
+                        "give both the same rig", m.path, None, "animation_library")]  # fmt: skip
+    off = sorted((float(np.linalg.norm(mine[k][1] - theirs[k][1])), k) for k in mine)
+    far = [(d, k) for d, k in off if d > LIBRARY_PIVOT]
+    disabled = set(project.config.lint_disable) | set(m.lint_disable)
+    if far and "W114" not in disabled:
+        worst = ", ".join(f"{k} {d * 100:.1f} cm" for d, k in sorted(far, reverse=True)[:4])
+        return [Finding("W114", f"joints sit elsewhere than in animation_library {m.animation_library!r} ({worst}): its clips move them "
+                        "there; match the pivots (rig:) or give this model its own animations", m.path, None, "animation_library")]  # fmt: skip
+    return []
+
+
+@dataclass(frozen=True)
+class ImportSettings:
+    importer: str
+    type: str
+    params: tuple[tuple[str, str], ...]
+
+
+# palette cells must stay exact: no VRAM compression (also not on first 3D use), no mipmaps blending cells
+TEXTURE_IMPORT = ImportSettings("texture", "CompressedTexture2D", (("compress/mode", "0"), ("mipmaps/generate", "false"),
+                                                                    ("detect_3d/compress_to", "0")))  # fmt: skip
+LIBRARY_IMPORT = ImportSettings("animation_library", "AnimationLibrary", ())
+
+
+def import_settings(path: Path, godot_root: Path, want: ImportSettings, result: BuildResult) -> None:
+    """Make `path`'s Godot `.import` use these settings. A sidecar Godot already wrote (uid, imported files) is kept
+    when it has them, else rewritten with just them (Godot fills in the rest on import), so builds stay idempotent."""
+    sidecar = path.with_name(path.name + ".import")
+    try:
+        text = sidecar.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        text = ""
+    section, values = "", {}
+    for line in text.splitlines():
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1]
+        elif "=" in line:
+            key, value = line.split("=", 1)
+            values[(section, key)] = value
+    if values.get(("remap", "importer")) == f'"{want.importer}"' and all(values.get(("params", k)) == v for k, v in want.params):
+        return
+    params = "".join(f"{k}={v}\n" for k, v in want.params)
+    data = (f'[remap]\n\nimporter="{want.importer}"\ntype="{want.type}"\n\n[deps]\n\nsource_file="{res_path(path, godot_root)}"\n\n'
+            f"[params]\n\n{params}")  # fmt: skip
+    _write(sidecar, data.encode(), result)
 
 
 def atlas_entry(atlas: Atlas, files: dict[str, str], ao: bool) -> dict[str, Any]:
@@ -192,6 +261,11 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             progress(f"building {name}")
         palette, _ = project.palette(model.palette)
         built = build_cached(model, style, palette, cache)
+        if model.animation_library is not None:
+            problems = library_findings(project, built, cache)
+            result.findings += problems
+            if any(f.severity == "error" for f in problems):
+                continue
         glb = out / "models" / f"{name}.glb"
         lod_builts = [(k, budget, build_cached(model, style, palette, cache, budget)) for k, budget in enumerate(model.lod, start=1) if budget < built.triangles]
         atlas: AtlasUse | None = None
@@ -251,7 +325,13 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             lods.append({"glb": lpath.relative_to(out).as_posix(), "triangles": lod_built.triangles})
         if lods:
             entry["lods"] = lods
-        if godot_root is not None:
+        if godot_root is not None:  # Godot's import settings: lossless palette textures, carriers as AnimationLibrary
+            for files_of in atlas_files.values():
+                for rel in sorted(files_of.values()):
+                    import_settings(out / "models" / rel, godot_root, TEXTURE_IMPORT, result)
+            if model.animations_only:
+                import_settings(glb, godot_root, LIBRARY_IMPORT, result)
+        if godot_root is not None and not model.animations_only:  # (a carrier's glb isn't a scene)
             scene = out / "models" / f"{name}.tscn"
             models_dir = out / "models"
             rim = {"rim_texture": res_path(models_dir / atlas_files[""]["rim"], godot_root)} if "rim" in atlas_files.get("", {}) else {}

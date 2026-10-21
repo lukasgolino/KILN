@@ -8,6 +8,13 @@ before 1.0).
 
 ### Added
 
+- Shared clips (#5): `animations_only: true` makes a model a clip carrier; `animation_library: <carrier>` on another
+  model plays its animations (same part ids: E008; joints over 1 cm away from the carrier's: W114) and its glb
+  carries no clips. Manifest: `animation_library`, `animations_only`. With "godot" the carrier is imported as an
+  AnimationLibrary (no `.tscn`); `--verify-godot` checks it.
+- Godot import settings (#14): with "godot", palette atlas textures get `.import` settings (lossless, no mipmaps, no
+  VRAM compression on first 3D use) and clip carriers the animation_library importer; what Godot adds later is kept.
+  `--verify-godot` imports with them.
 - `node_prefix: Knight_` on a model: mesh nodes are `Knight_<id>` children of their parts' nodes (a soft skin's mesh
   is `Knight_mesh`); bones and animations keep the part ids. Manifest: `node_prefix`, `mesh_node` per part (#7).
 - Animation names may use capitals (`Idle_A`: imported clips keep their library names); names differing only in

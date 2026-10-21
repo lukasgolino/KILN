@@ -26,6 +26,9 @@ func _init() -> void:
 	var base := path.get_base_dir()
 	for name in _manifest["models"]:
 		var entry: Dictionary = _manifest["models"][name]
+		if entry.get("animations_only", false):  # a clip carrier: imported as an AnimationLibrary
+			check_library(name, base.path_join(entry["glb"]), entry.get("animations", {}))
+			continue
 		var glbs: Array = [entry["glb"]]
 		for v in entry.get("variants", {}):
 			if entry["variants"][v].has("glb"):
@@ -72,6 +75,18 @@ func _process(_delta: float) -> bool:
 	return true
 
 
+func check_library(name: String, glb: String, animations: Dictionary) -> void:
+	var library = load(glb)
+	if not (library is AnimationLibrary):
+		fail("%s (animations_only) doesn't import as an AnimationLibrary: %s" % [name, glb])
+		return
+	for anim in animations:
+		if not library.has_animation(anim):
+			fail("%s library is missing animation %s" % [name, anim])
+		elif (library.get_animation(anim).loop_mode != Animation.LOOP_NONE) != animations[anim]["loop"]:
+			fail("%s library animation %s has the wrong loop" % [name, anim])
+
+
 func check_model(name: String, node: Node) -> void:
 	var entry: Dictionary = _manifest["models"][name]
 	var skeleton: Skeleton3D = null
@@ -85,6 +100,8 @@ func check_model(name: String, node: Node) -> void:
 			fail("%s has no node or bone %s" % [name, part])
 	var player: AnimationPlayer = node.find_child("AnimationPlayer", true, false)
 	var animations: Dictionary = entry.get("animations", {})
+	if entry.has("animation_library"):  # its clips are in the carrier's library (checked there)
+		animations = {}
 	for anim in animations:
 		if player == null or not player.has_animation(anim):
 			fail("%s is missing animation %s" % [name, anim])

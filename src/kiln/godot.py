@@ -344,7 +344,7 @@ def _sandbox(godot_root: Path, folder_res: str, tmp: Path) -> Path:
     never import (and rewrite .import files of) anything else in the game's project."""
     rel = folder_res.removeprefix("res://").strip("/")
     root = tmp / "project"
-    shutil.copytree(godot_root / rel, root / rel, ignore=shutil.ignore_patterns("*.import"))
+    shutil.copytree(godot_root / rel, root / rel)  # with the .import settings KILN writes (Godot reimports in the copy)
     renderer = ""
     host = (godot_root / "project.godot").read_text(encoding="utf-8", errors="replace")
     match = re.search(r'^renderer/rendering_method="[^"]*"$', host, re.MULTILINE)

@@ -106,7 +106,33 @@ class Project:
         if style is None:
             return None, None, findings
         model, mf = load_model(path, palette, set(style.materials))
+        if model is not None and model.animation_library is not None:
+            mf += self._library(model)
         return model, style, findings + mf
+
+    def _library(self, model: Model) -> list[Finding]:
+        """Copy a model's animation_library's animations into it: same part ids, a carrier (animations_only)."""
+        name = model.animation_library
+        lib_path = self.models_dir / f"{name}{MODEL_SUFFIX}"
+
+        def bad(message: str) -> list[Finding]:
+            return [Finding("E008", message, model.path, None, "animation_library")]
+
+        if not lib_path.is_file():
+            return bad(f"animation_library {name!r}: no such model in models/")
+        lib, _, found = self.load(lib_path)
+        if lib is None or any(f.severity == "error" for f in found):
+            return bad(f"animation_library {name!r} has errors: fix it first")
+        if not lib.animations_only:
+            return bad(f"animation_library {name!r} isn't a clip carrier: give it animations_only: true")
+        if set(lib.ids) != set(model.ids) or lib.skeleton != model.skeleton:
+            only_here, only_there = sorted(set(model.ids) - set(lib.ids)), sorted(set(lib.ids) - set(model.ids))
+            return bad(f"animation_library {name!r} has other part ids (here only: {', '.join(only_here) or '-'}; there only: "
+                       f"{', '.join(only_there) or '-'}{'; and another skeleton' if lib.skeleton != model.skeleton else ''}): "
+                       "a clip moves bones by id, so both need the same ones")  # fmt: skip
+        model.animations = dict(lib.animations)
+        model.library_text = lib.text
+        return []
 
 
 def _peek(path: Path, depth: int = 0) -> tuple[str | None, str | None]:

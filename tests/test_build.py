@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import arms_text, make_project, sphere_text, write_model
+from conftest import arms_text, errors_of, make_project, sphere_text, write_model
 from kiln.build import MANIFEST, build
 from kiln.gltf_check import check_glb
 from kiln.vendor.gltf import read_glb
@@ -147,6 +147,44 @@ def test_node_prefix_names_mesh_nodes(project: Project) -> None:
     assert check_glb((project.output_dir / "models" / "hero.glb").read_bytes()) == []
 
 
+def carrier_and_player(project: Project, player_extra: str = "") -> None:
+    write_model(project, arms_text("anims").replace("skin: rigid\n", "skin: rigid\nanimations_only: true\n"), "anims")
+    player = arms_text("hero").split("animations:\n")[0] + "animation_library: anims\n" + player_extra
+    write_model(project, player, "hero")
+
+
+def test_animation_library_shares_one_carriers_clips(project: Project) -> None:
+    # #5: models with the same skeleton play one carrier's clips; their own glbs carry none
+    carrier_and_player(project)
+    result = build(project)
+    assert result.errors == [] and not [f for f in result.findings if f.rule == "W114"]
+    out = project.output_dir
+    hero, _ = read_glb((out / "models" / "hero.glb").read_bytes())
+    anims, _ = read_glb((out / "models" / "anims.glb").read_bytes())
+    assert "animations" not in hero and {a["name"] for a in anims["animations"]} == {"wave-loop", "hold"}
+    entry = result.manifest["models"]["hero"]
+    assert entry["animation_library"] == {"model": "anims", "glb": "models/anims.glb"}
+    assert set(entry["animations"]) == {"wave", "hold"}  # what it can play (from the carrier)
+    assert result.manifest["models"]["anims"]["animations_only"] is True
+    assert check_glb((out / "models" / "hero.glb").read_bytes()) == []
+    # the carrier's clips put bones where it has them: other pivots are a warning
+    moved_pivot = arms_text("hero").split("animations:\n")[0].replace("pivot: [0.3, 0.6, 0]", "pivot: [0.3, 0.5, 0]")
+    write_model(project, moved_pivot + "animation_library: anims\n", "hero")
+    w114 = [f for f in build(project).findings if f.rule == "W114"]
+    assert len(w114) == 1 and "arm_l 10.0 cm" in w114[0].message
+
+
+def test_animation_library_errors(project: Project) -> None:
+    write_model(project, arms_text("anims"), "anims")  # not a carrier
+    assert any("animations_only" in f.message for f in errors_of(project, arms_text("hero").split("animations:\n")[0] + "animation_library: anims\n", "hero"))
+    assert any("no such model" in f.message for f in errors_of(project, arms_text("hero").split("animations:\n")[0] + "animation_library: nope\n", "hero"))
+    assert any("drop its own animations" in f.message for f in errors_of(project, arms_text("hero") + "animation_library: anims\n", "hero"))
+    write_model(project, arms_text("anims").replace("skin: rigid\n", "skin: rigid\nanimations_only: true\n"), "anims")
+    other_ids = arms_text("hero").split("animations:\n")[0].replace("arm_l", "wing_l").replace("arm_r", "wing_r") + "animation_library: anims\n"
+    assert any("other part ids" in f.message for f in errors_of(project, other_ids, "hero"))
+    assert any("needs its own animations" in f.message for f in errors_of(project, sphere_text("thing") + "animations_only: true\n"))
+
+
 def test_build_is_deterministic(tmp_path: Path) -> None:
     a = make_project(tmp_path / "a")
     b = make_project(tmp_path / "b")
@@ -227,6 +265,41 @@ def test_godot_loads_everything(tmp_path: Path) -> None:
     check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
     assert check.ok, check.output[-3000:]
     assert check.models == 3
+
+
+def test_godot_import_settings_for_atlas_and_carriers(tmp_path: Path) -> None:
+    # #14: palette textures import lossless (no VRAM compression on first 3D use, no mipmaps), a clip carrier as an
+    # AnimationLibrary; what Godot adds to the sidecars later (uid, imported files) stays
+    project = make_project(tmp_path, GODOT_CONFIG + "atlas = true\n")
+    (tmp_path / "game").mkdir()
+    (tmp_path / "game" / "project.godot").write_text(PROJECT_GODOT)
+    carrier_and_player(project)
+    result = build(project)
+    assert result.errors == []
+    models = project.output_dir / "models"
+    palette = (models / "hero.palette.png.import").read_text()
+    assert 'importer="texture"' in palette and "compress/mode=0" in palette and "detect_3d/compress_to=0" in palette
+    assert 'source_file="res://assets/kiln/models/hero.palette.png"' in palette
+    assert 'importer="animation_library"' in (models / "anims.glb.import").read_text()
+    assert not (models / "anims.tscn").exists() and (models / "hero.tscn").exists()
+    godot_wrote = palette.replace("[deps]", 'uid="uid://abc"\npath="res://.godot/imported/x.ctex"\n\n[deps]') + "mipmaps/limit=-1\n"
+    (models / "hero.palette.png.import").write_text(godot_wrote)
+    again = build(project)
+    assert again.written == [] and (models / "hero.palette.png.import").read_text() == godot_wrote
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(find_godot_binary() is None, reason="needs a Godot 4 binary (GODOT=/path)")
+def test_godot_loads_a_carrier_as_a_library(tmp_path: Path) -> None:
+    project = make_project(tmp_path, GODOT_CONFIG + "atlas = true\n")
+    (tmp_path / "game").mkdir()
+    (tmp_path / "game" / "project.godot").write_text(PROJECT_GODOT)
+    carrier_and_player(project)
+    result = build(project)
+    godot = find_godot_binary()
+    assert godot is not None and result.godot_root is not None and result.errors == []
+    check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
+    assert check.ok, check.output[-3000:]
 
 
 @pytest.mark.slow

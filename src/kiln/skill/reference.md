@@ -48,6 +48,8 @@ origin: center                 # optional: the .glb's origin: base (bottom centr
                                #   (default: model space as written; manifest `origin` = that point, other manifest values stay model space)
 node_prefix: Knight_           # optional: mesh nodes are Knight_<id> children of the part nodes (bones keep the ids;
                                # a soft skin's mesh is Knight_mesh); manifest parts get mesh_node
+animation_library: soldier_anims # optional: play that clip carrier's animations (its glb has them; this one none)
+animations_only: true          # optional: this model is a clip carrier for others' animation_library
 parts: [...]                   # the shapes (below)
 rig: {...}                     # optional: bones (below)
 skin: soft                     # none (static) | rigid | soft; default rigid when there is a rig
@@ -450,6 +452,7 @@ unusual for the class, W109 animated part without a pivot, W110 well over the tr
 triangles: every stripe border is cut into the mesh; prefer few, large patterns, or model details as parts), W111 a
 part lost when reducing to the triangle budget (raise `budget:`), W112 a LOD well above its target (from `kiln build`),
 W113 a part pokes through a shell (eyes bigger than a visor slot, a head through a helmet: keep it inside or outside).
+W114 (from `kiln build`) joints sit elsewhere than in the model's `animation_library`.
 Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`. Lint meshes models in parallel
 (`KILN_JOBS` processes, default: every core) and caches them for build and previews.
 
@@ -508,7 +511,16 @@ variant's textures (variant glbs are still written unless `variant_glbs = false`
 also `palette` (+ `glow`): to recolour at runtime, write other colours into a copy of the palette at the cells'
 pixels. `atlas_ao = true` bakes ambient occlusion from the model's distance field (imported models: from the mesh's
 dents) into COLOR_0, a grey multiplier glTF viewers apply; in Godot only KILN's .tscn scenes use it
-(`vertex_color_use_as_albedo`). Previews don't show it.
+(`vertex_color_use_as_albedo`). Previews don't show it. With "godot", KILN writes the palette textures' `.import`
+settings (lossless, no mipmaps, no VRAM compression on first 3D use: 4x4 cells stay exact); settings Godot adds
+later (uid, imported files) are kept.
+
+**Shared clips**: `animations_only: true` makes a model a clip carrier (its animations are what counts; give it the
+same rig as the models that use it); `animation_library: <carrier>` on another model plays the carrier's animations
+(same part ids, E008 otherwise; joints more than 1 cm from the carrier's: W114, since a clip's position tracks put
+bones where the carrier has them). That model's glb carries no clips; previews and the manifest's `animations` still
+list them, plus `animation_library` (`model`, `glb`). With "godot" the carrier's glb is imported as an
+AnimationLibrary (no `.tscn`); add it to each model's AnimationPlayer.
 `kiln build --verify-godot` checks everything in a throwaway copy of the output (nothing else in the game's project is
 imported or touched).
 

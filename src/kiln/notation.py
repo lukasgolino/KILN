@@ -42,7 +42,8 @@ BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
-              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix"}  # fmt: skip
+              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
+              "animation_library", "animations_only"}  # fmt: skip
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
@@ -162,6 +163,9 @@ class Model:
     fit_to: tuple[Path, str, tuple[str, ...]] | None = None  # (glb, bone, meshes): an attachment made around a CC0 character
     origin: str | tuple[float, float, float] | None = None  # base | center | a model-space point: the exported files' origin
     node_prefix: str = ""  # mesh nodes are <prefix><id> children of their parts' nodes (several models in one scene)
+    animation_library: str | None = None  # plays this clip carrier's animations (copied in at load); its glb has none
+    animations_only: bool = False  # a clip carrier: Godot imports its glb as an AnimationLibrary (no scene)
+    library_text: str = ""  # the carrier's source (cache key)
     effect: Effect | None = None  # a burst of other models' meshes (models/<name>.effect.json)
 
     @property
@@ -1097,6 +1101,28 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     model.animations = _parse_animations(ctx, data.get("animations"), ids, _line(data, "animations"), model.skeleton is not None)
     if model.animations and model.skin == "none":
         ctx.error("E008", "animations move parts: give the model a rig (pivots and parents) or skin: rigid", _line(data, "animations"), "animations")
+    library = data.get("animation_library")
+    if library is not None:
+        if not isinstance(library, str) or not NAME_RE.match(library) or library == model.name:
+            ctx.error("E008", "animation_library names another model (a clip carrier with animations_only: true)", _line(data, "animation_library"),
+                      "animation_library")  # fmt: skip
+        elif model.animations:
+            ctx.error("E008", "a model plays its animation_library's clips: drop its own animations (or the library)", _line(data, "animations"),
+                      "animations")  # fmt: skip
+        elif model.skin == "none":
+            ctx.error("E008", "animation_library: the model needs a rig (or skin: rigid) to play clips", _line(data, "animation_library"),
+                      "animation_library")  # fmt: skip
+        else:
+            model.animation_library = library
+    only = data.get("animations_only")
+    if only is not None:
+        if not isinstance(only, bool):
+            ctx.error("E003", "animations_only is true or false", _line(data, "animations_only"), "animations_only")
+        elif only and (not model.animations or library is not None):
+            ctx.error("E008", "animations_only: a clip carrier for other models' animation_library: it needs its own animations",
+                      _line(data, "animations_only"), "animations_only")  # fmt: skip
+        else:
+            model.animations_only = only
     variants = data.get("variants", {})
     if not isinstance(variants, dict):
         ctx.error("E003", "variants maps names to { swap: { colour: colour } }", _line(data, "variants"), "variants")

@@ -38,6 +38,7 @@ WARNING_RULES = {
     "W111": "a part was lost when the mesh was reduced to its triangle budget (budget too low)",
     "W112": "a LOD came out well above its triangle target",
     "W113": "a part pokes through another part's shell (eyes through a visor, a head through a helmet)",
+    "W114": "a model's joints sit elsewhere than in its animation_library (from kiln build)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes

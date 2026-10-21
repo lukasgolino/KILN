@@ -411,7 +411,7 @@ def _decimate(
 
 def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int | None = None) -> str:
     h = hashlib.sha256()
-    h.update(json.dumps([__version__, BUILDER_VERSION, model.text, style.text, sorted(palette.items()), budget]).encode())
+    h.update(json.dumps([__version__, BUILDER_VERSION, model.text, model.library_text, style.text, sorted(palette.items()), budget]).encode())
     for part in model.parts:
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())

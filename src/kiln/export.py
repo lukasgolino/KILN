@@ -362,7 +362,7 @@ class _Writer:
             self.doc.add("nodes", node)
         self.doc.json["scenes"] = [{"name": b.model.name, "nodes": scene_nodes}]
         self.doc.json["scene"] = 0
-        for track in b.tracks:
+        for track in b.tracks if b.model.animation_library is None else ():  # a library's clips: in its own glb
             self.animation(track)
         return self.doc.glb()
 
