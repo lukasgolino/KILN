@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -161,3 +162,31 @@ def test_humanoid_errors(clips: Project) -> None:
 def test_q_rotate() -> None:
     q = np.array([0.0, 0.0, np.sin(np.pi / 4), np.cos(np.pi / 4)])  # 90 degrees about z
     assert np.allclose(q_rotate(q, np.array([1.0, 0.0, 0.0])), [0.0, 1.0, 0.0])
+
+
+def test_retarget_keep_and_offset(clips: Project) -> None:
+    """#34: `retarget: { keep, offset }` damps a joint's turn away from rest (both sides by base name) and adds a fixed
+    turn; children follow; joints not named are untouched."""
+    plain = built_of(clips, HERO)
+    keep0 = built_of(clips, HERO.replace("clip: Walking_A }", "clip: Walking_A, retarget: { keep: { upperarm: 0 } } }"))
+    names = [b.name for b in plain.skeleton.bones]
+
+    def walk(built: Any) -> Any:
+        return next(t for t in built.tracks if t.name == "walk")
+
+    p, k = walk(plain), walk(keep0)
+    for side in ("upperarm_l", "upperarm_r"):
+        i = names.index(side)
+        rest = k.rotation[0, i]
+        assert all(abs(abs(float(k.rotation[f, i] @ rest)) - 1) < 1e-9 for f in range(k.frames))  # held at rest all along
+        assert any(abs(abs(float(p.rotation[f, i] @ p.rotation[0, i])) - 1) > 1e-4 for f in range(p.frames))  # the clip moves it
+    hips = names.index("hips")
+    assert np.allclose(k.rotation[:, hips], p.rotation[:, hips])  # not named: untouched
+    shifted = built_of(clips, HERO.replace("clip: Walking_A }", "clip: Walking_A, retarget: { offset: { upperarm_l: [0, 0, -12] } } }"))
+    s = walk(shifted)
+    i = names.index("upperarm_l")
+    angle = np.degrees(2 * np.arccos(min(1.0, abs(float(s.rotation[0, i] @ p.rotation[0, i])))))
+    assert angle == pytest.approx(12, abs=0.5)
+    assert np.allclose(s.rotation[:, names.index("upperarm_r")], p.rotation[:, names.index("upperarm_r")])
+    bad = HERO.replace("clip: Walking_A }", "clip: Walking_A, retarget: { keep: { wing: 0.5 } } }")
+    assert any("retarget is" in f.message for f in errors_of(clips, bad))

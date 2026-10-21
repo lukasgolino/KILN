@@ -296,6 +296,11 @@ animations:
 Each bone points where the clip's bone points (the clip's rest pose may be a T-pose; yours can be anything), bone
 lengths stay yours, and the hips move by the clip's motion scaled to your hip height. Check with `--pose <name>`.
 
+Clips made for another body type (KayKit's are chibi: splayed arms, deep knee bends on an adult body) can be toned per
+animation: `retarget: { keep: { upperarm: 0.35, lowerleg: 0.5 }, offset: { upperarm_l: [0, 0, 12] } }`. `keep` is the
+share of each joint's turn away from rest it keeps (0 = held at rest, 1 = as the clip; a base name like `upperarm`
+covers both sides; children follow), `offset` a fixed turn in degrees (model axes) added on top.
+
 ## Attachments for CC0 characters
 
 A helmet, shield or banner made around a CC0 character (a KayKit Knight) instead of a KILN body:

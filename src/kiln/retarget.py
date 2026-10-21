@@ -206,9 +206,19 @@ def load_clip(path: Path, name: str) -> Clip:
 # --- retargeting ------------------------------------------------------------------------------------------------
 
 
-def retarget(clip: Clip, bones: list[tuple[str, int, Array]], fps: float, speed: float = 1.0) -> tuple[Array, Array]:
+def _per_bone(values: dict[str, Any], name: str) -> Any:
+    """A joint's own entry, else its side-less base name's (upperarm for upperarm_l and upperarm_r)."""
+    if name in values:
+        return values[name]
+    return values.get(name[:-2]) if name.endswith(("_l", "_r")) else None
+
+
+def retarget(clip: Clip, bones: list[tuple[str, int, Array]], fps: float, speed: float = 1.0,
+             keep: dict[str, float] | None = None, offset: dict[str, Array] | None = None) -> tuple[Array, Array]:  # fmt: skip
     """(translation, rotation) per frame and bone for KILN bones (name, parent index, rest pivot), root first,
-    parents before children. Bones that aren't humanoid joints (or have no joint in the clip) follow their parent."""
+    parents before children. Bones that aren't humanoid joints (or have no joint in the clip) follow their parent.
+    `keep` scales a joint's turn away from its rest (by joint or base name; children follow), `offset` adds a fixed
+    turn (a quaternion, model axes) to it: clips made for another body type."""
     frames = max(1, int(round(clip.duration / speed * fps)) + 1)
     n = len(bones)
     rest_local = np.array([pivot - (bones[p][2] if p >= 0 else np.zeros(3)) for _, p, pivot in bones])
@@ -237,18 +247,33 @@ def retarget(clip: Clip, bones: list[tuple[str, int, Array]], fps: float, speed:
         scale = float(bones[hips][2][1] / rest_wp[joint[hips]][1])
     out_t = np.repeat(rest_local[None], frames, axis=0)
     out_r = np.tile(np.array([0.0, 0.0, 0.0, 1.0]), (frames, n, 1))
+    ident = np.array([0.0, 0.0, 0.0, 1.0])
+    keeps = [_per_bone(keep or {}, name) for name, _, _ in bones]
+    offsets = [_per_bone(offset or {}, name) for name, _, _ in bones]
+    rest_local_r = [q_mul(q_inv(align[p]) if p >= 0 else ident, align[b]) for b, (_, p, _) in enumerate(bones)]
     for f in range(frames):
         wp, wr = clip.world(*clip.local(min(f / fps * speed, clip.duration)))
-        world = [np.array([0.0, 0.0, 0.0, 1.0]) for _ in range(n)]
+        world = [ident.copy() for _ in range(n)]  # as the clip turns it
+        placed = [ident.copy() for _ in range(n)]  # after keep/offset (children follow their adjusted parents)
         for b, (name, parent, _) in enumerate(bones):
-            parent_world = world[parent] if parent >= 0 else np.array([0.0, 0.0, 0.0, 1.0])
+            parent_world = world[parent] if parent >= 0 else ident
+            parent_placed = placed[parent] if parent >= 0 else ident
             if b in joint:
                 delta = q_mul(wr[joint[b]], q_inv(rest_wr[joint[b]]))
                 world[b] = q_mul(delta, align[b])
                 local = q_mul(q_inv(parent_world), world[b])
-                out_r[f, b] = local / np.linalg.norm(local)
+                if keeps[b] is not None:  # the share of the turn away from rest
+                    away = q_mul(q_inv(rest_local_r[b]), local)
+                    local = q_mul(rest_local_r[b], q_slerp(ident, away / np.linalg.norm(away), keeps[b]))
+                if offsets[b] is not None:  # a fixed turn in model axes, on top
+                    turned = q_mul(offsets[b], q_mul(parent_placed, local))
+                    local = q_mul(q_inv(parent_placed), turned)
+                local = local / np.linalg.norm(local)
+                placed[b] = q_mul(parent_placed, local)
+                out_r[f, b] = local
             else:
                 world[b] = parent_world
+                placed[b] = parent_placed
         if hips is not None and hips in joint:
             move = (wp[joint[hips]] - rest_wp[joint[hips]]) * scale
             out_t[f, hips] = rest_local[hips] + move
