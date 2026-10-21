@@ -46,6 +46,8 @@ budget: 6000                   # optional: triangles (overrides the style's budg
 lod: [2500, 800]               # optional: extra lower-detail .glb files
 origin: center                 # optional: the .glb's origin: base (bottom centre of the box) | center (spinning debris) | [x, y, z]
                                #   (default: model space as written; manifest `origin` = that point, other manifest values stay model space)
+node_prefix: Knight_           # optional: mesh nodes are Knight_<id> children of the part nodes (bones keep the ids;
+                               # a soft skin's mesh is Knight_mesh); manifest parts get mesh_node
 parts: [...]                   # the shapes (below)
 rig: {...}                     # optional: bones (below)
 skin: soft                     # none (static) | rigid | soft; default rigid when there is a rig

@@ -26,6 +26,7 @@ from kiln.vendor.yamlio import LineMap, YamlError, load_yaml, parse_yaml
 
 MODEL_SUFFIX = ".kiln.yaml"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+PREFIX_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 ANIMATION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")  # imported clips keep their library names (Idle_A)
 ROOT_ID = "root"
 AXES = {"x": 0, "y": 1, "z": 2}
@@ -41,7 +42,7 @@ BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
-              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect"}  # fmt: skip
+              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix"}  # fmt: skip
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
@@ -160,6 +161,7 @@ class Model:
     skeleton: str | None = None  # humanoid: standard joint names, clip retargeting
     fit_to: tuple[Path, str, tuple[str, ...]] | None = None  # (glb, bone, meshes): an attachment made around a CC0 character
     origin: str | tuple[float, float, float] | None = None  # base | center | a model-space point: the exported files' origin
+    node_prefix: str = ""  # mesh nodes are <prefix><id> children of their parts' nodes (several models in one scene)
     effect: Effect | None = None  # a burst of other models' meshes (models/<name>.effect.json)
 
     @property
@@ -989,6 +991,13 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         ctx.error("E003", "budget is a triangle count (12-500000); it overrides the style's budget for the class", _line(data, "budget"), "budget")
     else:
         model.budget = budget
+    prefix = data.get("node_prefix")
+    if prefix is not None:
+        if isinstance(prefix, str) and PREFIX_RE.match(prefix):
+            model.node_prefix = prefix
+        else:
+            ctx.error("E003", "node_prefix is up to 32 letters, digits, _ or - (e.g. Knight_): mesh nodes become Knight_<id>",
+                      _line(data, "node_prefix"), "node_prefix")  # fmt: skip
     origin = data.get("origin")
     if origin is not None:
         if origin in ("base", "center"):

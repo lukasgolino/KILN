@@ -12,6 +12,7 @@ import pytest
 from conftest import arms_text, make_project, sphere_text, write_model
 from kiln.build import MANIFEST, build
 from kiln.gltf_check import check_glb
+from kiln.vendor.gltf import read_glb
 from kiln.godot import find_godot_binary, look_scene, model_scene, verify
 from kiln.project import Project, load_project
 from kiln.style import load_style
@@ -128,6 +129,22 @@ def test_build_only_some_models(project: Project) -> None:
     (project.models_dir / "broken.kiln.yaml").unlink()
     again = build(project)  # a full build afterwards: the same as building everything from scratch
     assert again.written == [] and again.removed == []
+
+
+def test_node_prefix_names_mesh_nodes(project: Project) -> None:
+    # #7: several models in one scene, and engines that key meshes as <Model>_<Role>: mesh nodes are <prefix><id>
+    # children of their parts' nodes (bones and animations keep the part ids)
+    write_model(project, rich_model().replace("description: a hero\n", "description: a hero\nnode_prefix: Hero_\n"), "hero")
+    result = build(project)
+    assert result.errors == []
+    doc, _ = read_glb((project.output_dir / "models" / "hero.glb").read_bytes())
+    names = {n["name"]: n for n in doc["nodes"]}
+    assert {"root", "arm_l", "arm_r", "Hero_root", "Hero_arm_l", "Hero_arm_r"} <= set(names)
+    assert "mesh" not in names["arm_r"] and "mesh" in names["Hero_arm_r"]
+    assert doc["nodes"].index(names["Hero_arm_r"]) in names["arm_r"]["children"]
+    hero = result.manifest["models"]["hero"]
+    assert hero["node_prefix"] == "Hero_" and hero["parts"]["arm_r"]["mesh_node"] == "root/arm_r/Hero_arm_r"
+    assert check_glb((project.output_dir / "models" / "hero.glb").read_bytes()) == []
 
 
 def test_build_is_deterministic(tmp_path: Path) -> None:

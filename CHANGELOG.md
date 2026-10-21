@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `node_prefix: Knight_` on a model: mesh nodes are `Knight_<id>` children of their parts' nodes (a soft skin's mesh
+  is `Knight_mesh`); bones and animations keep the part ids. Manifest: `node_prefix`, `mesh_node` per part (#7).
 - Animation names may use capitals (`Idle_A`: imported clips keep their library names); names differing only in
   case are E008 (#4).
 - `kiln build <models>` (MCP `build` models): builds only those; the other models keep what the last build wrote,

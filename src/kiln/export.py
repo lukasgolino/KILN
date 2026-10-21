@@ -312,6 +312,16 @@ class _Writer:
                 nodes[i].setdefault("children", []).append(len(nodes))
                 nodes.append({"name": f"{bone.name}_{name}", "translation": [float(np.float32(v)) for v in point - bone.pivot],
                               "extras": {"kiln_socket": name, "kiln_part": bone.name}})  # fmt: skip
+        prefix = b.model.node_prefix
+
+        def put_mesh(i: int, mesh: int) -> None:
+            """A part's mesh: on its node, or with node_prefix on a child node <prefix><id> (the part's node stays the bone)."""
+            if not prefix:
+                nodes[i]["mesh"] = mesh
+                return
+            nodes[i].setdefault("children", []).append(len(nodes))
+            nodes.append({"name": f"{prefix}{sk.bones[i].name}", "mesh": mesh, "extras": {"kiln_part": sk.bones[i].name}})
+
         scene_nodes = [0]
         if b.skin == "soft":
             rigid = [i for i, bone in enumerate(sk.bones) if bone.separate]
@@ -331,16 +341,16 @@ class _Writer:
                 view = self.doc.buffer_view(np.ascontiguousarray(ibm, dtype="<f4").tobytes())
                 ibm_acc = self.doc.add("accessors", {"bufferView": view, "componentType": 5126, "count": len(sk.bones) + 1, "type": "MAT4"})
                 skin = self.doc.add("skins", {"joints": [*range(len(sk.bones)), marker], "skeleton": 0, "inverseBindMatrices": ibm_acc})
-                nodes.append({"name": f"{b.model.name}_mesh", "mesh": mesh, "skin": skin})
+                nodes.append({"name": f"{prefix}mesh" if prefix else f"{b.model.name}_mesh", "mesh": mesh, "skin": skin})
                 scene_nodes.append(len(nodes) - 1)
             for i in rigid:
                 if len(bone_faces[i]):
-                    nodes[i]["mesh"] = self.doc.add("meshes", {"name": sk.bones[i].name, "primitives": self.primitives(bone_faces[i], sk.bones[i].pivot, False)})
+                    put_mesh(i, self.doc.add("meshes", {"name": sk.bones[i].name, "primitives": self.primitives(bone_faces[i], sk.bones[i].pivot, False)}))
         else:
             for i, bone in enumerate(sk.bones):
                 if len(bone_faces[i]):
-                    nodes[i]["mesh"] = self.doc.add("meshes", {"name": bone.name if b.skin != "none" else b.model.name,
-                                                               "primitives": self.primitives(bone_faces[i], bone.pivot, False)})  # fmt: skip
+                    put_mesh(i, self.doc.add("meshes", {"name": bone.name if b.skin != "none" else b.model.name,
+                                                        "primitives": self.primitives(bone_faces[i], bone.pivot, False)}))  # fmt: skip
         if b.model.fit_to is not None:  # an attachment: everything in the target bone's space (hang it on that bone)
             from kiln.fitting import bone_matrix
 

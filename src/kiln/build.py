@@ -80,6 +80,9 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
             "separate": bone.separate,
             "node_path": "/".join(chain),  # glTF node names from the root (Godot soft skins: bones of the Skeleton3D)
         }
+        own_mesh = m.skin != "soft" or bone.separate
+        if m.node_prefix and own_mesh and (face_bone == i).any():  # the part's mesh node, a child of its node
+            parts[bone.name]["mesh_node"] = f"{'/'.join(chain)}/{m.node_prefix}{bone.name}"
         if bone.sockets:
             parts[bone.name]["sockets"] = {
                 name: {"position": [_f(v) for v in point], "offset": [_f(v) for v in point - bone.pivot], "node": f"{bone.name}_{name}"}
@@ -120,6 +123,10 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
     }
     if m.source is not None:
         entry["source"] = {"file": m.source.file.name, "licence": m.source.licence, "author": m.source.author, "url": m.source.url}
+    if m.node_prefix:
+        entry["node_prefix"] = m.node_prefix
+        if built.skin == "soft":
+            entry["mesh_node"] = f"{m.node_prefix}mesh"  # the skinned mesh
     if m.origin is not None:  # the glb's origin in model space (everything else here is model space): glb = model - origin
         entry["origin"] = [_f(v) for v in built.origin()]
     if m.fit_to is not None:  # an attachment: hang it on this bone of that character (the glb is in the bone's space)
