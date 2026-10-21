@@ -6,6 +6,12 @@ before 1.0).
 
 ## [Unreleased]
 
+### Fixed
+
+- `bevel`/`chamfer` (and a shrinking `offset`) on an extrude whose outline has sections thinner than about twice the
+  bevel (font serifs, hairlines) no longer cracks (E013): the inset is limited per vertex to what fits there (#28).
+- E013 names the colour of a crack on a hex-coloured part instead of an empty name (#28).
+
 ## [0.8.0] - 2026-10-21
 
 LOOSE report 44-58, now GitHub issues #1-#14: shared clips, merged rigid skins, revealed parts, Godot import
