@@ -49,6 +49,17 @@ class Built:
         v = self.painted.vertices[np.unique(self.painted.faces)]
         return v.min(axis=0), v.max(axis=0)
 
+    def origin(self) -> Array:
+        """The model-space point the exported files put at their origin (the model's `origin:`; none: the model's own)."""
+        o = self.model.origin
+        if o is None:
+            return np.zeros(3)
+        if isinstance(o, tuple):
+            return np.array(o, dtype=float)
+        lo, hi = self.bounds()
+        mid = (lo + hi) / 2
+        return np.array([mid[0], lo[1], mid[2]]) if o == "base" else mid
+
 
 def srgb_to_linear(hex_color: str) -> list[float]:
     out = []
@@ -64,7 +75,9 @@ def gltf_name(name: str, loop: bool) -> str:
 
 
 class _Writer:
-    def __init__(self, built: Built, swap: dict[str, str], generator: str, vertex_colors: bool = False, atlas: AtlasUse | None = None) -> None:
+    def __init__(self, built: Built, swap: dict[str, str], generator: str, vertex_colors: bool = False, atlas: AtlasUse | None = None,
+                 origin: Array | None = None) -> None:
+        self.origin = np.zeros(3) if origin is None else origin
         self.b = built
         self.swap = swap
         self.vertex_colors = vertex_colors
@@ -224,7 +237,7 @@ class _Writer:
         bone_faces = {i: np.flatnonzero(np.array([p.groups[g].bone == bone.name for g in p.face_group])) for i, bone in enumerate(sk.bones)}
         for i, bone in enumerate(sk.bones):
             node: dict[str, Any] = {"name": bone.name}
-            t = sk.rest_translation(i)
+            t = sk.rest_translation(i) - (self.origin if i == 0 else 0)
             if np.any(t):
                 node["translation"] = [float(np.float32(v)) for v in t]
             extras = {"kiln_part": bone.name, **bone.meta}
@@ -286,7 +299,8 @@ class _Writer:
     def animation(self, track: Track) -> None:
         frames = track.frames
         times = np.arange(frames, dtype=np.float64) / track.fps
-        tr, rot, sc = track.translation, track.rotation, track.scale
+        tr, rot, sc = track.translation.copy(), track.rotation, track.scale
+        tr[:, 0] -= self.origin  # the root carries the model's origin shift
         if track.loop:  # close the loop: the first pose again at the end
             times = np.append(times, frames / track.fps)
             tr, rot, sc = (np.concatenate([a, a[:1]]) for a in (tr, rot, sc))
@@ -303,10 +317,12 @@ class _Writer:
         self.doc.add("animations", {"name": gltf_name(track.name, track.loop), "samplers": samplers, "channels": channels})
 
 
-def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, vertex_colors: bool = False, atlas: AtlasUse | None = None) -> bytes:
+def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, vertex_colors: bool = False, atlas: AtlasUse | None = None,
+           origin: Array | None = None) -> bytes:
     """`atlas`: one material from the palette textures it names (kiln.toml atlas = true); `swap` then only recolours
-    decals (the palette texture carries the variant's colours)."""
-    return _Writer(built, swap or {}, generator, vertex_colors, atlas).write()
+    decals (the palette texture carries the variant's colours). `origin`: the model-space point at the glb's origin
+    (default `built.origin()`; LODs pass the full model's so every level lines up)."""
+    return _Writer(built, swap or {}, generator, vertex_colors, atlas, built.origin() if origin is None else origin).write()
 
 
 __all__ = ["Built", "ROOT_ID", "gltf_name", "srgb_to_linear", "to_glb"]

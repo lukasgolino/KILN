@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- `origin: base | center | [x, y, z]` on models (LOOSE #40): the exported glb's origin (the root node carries the
+  shift; LODs share the full model's); manifest `origin`.
+
 ## [0.5.0] - 2026-10-21
 
 CC0 parity, second half: palette atlas (M9), humanoids and clip retargeting (M5), attachments for CC0 characters (M6),

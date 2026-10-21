@@ -119,6 +119,8 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
     }
     if m.source is not None:
         entry["source"] = {"file": m.source.file.name, "licence": m.source.licence, "author": m.source.author, "url": m.source.url}
+    if m.origin is not None:  # the glb's origin in model space (everything else here is model space): glb = model - origin
+        entry["origin"] = [_f(v) for v in built.origin()]
     if m.fit_to is not None:  # an attachment: hang it on this bone of that character (the glb is in the bone's space)
         entry["attach"] = {"file": m.fit_to[0].name, "bone": m.fit_to[1]}
     if m.skeleton == "humanoid":  # the standard names of its joints, for engines' retargeting (Godot: SkeletonProfileHumanoid)
@@ -213,7 +215,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 result.findings.append(Finding("W111", f"lod {k} ({budget} triangles) loses part {part.index} ({part.geometry.shape}, "
                                                f"{part.color_name})", model.path, part.line, part.where))  # fmt: skip
             lpath = out / "models" / f"{name}.lod{k}.glb"
-            write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors, atlas))
+            write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors, atlas, built.origin()))
             lods.append({"glb": lpath.relative_to(out).as_posix(), "triangles": lod_built.triangles})
         if lods:
             entry["lods"] = lods

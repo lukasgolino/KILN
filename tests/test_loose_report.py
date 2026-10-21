@@ -378,3 +378,32 @@ def test_api_part_sorts_part_options() -> None:
 
     out = part("sphere", color="red", radius=0.1, loose=True, keep=True, hard=True)
     assert out["loose"] is True and out["keep"] is True and out["hard"] is True and out["sphere"] == {"radius": 0.1}
+
+
+# 40. model origin: base | center | [x, y, z]
+@pytest.mark.parametrize("skin", ["rigid", "soft"])
+def test_origin_center_moves_the_glb(project: Project, skin: str) -> None:
+    from kiln.fitting import read_surface
+
+    text = arms_text(skin=skin).replace("name: thing\n", "name: thing\norigin: center\n")
+    write_model(project, text)
+    result = build(project)
+    entry = result.manifest["models"]["thing"]
+    lo, hi = np.array(entry["bounds"]["min"]), np.array(entry["bounds"]["max"])
+    np.testing.assert_allclose(entry["origin"], (lo + hi) / 2, atol=1e-5)
+    path = project.output_dir / "models" / "thing.glb"
+    doc, _ = read_glb(path.read_bytes())
+    root = doc["nodes"][0]
+    np.testing.assert_allclose(root["translation"], -np.array(entry["origin"]), atol=1e-5)
+    if skin == "rigid":  # rest-pose world positions are centred
+        v, _ = read_surface(path)
+        np.testing.assert_allclose((v.min(axis=0) + v.max(axis=0)) / 2, 0, atol=1e-4)
+
+
+def test_origin_point_and_errors(project: Project) -> None:
+    built = built_of(project, sphere_text().replace("parts:", "origin: [0, 1, 0]\nparts:", 1))
+    np.testing.assert_allclose(built.origin(), [0, 1, 0])
+    base = built_of(project, sphere_text().replace("parts:", "origin: base\nparts:", 1))
+    lo, _ = base.bounds()
+    assert base.origin()[1] == pytest.approx(lo[1])
+    assert any(f.rule == "E003" and "origin is base" in f.message for f in errors_of(project, sphere_text().replace("parts:", "origin: top\nparts:", 1)))

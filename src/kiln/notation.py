@@ -35,7 +35,7 @@ PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror",
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
-              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to"}  # fmt: skip
+              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin"}  # fmt: skip
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
@@ -149,6 +149,7 @@ class Model:
     extends: str | None = None
     skeleton: str | None = None  # humanoid: standard joint names, clip retargeting
     fit_to: tuple[Path, str, tuple[str, ...]] | None = None  # (glb, bone, meshes): an attachment made around a CC0 character
+    origin: str | tuple[float, float, float] | None = None  # base | center | a model-space point: the exported files' origin
 
     @property
     def ids(self) -> list[str]:
@@ -825,6 +826,17 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         ctx.error("E003", "budget is a triangle count (12-500000); it overrides the style's budget for the class", _line(data, "budget"), "budget")
     else:
         model.budget = budget
+    origin = data.get("origin")
+    if origin is not None:
+        if origin in ("base", "center"):
+            model.origin = str(origin)
+        elif isinstance(origin, list) and len(origin) == 3 and all(isinstance(v, int | float) and not isinstance(v, bool) for v in origin):
+            model.origin = (float(origin[0]), float(origin[1]), float(origin[2]))
+        else:
+            ctx.error("E003", "origin is base (bottom centre of the model's box), center (its middle) or a point [x, y, z]: the exported mesh's "
+                      "origin, e.g. center for debris that spins", _line(data, "origin"), "origin")  # fmt: skip
+        if "fit_to" in data:
+            ctx.error("E003", "an attachment (fit_to) is exported in its bone's space: drop origin", _line(data, "origin"), "origin")
     lod = data.get("lod", [])
     if not isinstance(lod, list) or not all(isinstance(n, int) and not isinstance(n, bool) and n >= 12 for n in lod):
         ctx.error("E003", "lod is a list of smaller triangle budgets, e.g. [2000, 600]", _line(data, "lod"), "lod")

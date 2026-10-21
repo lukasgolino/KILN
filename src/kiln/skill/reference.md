@@ -44,6 +44,8 @@ style: soft_toy                # optional: else kiln.toml default_style
 palette: main                  # optional: else default_palette
 budget: 6000                   # optional: triangles (overrides the style's budget for the class)
 lod: [2500, 800]               # optional: extra lower-detail .glb files
+origin: center                 # optional: the .glb's origin: base (bottom centre of the box) | center (spinning debris) | [x, y, z]
+                               #   (default: model space as written; manifest `origin` = that point, other manifest values stay model space)
 parts: [...]                   # the shapes (below)
 rig: {...}                     # optional: bones (below)
 skin: soft                     # none (static) | rigid | soft; default rigid when there is a rig
