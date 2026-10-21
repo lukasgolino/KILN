@@ -10,6 +10,9 @@ before 1.0).
 
 - `font_axes: { wght: 900 }` on text extrudes picks a variable font's instance (any axis), so no pre-instanced copy of the
   font is needed (#29).
+- Effect `floor: y`: debris bounces (`bounce`, `friction` per emitter) and settles (`settle`) on it instead of falling
+  through; every floor hit is rolled into the effect JSON (`hits`: age, position, velocity), so players and `preview
+  --effect` match (#31).
 
 ### Fixed
 
