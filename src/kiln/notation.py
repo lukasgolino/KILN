@@ -310,7 +310,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     params: dict[str, Any] = dict(sdef.defaults)
     ok = True
     for key, value in spec.items():
-        if key in ("at", "rotate", "aim"):
+        if key in ("at", "rotate", "aim") or (kind == "extrude" and key in PATH_KEYS):
             continue
         if key not in sdef.fields:
             ctx.error("E002", f"{kind} has no field {key!r}; it takes {sdef.help}, plus at and rotate", _line(spec, key) or line, f"{swhere}.{key}")
@@ -322,6 +322,16 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             ok = False
             continue
         params[key] = checked
+    if kind == "extrude" and "path" in spec:
+        loops = _parse_path(ctx, spec, line, swhere)
+        if loops is None:
+            ok = False
+        elif "points" in spec or "holes" in spec:
+            ctx.error("E003", "an extrude has points (+ holes) or path, not both", line, swhere)
+            ok = False
+        else:
+            loops.sort(key=lambda lp: -abs(_loop_area(lp)))
+            params["points"], params["holes"] = loops[0], loops[1:]
     aim_raw = spec.get("aim", raw.get("aim"))
     aim = None
     if aim_raw is not None:
@@ -566,6 +576,30 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         parts.append(Part(index, str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where, str(part_id), mirror[0],
                           bool(loose), **hard_fields))  # fmt: skip
     return parts
+
+
+PATH_KEYS = ("path", "path_scale", "path_tolerance")
+
+
+def _loop_area(loop: list[list[float]]) -> float:
+    return sum(loop[i - 1][0] * loop[i][1] - loop[i][0] * loop[i - 1][1] for i in range(len(loop))) / 2
+
+
+def _parse_path(ctx: _Ctx, spec: dict[str, Any], line: int | None, where: str) -> list[list[list[float]]] | None:
+    """An extrude's SVG `path` as outlines [[x, z], ...] (the biggest one becomes `points`, the rest `holes`)."""
+    from kiln.svgpath import PathError, outlines
+
+    scale, tol = spec.get("path_scale", 1.0), spec.get("path_tolerance", 0.002)
+    if not isinstance(spec["path"], str) or not _num(scale) or scale == 0 or not _num(tol) or tol <= 0:
+        ctx.error("E003", "path is SVG path data (\"M 0 0 L 1 0 Q 1 1 0 1 Z\"; y runs down, onto z); path_scale: metres per path unit "
+                  "(a 1000-unit font em at 0.001), path_tolerance: metres a curve may be off (0.002)", line, f"{where}.path")  # fmt: skip
+        return None
+    try:
+        loops = outlines(spec["path"], float(scale), float(tol))
+    except PathError as e:
+        ctx.error("E003", f"path: {e}", line, f"{where}.path")
+        return None
+    return [[[x, y] for x, y in loop] for loop in loops]
 
 
 def _parse_aim(raw: Any) -> tuple[tuple[float, ...], np.ndarray, float, float] | None:

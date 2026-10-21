@@ -376,7 +376,7 @@ def _bounds_lathe(s: dict[str, Any]) -> tuple[Array, Array]:
 
 
 def _bounds_extrude(s: dict[str, Any]) -> tuple[Array, Array]:
-    pts = np.asarray(s["points"], float)
+    pts = np.concatenate([np.asarray(s["points"], float), *(np.asarray(h, float) for h in s.get("holes", ()))])  # (outside ones: islands)
     h = s["height"] / 2
     grow = max(float(s.get("offset", 0.0)), 0.0)
     return np.array([pts[:, 0].min() - grow, -h, pts[:, 1].min() - grow]), np.array([pts[:, 0].max() + grow, h, pts[:, 1].max() + grow])

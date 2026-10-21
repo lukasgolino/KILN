@@ -712,6 +712,19 @@ def _halfspace(axis: int, lo: Array, hi: Array, tag: int) -> Solid:
     return _place([[(float(x), float(y), float(z)) for x, y, z in pts] for pts, _ in faces], np.eye(3), centre, tag)
 
 
+def _inside(point: Array, loop: Array) -> bool:
+    """Even-odd: is the 2D point inside the closed loop?"""
+    x, y = float(point[0]), float(point[1])
+    inside = False
+    j = len(loop) - 1
+    for i in range(len(loop)):
+        xi, yi, xj, yj = loop[i][0], loop[i][1], loop[j][0], loop[j][1]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
 def solid(g: Geometry, spec: HardSpec, tag: int) -> Solid:
     """A part's solid in model space: shape, placement, copies and mirror folds."""
     if g.shape in ("capsule", "tube"):
@@ -729,10 +742,19 @@ def solid(g: Geometry, spec: HardSpec, tag: int) -> Solid:
     else:
         local_pts = local_polys(g.shape, g.params, spec)
     holes = g.params.get("holes") if g.shape == "extrude" else None
-    if holes:  # cut through by prisms a little taller than the part (their edges stay sharp)
+    if holes:  # more outlines, by nesting (even-odd): inside one = a hole cut through (its edges stay sharp), outside = an island
         offset, height = float(g.params.get("offset", 0.0)), float(g.params["height"])
-        cutters = [[q for q in (polygon(pts, tag) for pts in _oriented(_extrude_polys(h, height + 0.02, 0.0, 1, -offset))) if q] for h in holes]
-        body = subtract([q for q in (polygon(pts, tag) for pts in local_pts) if q], _union_all(cutters))
+        loops = [g.params["points"], *holes]
+        arrays = [np.asarray(lp, dtype=float) for lp in loops]
+        depth = [sum(int(_inside(a[0], b)) for k, b in enumerate(arrays) if k != j) for j, a in enumerate(arrays)]
+        body: Solid = [q for q in (polygon(pts, tag) for pts in local_pts) if q]  # the biggest outline (depth 0)
+        for j in sorted(range(1, len(loops)), key=lambda k: depth[k]):
+            if depth[j] % 2 == 0:  # an island (or one inside a hole): bevelled like the main outline
+                piece = [q for q in (polygon(pts, tag) for pts in local_polys("extrude", {**g.params, "points": loops[j]}, spec)) if q]
+                body = union(body, piece)
+            else:
+                cutter = _oriented(_extrude_polys(loops[j], height + 0.02, 0.0, 1, -offset))
+                body = subtract(body, [q for q in (polygon(pts, tag) for pts in cutter) if q])
         local_pts = [list(poly.points) for poly in body]
     m = g.rotation if g.rotation is not None else np.eye(3)
     placed = _place(local_pts, m, g.at, tag)

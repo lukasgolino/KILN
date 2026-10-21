@@ -25,6 +25,8 @@ before 1.0).
   frame, following rotate/aim) (LOOSE #30); ring arrays turn `around` any direction `[x, y, z]` (LOOSE #29).
 - `attr: { name: number }` on parts (LOOSE #38): custom glTF attributes `_NAME` per vertex; the first name also in
   COLOR_0's alpha (what Godot imports); manifest `attributes`.
+- `extrude: { path: "<SVG path data>" }` (LOOSE #26): subpaths flattened to outlines (curves within
+  `path_tolerance`), even-odd counters and islands, `path_scale`; hard extrudes add islands and cut counters.
 - `extrude` takes `holes` (outlines cut through, rounded with the rest; LOOSE #27) and `offset` (grow or shrink
   the outline; LOOSE #28).
 

@@ -562,3 +562,42 @@ parts:
     color = read_accessor(doc, binary, prim["attributes"]["COLOR_0"])
     assert color.shape[1] == 4 and set(np.round(color[:, 3], 3)) == {0.0, 0.5}
     assert set(np.round(heat[pos[:, 1] < 0.3], 3)) == {0.25} and set(np.round(heat[pos[:, 1] > 0.9], 3)) == {1.0}
+
+
+# 26. SVG path outlines (fonts' glyphs, logos)
+def test_svg_path_flattening() -> None:
+    from kiln.svgpath import PathError, outlines
+
+    square = outlines("M0 0 H10 V10 H0 Z", scale=0.1)
+    assert square == [[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]]
+    circle = outlines("M 1 0 A 1 1 0 1 1 -1 0 A 1 1 0 1 1 1 0 Z", tolerance=0.001)[0]
+    r = np.hypot(*np.array(circle).T)
+    assert len(circle) > 40 and np.abs(r - 1).max() < 1e-9
+    curve = outlines("M0 0 Q 5 10 10 0 T 20 0 L 20 -5 C 15 -8 5 -8 0 -5 z", tolerance=0.01)[0]
+    assert len(curve) > 10 and max(p[1] for p in curve) == pytest.approx(5, abs=0.02)  # quadratic peak = half the control height
+    two = outlines("M0 0 l 1 0 0 1 z m 3 0 l 1 0 0 1 z")  # relative, implicit line-tos, two subpaths
+    assert len(two) == 2 and two[1][0] == (3.0, 0.0)
+    with pytest.raises(PathError):
+        outlines("M0 0 X 1 2")
+
+
+@pytest.mark.parametrize("hard", [False, True])
+def test_extrude_path_with_counter_and_island(project: Project, hard: bool) -> None:
+    from kiln.sdf import SHAPES
+
+    # a ring (outer square with a square counter) and a separate dot on the right
+    path = "M0 0 H1 V1 H0 Z M0.3 0.3 V0.7 H0.7 V0.3 Z M1.3 0.4 h0.2 v0.2 h-0.2 z"
+    text = f'name: thing\nparts:\n  - extrude: {{ path: "{path}", height: 0.1, at: [0, 0.05, 0] }}\n    color: red\n'
+    if hard:
+        text += "    hard: true\n"
+    model, _ = ok_model(project, text)
+    g = model.parts[0].geometry
+    assert len(g.params["holes"]) == 2
+    p = np.array([[0.1, 0, 0.1], [0.5, 0, 0.5], [1.4, 0, 0.5], [1.15, 0, 0.5]])
+    assert (SHAPES["extrude"].fn(p, g.params) < 0).tolist() == [True, False, True, False]
+    built = built_of(project, text)
+    v = built.painted.vertices[np.unique(built.painted.faces)]
+    assert v[:, 0].max() == pytest.approx(1.5, abs=0.02)  # the island is there
+    if hard:
+        assert closed_faces(built.painted.faces)
+    assert any(f.rule == "E003" and "path:" in f.message for f in errors_of(project, text.replace(path, "M0 0 X")))
