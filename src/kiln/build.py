@@ -406,7 +406,41 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             sidecar = path.with_name(path.name + ".import")
             if sidecar.is_file():
                 sidecar.unlink()
+    _remove_stale_extracted_textures(out / "models", produced, result)
     return result
+
+
+def _embedded_images(glb: bytes) -> set[str]:
+    """Names of the images inside a .glb (its JSON chunk)."""
+    try:
+        length = int.from_bytes(glb[12:16], "little")
+        doc = json.loads(glb[20 : 20 + length])
+    except (ValueError, IndexError):
+        return set()
+    return {str(img["name"]) for img in doc.get("images", []) if isinstance(img, dict) and "name" in img}
+
+
+def _remove_stale_extracted_textures(models: Path, produced: set[Path], result: BuildResult) -> None:
+    """Godot imports a glb's embedded decal textures as `<glb name>_decal<N>_<hex>.png` next to it. KILN doesn't write
+    those, so a decal whose image name changed (a new colour) or a glb that's gone would leave the old one behind:
+    remove every such texture no current glb embeds (and its .import)."""
+    if not models.is_dir():
+        return
+    wanted: set[Path] = set()
+    stems: set[str] = set()
+    for glb in (p for p in produced if p.suffix == ".glb" and p.parent == models.resolve()):
+        stems.add(glb.name[: -len(".glb")])
+        wanted |= {models.resolve() / f"{glb.name[: -len('.glb')]}_{image}.png" for image in _embedded_images(glb.read_bytes())}
+    for png in sorted(models.glob("*_decal*.png")):
+        stem = png.name.split("_decal", 1)[0]
+        if png.resolve() in wanted or png.resolve() in produced:
+            continue
+        if stem in stems or not (models / f"{stem}.glb").exists():  # a glb of this build, or one that's gone
+            png.unlink()
+            result.removed.append(png)
+            sidecar = png.with_name(png.name + ".import")
+            if sidecar.is_file():
+                sidecar.unlink()
 
 
 __all__ = ["BuildResult", "build", "model_entry"]

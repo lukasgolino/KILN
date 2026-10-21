@@ -22,6 +22,8 @@ before 1.0).
 - Text extrudes fill glyphs by the nonzero rule, like font renderers: overlapping contours (static instances of
   variable fonts, many hand-made fonts) join instead of being cut out, so letters no longer fall apart (W103), mesh
   slowly or crack with bevels. Fonts without overlaps give the same outlines as before; SVG `path:` stays even-odd (#29).
+- `kiln build` removes decal textures Godot extracted from a glb (`models/<name>_decal<N>_<hex>.png` and its `.import`)
+  once no glb embeds that image any more (the colour changed, or the model is gone) (#32).
 
 ## [0.8.0] - 2026-10-21
 
