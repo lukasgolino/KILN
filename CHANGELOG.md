@@ -6,6 +6,12 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- `kiln preview --vs <ref.glb>` metrics for restyles (LOOSE #52): `band_iou`/`band_ious` (silhouette IoU per body band,
+  each band normalised; head/torso/legs for humanoids against a rigged reference, else thirds), `mass`/`mass_ref`/
+  `mass_ratio` (visual mass), `screen_px`; the sheet gains a row at 30 m and 60 m (60 degree FOV, 1080 px screen).
+
 ## [0.7.0] - 2026-10-21
 
 Effects and font text (LOOSE #41, #26).

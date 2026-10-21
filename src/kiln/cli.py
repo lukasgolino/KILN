@@ -317,7 +317,7 @@ def _compare(project: Project, built: Any, ref_path: Path, ref_height: float | N
     """`--vs <ref.glb>`: the comparison sheet and metrics."""
     from kiln import preview as pv
     from kiln.export import to_glb
-    from kiln.importer import ImportError_, gltf_counts, load_reference
+    from kiln.importer import ImportError_, gltf_counts, joint_heights, load_reference
 
     if ref_path.suffix.lower() not in (".glb", ".gltf") or not ref_path.is_file():
         raise _usage(f"--vs takes a .glb or .gltf file (or nothing: the style's inspiration images); {ref_path} isn't one")
@@ -327,10 +327,11 @@ def _compare(project: Project, built: Any, ref_path: Path, ref_height: float | N
     try:
         ref = load_reference(ref_path, built.style, ref_height, (float(lo[0] + hi[0]) / 2, float(lo[2] + hi[2]) / 2))
         ref_counts = gltf_counts(ref_path)
+        ref_joints = joint_heights(ref_path) if built.model.skeleton == "humanoid" else {}  # head/hips: humanoid bands
     except (ImportError_, ValueError, KeyError, IndexError, OSError) as exc:
         raise _usage(f"can't read {ref_path}: {exc}") from None
     counts = gltf_counts(to_glb(built, "kiln", None, project.config.vertex_colors))
-    metrics = {"file": display_path(ref_path), "ref_height": ref_height, **pv.compare(built, ref, counts, ref_counts)}
+    metrics = {"file": display_path(ref_path), "ref_height": ref_height, **pv.compare(built, ref, counts, ref_counts, ref_joints)}
     path = folder / f"vs_{ref_path.stem}.png"
     pv.versus_reference(built, ref, metrics, ref_path.name).save(path)
     outputs["vs_reference"] = display_path(path)
