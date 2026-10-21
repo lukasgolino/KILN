@@ -439,3 +439,19 @@ def test_uv_along_a_tube_and_errors(project: Project) -> None:
     end = pos[:, 0] > 0.95
     assert uv[end, 1].mean() > 1.7  # v reaches 2 (scale) at the far end
     assert any(f.rule == "E003" and "uv projects" in f.message for f in errors_of(project, text.replace("along", "planar")))
+
+
+# 31. polygon distance: only the edges that can be nearest (same result as the even-odd loop over every edge)
+def test_tiled_polygon_distance_matches_even_odd() -> None:
+    from kiln.sdf import _even_odd, polygons_2d
+
+    rng = np.random.default_rng(3)
+    t = np.linspace(0, 2 * np.pi, 300, endpoint=False)
+    r = 0.5 + 0.1 * np.sin(7 * t)
+    outer = np.stack([r * np.cos(t), r * np.sin(t)], axis=1)
+    hole = 0.15 * np.stack([np.cos(t[::10]), np.sin(t[::10])], axis=1)
+    p = np.concatenate([rng.uniform(-0.7, 0.7, (40000, 2)), outer + rng.normal(0, 1e-3, outer.shape)])
+    for loops in ([outer], [outer[::-1]], [outer, hole]):
+        a = np.concatenate([np.roll(lp, 1, axis=0) for lp in loops])
+        b = np.concatenate(loops)
+        np.testing.assert_allclose(polygons_2d(p, loops), _even_odd(p, a, b), atol=1e-12)

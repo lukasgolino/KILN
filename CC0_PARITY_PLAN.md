@@ -30,7 +30,7 @@ LOOSE_REPORT.md backlog (items 26-43, filed after this plan; not part of it, do 
 - Done: 32/43 (api.part keys), 36 (COLOR_0 on glow/skinned surfaces). 37: use `variant_glbs = false` (variants become
   Godot recolour scenes) or `atlas = true` (texture swap).
 - Open: 26 text/glyph shape; 27 extrude with holes; 28 polygon offset/inset; 29 orient any shape by two end points;
-  30 several/local-axis patterns per part; 31 faster polygon distance (Python loop over edges in sdf.polygon_2d);
+  30 several/local-axis patterns per part; 
   33 W106 false positive on rounded extrudes; 34 stronger rim; 35 hero output size; 38 per-part scalar attribute
   (`attr: {heat}` -> COLOR_0.a/custom attribute); 39 UVs (`uv: {project: cylindrical|...}`); 40 model `origin:
   base|center|[x,y,z]`; 41 `effect:` block (particle spawn JSON); 42 bloom in previews.

@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+### Changed
+
+- Extrude outlines measure only the edges that can be nearest to each point (tiles of points, bounded by their
+  centre's nearest edge): same distances, several times faster on long outlines (LOOSE #31).
+
 ### Added
 
 - `origin: base | center | [x, y, z]` on models (LOOSE #40): the exported glb's origin (the root node carries the

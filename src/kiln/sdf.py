@@ -28,23 +28,194 @@ BoundsFn = Callable[[dict[str, Any]], tuple[Array, Array]]
 def polygon_2d(p: Array, points: Array, skip: Array | None = None) -> Array:
     """Signed distance from 2D points (N, 2) to a closed polygon (M, 2); negative inside. `skip[i]` leaves the
     edge from point i-1 to point i out of the distance (it still counts for inside/outside)."""
-    d = ((p - points[0]) ** 2).sum(axis=1) if skip is None else np.full(len(p), np.inf)
+    if skip is not None:
+        return _even_odd(p, points, np.roll(points, 1, axis=0), skip)
+    return polygons_2d(p, [points])
+
+
+def _even_odd(p: Array, a: Array, b: Array, skip: Array | None = None) -> Array:
+    """Distance to edges a[i] -> b[i] (every edge, a Python loop over them), signed by the even-odd rule."""
+    d = np.full(len(p), np.inf)
     sign = np.ones(len(p))
-    j = len(points) - 1
-    for i in range(len(points)):
-        e = points[j] - points[i]
-        w = p - points[i]
+    for i in range(len(a)):
+        e = b[i] - a[i]
+        w = p - a[i]
         if (skip is None or not skip[i]) and float(e @ e) > 0:  # a zero-length edge adds nothing (and would be NaN)
             t = np.clip((w @ e) / float(e @ e), 0.0, 1.0)
-            b = w - t[:, None] * e
-            d = np.minimum(d, (b * b).sum(axis=1))
-        c1 = p[:, 1] >= points[i][1]
-        c2 = p[:, 1] < points[j][1]
+            r = w - t[:, None] * e
+            d = np.minimum(d, (r * r).sum(axis=1))
+        c1 = p[:, 1] >= a[i][1]
+        c2 = p[:, 1] < b[i][1]
         c3 = e[0] * w[:, 1] > e[1] * w[:, 0]
         flip = (c1 & c2 & c3) | (~c1 & ~c2 & ~c3)
         sign = np.where(flip, -sign, sign)
-        j = i
+    if not np.isfinite(d).all():  # every edge skipped or zero length: the first point stands in
+        d = np.minimum(d, ((p - a[0]) ** 2).sum(axis=1))
     return np.sqrt(d) * sign
+
+
+@dataclass(frozen=True)
+class _Outline:
+    """Closed loops as oriented edges a -> b (outer loops counter-clockwise, holes clockwise, by even-odd nesting),
+    with outward unit normals per edge and per vertex (the sum of its two edges': the sign test at corners)."""
+
+    a: Array
+    b: Array
+    normal: Array
+    a_vertex: Array  # global vertex index of a / b (into vertex_normal)
+    b_vertex: Array
+    vertex_normal: Array
+    lo: Array  # edge boxes
+    hi: Array
+    simple: bool  # no two edges cross: the nearest edge decides inside/outside
+
+
+_OUTLINES: dict[bytes, _Outline] = {}
+
+
+def _area(loop: Array) -> float:
+    x, y = loop[:, 0], loop[:, 1]
+    return float((x * np.roll(y, -1) - np.roll(x, -1) * y).sum() / 2)
+
+
+def _crossing(a: Array, b: Array) -> bool:
+    """Do any two non-adjacent edges intersect?"""
+    n = len(a)
+    if n > 4000:
+        return True  # too many to check: use the even-odd path
+
+    def orient(p: Array, q: Array, r: Array) -> Array:
+        return np.asarray((q[..., 0] - p[..., 0]) * (r[..., 1] - p[..., 1]) - (q[..., 1] - p[..., 1]) * (r[..., 0] - p[..., 0]))
+
+    lo, hi = np.minimum(a, b), np.maximum(a, b)
+    for start in range(0, n, 256):
+        i = np.arange(start, min(n, start + 256))
+        overlap = (lo[i, None, 0] <= hi[None, :, 0]) & (lo[None, :, 0] <= hi[i, None, 0]) & (lo[i, None, 1] <= hi[None, :, 1]) & (lo[None, :, 1] <= hi[i, None, 1])
+        shares = np.isclose(a[i, None], a[None]).all(-1) | np.isclose(a[i, None], b[None]).all(-1) | np.isclose(b[i, None], a[None]).all(-1) \
+            | np.isclose(b[i, None], b[None]).all(-1)
+        ii, jj = np.nonzero(overlap & ~shares & (i[:, None] < np.arange(n)[None, :]))
+        if not len(ii):
+            continue
+        ii = i[ii]
+        o1 = orient(a[ii], b[ii], a[jj])
+        o2 = orient(a[ii], b[ii], b[jj])
+        o3 = orient(a[jj], b[jj], a[ii])
+        o4 = orient(a[jj], b[jj], b[ii])
+        if ((o1 * o2 <= 0) & (o3 * o4 <= 0)).any():
+            return True
+    return False
+
+
+def _outline(loops: list[Array]) -> _Outline:
+    key = b"|".join(np.ascontiguousarray(loop, dtype=np.float64).tobytes() for loop in loops)
+    if key in _OUTLINES:
+        return _OUTLINES[key]
+    clean = []
+    for loop in loops:
+        loop = np.asarray(loop, dtype=np.float64)
+        keep = np.any(loop != np.roll(loop, 1, axis=0), axis=1)  # repeated points
+        clean.append(loop[keep] if keep.sum() >= 3 else loop)
+    a_all, b_all, n_all, av, bv, vn = [], [], [], [], [], []
+    base = 0
+    for k, loop in enumerate(clean):
+        others = [o for m, o in enumerate(clean) if m != k]
+        depth = sum(int(_even_odd(loop[:1], o, np.roll(o, 1, axis=0))[0] < 0) for o in others)
+        if (_area(loop) > 0) != (depth % 2 == 0):
+            loop = loop[::-1]
+        a, b = np.roll(loop, 1, axis=0), loop  # edge i: point i-1 -> point i (counter-clockwise for outer loops)
+        d = b - a
+        length = np.maximum(np.linalg.norm(d, axis=1, keepdims=True), 1e-300)
+        n = np.stack([d[:, 1], -d[:, 0]], axis=1) / length  # right of travel = outside
+        m = len(loop)
+        a_all.append(a)
+        b_all.append(b)
+        n_all.append(n)
+        av.append(base + (np.arange(m) - 1) % m)
+        bv.append(base + np.arange(m))
+        vn.append(n + np.roll(n, -1, axis=0))  # vertex i ends edge i and starts edge i+1
+        base += m
+    a, b = np.concatenate(a_all), np.concatenate(b_all)
+    out = _Outline(a, b, np.concatenate(n_all), np.concatenate(av), np.concatenate(bv), np.concatenate(vn), np.minimum(a, b), np.maximum(a, b),
+                   not _crossing(a, b))  # fmt: skip
+    if len(_OUTLINES) > 256:
+        _OUTLINES.clear()
+    _OUTLINES[key] = out
+    return out
+
+
+def _segment_d2(p: Array, a: Array, b: Array) -> tuple[Array, Array]:
+    """Squared distance from points to segments (row by row) and the unclamped parameter along them."""
+    e = b - a
+    w = p - a
+    ee = np.maximum((e * e).sum(axis=-1), 1e-300)
+    t = (w * e).sum(axis=-1) / ee
+    tc = np.clip(t, 0.0, 1.0)
+    r = w - tc[..., None] * e
+    return (r * r).sum(axis=-1), t
+
+
+PAIRS = 2_000_000  # point-edge pairs per batch
+
+
+def polygons_2d(p: Array, loops: list[Array]) -> Array:
+    """Signed distance to closed loops (outlines with holes: even-odd, a loop inside another is a hole); negative
+    inside. Each point only measures the edges that can be nearest to it: points are binned in tiles, and a tile
+    keeps the edges no farther from its box than its centre's nearest edge plus its half diagonal. The nearest
+    edge (or corner) then gives the sign, for outlines whose edges don't cross (else the even-odd loop)."""
+    o = _outline(loops)
+    n, m = len(p), len(o.a)
+    if not n:
+        return np.zeros(0)
+    if not o.simple or n * m < 50_000:
+        return _even_odd(p, o.a, o.b)
+    lo, hi = p.min(axis=0), p.max(axis=0)
+    g = int(np.clip(math.sqrt(n / 64), 1, 128))
+    cell = np.maximum((hi - lo) / g, 1e-9)
+    tx = np.minimum(((p - lo) / cell).astype(np.int64), g - 1)
+    tile = tx[:, 0] * g + tx[:, 1]
+    tiles, tile_of = np.unique(tile, return_inverse=True)
+    t_lo = lo + np.stack([tiles // g, tiles % g], axis=1) * cell
+    t_hi = t_lo + cell
+    centre = (t_lo + t_hi) / 2
+    half = float(np.linalg.norm(cell)) / 2
+    cand_rows = []
+    step = max(1, PAIRS // max(m, 1))
+    for s0 in range(0, len(tiles), step):
+        c = centre[s0 : s0 + step]
+        d2, _ = _segment_d2(c[:, None, :], o.a[None], o.b[None])
+        bound = np.sqrt(d2.min(axis=1)) + half
+        gap = np.maximum(np.maximum(o.lo[None] - t_hi[s0 : s0 + step, None], t_lo[s0 : s0 + step, None] - o.hi[None]), 0.0)
+        cand_rows.append(np.linalg.norm(gap, axis=2) <= bound[:, None] + 1e-12)
+    cand = np.concatenate(cand_rows)
+    count = cand.sum(axis=1)
+    flat = np.nonzero(cand)[1]
+    offset = np.concatenate([[0], np.cumsum(count)])[:-1]
+    out = np.empty(n)
+    order = np.argsort(tile_of, kind="stable")
+    per = count[tile_of[order]]
+    ends = np.cumsum(per)
+    s0 = 0
+    while s0 < n:
+        s1 = int(np.searchsorted(ends, (ends[s0 - 1] if s0 else 0) + PAIRS, side="right"))
+        s1 = min(max(s1, s0 + 1), n)
+        pts = order[s0:s1]
+        k = per[s0:s1]
+        start = np.concatenate([[0], np.cumsum(k)])[:-1]
+        pi = np.repeat(np.arange(len(pts)), k)
+        ei = flat[offset[tile_of[pts]][pi] + np.arange(len(pi)) - start[pi]]
+        q = p[pts][pi]
+        d2, t = _segment_d2(q, o.a[ei], o.b[ei])
+        best = np.minimum.reduceat(d2, start)
+        hit = np.flatnonzero(d2 <= best[pi])
+        first = hit[np.unique(pi[hit], return_index=True)[1]]
+        e, tt = ei[first], t[first]
+        normal = np.where((tt <= 0)[:, None], o.vertex_normal[o.a_vertex[e]],
+                          np.where((tt >= 1)[:, None], o.vertex_normal[o.b_vertex[e]], o.normal[e]))  # fmt: skip
+        foot = o.a[e] + np.clip(tt, 0.0, 1.0)[:, None] * (o.b[e] - o.a[e])
+        side = ((p[pts] - foot) * normal).sum(axis=1)
+        out[pts] = np.sqrt(best) * np.where(side > 0, 1.0, -1.0)
+        s0 = s1
+    return out
 
 
 def _round_extrude(d2: Array, y: Array, half: float, r: float) -> Array:
