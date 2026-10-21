@@ -6,6 +6,10 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-21
+
+LOOSE backlog: text outlines, holes, UVs, origins, per-vertex numbers, aim, pattern lists, rim light, bloom.
+
 ### Changed
 
 - Extrude outlines measure only the edges that can be nearest to each point (tiles of points, bounded by their
@@ -209,7 +213,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/lukasgolino/KILN/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/lukasgolino/KILN/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lukasgolino/KILN/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lukasgolino/KILN/compare/v0.2.0...v0.3.0

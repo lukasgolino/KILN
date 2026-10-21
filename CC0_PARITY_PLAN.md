@@ -33,7 +33,7 @@ owner decision), 42 bloom (render._bloom when look.glow), 34 [look] rim_light (g
 written when set). 35: Godot 4.7.2 has no KHR_mesh_quantization / EXT_meshopt_compression (checked the binary), so
 glb compression isn't viable for Godot; size levers stay budget/lod and variant_glbs = false / atlas. 41 effect
 block: not done (needs a schema decision from the owner). Tests in tests/test_loose_report.py. All in
-CHANGELOG [Unreleased]; not tagged yet (next: 0.6.0 once the backlog batch is done).
+CHANGELOG [0.6.0], tagged v0.6.0 locally (not pushed). Full suite 425 passed; demo unchanged + Godot verify OK.
 
 LOOSE_REPORT.md backlog (items 26-43, filed after this plan; not part of it, do after M5/M6/M4 or if the owner asks):
 - Done: 32/43 (api.part keys), 36 (COLOR_0 on glow/skinned surfaces). 37: use `variant_glbs = false` (variants become
