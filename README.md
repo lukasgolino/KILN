@@ -36,8 +36,9 @@ animations:
   walk: { fps: 12, cycle: { type: waddle } }
 ```
 
-> **Status:** 0.1, early but complete: notation, meshing, painting (patterns, decals), rigs and soft skins,
-> animations, five styles, previews, Godot export, lint, CC0 imports, a Claude skill and an MCP server.
+> **Status:** 0.8, pre-1.0: notation, smooth and hard-surface meshing, painting (patterns, decals, palette atlas),
+> rigs, soft and rigid skins, humanoid clip retargeting, animations, effects, five styles, previews, Godot export,
+> lint, CC0 imports, a template library, a Claude skill and an MCP server.
 > Bugs and requests: [GitHub issues](https://github.com/lukasgolino/KILN/issues).
 
 ## One model, any style

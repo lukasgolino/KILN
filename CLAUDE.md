@@ -117,3 +117,11 @@ anything that changes output.
 - 2026-10-21: Scope (owner): KILN makes art and the data/glue a game needs to use it (glb, scenes, materials,
   manifest, effect JSON; small generated scripts like the .tscn material setup are fine). Game logic and runtime
   players stay in the game: no Godot effect player. `effect:` stays (LOOSE reskins on 0.7.0).
+- 2026-10-21: Tracking moved to GitHub issues (owner): no PLAN.md / report / plan markdown files in the repo; label
+  `later` = tracked, not planned until the owner asks. 0.8.0 closes LOOSE report 44-58 (issues #1-#14).
+- 2026-10-21: Hard CSG builds each BSP tree from the whole solid (a tree of only the polygons near the other solid
+  misclassifies points: cracks, #2); only nearby polygons are clipped (~1.3x slower). The DC grid grows on any side
+  the surface reaches (blends bulge out of part boxes, #11). merge_rigid (one skinned mesh for rigid skins, #9) is
+  opt-in: games hide parts by node. Shared clips (#5) are an explicit carrier (`animations_only`) other models name
+  (`animation_library`); Godot imports it as an AnimationLibrary. KILN writes Godot `.import` settings only for its
+  palette textures and carriers, merging into what Godot wrote (idempotent builds, #14).

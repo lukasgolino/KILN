@@ -6,9 +6,14 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-21
+
+LOOSE report 44-58, now GitHub issues #1-#14: shared clips, merged rigid skins, revealed parts, Godot import
+settings, partial builds, and E013 crack fixes. Hard-surface and humanoid output changes (meshes, pivots).
+
 ### Added
 
-- `revealed: [ids]` on a rig entry (#3): a part shown only once one of those parts is gone (gore stump caps). It is
+- `revealed: [ids]` on a rig entry (#3): a part shown only once one of those parts is gone (stump caps). It is
   its own piece, hidden by KILN's .tscn scenes, marked `kiln_revealed_by` in the glb and `revealed_by` in the
   manifest; `--verify-godot` checks it starts hidden.
 - `merge_rigid = true` in kiln.toml (#9): a rigid skin is exported as one skinned mesh, every vertex 100% on its
@@ -36,7 +41,6 @@ before 1.0).
 - Default `skeleton: humanoid` pivots sit on the joints: a capsule (cylinder, cone, tube) limb pivots at its axis
   end, not the top of its rounded box (upper legs were 8 cm above the hip, upper arms at the top of a shoulder ball);
   hands, feet and toes where the limb above them ends (wrist, ankle; feet were at the heel) (#6).
-
 - Hard-surface CSG cracked (E013) where near-coplanar facets of several parts meet (a faceted skull, jaw and hair):
   each union, cut and intersect built its BSP trees from only the polygons near the other solid. The trees are now
   built from whole solids; only the nearby polygons are clipped (#2).
@@ -290,7 +294,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/lukasgolino/KILN/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/lukasgolino/KILN/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/lukasgolino/KILN/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/lukasgolino/KILN/compare/v0.5.0...v0.6.0
