@@ -27,7 +27,7 @@ Point = tuple[float, float, float]
 
 # shapes the hard path can tessellate (others, and parts with twist or noise, stay soft)
 HARD_SHAPES = ("box", "wedge", "cylinder", "cone", "sphere", "ellipsoid", "capsule", "tube", "torus", "lathe", "extrude")
-SHELL_SHAPES = ("box", "wedge", "cylinder", "cone", "sphere", "ellipsoid")  # hard shells need a simple inward offset
+SHELL_SHAPES = ("box", "wedge", "cylinder", "cone", "sphere", "ellipsoid", "lathe")  # hard shells need a simple inward offset
 
 
 # --- polygons and planes ---------------------------------------------------------------------------------
@@ -767,9 +767,9 @@ def solid(g: Geometry, spec: HardSpec, tag: int) -> Solid:
             lo, hi = SHAPES[g.shape].bounds(g.params)
             lo, hi = lo - g.shell - 1.0, hi + g.shell + 1.0
             if sign > 0:
-                hi[axis] = 0.0
+                hi[axis] = g.open_plane()
             else:
-                lo[axis] = 0.0
+                lo[axis] = g.open_plane()
             keep = convex(*_planes_box((hi - lo).tolist()))
             box = _place([[(float(x), float(y), float(z)) for x, y, z in pts] for pts, _ in keep], np.eye(3), (lo + hi) / 2, tag)
             box = _place([list(q.points) for q in box], m, g.at, tag)
@@ -807,6 +807,13 @@ def _shrunk(g: Geometry, spec: HardSpec, tag: int, t: float) -> Solid:
         p["radius"] = max(float(p["radius"]) - t, 1e-4)
     elif g.shape == "ellipsoid":
         p["radii"] = [max(float(v) - t, 1e-4) for v in p["radii"]]
+    elif g.shape == "lathe":  # the (r, y) outline moved inwards; points on the axis stay on it
+        prof = [(float(r), float(y)) for r, y in (p.get("hard_profile") or p["profile"])]
+        area = sum(prof[i][0] * prof[(i + 1) % len(prof)][1] - prof[(i + 1) % len(prof)][0] * prof[i][1] for i in range(len(prof)))
+        if area < 0:
+            prof.reverse()
+        moved = _offset_outline(prof, t)
+        p["hard_profile"] = p["profile"] = [[0.0 if r0 == 0 else max(r, 0.0), y] for (r0, _), (r, y) in zip(prof, moved, strict=True)]
     else:
         return []
     m = g.rotation if g.rotation is not None else np.eye(3)

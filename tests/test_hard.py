@@ -12,6 +12,7 @@ from kiln.builder import build_model, hard_parts
 from kiln.export import to_glb
 from kiln.hard import HardSpec, bevelled, intersect, solid, subtract, to_mesh, union
 from kiln.hard import _planes_box
+from kiln.lint import geometry_warnings
 from kiln.mesher import open_edges
 from kiln.project import Project, load_project
 from kiln.sdf import Geometry, cylinder
@@ -183,3 +184,24 @@ def test_planar_merge_survives_an_outline_that_does_not_close() -> None:
     normal = np.array([0.0, 1.0, 0.0])
     assert _outline_points(tris, v, normal) == (set(), {0, 1, 2, 3})
     assert _retriangulate(tris, v, normal, set()) is None  # left as it is
+
+
+def test_hard_lathe_shell_opens_its_end(project: Project) -> None:
+    # LOOSE #44: a hollow lathe helmet (profile anywhere on the axis) came out shattered: lathes weren't shell shapes,
+    # and `open: -y` cut at local y = 0 instead of the profile's bottom
+    text = """\
+name: thing
+parts:
+  - lathe: { profile: [[0, 1.94], [0.065, 1.935], [0.12, 1.895], [0.14, 1.83], [0.142, 1.765], [0, 1.765]], sides: 12 }
+    shell: { thickness: 0.012, open: -y }
+    color: grey
+    hard: true
+"""
+    built = built_of(project, text)
+    p = built.painted
+    assert len(open_edges(p.vertices, p.faces)) == 0
+    assert p.vertices[:, 1].min() == pytest.approx(1.765 + 0.012, abs=1e-6)  # only the end wall is gone
+    inner = np.hypot(p.vertices[:, 0], p.vertices[:, 2])[np.abs(p.vertices[:, 1] - 1.777) < 1e-6]
+    assert inner.min() == pytest.approx(0.142 - 0.012, abs=0.005)  # the rim: an inside wall at the open end
+    palette, _ = project.palette(built.model.palette)
+    assert not [f for f in geometry_warnings(built, palette, project) if f.rule == "W102"]  # exact polygons: no resolution

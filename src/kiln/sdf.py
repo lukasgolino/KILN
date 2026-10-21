@@ -496,6 +496,15 @@ class Geometry:
     fit: tuple[tuple[Any, ...], float] | None = None  # (parts or a mesh's distance, gap): the shell wraps their surface
     cut_only: frozenset[int] | None = None  # cuts: only these adding parts (indices); None = everything before it
 
+    def open_plane(self) -> float:
+        """Where the open side is cut, along its axis in the local frame: the shape's centre (0), except a lathe
+        opened along y (a helmet, a bowl), whose profile sits anywhere on the axis: just its end wall goes."""
+        if self.open is None or self.shape != "lathe" or self.open[0] != 1:
+            return 0.0
+        lo, hi = SHAPES["lathe"].bounds(self.params)
+        wall = self.shell if self.shell_side == "in" else self.shell / 2
+        return float(lo[1]) + wall if self.open[1] < 0 else float(hi[1]) - wall
+
     def distance(self, p: Array, filled: bool = False) -> Array:
         """Signed distance; `filled`: a shell counts as solid (what it covers), its open side still open. A fitted
         shell is a wall `gap` away from its parts' surface, as thick as the shell, wherever its own shape (solid) is."""
@@ -525,7 +534,7 @@ class Geometry:
             d = fn(q, self.params)
             if self.open is not None:  # each copy is shelled and opened in its own frame
                 d = d if filled else self._shelled(d)
-                d = np.maximum(d, self.open[1] * q[:, self.open[0]])
+                d = np.maximum(d, self.open[1] * (q[:, self.open[0]] - self.open_plane()))
             best = np.minimum(best, d)
         if self.shell and self.open is None and not filled:
             best = self._shelled(best)

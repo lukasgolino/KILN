@@ -85,9 +85,10 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             part = m.parts[i]
             warn("W111", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is there at full detail but the triangle budget "
                  f"({m.budget or built.style.budget(m.cls)}) is too low to keep it: raise budget:, or make it thicker", part.line, part.where)  # fmt: skip
-        kept = kept_parts(m, hard_parts(m, built.style))  # meshed finer: they don't break up
+        hard = hard_parts(m, built.style)  # exact polygons: no mesh resolution
+        kept = kept_parts(m, hard)  # meshed finer: they don't break up
         for k, part in enumerate(m.parts):
-            if part.geometry.op != "add" or k in kept:
+            if part.geometry.op != "add" or k in kept or k in hard:
                 continue
             t = part_thickness(part.geometry)
             if t is not None and t < 2 * built.step:
