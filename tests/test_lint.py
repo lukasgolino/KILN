@@ -182,3 +182,11 @@ def test_budget_is_met_when_painting_adds_triangles(project: Project) -> None:
     write_model(project, text)
     result = lint_paths(project, project.model_paths())
     assert result.built["thing"].triangles <= 1500 * 1.05
+
+
+def test_w106_allows_a_rounded_bottom_at_coarse_resolution(project: Project) -> None:
+    # LOOSE #33: a rounded extrude standing on y = 0 meshes a cell or so above it
+    text = ("name: thing\nparts:\n  - extrude: { points: [[-0.5, -0.1], [0.5, -0.1], [0.5, 0.1], [-0.5, 0.1]], height: 1, round: 0.08,"
+            " at: [0, 0.5, 0] }\n    color: red\n")  # fmt: skip
+    assert "W106" not in warnings(lint(project, text))
+    assert "W106" not in warnings(lint(project, text.replace("parts:", "origin: center\nparts:").replace("[0, 0.5, 0]", "[0, 0.8, 0]")))

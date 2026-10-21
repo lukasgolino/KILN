@@ -125,7 +125,14 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         warn("W103", f"the model is {built.pieces} separate pieces: a floating part, or a gap between parts that should touch")
     lo, hi = built.bounds()
     size = float((hi - lo).max())
-    if abs(float(lo[1])) > max(0.01, 0.01 * size):
+    tol = max(0.01, 0.01 * size)
+    grounded = m.origin is not None or abs(float(lo[1])) <= tol  # a model with an explicit `origin` chose its own anchor
+    if not grounded and m.parts:  # the mesh may sit up to a cell above the shapes' own bottom (rounded edges, coarse cells)
+        from kiln.builder import field_of
+
+        shapes_lo = float(field_of(m, built.step).bounds()[0][1])
+        grounded = abs(shapes_lo) <= tol and 0 <= float(lo[1]) - shapes_lo <= 1.5 * built.step
+    if not grounded:
         warn("W106", f"the lowest point is at y = {float(lo[1]):.3g} m: models stand on y = 0 (feet, wheels, base). Move the parts, "
              "or disable W106 for things that hang or float")  # fmt: skip
     limits = CLASS_SIZES.get(m.cls)

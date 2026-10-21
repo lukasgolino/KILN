@@ -10,6 +10,8 @@ before 1.0).
 
 - Extrude outlines measure only the edges that can be nearest to each point (tiles of points, bounded by their
   centre's nearest edge): same distances, several times faster on long outlines (LOOSE #31).
+- W106 accepts a mesh up to 1.5 cells above the shapes' own bottom when that is on y = 0 (rounded extrudes at
+  coarse resolution, LOOSE #33), and skips models with an explicit `origin`.
 
 ### Added
 
