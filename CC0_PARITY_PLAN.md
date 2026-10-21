@@ -29,8 +29,10 @@ Progress: DONE 40 origin, 39 uv (src/kiln/uv.py), 31 (sdf.polygons_2d tiles), 27
 params; hard path: islands unioned, counters cut by nesting depth), 33 (W106 vs field bounds), 29 aim + ring arrays
 around any direction, 30 pattern lists + frame: part, 38 attr (custom _NAME + COLOR_0.a; Godot 4.7 drops custom
 attributes, verified), 26 as SVG `path:` on extrude (src/kiln/svgpath.py; real font glyphs would need fontTools =
-owner decision). Next: 42 bloom in previews, 34 rim overlay in Godot scenes, 35 KHR_mesh_quantization (check Godot
-imports it), 41 effect block (design needed; maybe ask owner). Tests in tests/test_loose_report.py. All in
+owner decision), 42 bloom (render._bloom when look.glow), 34 [look] rim_light (godot.RIM_SHADER next pass, only
+written when set). 35: Godot 4.7.2 has no KHR_mesh_quantization / EXT_meshopt_compression (checked the binary), so
+glb compression isn't viable for Godot; size levers stay budget/lod and variant_glbs = false / atlas. 41 effect
+block: not done (needs a schema decision from the owner). Tests in tests/test_loose_report.py. All in
 CHANGELOG [Unreleased]; not tagged yet (next: 0.6.0 once the backlog batch is done).
 
 LOOSE_REPORT.md backlog (items 26-43, filed after this plan; not part of it, do after M5/M6/M4 or if the owner asks):
