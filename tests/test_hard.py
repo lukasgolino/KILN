@@ -271,3 +271,36 @@ def test_bevel_on_a_thin_outline_stays_closed(project: Project, edge: str) -> No
     assert max(limits[:4]) < 0.0075 < min(limits[4:6])  # the 15 mm foot limits its corners; the stem doesn't
     square = inset_limits([(0, 0), (1, 0), (1, 1), (0, 1)])
     assert min(square) > 0.3  # ordinary shapes never clamp a normal bevel
+
+
+# Cinzel Black's L (OFL; overlaps removed), as the outline: the shape whose union with crossing straps cracked in 0.7.1
+SERIF_L = [[0.46715, -0.33144], [0.41287, 0.0], [-0.42287, 0.0], [-0.42287, -0.01429], [-0.40429, -0.01429], [-0.36983, -0.02089], [-0.34072, -0.04072], [-0.32054, -0.06982], [-0.31286, -0.10429], [-0.31286, -0.89573], [-0.32054, -0.9302], [-0.34072, -0.9593], [-0.36983, -0.97913], [-0.40429, -0.98573], [-0.42287, -0.98573], [-0.42287, -1.00002], [0.09, -1.00002], [0.09, -0.98573], [0.07143, -0.98573], [0.03697, -0.97913], [0.00786, -0.9593], [-0.01232, -0.9302], [-0.02, -0.89573], [-0.02, -0.07286], [0.15572, -0.07286], [0.2004, -0.07627], [0.24302, -0.08651], [0.28358, -0.10357], [0.33911, -0.14107], [0.38715, -0.19215], [0.41414, -0.23334], [0.43604, -0.27977], [0.45287, -0.33144]]
+
+
+@pytest.mark.parametrize("extra", ["", "bevel", "straps"])
+def test_serif_letter_with_crossing_hard_straps_stays_closed(project: Project, extra: str) -> None:
+    """#30 (fixed by 0.8.0's whole-solid BSP trees, #2): a hard serif letter unioned with hard boxes crossing it,
+    bevelled and chamfered, with a second strap and a cut biting into its side, is closed and one piece."""
+    letter_edge = "\n    bevel: 0.0065\n    segments: 2" if extra else ""
+    box_edge = "\n    chamfer: 0.01" if extra else ""
+    text = f"""name: thing
+class: prop
+parts:
+  - extrude: {{ points: {SERIF_L}, height: 0.34, at: [-0.0221, 0, -0.17], rotate: [90, 0, 0] }}
+    color: "#2e2f33"
+    hard: true{letter_edge}
+  - box: {{ at: [-0.1886, 0.8, 0], size: [0.3169, 0.07, 0.49] }}
+    color: "#1d1d20"
+    hard: true{box_edge}
+"""
+    if extra == "straps":
+        text += """  - box: { at: [-0.25, 0.6, 0], size: [0.07, 0.6, 0.49] }
+    color: "#1d1d20"
+    hard: true
+    chamfer: 0.01
+  - box: { at: [-0.335, 0.6531, 0.22], size: [0.0753, 0.0449, 0.088], rotate: [9.0956, 11.5489, 103.1887] }
+    cut: true
+"""
+    built = built_of(project, text)
+    assert len(open_edges(built.painted.vertices, built.painted.faces)) == 0
+    assert built.pieces == 1
