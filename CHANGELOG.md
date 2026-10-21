@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-21
+
+Issues #28-#37: font text that holds together (nonzero fill, variable fonts, thin bevels), effect floors, gib pieces,
+mixed loadouts on shared clips, retarget adjustments, and preview fixes.
+
 ### Added
 
 - `font_axes: { wght: 900 }` on text extrudes picks a variable font's instance (any axis), so no pre-instanced copy of the
@@ -326,7 +331,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/lukasgolino/KILN/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/lukasgolino/KILN/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/lukasgolino/KILN/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/lukasgolino/KILN/compare/v0.6.0...v0.7.0
