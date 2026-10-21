@@ -106,7 +106,7 @@ the template library (M4).
 
 ## [0.4.0] - 2026-10-21
 
-Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).
+Toward CC0 parity (from the LOOSE! dogfooding report, items 23-25).
 
 ### Added
 
@@ -145,7 +145,7 @@ Toward CC0 parity (CC0_PARITY_PLAN.md, from LOOSE_REPORT.md items 23-25).
 
 ## [0.3.0] - 2026-10-20
 
-From the LOOSE! dogfooding report (LOOSE_REPORT.md, items 1-22).
+From the LOOSE! dogfooding report (items 1-22).
 
 ### Added
 

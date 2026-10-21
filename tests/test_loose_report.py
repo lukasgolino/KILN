@@ -1,4 +1,4 @@
-"""The LOOSE! dogfooding report (LOOSE_REPORT.md, items 1-16): each fix, pinned down."""
+"""The LOOSE! dogfooding report (items 1-16): each fix, pinned down."""
 
 from __future__ import annotations
 

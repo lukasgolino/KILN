@@ -3,7 +3,9 @@
 KILN (Keyed Implicit Language & Notation) is a standalone Python CLI/library that turns text models
 (`.kiln.yaml`: signed-distance-field parts that blend like clay) into smooth stylised 3D game assets: meshes,
 paint, rigs, animations, glTF and Godot scenes. It is PAGAN's 3D sibling (PAGAN = pixel art as text) and copies
-PAGAN's workflow and conventions. Read [PLAN.md](PLAN.md) for the brief and design.
+PAGAN's workflow and conventions. The design is in the decisions log below and the notation in
+`src/kiln/skill/reference.md`. Bugs and feature requests live in GitHub issues (label `later`: tracked, not planned
+until the owner asks), never in markdown files in the repo.
 
 ## Setup and commands
 
@@ -85,7 +87,7 @@ anything that changes output.
   (shape-driven; locked borders from full detail starved shapes: hexagonal wheels, flattened boots) -> cut colour
   regions -> alternate border thinning and border-locked decimation -> relax bad faces. Thin parts (< PROTECT x the
   budget's edge length) get their own region. Lint workers are limited by free memory (WORKER_MEMORY).
-- 2026-10-21: CC0 parity (CC0_PARITY_PLAN.md; owner: "do everything in there"). Hard surface is a second, exact path:
+- 2026-10-21: CC0 parity (plan to match KayKit/Kenney; owner: "do everything in there"). Hard surface is a second, exact path:
   parts tessellated from their shape and combined with BSP CSG (csg.js algorithm) in pure Python, then coplanar
   fragments re-triangulated (holes bridged, straight points dropped only where every patch agrees) so it stays
   watertight. Hard parts aren't decimated; budget pressure lowers their detail (bevel -> chamfer -> none -> fewer sides).

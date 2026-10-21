@@ -38,7 +38,7 @@ animations:
 
 > **Status:** 0.1, early but complete: notation, meshing, painting (patterns, decals), rigs and soft skins,
 > animations, five styles, previews, Godot export, lint, CC0 imports, a Claude skill and an MCP server.
-> See [PLAN.md](PLAN.md).
+> Bugs and requests: [GitHub issues](https://github.com/lukasgolino/KILN/issues).
 
 ## One model, any style
 
