@@ -121,6 +121,7 @@ class Animation:
     poses: list[dict[str, PartPose]]  # one dict per frame: part id -> pose (missing = rest)
     cycle: dict[str, Any] | None = None  # expanded into poses once the rig is known
     source: tuple[Path, str, float] | None = None  # (glb, clip, speed): retargeted from a clip library
+    retarget: dict[str, dict[str, Any]] | None = None  # imported clips: { keep: {joint: share}, offset: {joint: [x, y, z]} }
 
 
 @dataclass
@@ -878,11 +879,15 @@ def _pose(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, where: str) -> d
 
 def _parse_import(ctx: _Ctx, name: str, spec: dict[str, Any], line: int | None, where: str, humanoid: bool) -> Animation | None:
     """An animation retargeted from a clip library: { import: imports/Rig_Medium_General.glb, clip: Idle_A }."""
-    bad = [k for k in spec if k not in ("import", "clip", "fps", "loop", "speed")]
+    bad = [k for k in spec if k not in ("import", "clip", "fps", "loop", "speed", "retarget")]
     fps, loop, speed = spec.get("fps", 30), spec.get("loop", True), spec.get("speed", 1.0)
     if bad or not isinstance(spec.get("import"), str) or not isinstance(spec.get("clip"), str) or not _num(fps) or not 0 < fps <= 120 \
             or not isinstance(loop, bool) or not _num(speed) or speed <= 0:
-        ctx.error("E008", "an imported animation is { import: imports/clips.glb, clip: Walking_A, fps: 30, loop: true, speed: 1 }", line, where)
+        ctx.error("E008", "an imported animation is { import: imports/clips.glb, clip: Walking_A, fps: 30, loop: true, speed: 1, "
+                  "retarget: { keep: { upperarm: 0.35 }, offset: { upperarm_l: [0, 0, -12] } } }", line, where)  # fmt: skip
+        return None
+    adjust = _parse_retarget(ctx, spec.get("retarget"), line, f"{where}.retarget")
+    if "retarget" in spec and adjust is None:
         return None
     if not humanoid:
         ctx.error("E008", "imported clips play on humanoids: add skeleton: humanoid (and name the parts after its joints)", line, where)
@@ -902,7 +907,30 @@ def _parse_import(ctx: _Ctx, name: str, spec: dict[str, Any], line: int | None, 
     if spec["clip"] not in names:
         ctx.error("E008", f"{spec['import']} has no clip {spec['clip']!r} (it has: {', '.join(names)})", line, f"{where}.clip")
         return None
-    return Animation(name, float(fps), loop, "linear", [], None, (file, str(spec["clip"]), float(speed)))
+    return Animation(name, float(fps), loop, "linear", [], None, (file, str(spec["clip"]), float(speed)), adjust)
+
+
+def _parse_retarget(ctx: _Ctx, raw: Any, line: int | None, where: str) -> dict[str, dict[str, Any]] | None:
+    """`retarget: { keep: { upperarm: 0.35, lowerleg: 0.5 }, offset: { upperarm_l: [-12, 0, -12] } }`: per joint (a
+    joint name, or its base name for both sides), the share of the clip's turn away from rest it keeps, and a fixed
+    turn (degrees, model axes) added to it. For clips made for another body type (chibi clips on adult bodies)."""
+    from kiln.retarget import JOINTS
+
+    if raw is None:
+        return None
+    bases = {n[:-2] for n in JOINTS if n.endswith(("_l", "_r"))}
+    usage = ("retarget is { keep: { <joint>: share 0-2 }, offset: { <joint>: [x, y, z] degrees } }; a joint is a humanoid joint "
+             f"name or a base name for both sides ({', '.join(sorted(bases))})")  # fmt: skip
+    if not isinstance(raw, dict) or not raw or any(k not in ("keep", "offset") for k in raw):
+        ctx.error("E008", usage, line, where)
+        return None
+    keep, offset = raw.get("keep", {}), raw.get("offset", {})
+    known = set(JOINTS) | bases
+    if not (isinstance(keep, dict) and all(k in known and _num(v) and 0 <= v <= 2 for k, v in keep.items())
+            and isinstance(offset, dict) and all(k in known and isinstance(v, list) and len(v) == 3 and all(_num(x) for x in v) for k, v in offset.items())):  # fmt: skip
+        ctx.error("E008", usage, line, where)
+        return None
+    return {"keep": {str(k): float(v) for k, v in keep.items()}, "offset": {str(k): tuple(float(x) for x in v) for k, v in offset.items()}}
 
 
 def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, humanoid: bool = False) -> dict[str, Animation]:

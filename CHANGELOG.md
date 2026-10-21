@@ -13,6 +13,9 @@ before 1.0).
 - Effect `floor: y`: debris bounces (`bounce`, `friction` per emitter) and settles (`settle`) on it instead of falling
   through; every floor hit is rolled into the effect JSON (`hits`: age, position, velocity), so players and `preview
   --effect` match (#31).
+- Imported (retargeted) animations take `retarget: { keep: { joint: share }, offset: { joint: [x, y, z] } }`: damp a
+  joint's turn away from rest (base names cover both sides) and add a fixed turn, for clips made for another body
+  type (#34).
 
 ### Changed
 

@@ -299,7 +299,9 @@ def tracks(model: Model, skeleton: Skeleton) -> list[Track]:
         if anim.source is not None:  # retargeted from a clip library
             path, clip_name, speed = anim.source
             bones = [(b.name, b.parent, b.pivot) for b in skeleton.bones]
-            tr_, rot_ = retarget(load_clip(path, clip_name), bones, anim.fps, speed)
+            adjust = anim.retarget or {}
+            offsets = {k: quaternion(v) for k, v in adjust.get("offset", {}).items()}
+            tr_, rot_ = retarget(load_clip(path, clip_name), bones, anim.fps, speed, adjust.get("keep"), offsets)
             out.append(Track(anim.name, anim.fps, anim.loop, anim.interpolation, tr_, rot_, np.ones(tr_.shape)))
             continue
         poses = animation_poses(anim, model)
