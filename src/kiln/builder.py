@@ -345,7 +345,7 @@ def _join(cuts: list[Regions]) -> tuple[Regions, Array]:
     piece_of: list[int] = []
     vertices, faces, owner = [], [], []
     part_group: dict[int, int] = {}
-    pattern_groups: dict[int, int] = {}
+    pattern_groups: dict[int, tuple[int, ...]] = {}
     base = 0
     for k, cut in enumerate(cuts):
         remap = []
@@ -358,7 +358,7 @@ def _join(cuts: list[Regions]) -> tuple[Regions, Array]:
         faces.append(cut.mesh.faces + base)
         owner.append(np.asarray(remap)[cut.owner])
         part_group.update({i: remap[g] for i, g in cut.part_group.items()})
-        pattern_groups.update({remap[a]: remap[b] for a, b in cut.pattern_groups.items()})
+        pattern_groups.update({remap[a]: tuple(remap[x] for x in b) for a, b in cut.pattern_groups.items()})
         base += len(cut.mesh.vertices)
     mesh = Mesh(np.concatenate(vertices), np.concatenate(faces))
     return Regions(mesh, np.concatenate(owner), groups, part_group, pattern_groups), np.asarray(piece_of)

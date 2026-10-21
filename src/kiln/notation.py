@@ -50,6 +50,7 @@ class Pattern:
     axis: tuple[float, float, float]
     width: float  # stripes: fraction of each repeat in the second colour; dots: dot diameter as a fraction of size
     at: float = 0.0  # band: where its centre is along the axis (metres); size = its thickness
+    frame: str = "model"  # model: axes and positions in model space; part: in the part's own frame (follows rotate/aim)
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,7 @@ class Part:
     color: str  # hex
     color_name: str
     material: str
-    pattern: Pattern | None = None
+    pattern: Pattern | None = None  # the first of `patterns`
     decal: Decal | None = None
     line: int | None = None
     where: str = ""
@@ -83,6 +84,7 @@ class Part:
     cut_only: str | None = None  # a cut that only cuts the parts with this id
     keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
     uv: UVSpec | None = None  # texture coordinates projected from its shape (kiln.uv)
+    patterns: tuple[Pattern, ...] = ()  # painted in order (a later one paints over earlier ones)
 
 
 @dataclass(frozen=True)
@@ -264,11 +266,15 @@ def _parse_copies(ctx: _Ctx, raw: Any, line: int | None, where: str) -> tuple[Co
         axis = raw["around"]
         center = _vec(raw.get("center", [0, 0, 0]))
         angle = raw.get("angle", 360)
-        if bad or axis not in AXES or center is None or not _num(angle):
-            ctx.error("E003", "a ring array is { count, around: x|y|z, center: [x, y, z], angle: 360 }", line, where)
+        vector = _vec(axis) if isinstance(axis, list) else None
+        if bad or (axis not in AXES and (vector is None or not any(vector))) or center is None or not _num(angle):
+            ctx.error("E003", "a ring array is { count, around: x|y|z or a direction [x, y, z], center: [x, y, z], angle: 360 }", line, where)
             return None
         unit = np.zeros(3)
-        unit[AXES[axis]] = 1.0
+        if vector is not None:
+            unit = np.array(vector) / float(np.linalg.norm(vector))
+        else:
+            unit[AXES[axis]] = 1.0
         stepdeg = float(angle) / count if abs(float(angle)) >= 360 else float(angle) / max(count - 1, 1)
         return tuple(Copy(axis_rotation(unit, stepdeg * i), np.array(center), np.zeros(3)) for i in range(count))
     step = _vec(raw.get("step"))
@@ -436,6 +442,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     color = ("#ff00ff", "#ff00ff")
     material = "default"
     pattern = decal = None
+    patterns: tuple[Pattern, ...] = ()
     if op == "add":
         c = _color(ctx, raw.get("color"), line, f"{where}.color") if "color" in raw else None
         if "color" not in raw:
@@ -449,8 +456,11 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             ctx.error("E005", f"unknown material {material!r}; the style has: {', '.join(sorted(ctx.materials))}", line, f"{where}.material")
             ok = False
         if "pattern" in raw:
-            pattern = _parse_pattern(ctx, raw["pattern"], line, f"{where}.pattern")
-            ok = ok and pattern is not None
+            listed = raw["pattern"] if isinstance(raw["pattern"], list) and raw["pattern"] else [raw["pattern"]]
+            parsed = [_parse_pattern(ctx, r, line, f"{where}.pattern" + (f"[{k}]" if len(listed) > 1 else "")) for k, r in enumerate(listed)]
+            patterns = tuple(q for q in parsed if q is not None)
+            pattern = patterns[0] if patterns else None
+            ok = ok and len(patterns) == len(listed)
         if "decal" in raw:
             decal = _parse_decal(ctx, raw["decal"], line, f"{where}.decal")
             ok = ok and decal is not None
@@ -530,7 +540,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
-                   "keep": keep, "cut_only": cut_only, "uv": uv}  # fmt: skip
+                   "keep": keep, "cut_only": cut_only, "uv": uv, "patterns": patterns}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
@@ -585,7 +595,7 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
     if not isinstance(raw, dict) or raw.get("type") not in PATTERNS:
         ctx.error("E003", f"pattern is {{ type: {'|'.join(PATTERNS)}, color, size (metres), axis: x|y|z }}", line, where)
         return None
-    bad = [k for k in raw if k not in ("type", "color", "size", "axis", "width", "at")]
+    bad = [k for k in raw if k not in ("type", "color", "size", "axis", "width", "at", "frame")]
     size, width = raw.get("size", 0.1), raw.get("width", 0.5)
     axis = raw.get("axis", "y")
     c = _color(ctx, raw.get("color"), line, f"{where}.color")
@@ -599,13 +609,16 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
         problems.append("axis must be x, y or z")
     if not _num(at):
         problems.append("at is one number: the band's centre in metres along the axis (not [x, y, z])")
+    frame = raw.get("frame", "model")
+    if frame not in ("model", "part"):
+        problems.append("frame is model (axes in model space) or part (the part's own frame: follows rotate and aim)")
     if problems or c is None:
         if problems:
             ctx.error("E003", "pattern: " + "; ".join(problems), line, where)
         return None
     unit = [0.0, 0.0, 0.0]
     unit[AXES[axis]] = 1.0
-    return Pattern(str(raw["type"]), c[0], c[1], float(size), (unit[0], unit[1], unit[2]), float(width), float(at))
+    return Pattern(str(raw["type"]), c[0], c[1], float(size), (unit[0], unit[1], unit[2]), float(width), float(at), str(frame))
 
 
 def _parse_decal(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal | None:

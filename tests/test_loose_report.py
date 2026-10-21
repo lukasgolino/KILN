@@ -491,6 +491,7 @@ def test_aim_points_a_cylinder_between_two_points(project: Project) -> None:
     g = model.parts[0].geometry
     assert g.params["height"] == pytest.approx(math.sqrt(2))
     np.testing.assert_allclose(g.at, [0.5, 0.5, 0])
+    assert g.rotation is not None
     np.testing.assert_allclose(g.rotation @ [0, 1, 0], np.array([1, 1, 0]) / math.sqrt(2), atol=1e-9)
     inside = [[0.1, 0.1, 0], [0.9, 0.9, 0], [0.5, 0.5, 0.04]]
     outside = [[0.5, 0.6, 0], [1.05, 1.05, 0]]
@@ -498,6 +499,38 @@ def test_aim_points_a_cylinder_between_two_points(project: Project) -> None:
     assert SHAPES["cylinder"]
     down = "name: thing\nparts:\n  - box: { size: [0.1, 0.5, 0.2], aim: { from: [0, 1, 0], to: [0, 0, 0], roll: 90 } }\n    color: red\n"
     g2 = ok_model(project, down)[0].parts[0].geometry
+    assert g2.rotation is not None
     np.testing.assert_allclose(g2.rotation @ [0, 1, 0], [0, -1, 0], atol=1e-9)
     bad = text.replace("radius: 0.05,", "radius: 0.05, at: [0, 1, 0],")
     assert any(f.rule == "E003" and "not both" in f.message for f in errors_of(project, bad))
+
+
+# 30. several patterns on one part, in its own frame
+def test_several_patterns_in_the_part_frame(project: Project) -> None:
+    text = """\
+name: thing
+parts:
+  - box: { size: [0.4, 1, 0.4], aim: [[0, 0, 0], [1, 0, 0]] }
+    color: wood
+    pattern:
+      - { type: stripes, color: gold, size: 0.25, axis: y, frame: part }
+      - { type: band, color: grey, size: 0.1, at: 0, axis: y, frame: part }
+"""
+    model, _ = ok_model(project, text)
+    assert [p.type for p in model.parts[0].patterns] == ["stripes", "band"]
+    built = built_of(project, text)
+    p = built.painted
+    centre = p.vertices[p.faces].mean(axis=1)
+    colour = np.array([p.groups[g].color for g in p.face_group])
+    top = centre[:, 1] > 0.15  # the box lies along x: stripes and the band run across x
+    grey = colour == "#8a93a3"
+    assert grey.any() and (np.abs(centre[grey & top, 0] - 0.5) < 0.08).all()
+    others = {c for c in colour[top & ~grey]}
+    assert len(others) == 2  # wood and the stripes' gold, both still there
+
+
+def test_ring_array_around_any_direction(project: Project) -> None:
+    text = "name: thing\nparts:\n  - sphere: { at: [0, 1, 0], radius: 0.1 }\n    color: red\n    array: { count: 4, around: [1, 0, 0], center: [0, 0, 0] }\n"
+    g = ok_model(project, text)[0].parts[0].geometry
+    centres = np.array([c.to_world(np.array([[0.0, 1.0, 0.0]]))[0] for c in g.copies])
+    np.testing.assert_allclose(centres, [[0, 1, 0], [0, 0, 1], [0, -1, 0], [0, 0, -1]], atol=1e-9)

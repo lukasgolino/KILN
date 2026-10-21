@@ -134,7 +134,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `mirror: x` | also on the other side of 0 (x, y, z or a list); same id |
 | `mirror_id: arm_r` | with `mirror: x`: the copy is a separate part with this id (rig entries are mirrored too) |
 | `array: { count: 4, step: [1, 0, 0] }` | repeat in a row |
-| `array: { count: 8, around: y, center: [0, 0, 0], angle: 360 }` | repeat in a ring |
+| `array: { count: 8, around: y, center: [0, 0, 0], angle: 360 }` | repeat in a ring (`around` may be any direction `[x, y, z]`: a ring on a tilted wheel) |
 | `shell: 0.02` | hollow, walls this thick (centred on the surface) |
 | `shell: { thickness: 0.02, open: -y }` | a wall inside the surface (the outside stays put), one side cut open at the shape's centre: helmets, bowls, pots, shields with a visible rim (`side: both` centres it) |
 | `fit: head` or `fit: { to: head, gap: 0.01 }` | with `shell`: the wall wraps the parts with that id, `gap` away from them, wherever this part's own shape reaches (its shape is the coverage: a sphere around the head, `open: -y` and placed low enough to cover the cheeks). Helmets that sit on the head instead of perching on it; cut a face opening after it (before the head, so the cut doesn't take the face) |
@@ -194,6 +194,8 @@ material, id, mirror, ...) go to each.
 
 ```yaml
     pattern: { type: stripes, color: gold, size: 0.06, width: 0.3, axis: y }
+    # several: a list, painted in order (each over the last); frame: part = axes and `at` in the part's own frame
+    # (they follow rotate/aim): pattern: [{ type: stripes, ..., frame: part }, { type: band, ..., frame: part }]
 ```
 
 - `stripes`: bands across `axis`, one every `size` metres, `width` = fraction in the second colour.

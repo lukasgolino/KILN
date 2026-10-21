@@ -16,7 +16,7 @@ import numpy as np
 
 from kiln.mesher import Mesh
 from kiln.notation import Decal, Model, Part, Pattern
-from kiln.sdf import Array, Field
+from kiln.sdf import Array, Field, Geometry
 
 ScalarFn = Callable[[Array], Array]
 
@@ -161,8 +161,13 @@ class PaintGroup:
     uv: int = -1  # the part (index) whose `uv:` projection these faces get; -1: none
 
 
-def _pattern_fn(p: Pattern) -> ScalarFn:
-    """>= 0 where the pattern's second colour goes."""
+def _pattern_fn(p: Pattern, geometry: Geometry | None = None) -> ScalarFn:
+    """>= 0 where the pattern's second colour goes; `geometry`: the part, for patterns in its own frame."""
+    if p.frame == "part" and geometry is not None:
+        from kiln.uv import local
+
+        model_space = _pattern_fn(p)
+        return lambda x: model_space(local(geometry, x))
     axis = np.array(p.axis)
     if p.type == "stripes":
         return lambda x: np.cos(2 * math.pi * (x @ axis) / p.size) - math.cos(math.pi * p.width)
@@ -204,7 +209,7 @@ class Regions:
     owner: Array  # (F,) index into groups
     groups: list[PaintGroup]
     part_group: dict[int, int]  # adding part index -> group
-    pattern_groups: dict[int, int]  # group -> its pattern's second-colour group
+    pattern_groups: dict[int, tuple[int, ...]]  # group -> its patterns' colour groups
 
 
 def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[int] | None = None, protect: frozenset[int] = frozenset()) -> Regions:
@@ -322,45 +327,45 @@ def hard_regions(mesh: Mesh, face_part: Array, model: Model, rigged: bool) -> Re
 def _patterns(
     vertices: Array, faces: Array, owner: Array, model: Model, adding: list[int], groups: list[PaintGroup], group_index: dict[PaintGroup, int],
     part_group: dict[int, int], project: Callable[[Array], Array],
-) -> tuple[Array, Array, Array, dict[int, int]]:
-    """Patterns: a second colour cut into each patterned part's own faces."""
-    pattern_groups: dict[int, int] = {}
+) -> tuple[Array, Array, Array, dict[int, tuple[int, ...]]]:
+    """Patterns: a second colour cut into each patterned part's own faces (several: in order, each over the last)."""
+    pattern_groups: dict[int, tuple[int, ...]] = {}
     for i in adding:
         part = model.parts[i]
-        if part.pattern is None:
-            continue
         g = part_group[i]
-        fn = _pattern_fn(part.pattern)
-        sel = owner == g
-        if not sel.any():
-            continue
-        # A pattern needs edges shorter than its repeat (or a stripe could fall between vertices), then short edges
-        # along its borders to cut them cleanly; areas between borders stay coarse (the budget).
-        pat = part.pattern
-        for limit, border_only in ((pat.size / 2 if pat.type != "band" else pat.size, False), (pat.size / 4, True)):
-            for _ in range(12):
-                values = fn(vertices)[faces]
-                sel = owner == g
-                if border_only:
-                    sel &= (values.min(axis=1) < 0) & (values.max(axis=1) >= 0)
-                elif pat.type == "band":
-                    sel &= values.max(axis=1) > -pat.size  # only near the band
-                if not sel.any():
-                    break
-                n_before = len(faces)
-                vertices, faces, parent = refine(vertices, faces, sel, limit, project)
-                owner = owner[parent]
-                if len(faces) == n_before:
-                    break
-        sel = owner == g
-        vertices, faces, negative, parent = split(vertices, faces, fn(vertices), sel)
-        owner = owner[parent]
-        alt = PaintGroup(groups[g].bone, part.pattern.color, part.pattern.color_name, part.material, groups[g].uv)
-        if alt not in group_index:
-            group_index[alt] = len(groups)
-            groups.append(alt)
-        pattern_groups[g] = group_index[alt]
-        owner[(owner == g) & ~negative] = group_index[alt]
+        for pat in part.patterns:
+            fn = _pattern_fn(pat, part.geometry)
+            own = [g, *pattern_groups.get(g, ())]  # a later pattern paints over the earlier ones' colours too
+            sel = np.isin(owner, own)
+            if not sel.any():
+                break
+            # A pattern needs edges shorter than its repeat (or a stripe could fall between vertices), then short edges
+            # along its borders to cut them cleanly; areas between borders stay coarse (the budget).
+            for limit, border_only in ((pat.size / 2 if pat.type != "band" else pat.size, False), (pat.size / 4, True)):
+                for _ in range(12):
+                    values = fn(vertices)[faces]
+                    sel = np.isin(owner, own)
+                    if border_only:
+                        sel &= (values.min(axis=1) < 0) & (values.max(axis=1) >= 0)
+                    elif pat.type == "band":
+                        sel &= values.max(axis=1) > -pat.size  # only near the band
+                    if not sel.any():
+                        break
+                    n_before = len(faces)
+                    vertices, faces, parent = refine(vertices, faces, sel, limit, project)
+                    owner = owner[parent]
+                    if len(faces) == n_before:
+                        break
+            sel = np.isin(owner, own)
+            vertices, faces, negative, parent = split(vertices, faces, fn(vertices), sel)
+            owner = owner[parent]
+            alt = PaintGroup(groups[g].bone, pat.color, pat.color_name, part.material, groups[g].uv)
+            if alt not in group_index:
+                group_index[alt] = len(groups)
+                groups.append(alt)
+            if group_index[alt] not in own:
+                pattern_groups[g] = (*pattern_groups.get(g, ()), group_index[alt])
+            owner[np.isin(owner, own) & ~negative] = group_index[alt]
     return vertices, faces, owner, pattern_groups
 
 
@@ -378,7 +383,7 @@ def paint(painted: Regions, model: Model) -> Painted:
             continue
         d = part.decal
         g = part_group[i]
-        own = {g, pattern_groups.get(g, g)}
+        own = {g, *pattern_groups.get(g, ())}
         facing, _, _ = _decal_frame(d)
         for column, bound in ((0, 0.0), (0, 1.0), (1, 0.0), (1, 1.0)):
             sel = np.isin(owner, list(own))
