@@ -33,7 +33,7 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv"}  # fmt: skip
+               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
@@ -301,7 +301,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     params: dict[str, Any] = dict(sdef.defaults)
     ok = True
     for key, value in spec.items():
-        if key in ("at", "rotate"):
+        if key in ("at", "rotate", "aim"):
             continue
         if key not in sdef.fields:
             ctx.error("E002", f"{kind} has no field {key!r}; it takes {sdef.help}, plus at and rotate", _line(spec, key) or line, f"{swhere}.{key}")
@@ -313,6 +313,19 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             ok = False
             continue
         params[key] = checked
+    aim_raw = spec.get("aim", raw.get("aim"))
+    aim = None
+    if aim_raw is not None:
+        aim = _parse_aim(aim_raw)
+        if aim is None:
+            ctx.error("E003", "aim points the shape's own y axis from one point to another: aim: [[x, y, z], [x, y, z]] or "
+                      "{ from, to, roll: degrees }; it sits halfway, and a missing height is the distance", line, f"{swhere}.aim")  # fmt: skip
+            ok = False
+        elif "at" in spec or "at" in raw:
+            ctx.error("E003", "a part has at or aim (which puts it halfway between its two points), not both", line, f"{swhere}.aim")
+            ok = False
+        elif "height" in sdef.fields and "height" not in spec:
+            params["height"] = aim[3]
     missing = [k for k in sdef.required if k not in params and k not in spec]  # a bad value was reported already
     if missing:
         ctx.error("E003", f"{kind} needs {', '.join(missing)} ({sdef.help})", line, swhere)
@@ -342,6 +355,9 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             ok = False
         elif any(rot):
             rotation = rotation_matrix((rot[0], rot[1], rot[2]))
+    if aim is not None and ok:  # the aim turns the (already rotated) shape: rotate spins it in its own frame first
+        at = aim[0]
+        rotation = aim[1] if rotation is None else aim[1] @ rotation
 
     op = "add"
     cut_only = None
@@ -527,6 +543,32 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         parts.append(Part(index, str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where, str(part_id), mirror[0],
                           bool(loose), **hard_fields))  # fmt: skip
     return parts
+
+
+def _parse_aim(raw: Any) -> tuple[tuple[float, ...], np.ndarray, float, float] | None:
+    """(midpoint, rotation taking +y to from->to (then rolled about it), roll, length) of an `aim`."""
+    if isinstance(raw, list) and len(raw) == 2:
+        raw = {"from": raw[0], "to": raw[1]}
+    if not isinstance(raw, dict) or any(k not in ("from", "to", "roll") for k in raw):
+        return None
+    a, b, roll = _vec(raw.get("from")), _vec(raw.get("to")), raw.get("roll", 0)
+    if a is None or b is None or not _num(roll):
+        return None
+    d = np.subtract(b, a)
+    length = float(np.linalg.norm(d))
+    if length <= 1e-9:
+        return None
+    d = d / length
+    y = np.array([0.0, 1.0, 0.0])
+    axis = np.cross(y, d)
+    if np.linalg.norm(axis) < 1e-9:
+        turn = np.eye(3) if d[1] > 0 else axis_rotation(np.array([1.0, 0.0, 0.0]), 180.0)
+    else:
+        turn = axis_rotation(axis, math.degrees(math.acos(max(-1.0, min(1.0, float(d[1]))))))
+    if roll:
+        turn = axis_rotation(d, float(roll)) @ turn
+    mid = tuple(float(v) for v in (np.add(a, b) / 2))
+    return mid, np.round(turn, 12), float(roll), length
 
 
 def _reflect(g: Geometry, axis: int) -> Geometry:

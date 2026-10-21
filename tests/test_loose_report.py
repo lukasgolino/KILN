@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import subprocess
 import sys
@@ -479,3 +480,24 @@ def test_extrude_holes_and_offset(project: Project, hard: bool) -> None:
     assert ((centre > 0.14) & (centre < 0.16)).any()  # the hole's wall, 0.05 in from 0.2
     assert not (centre < 0.1).any()
     assert closed_faces(built.painted.faces) if hard else True
+
+
+# 29. aim any shape from one point to another
+def test_aim_points_a_cylinder_between_two_points(project: Project) -> None:
+    from kiln.sdf import SHAPES
+
+    text = "name: thing\nparts:\n  - cylinder: { radius: 0.05, aim: [[0, 0, 0], [1, 1, 0]] }\n    color: red\n"
+    model, _ = ok_model(project, text)
+    g = model.parts[0].geometry
+    assert g.params["height"] == pytest.approx(math.sqrt(2))
+    np.testing.assert_allclose(g.at, [0.5, 0.5, 0])
+    np.testing.assert_allclose(g.rotation @ [0, 1, 0], np.array([1, 1, 0]) / math.sqrt(2), atol=1e-9)
+    inside = [[0.1, 0.1, 0], [0.9, 0.9, 0], [0.5, 0.5, 0.04]]
+    outside = [[0.5, 0.6, 0], [1.05, 1.05, 0]]
+    assert (g.distance(np.array(inside)) < 0).all() and (g.distance(np.array(outside)) > 0).all()
+    assert SHAPES["cylinder"]
+    down = "name: thing\nparts:\n  - box: { size: [0.1, 0.5, 0.2], aim: { from: [0, 1, 0], to: [0, 0, 0], roll: 90 } }\n    color: red\n"
+    g2 = ok_model(project, down)[0].parts[0].geometry
+    np.testing.assert_allclose(g2.rotation @ [0, 1, 0], [0, -1, 0], atol=1e-9)
+    bad = text.replace("radius: 0.05,", "radius: 0.05, at: [0, 1, 0],")
+    assert any(f.rule == "E003" and "not both" in f.message for f in errors_of(project, bad))
