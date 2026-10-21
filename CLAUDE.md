@@ -112,3 +112,6 @@ anything that changes output.
   kerning/shaping). `effect:` (LOOSE #41, owner: "why not"): KILN only describes; `models/<name>.effect.json` holds
   every particle pre-rolled with Python's `random.Random(seed)` (stable across machines, unlike numpy streams) so the
   game's player and `preview --effect` match; closed-form motion with linear drag. LOOSE #35 (glb size) dropped.
+- 2026-10-21: Scope (owner): KILN makes art and the data/glue a game needs to use it (glb, scenes, materials,
+  manifest, effect JSON; small generated scripts like the .tscn material setup are fine). Game logic and runtime
+  players stay in the game: no Godot effect player. `effect:` stays (LOOSE reskins on 0.7.0).
