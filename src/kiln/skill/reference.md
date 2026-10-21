@@ -246,6 +246,11 @@ skin: soft
   detachable arm). It is its own piece (separate), hidden by KILN's .tscn scenes, `kiln_revealed_by` in its node's
   extras and `revealed_by` in the manifest's part: the game shows it when it removes the arm. Mirrored twins
   are revealed by the twins (`arm_r`).
+- `gib: true` (or `gib: [upperarm_l, lowerarm_l, hand_l]`): the part comes off as a piece of its own. Besides the model,
+  `kiln build` writes `models/<name>.gib.<id>.glb`: that part (and, with `true`, every part hanging from it) meshed on
+  its own, so it's closed where it met the body; static, at rest, in the model's frame (same origin as the model's glb),
+  plain materials. Manifest: `gibs: { <id>: { glb, parts } }`. Mirrored twins get theirs. Pair it with a `revealed`
+  stump cap on the body.
 - `meta`: plain values or flat lists (points: `[x, y, z]`, model space) for game code: Godot node metadata
   (`get_meta("extras")`; on soft skins, bone metadata: `skeleton.get_bone_meta(i, "extras")`) and the manifest.
   Mirrored twins get the same meta (not mirrored).
