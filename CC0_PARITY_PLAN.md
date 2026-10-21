@@ -255,3 +255,19 @@ The owner's bar is "as good as the CC0 build".
 - Photoreal or PBR-textured output.
 - Image-to-3D.
 - Beating KayKit's hand-painted faces with pure SDF. Use templates (M4) or the hybrid (M6) instead.
+
+## LOOSE report 44-53 (2026-10-21, owner: do it all)
+
+Plan: 0.7.1 = bugs 44 (hard shell), 45 (KeyError _outline_points), 46 (E013 at full size) + 48 (clip names),
+50 (humanoid pivots), 51 (node_prefix). 0.8.0 = 47 (revealed:), 49 (shared animation library glb), 53 (rigid skin as
+one skinned mesh), 52 (--vs restyle metrics). Status per item below (update as you go).
+- 44: open
+- 45: open
+- 46: open
+- 48: open
+- 50: open
+- 51: open
+- 47: open
+- 49: open
+- 53: open
+- 52: open

@@ -275,3 +275,61 @@ applies its own shaders (heat ramp, dissolve, glow) and does all motion on its w
 - Soft skin + per-frame poses + a `chain` cycle in one animation gave flickering rigged fires that Godot plays
   (`flicker-loop` loops automatically); the game advances them manually on world time.
 - Material names carry the palette key (`glow_fire_red#e8382c`), which helps engine-side mapping.
+
+## 2026-10-21: adult soldiers + gore on KILN v0.7.0 (LOOSE branch `kiln-adult`, project `chars3d/` -> `assets/kiln_chars`)
+
+Rigid-skinned `skeleton: humanoid` soldiers built from hard parts (style low_poly), one shared clip carrier, gore
+stumps and blood VFX. Generator: LOOSE `chars3d/models/gen_soldiers.py`.
+
+### Bugs
+
+44. **`shell:` on a hard part breaks the mesh.** A `lathe` with `sides: 12` (or `cylinder sides: 10`) plus
+    `shell: { thickness: 0.012, open: -y }` (a kettle hat / great helm, ~0.14 m radius) builds a shattered,
+    see-through dome (`kiln preview <m> --closeup helmet`: facets missing, slivers floating). Same part without
+    `shell` is fine. So hard helmets can't be hollow; LOOSE ships them solid. Repro:
+    `- lathe: {profile: [[0, 1.94], [0.065, 1.935], [0.12, 1.895], [0.14, 1.83], [0.142, 1.765], [0, 1.765]], sides: 12}`
+    `  shell: {thickness: 0.012, open: -y}` in style low_poly.
+45. **Crash: `KeyError` in `hard._outline_points` (hard.py:1013)** when a 4-sided cone with `aim` and
+    `rotate: [0, 45, 0]` joins a box with `aim` on the same id (a sword's tip on its blade):
+    `- box: {aim: [[-0.262, 0.833, 0.11], [-0.262, 0.295, 0.59]], size: [0.048, 0.7213, 0.01]}` (chamfer 0.003) then
+    `- cone: {aim: [[-0.262, 0.295, 0.59], [-0.262, 0.245, 0.64]], radius: 0.024, radius_top: 0, sides: 4, rotate: [0, 45, 0]}`
+    (both `id: weapon`, in a full character). Lint dies with a traceback instead of an error; without `rotate` it builds.
+46. **E013 cracks from two faceted ellipsoids on one id, only inside a full-size model.** Skull
+    `ellipsoid {at: [0, 1.73, -0.008], radii: [0.088, 0.108, 0.102], sides: 8}` + hair
+    `ellipsoid {at: [0, 1.76, -0.025], radii: [0.092, 0.09, 0.098], sides: 8}` (id head) lint clean on their own, but with
+    a 1.9 m body before them (other ids) E013 reports 8-13 open edges on hair/skin. Rotating the hair 22.5 degrees
+    doesn't help; a chamfered box for the hair does. Looks like a weld/snap tolerance that scales with the model's size.
+    Knight: 7-10 open edges where a mail sphere (shoulder) meets a steel elbow cone on another id.
+
+### Missing / friction
+
+47. **No `revealed:` parts.** CC0_PARITY_PLAN M1 offered `revealed: [ids]` (shown only once a detachable is gone) as the
+    alternative to `under:`; only `under:` exists. Gore stumps (neck, shoulder, elbow, hip, knee) want a cap that
+    appears when the limb comes off: today a game hides/shows parts itself or builds a separate stump model. `under:`
+    can't do it for rigid limbs either (it paints the soft body only, and a swinging arm would reveal the paint).
+48. **Animation names must be lowercase**, so imported clips can't keep their library names (`Idle_A` ->
+    `idle_a`): a game whose code keys on KayKit clip names needs a second table. Wanted: allow the imported name, or
+    `name:` for the glTF name.
+49. **Clips are baked into every model.** 13 retargeted KayKit clips per soldier x 9 soldiers duplicates the same
+    tracks (same skeleton, same pivots). Wanted: `kiln build` writes a shared animation-library glb for models with
+    identical skeletons (or `animations_only: true` models), and models that reference it carry no clips. LOOSE works
+    around it with one `soldier_anims` carrier model whose clips every soldier plays.
+50. **Default humanoid pivots from capsules are off**: upper leg pivot at the capsule's rounded top (8 cm above the hip
+    joint), foot pivot at the heel, upper arm at the top of the shoulder ball. Every pivot had to be given.
+51. **Mesh nodes are named only by part id** (`upperarm_l`, `head`); several models in one scene can't be told
+    apart by node name, and engines that key meshes as `<Model>_<Role>` (KayKit convention) split ids at `_`.
+    Optional `node_prefix` would help.
+52. **`preview --vs` metrics assume the same proportions.** An adult-proportioned footman vs KayKit's chibi Knight
+    scores IoU 0.40 (min 0.23) though that difference is the goal of the restyle; the metric can't say whether the
+    model is *as readable*. Wanted for restyles: silhouettes normalised per body region (head / torso / legs bands), a
+    "visual mass" ratio, and a distance row (the model at 30 m and 60 m at a game FOV, outline on) so readability
+    at gameplay distance is compared, not shape overlap.
+53. **Rigid skins cost one draw call per id.** A humanoid with `skin: rigid` exports every id as its own mesh node
+    (22-32 surfaces per soldier in `--vs`, KayKit 9). With `atlas` they share one material but are still separate
+    draws. Wanted: `skin: rigid` exported as ONE skinned mesh with 100% weights per part (rigid look, one draw call), with
+    each part's vertex range in the manifest so a game can still detach/hide a part (or `separate` parts kept apart).
+    Update: in a `skeleton: humanoid` soft skin with every limb `separate`, E013 also fires on "mail (spine)" when three
+    boxes overlap on one id (a body box fully inside a mail box, plus a breastplate box whose sides sit 2.5 mm from the
+    mail's). The reported location is the centroid of all cracked edges across parts, so it points at the wrong place;
+    bisecting by dropping parts makes it vanish when almost *any* other part is dropped (the crack depends on unrelated
+    parts). Fixed in LOOSE by leaving the enclosed box out. E013 locations per crack (part + point) would save hours.
