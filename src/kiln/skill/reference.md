@@ -148,6 +148,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `chamfer: 0.02` | hard parts: one flat band cut along every edge (box, wedge, cylinder, cone, extrude) |
 | `bevel: 0.02` | hard parts: rounded edges in `segments: 1-4` flat bands (default 2) |
 | `keep: true` | this detail survives every reduction (LODs) as its own small mesh, sitting in the surface around it. Crisp (`blend` 0) parts smaller than 2% of the model are kept anyway (rivets, pupils, studs); `keep: false` opts out |
+| `uv: cylindrical` | texture coordinates projected from the part's shape, in its own frame (they follow `rotate`, mirror, arrays): `cylindrical` (u around, v along the axis over the part's box), `spherical`, `box` (per face, metres / the box's largest side), `along` (tubes and capsules: v = distance along the path, 0..1). `{ project, axis: y, scale: [1, 4] }`. Written to TEXCOORD_0 (Godot UV), or TEXCOORD_1 (UV2) when the atlas or a decal uses the first; manifest `uv: {set, parts}`. Other faces get (0, 0) |
 
 Order matters: details that sit on a surface come **after** it. A part completely inside later parts shows nothing
 (W101). A cut removes material from what came before it, and paint follows: a door placed after the cut that made its

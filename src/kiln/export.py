@@ -74,11 +74,35 @@ def gltf_name(name: str, loop: bool) -> str:
     return f"{name}-loop" if loop else name
 
 
+def face_uvs(built: Built) -> Array | None:
+    """(F, 3, 2) corner UVs from the parts' `uv:` projections (zero elsewhere), or None when no part has one."""
+    p = built.painted
+    with_uv = [g for g, group in enumerate(p.groups) if group.uv >= 0]
+    if not with_uv:
+        return None
+    from kiln.uv import project
+
+    out = np.zeros((len(p.faces), 3, 2))
+    for g in with_uv:
+        part = built.model.parts[p.groups[g].uv]
+        sel = np.flatnonzero(p.face_group == g)
+        if len(sel) and part.uv is not None:
+            out[sel] = project(part.geometry, part.uv, p.vertices[p.faces[sel]])
+    return out
+
+
+def uv_channel(built: Built, atlas: AtlasUse | None) -> int:
+    """Projected UVs go in TEXCOORD_0 (Godot UV), or TEXCOORD_1 (UV2) when a palette atlas or decal uses the first."""
+    return 1 if atlas is not None or bool((built.painted.face_decal >= 0).any()) else 0
+
+
 class _Writer:
     def __init__(self, built: Built, swap: dict[str, str], generator: str, vertex_colors: bool = False, atlas: AtlasUse | None = None,
                  origin: Array | None = None) -> None:
         self.origin = np.zeros(3) if origin is None else origin
         self.b = built
+        self.face_uv = face_uvs(built)
+        self.uv_set = uv_channel(built, atlas)
         self.swap = swap
         self.vertex_colors = vertex_colors
         self.atlas = atlas
@@ -201,6 +225,8 @@ class _Writer:
             normals = self.b.normals[sel].reshape(-1, 3)
             colors = np.repeat(color_id[mask], 3).astype(float)[:, None]
             rows = np.concatenate([corners[:, None].astype(float), np.round(normals, 5), colors], axis=1)
+            if self.face_uv is not None:  # projected UVs split vertices along their seams
+                rows = np.concatenate([rows, np.round(self.face_uv[sel].reshape(-1, 2), 6)], axis=1)
             unique, inverse = np.unique(rows, axis=0, return_inverse=True)
             vidx = unique[:, 0].astype(np.int64)
             pos = p.vertices[vidx] - origin
@@ -222,6 +248,8 @@ class _Writer:
             if key[3] >= 0:
                 uv = decal_uv(p.decals[key[3]], p.vertices[vidx])
                 attributes["TEXCOORD_0"] = self.doc.accessor(uv.astype(np.float32), target=ARRAY_BUFFER)
+            if self.face_uv is not None:
+                attributes[f"TEXCOORD_{self.uv_set}"] = self.doc.accessor(unique[:, 5:7].astype(np.float32), target=ARRAY_BUFFER)
             if skinned:
                 assert self.b.joints is not None and self.b.weights is not None
                 attributes["JOINTS_0"] = self.doc.accessor(self.b.joints[vidx].astype(np.uint16), target=ARRAY_BUFFER)

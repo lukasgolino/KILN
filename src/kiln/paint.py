@@ -158,6 +158,7 @@ class PaintGroup:
     color: str  # hex
     color_name: str
     material: str
+    uv: int = -1  # the part (index) whose `uv:` projection these faces get; -1: none
 
 
 def _pattern_fn(p: Pattern) -> ScalarFn:
@@ -299,8 +300,8 @@ def _groups(model: Model, adding: list[int], rigged: bool, protect: frozenset[in
     for i in adding:
         part = model.parts[i]
         key = PaintGroup(part.id if rigged else "root", part.color, part.color_name, part.material)
-        if part.pattern is not None or part.decal is not None or i in protect:
-            key = PaintGroup(key.bone, key.color, f"{key.color_name}#{i}", key.material)  # its own group
+        if part.pattern is not None or part.decal is not None or part.uv is not None or i in protect:
+            key = PaintGroup(key.bone, key.color, f"{key.color_name}#{i}", key.material, i if part.uv is not None else -1)  # its own group
         if key not in group_index:
             group_index[key] = len(groups)
             groups.append(key)
@@ -354,7 +355,7 @@ def _patterns(
         sel = owner == g
         vertices, faces, negative, parent = split(vertices, faces, fn(vertices), sel)
         owner = owner[parent]
-        alt = PaintGroup(groups[g].bone, part.pattern.color, part.pattern.color_name, part.material)
+        alt = PaintGroup(groups[g].bone, part.pattern.color, part.pattern.color_name, part.material, groups[g].uv)
         if alt not in group_index:
             group_index[alt] = len(groups)
             groups.append(alt)

@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -20,7 +21,7 @@ from kiln.lint import lint_project
 from kiln.mesher import Mesh
 from kiln.project import Project
 from kiln.rig import animation_poses
-from kiln.vendor.gltf import read_glb
+from kiln.vendor.gltf import read_accessor, read_glb
 from test_importer import box_glb
 
 
@@ -407,3 +408,34 @@ def test_origin_point_and_errors(project: Project) -> None:
     lo, _ = base.bounds()
     assert base.origin()[1] == pytest.approx(lo[1])
     assert any(f.rule == "E003" and "origin is base" in f.message for f in errors_of(project, sphere_text().replace("parts:", "origin: top\nparts:", 1)))
+
+
+# 39. projected UVs
+def _uvs(project: Project, text: str) -> tuple[dict[str, Any], np.ndarray, np.ndarray]:
+
+    write_model(project, text)
+    result = build(project)
+    doc, binary = read_glb((project.output_dir / "models" / "thing.glb").read_bytes())
+    prim = doc["meshes"][0]["primitives"][0]
+    pos = read_accessor(doc, binary, prim["attributes"]["POSITION"])
+    uv = read_accessor(doc, binary, prim["attributes"]["TEXCOORD_0"])
+    return result.manifest["models"]["thing"], pos, uv
+
+
+@pytest.mark.parametrize("extra", ["", ", sides: 12"])
+def test_uv_cylindrical_runs_along_the_axis(project: Project, extra: str) -> None:
+    text = f"name: thing\nparts:\n  - cylinder: {{ at: [0, 0.5, 0], radius: 0.2, height: 1{extra} }}\n    color: red\n    uv: cylindrical\n"
+    entry, pos, uv = _uvs(project, text)
+    assert entry["uv"] == {"set": "TEXCOORD_0", "parts": ["root"]}
+    side = np.abs(np.hypot(pos[:, 0], pos[:, 2]) - 0.2) < 0.02
+    np.testing.assert_allclose(uv[side, 1], pos[side, 1], atol=0.05)  # v = height over the 1 m box
+    assert uv[:, 0].min() >= -1e-6 and uv[:, 0].max() <= 2.0
+
+
+def test_uv_along_a_tube_and_errors(project: Project) -> None:
+    text = ("name: thing\nparts:\n  - tube: { points: [[0, 0.1, 0], [0, 1, 0], [1, 1, 0]], radius: 0.08 }\n    color: red\n"
+            "    uv: { project: along, scale: [1, 2] }\n")  # fmt: skip
+    _, pos, uv = _uvs(project, text)
+    end = pos[:, 0] > 0.95
+    assert uv[end, 1].mean() > 1.7  # v reaches 2 (scale) at the far end
+    assert any(f.rule == "E003" and "uv projects" in f.message for f in errors_of(project, text.replace("along", "planar")))

@@ -10,6 +10,8 @@ before 1.0).
 
 - `origin: base | center | [x, y, z]` on models (LOOSE #40): the exported glb's origin (the root node carries the
   shift; LODs share the full model's); manifest `origin`.
+- `uv: cylindrical | spherical | box | along` on parts (LOOSE #39): projected texture coordinates in the part's
+  own frame, TEXCOORD_0 (TEXCOORD_1 when the atlas or a decal uses the first); manifest `uv`. `kiln.api.part(uv=...)`.
 
 ## [0.5.0] - 2026-10-21
 

@@ -17,6 +17,8 @@ import numpy as np
 from kiln.hardware import HARDWARE, expand
 from kiln.retarget import REQUIRED
 from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
+from kiln.uv import AXES as UV_AXES
+from kiln.uv import PROJECTIONS, UVSpec
 from kiln.vendor.findings import Finding
 from kiln.vendor.yamlio import LineMap, YamlError, load_yaml, parse_yaml
 
@@ -31,7 +33,7 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep"}  # fmt: skip
+               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
@@ -80,6 +82,7 @@ class Part:
     fit: tuple[tuple[str, ...], float] | None = None  # a shell wrapping the parts with these ids, this far from them
     cut_only: str | None = None  # a cut that only cuts the parts with this id
     keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
+    uv: UVSpec | None = None  # texture coordinates projected from its shape (kiln.uv)
 
 
 @dataclass(frozen=True)
@@ -474,6 +477,18 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if keep is not None and not isinstance(keep, bool):
         ctx.error("E003", "keep is true (this detail survives every LOD at full detail) or false", line, f"{where}.keep")
         ok = False
+    uv = None
+    if "uv" in raw:
+        u_raw = raw["uv"]
+        u_map = {"project": u_raw} if isinstance(u_raw, str) else u_raw if isinstance(u_raw, dict) else {}
+        u_scale = u_map.get("scale", [1, 1])
+        if u_map.get("project") not in PROJECTIONS or u_map.get("axis", "y") not in UV_AXES or any(k not in ("project", "axis", "scale") for k in u_map) \
+                or not (isinstance(u_scale, list) and len(u_scale) == 2 and all(_num(v) and v != 0 for v in u_scale)) or op != "add":
+            ctx.error("E003", f"uv projects texture coordinates from the part's shape: uv: {'|'.join(PROJECTIONS)}, or "
+                      "{ project: cylindrical, axis: y, scale: [1, 4] } (on an adding part)", line, f"{where}.uv")  # fmt: skip
+            ok = False
+        else:
+            uv = UVSpec(str(u_map["project"]), UV_AXES[u_map.get("axis", "y")], (float(u_scale[0]), float(u_scale[1])))
     fit = None
     if "fit" in raw:
         f_raw = raw["fit"]
@@ -495,7 +510,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
-                   "keep": keep, "cut_only": cut_only}  # fmt: skip
+                   "keep": keep, "cut_only": cut_only, "uv": uv}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
