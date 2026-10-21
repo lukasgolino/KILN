@@ -25,6 +25,9 @@ agent what's new (LOOSE_REPORT.md / KILN_LOG.md).
 Owner said "continue" after 0.5.0 (2026-10-21): working through the LOOSE backlog below, in this order:
 40 origin, 39 UVs, 31 fast polygon distance, 33 W106, 29 aim, 27 extrude holes, 28 offset, 38 attr, 26 svg path,
 30 patterns; then 35/34/41/42 if time. Log progress per item here (item: DONE commit / IN PROGRESS notes).
+Progress: DONE 40 origin, 39 uv (src/kiln/uv.py), 31 (sdf.polygons_2d tiles), 27 holes + 28 offset (extrude
+params; hard path cuts hole prisms), 33 (W106 vs field bounds). Tests in tests/test_loose_report.py. All in
+CHANGELOG [Unreleased]; not tagged yet (next: 0.6.0 once the backlog batch is done).
 
 LOOSE_REPORT.md backlog (items 26-43, filed after this plan; not part of it, do after M5/M6/M4 or if the owner asks):
 - Done: 32/43 (api.part keys), 36 (COLOR_0 on glow/skinned surfaces). 37: use `variant_glbs = false` (variants become
