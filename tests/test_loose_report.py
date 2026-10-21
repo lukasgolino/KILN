@@ -163,7 +163,10 @@ def test_godot_sandbox_copies_only_the_output(tmp_path: Path) -> None:
     assert _folder("res://assets/kiln/manifest.json") == _folder("res://assets/kiln/models/a.tscn") == "res://assets/kiln"
     root = _sandbox(game, "res://assets/kiln", tmp_path / "tmp")
     assert (root / "assets" / "kiln" / "models" / "a.glb").is_file()
-    assert not (root / "assets" / "kiln" / "models" / "a.glb.import").exists() and not (root / "fonts").exists()
+    assert not (root / "fonts").exists()
+    # import settings come along (KILN's own for atlas textures and clip carriers); Godot reimports in the copy
+    assert (root / "assets" / "kiln" / "models" / "a.glb.import").read_text() == "host import"
+    assert (game / "assets" / "kiln" / "models" / "a.glb.import").read_text() == "host import"
     assert 'renderer/rendering_method="mobile"' in (root / "project.godot").read_text()
 
 
