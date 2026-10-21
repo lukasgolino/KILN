@@ -515,3 +515,22 @@ def test_gib_pieces_for_parts_that_come_off(project: Project) -> None:
     assert len(open_edges(vertices, faces)) == 0 and vertices[:, 0].min() > 0.15
     write_model(project, arms_text("hero"), "hero")
     assert build(project).errors == [] and not list(out.glob("hero.gib.*"))  # dropped with the gib
+
+
+def test_previews_hide_revealed_parts_until_their_part_is_off(project: Project) -> None:
+    """#37: stump caps start hidden in previews, as in the scenes; taking the arm off (detach) shows its cap."""
+    from conftest import built_of
+    from kiln.preview import _corners
+    from kiln.render import View, render, with_unrevealed
+
+    built = built_of(project, with_stumps(arms_text("hero", skin="soft")), "hero")
+    assert with_unrevealed(built) == {"stump_l", "stump_r"}
+    assert with_unrevealed(built, frozenset({"arm_l"})) == {"arm_l", "stump_r"}  # the left cap shows once the arm is gone
+    view = View(30.0, 15.0)
+    plain = render(built, view, 96)
+    assert plain.tobytes() == render(built, view, 96, hide=frozenset({"stump_l", "stump_r"})).tobytes()
+    off = render(built, view, 96, hide=frozenset({"arm_l"}))
+    assert off.tobytes() != render(built, view, 96, hide=frozenset({"arm_l", "stump_l"})).tobytes()
+    p = built.painted
+    caps = sum(p.groups[g].bone.startswith("stump") for g in p.face_group)
+    assert caps and len(_corners(built)) == len(p.faces) - caps  # --vs silhouettes leave them out too

@@ -35,6 +35,8 @@ before 1.0).
 - `kiln build` removes decal textures Godot extracted from a glb (`models/<name>_decal<N>_<hex>.png` and its `.import`)
   once no glb embeds that image any more (the colour changed, or the model is gone) (#32).
 - `kiln preview --vs` counts `surfaces` and `materials` as `kiln build` writes them, with `atlas` on too (#36).
+- Previews (turntable, `--closeup`, `--pose`, lineup, gallery, `--vs`) leave out `revealed` parts, as the exported
+  scenes do; `--detach` shows a part's cap once it's taken off (#37).
 
 ## [0.8.0] - 2026-10-21
 
