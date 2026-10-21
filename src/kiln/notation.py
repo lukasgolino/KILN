@@ -35,7 +35,7 @@ PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror",
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
-              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton"}  # fmt: skip
+              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to"}  # fmt: skip
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
@@ -147,6 +147,7 @@ class Model:
     template: bool = False  # a base for `extends` (not built on its own)
     extends: str | None = None
     skeleton: str | None = None  # humanoid: standard joint names, clip retargeting
+    fit_to: tuple[Path, str, tuple[str, ...]] | None = None  # (glb, bone, meshes): an attachment made around a CC0 character
 
     @property
     def ids(self) -> list[str]:
@@ -855,8 +856,19 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                     model.parts.extend(_parse_part(ctx, sub, i, pline))
             if model.parts and not any(p.geometry.op == "add" for p in model.parts):
                 ctx.error("E009", "the model has no adding parts (only cut/intersect)", _line(data, "parts"), "parts")
+            if "fit_to" in data:
+                model.fit_to = _parse_fit_to(ctx, data["fit_to"], _line(data, "fit_to"))
             for part in model.parts:
                 if part.fit is None:
+                    continue
+                if part.fit[0] == "target":
+                    if model.fit_to is None:
+                        ctx.error("E003", "fit: target wraps the character named by fit_to: { file, bone } (add that first)", part.line, f"{part.where}.fit")
+                        continue
+                    from kiln.fitting import MeshDistance, read_surface
+
+                    surface = MeshDistance.build(*read_surface(model.fit_to[0], model.fit_to[2]), part.geometry.bounds())
+                    part.geometry.fit = ((surface,), part.fit[1])
                     continue
                 targets = tuple(q.geometry for q in model.parts if q.id == part.fit[0] and q.id != part.id and q.geometry.op == "add" and q.fit is None)
                 if not targets:
@@ -901,6 +913,33 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                     swap[ca[0]] = cb[0]
             model.variants[str(vname)] = swap
     return model, ctx.findings
+
+
+def _parse_fit_to(ctx: _Ctx, raw: Any, line: int | None) -> tuple[Path, str, tuple[str, ...]] | None:
+    """fit_to: { file: imports/Knight.glb, bone: head, meshes: [Knight_Head] }: the model is an attachment made in that
+    character's space (parts can `fit: target`), exported in the bone's space."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("file"), str) or not isinstance(raw.get("bone"), str) \
+            or any(k not in ("file", "bone", "meshes") for k in raw) or not isinstance(raw.get("meshes", []), list):
+        ctx.error("E010", "fit_to is { file: imports/Knight.glb, bone: head, meshes: [Knight_Head] } (meshes: which to fit around; default all)",
+                  line, "fit_to")  # fmt: skip
+        return None
+    base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+    file = (base / raw["file"]).resolve()
+    if not file.is_file():
+        ctx.error("E010", f"fit_to file {raw['file']} not found (paths are relative to the project)", line, "fit_to.file")
+        return None
+    from kiln.fitting import bones, meshes
+
+    known_bones, known_meshes = bones(file), meshes(file)
+    if raw["bone"] not in known_bones:
+        ctx.error("E010", f"{raw['file']} has no bone {raw['bone']!r} (bones: {', '.join(known_bones)})", line, "fit_to.bone")
+        return None
+    wanted = tuple(str(m) for m in raw.get("meshes", []))
+    unknown = [m for m in wanted if m not in known_meshes]
+    if unknown:
+        ctx.error("E010", f"{raw['file']} has no mesh {', '.join(unknown)} (meshes: {', '.join(known_meshes)})", line, "fit_to.meshes")
+        return None
+    return file, str(raw["bone"]), wanted
 
 
 def _parse_source(ctx: _Ctx, raw: Any, process: Any, line: int | None) -> Source | None:

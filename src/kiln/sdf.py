@@ -319,7 +319,7 @@ class Geometry:
     noise: Noise | None = None
     shell_side: str = "both"  # both: the wall is centred on the surface (shell: t); in: inside it (the outside stays put)
     open: tuple[int, float] | None = None  # (axis, sign): the shell's open side (local frame), showing its rim
-    fit: tuple[tuple[Geometry, ...], float] | None = None  # (parts, gap): the shell wraps their surface, gap away
+    fit: tuple[tuple[Any, ...], float] | None = None  # (parts or a mesh's distance, gap): the shell wraps their surface
 
     def distance(self, p: Array, filled: bool = False) -> Array:
         """Signed distance; `filled`: a shell counts as solid (what it covers), its open side still open. A fitted

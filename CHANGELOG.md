@@ -21,6 +21,9 @@ before 1.0).
   manifest `humanoid` maps joints to KayKit, Mixamo and Godot SkeletonProfileHumanoid names) and imported
   animations `{ import: <clips.glb>, clip: <name>, fps, loop, speed }` retargeted at build time from CC0 clip libraries
   such as KayKit Character Animations (Rig_Medium); manifest animations name their `clip`.
+- Attachments for CC0 characters (M6): `fit_to: { file, bone, meshes }` and `fit: { to: target, gap }` wrap a shell
+  around the character's own mesh (an exact distance to its triangles); the glb is exported in the bone's space,
+  manifest `attach`; W113 when it sinks into the character; `kiln preview --fit`.
 
 ### Fixed
 

@@ -410,6 +410,8 @@ def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int |
     for part in model.parts:
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())
+    if model.fit_to is not None:  # the character it's fitted to
+        h.update(model.fit_to[0].read_bytes())
     for anim in model.animations.values():  # retargeted clips
         if anim.source is not None:
             h.update(anim.source[0].read_bytes())

@@ -119,6 +119,8 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
     }
     if m.source is not None:
         entry["source"] = {"file": m.source.file.name, "licence": m.source.licence, "author": m.source.author, "url": m.source.url}
+    if m.fit_to is not None:  # an attachment: hang it on this bone of that character (the glb is in the bone's space)
+        entry["attach"] = {"file": m.fit_to[0].name, "bone": m.fit_to[1]}
     if m.skeleton == "humanoid":  # the standard names of its joints, for engines' retargeting (Godot: SkeletonProfileHumanoid)
         entry["humanoid"] = {kid: {"kaykit": kk, "mixamo": mx, "godot": gd} for kid, _, kk, mx, gd in HUMANOID + OPTIONAL if kid in parts}
     return entry

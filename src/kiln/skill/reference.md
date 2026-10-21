@@ -256,6 +256,23 @@ animations:
 Each bone points where the clip's bone points (the clip's rest pose may be a T-pose; yours can be anything), bone
 lengths stay yours, and the hips move by the clip's motion scaled to your hip height. Check with `--pose <name>`.
 
+## Attachments for CC0 characters
+
+A helmet, shield or banner made around a CC0 character (a KayKit Knight) instead of a KILN body:
+
+```yaml
+fit_to: { file: imports/Knight.glb, bone: head, meshes: [Knight_Head] }   # meshes: which ones to fit (default all)
+parts:
+  - sphere: { at: [0, 1.62, 0], radius: 0.8 }        # the coverage: where the helmet reaches
+    shell: { thickness: 0.04, open: -y }
+    fit: { to: target, gap: 0.015 }                   # wraps the character's own head, 1.5 cm off it
+```
+
+The model is made in the character file's space (its units); the glb is exported in the bone's space (root node
+`<model>_on_<bone>`), so the game hangs it on that bone (Godot: a BoneAttachment3D); the manifest says `attach: { file,
+bone }`. W113 warns when it sinks into the character. `kiln preview <model> --fit` shows it on the character and the
+character without it.
+
 ## Animations
 
 ```yaml
@@ -371,7 +388,7 @@ Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`.
 ## Commands
 
 `kiln init [dir] --style soft_toy` · `kiln new model <name> --template bean|prop|empty --class C` ·
-`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--detach] [--engine] [--variant V]` ·
+`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--detach] [--fit] [--engine] [--variant V]` ·
 `kiln lineup [models]` · `kiln gallery` · `kiln build [--verify-godot]` · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
 `kiln config show|get|set` · `kiln import <file> --licence L` · `kiln credits` · `kiln doctor` ·

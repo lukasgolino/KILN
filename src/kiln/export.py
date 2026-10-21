@@ -268,6 +268,13 @@ class _Writer:
                 if len(bone_faces[i]):
                     nodes[i]["mesh"] = self.doc.add("meshes", {"name": bone.name if b.skin != "none" else b.model.name,
                                                                "primitives": self.primitives(bone_faces[i], bone.pivot, False)})  # fmt: skip
+        if b.model.fit_to is not None:  # an attachment: everything in the target bone's space (hang it on that bone)
+            from kiln.fitting import bone_matrix
+
+            inverse = np.linalg.inv(bone_matrix(b.model.fit_to[0], b.model.fit_to[1]))
+            nodes.append({"name": f"{b.model.name}_on_{b.model.fit_to[1]}", "matrix": [float(np.float32(v)) for v in inverse.T.reshape(-1)],
+                          "children": scene_nodes, "extras": {"kiln_attach": b.model.fit_to[1]}})  # fmt: skip
+            scene_nodes = [len(nodes) - 1]
         for node in nodes:
             self.doc.add("nodes", node)
         self.doc.json["scenes"] = [{"name": b.model.name, "nodes": scene_nodes}]

@@ -110,6 +110,26 @@ def detach(built: Built, size: int = 220) -> Image.Image:
     return sheet(f"{built.model.name} detached", "each separate part off in turn: no holes, and the surface under it is what the game shows", rows)
 
 
+def fitted(built: Built, size: int = 240) -> Image.Image:
+    """An attachment (`fit_to`) on the character it was made for, and the character without it."""
+    from dataclasses import replace
+
+    from kiln.builder import _merge
+    from kiln.importer import load_reference
+
+    fit = built.model.fit_to
+    if fit is None:
+        raise KeyError("no fit_to")
+    target = load_reference(fit[0], built.style, ground=False)
+    painted, normals = _merge([built.painted, target.painted], [built.normals, target.normals], [], [])
+    both = replace(built, painted=painted, normals=normals, skin="none", tracks=[], joints=None, weights=None)
+    lo, hi = built.bounds()
+    near = ((lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2 * 1.5)
+    rows = [(f"on {fit[0].stem} ({fit[1]})", [(n, render(both, View(yaw, 15.0), size, fit=near, background=TILE_BG)) for n, yaw in HEADINGS[::2]]),
+            ("without it", [(n, render(target, View(yaw, 15.0), size, fit=near, background=TILE_BG)) for n, yaw in HEADINGS[::2]])]
+    return sheet(f"{built.model.name} fitted", f"made around {fit[0].name}, exported in the space of its bone {fit[1]!r}", rows)
+
+
 def filmstrip(built: Built, animation: str, size: int = 200) -> Image.Image:
     names = [t.name for t in built.tracks]
     if animation not in names:

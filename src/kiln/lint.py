@@ -104,6 +104,17 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             warn("W113", f"part {b.index} ({b.geometry.shape}, {b.color_name}) pokes through the shell of part {a.index} ({a.geometry.shape}, "
                  f"{a.color_name}) around [{centre[0]:.2f}, {centre[1]:.2f}, {centre[2]:.2f}] ({volume * 1e6:.0f} cm3 inside its wall): move or "
                  "shrink it so it stays inside (or outside), or cut it where it meets the wall", b.line, b.where)  # fmt: skip
+    if m.fit_to is not None:  # an attachment mustn't sink into the character it's made for
+        from kiln.fitting import MeshDistance, read_surface
+
+        pv = built.painted
+        surface = MeshDistance.build(*read_surface(m.fit_to[0], m.fit_to[2]), built.bounds())
+        depth = surface.distance(pv.vertices[np.unique(pv.faces)])
+        inside = depth < -2 * built.step
+        if inside.any():
+            where = pv.vertices[np.unique(pv.faces)][inside].mean(axis=0)
+            warn("W113", f"{int(inside.sum())} points of it are inside {m.fit_to[0].name} (up to {float(-depth.min()) * 100:.1f} cm) around "
+                 f"[{where[0]:.2f}, {where[1]:.2f}, {where[2]:.2f}]: move it out, or wrap it with fit: target", None, "fit_to")  # fmt: skip
     budget = m.budget or built.style.budget(m.cls)
     if m.source is None and built.triangles > budget * 1.25:
         patterned = sum(1 for p in m.parts if p.pattern is not None)

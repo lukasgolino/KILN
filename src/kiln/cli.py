@@ -221,7 +221,7 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     swap = built.model.variants.get(args.variant) if args.variant else None
     if args.variant and swap is None:
         raise _usage(f"{name} has no variant {args.variant!r} (variants: {', '.join(built.model.variants) or 'none'})")
-    wanted_any = args.closeup or args.pose or args.vs is not None or args.engine or args.detach
+    wanted_any = args.closeup or args.pose or args.vs is not None or args.engine or args.detach or args.fit
     if args.ref_height is not None and not args.vs:
         raise _usage("--ref-height goes with --vs <ref.glb>")
     if args.turntable or not wanted_any:
@@ -242,6 +242,13 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
             outputs.setdefault("pose", {})[anim] = display_path(path)
         except KeyError:
             raise _usage(f"{name} has no animation {anim!r} (animations: {', '.join(built.model.animations) or 'none'})") from None
+    if args.fit:
+        try:
+            path = folder / "fit.png"
+            pv.fitted(built).save(path)
+            outputs["fit"] = display_path(path)
+        except KeyError:
+            raise _usage(f"{name} has no fit_to (an attachment made around a character)") from None
     if args.detach:
         try:
             path = folder / "detach.png"
@@ -645,6 +652,7 @@ def parser() -> argparse.ArgumentParser:
                    help="beside the style's inspiration images; with a .glb/.gltf: against that reference at one scale, with metrics")  # fmt: skip
     s.add_argument("--ref-height", type=float, metavar="METRES", help="scale the --vs reference to this height (default: its own units)")
     s.add_argument("--detach", action="store_true", help="each separate part taken off: what's left, and what it covered")
+    s.add_argument("--fit", action="store_true", help="an attachment (fit_to) on its character, and the character without it")
     s.add_argument("--engine", action="store_true", help="render through Godot (needs a display and a build)")
     s.add_argument("--variant")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")

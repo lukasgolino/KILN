@@ -311,17 +311,18 @@ def read_normals(path: Path) -> Array:
     return np.concatenate(out) if out else np.zeros((0, 3, 3))
 
 
-def load_reference(path: Path, style: Style, height: float | None = None, centre_xz: tuple[float, float] | None = None) -> Built:
+def load_reference(path: Path, style: Style, height: float | None = None, centre_xz: tuple[float, float] | None = None,
+                   ground: bool = True) -> Built:  # fmt: skip
     """A .glb/.gltf as it is (a reference to compare against): its own colours (textures sampled per face) and
-    normals, no decimation; scaled to `height` metres (default: the file's units), standing on y = 0, its box
-    centred on `centre_xz` if given."""
+    normals, no decimation; scaled to `height` metres (default: the file's units), standing on y = 0 (unless not
+    `ground`: where it is), its box centred on `centre_xz` if given."""
     v, f, cols, kinds = read_mesh(path)
     if height is not None:
         span = float(v[:, 1].max() - v[:, 1].min())
         v = v * (height / span if span > 0 else 1.0)
     used = v[np.unique(f)]
     lo, hi = used.min(axis=0), used.max(axis=0)
-    shift = np.array([0.0, -lo[1], 0.0])
+    shift = np.array([0.0, -lo[1] if ground else 0.0, 0.0])
     if centre_xz is not None:
         shift[[0, 2]] = np.array(centre_xz) - (lo[[0, 2]] + hi[[0, 2]]) / 2
     v = v + shift
