@@ -15,6 +15,8 @@ before 1.0).
 
 ### Added
 
+- `[look] rim_light`, `rim_light_color`, `rim_light_power` (LOOSE #34): a fresnel rim added to every surface,
+  a blend-add next pass in Godot scenes (only written for styles that set it) and in previews.
 - Previews bloom emissive materials when the style's look has `glow` (as Godot's environment glow does; LOOSE #42).
 - `origin: base | center | [x, y, z]` on models (LOOSE #40): the exported glb's origin (the root node carries the
   shift; LODs share the full model's); manifest `origin`.

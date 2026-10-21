@@ -396,6 +396,9 @@ sun_color = "#fff6e8"
 shadows = true
 fog = 0.0
 fog_color = "#c8d8e8"
+rim_light = 0.0                # an added fresnel rim on every surface (Godot: a next pass; previews too): 0.5-1 reads on bright skies
+rim_light_color = "#ffffff"
+rim_light_power = 3.0          # higher: thinner rim
 ```
 
 ## Lint

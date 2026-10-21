@@ -231,6 +231,9 @@ def render(
             rim_term = rim[:, None] * np.power(1 - np.clip(n @ view_dir, 0, 1), 3)[:, None] * sky
             color = diffuse + spec[:, None] * spec_col * sun_col + rim_term
         color = color + albedo * emit[:, None]
+        if look.rim_light > 0:  # the style's added fresnel rim (Godot: a next pass on every material)
+            fres = np.power(1 - np.clip(n @ -forward, 0, 1), look.rim_light_power)
+            color = color + np.array(srgb_to_linear(look.rim_light_color)) * (look.rim_light * fres)[:, None]
         if look.glow and (emit > 0).any():
             glow[hit] = albedo * emit[:, None] * look.exposure
         color = color * look.exposure

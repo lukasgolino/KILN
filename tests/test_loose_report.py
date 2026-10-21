@@ -601,3 +601,19 @@ def test_extrude_path_with_counter_and_island(project: Project, hard: bool) -> N
     if hard:
         assert closed_faces(built.painted.faces)
     assert any(f.rule == "E003" and "path:" in f.message for f in errors_of(project, text.replace(path, "M0 0 X")))
+
+
+# 34. a style-level rim light: a fresnel pass in the Godot scene, and in previews
+def test_rim_light_pass_in_godot_scene() -> None:
+    from dataclasses import replace
+
+    from kiln.godot import model_scene
+    from kiln.style import load_style
+
+    style, _ = load_style("soft_toy")
+    assert style is not None
+    plain = model_scene("thing", "res://thing.glb", style)
+    assert "Shader_rim" not in plain and "rim_light" not in plain
+    lit = model_scene("thing", "res://thing.glb", replace(style, look=replace(style.look, rim_light=0.8, rim_light_color="#ffd27a")))
+    assert 'rim_shader = SubResource("Shader_rim")' in lit and "rim_light = 0.8" in lit and "blend_add" in lit
+    assert "last.next_pass = glow_rim" in lit

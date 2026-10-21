@@ -55,6 +55,9 @@ class Look:
     shadows: bool = True
     fog: float = 0.0  # density; 0 = none
     fog_color: str = "#c8d8e8"
+    rim_light: float = 0.0  # strength of an added fresnel glow on every surface (reads on bright skies); 0 = none
+    rim_light_color: str = "#ffffff"
+    rim_light_power: float = 3.0  # higher: a thinner rim
 
 
 @dataclass(frozen=True)

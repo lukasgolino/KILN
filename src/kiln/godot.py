@@ -180,6 +180,41 @@ def _color(hex_color: str) -> str:
     return f"Color({r:.6g}, {g:.6g}, {b:.6g}, 1)"
 
 
+RIM_SHADER = """shader_type spatial;
+render_mode blend_add, unshaded, depth_draw_never, cull_back;
+// KILN: the style's rim light ([look] rim_light), drawn over every surface
+uniform vec4 color : source_color = vec4(1.0);
+uniform float power = 3.0;
+uniform float strength = 0.0;
+
+void fragment() {
+\tfloat fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), power);
+\tALBEDO = color.rgb * fresnel * strength;
+}
+"""
+
+
+def _with_rim(script: str) -> str:
+    """The apply script, also chaining the rim pass (only written for styles with rim_light, so others stay as they were)."""
+    return _swap_lines(script, [
+        ("@export var rims: Dictionary = {}\n",
+         "@export var rims: Dictionary = {}\n@export var rim_shader: Shader\n@export var rim_light := 0.0\n"
+         "@export var rim_light_color := Color(1, 1, 1)\n@export var rim_light_power := 3.0\n"),
+        ("\t\t\t_shared[key] = material\n",
+         "\t\t\tif rim_light > 0.0:\n"
+         "\t\t\t\tvar glow_rim := ShaderMaterial.new()\n"
+         "\t\t\t\tglow_rim.shader = rim_shader\n"
+         "\t\t\t\tglow_rim.set_shader_parameter(\"color\", rim_light_color)\n"
+         "\t\t\t\tglow_rim.set_shader_parameter(\"power\", rim_light_power)\n"
+         "\t\t\t\tglow_rim.set_shader_parameter(\"strength\", rim_light)\n"
+         "\t\t\t\tvar last := material\n"
+         "\t\t\t\twhile last.next_pass != null:\n"
+         "\t\t\t\t\tlast = last.next_pass\n"
+         "\t\t\t\tlast.next_pass = glow_rim\n"
+         "\t\t\t_shared[key] = material\n"),
+    ])  # fmt: skip
+
+
 def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | None = None, textures: dict[str, str] | None = None) -> str:
     """`<name>.tscn`: the .glb with the style's materials applied by a small built-in tool script. With `swap`
     (a variant, when variant_glbs is false) the script also recolours: the base glb, other colours. `textures`
@@ -187,6 +222,8 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
     look = style.look
     rims = ", ".join(f"{_quote(k)}: {v.rim:.6g}" for k, v in sorted(style.materials.items()) if v.rim > 0)
     atlas = textures is not None
+    script = ATLAS_SCRIPT if atlas else APPLY_SCRIPT
+    rim = look.rim_light > 0
     keys = sorted(textures or {})
     ext = [f'[ext_resource type="Texture2D" path={_quote((textures or {})[k])} id="{i}_{k}"]' for i, k in enumerate(keys, 2)]
     lines = [
@@ -201,8 +238,9 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         '[sub_resource type="Shader" id="Shader_outline"]',
         f"code = {_quote(OUTLINE_SHADER)}",
         "",
+        *(['[sub_resource type="Shader" id="Shader_rim"]', f"code = {_quote(RIM_SHADER)}", ""] if rim else []),
         '[sub_resource type="GDScript" id="GDScript_apply"]',
-        f"script/source = {_quote(ATLAS_SCRIPT if atlas else APPLY_SCRIPT)}",
+        f"script/source = {_quote(_with_rim(script) if rim else script)}",
         "",
         f'[node name={_quote(name)} instance=ExtResource("1_glb")]',
         'script = SubResource("GDScript_apply")',
@@ -213,6 +251,8 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         f"outline = {look.outline:.6g}",
         f"outline_color = {_color(look.outline_color)}",
         f"rims = {{{rims}}}",
+        *(['rim_shader = SubResource("Shader_rim")', f"rim_light = {look.rim_light:.6g}", f"rim_light_color = {_color(look.rim_light_color)}",
+           f"rim_light_power = {look.rim_light_power:.6g}"] if rim else []),  # fmt: skip
         *([f"swap = {{{', '.join(f'{_quote(k[1:])}: {_color(v)}' for k, v in sorted(swap.items()))}}}"] if swap else []),
         *(f'{k} = ExtResource("{i}_{k}")' for i, k in enumerate(keys, 2)),
         f"metadata/kiln_style = {_quote(style.name)}",
