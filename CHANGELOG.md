@@ -14,6 +14,11 @@ before 1.0).
   through; every floor hit is rolled into the effect JSON (`hits`: age, position, velocity), so players and `preview
   --effect` match (#31).
 
+### Changed
+
+- `animation_library` no longer needs exactly the same part ids: every id the carrier's clips move must be in the model,
+  other ids may differ (mixed loadouts: helmet, hat, shield follow their parents) (#33).
+
 ### Fixed
 
 - `bevel`/`chamfer` (and a shrinking `offset`) on an extrude whose outline has sections thinner than about twice the

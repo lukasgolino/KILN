@@ -182,7 +182,7 @@ def test_animation_library_errors(project: Project) -> None:
     assert any("drop its own animations" in f.message for f in errors_of(project, arms_text("hero") + "animation_library: anims\n", "hero"))
     write_model(project, arms_text("anims").replace("skin: rigid\n", "skin: rigid\nanimations_only: true\n"), "anims")
     other_ids = arms_text("hero").split("animations:\n")[0].replace("arm_l", "wing_l").replace("arm_r", "wing_r") + "animation_library: anims\n"
-    assert any("other part ids" in f.message for f in errors_of(project, other_ids, "hero"))
+    assert any("moves part ids this model doesn't have (arm_l, arm_r)" in f.message for f in errors_of(project, other_ids, "hero"))
     assert any("needs its own animations" in f.message for f in errors_of(project, sphere_text("thing") + "animations_only: true\n"))
 
 
@@ -469,3 +469,25 @@ def test_build_removes_stale_extracted_decal_textures(project: Project) -> None:
     (project.models_dir / "sign.kiln.yaml").unlink()
     build(project)
     assert not list(models.glob("sign_decal*"))  # the model is gone: so are its textures
+
+
+def test_animation_library_with_mixed_loadouts(project: Project) -> None:
+    """#33: a model may have parts its carrier hasn't (they follow their parents), and a carrier parts the model
+    hasn't, as long as its clips don't move them."""
+    helmet = "  - sphere: { at: [0, 1.0, 0], radius: 0.12 }\n    id: helmet\n    color: blue\n"
+    carrier_and_player(project)
+    player = (project.models_dir / "hero.kiln.yaml").read_text().replace("rig:\n", helmet + "rig:\n  helmet: { parent: root, separate: true }\n")
+    write_model(project, player, "hero")
+    result = build(project)
+    assert result.errors == [] and not [f for f in result.findings if f.rule in ("E008", "W114")]
+    doc, _ = read_glb((project.output_dir / "models" / "hero.glb").read_bytes())
+    assert "helmet" in {n["name"] for n in doc["nodes"]}
+    # a carrier with a tail only its rest pose has: a model without one can still play its pose clips
+    tail = "  - capsule: { from: [0, 0.3, -0.3], to: [0, 0.2, -0.6], radius: 0.05 }\n    id: tail\n    color: blue\n"
+    carrier = arms_text("anims").replace("rig:\n", tail + "rig:\n").replace("skin: rigid\n", "skin: rigid\nanimations_only: true\n")
+    write_model(project, carrier.split("  wave:")[0] + "  hold:" + carrier.split("  hold:")[1], "anims")
+    write_model(project, arms_text("hero").split("animations:\n")[0] + "animation_library: anims\n", "hero")
+    assert build(project).errors == []
+    moving_tail = carrier.split("  wave:")[0] + "  swish: { fps: 4, poses: [{ tail: { rotate: [0, 30, 0] } }] }\n"
+    write_model(project, moving_tail, "anims")
+    assert any(f.rule == "E008" and "tail" in f.message for f in errors_of(project, arms_text("hero").split("animations:\n")[0] + "animation_library: anims\n", "hero"))

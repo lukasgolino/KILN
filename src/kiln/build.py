@@ -148,8 +148,8 @@ LIBRARY_PIVOT = 0.01  # metres: joints further than this from the carrier's move
 
 
 def library_findings(project: Project, built: Built, cache: Path) -> list[Finding]:
-    """A model playing a carrier's clips needs the same bones (E008) at the same places (W114: a clip's position
-    tracks put each bone where the carrier has it)."""
+    """A model playing a carrier's clips needs the bones they share on the same parents (E008) at the same places (W114:
+    a clip's position tracks put each bone where the carrier has it). Bones only one of them has may differ."""
     m = built.model
     path = project.models_dir / f"{m.animation_library}{MODEL_SUFFIX}"
     lib, style, _ = project.load(path)
@@ -160,10 +160,10 @@ def library_findings(project: Project, built: Built, cache: Path) -> list[Findin
     mine = {b.name: (sk.bones[b.parent].name if b.parent >= 0 else "", b.pivot) for b in sk.bones}
     theirs = {b.name: (other.bones[b.parent].name if b.parent >= 0 else "", b.pivot) for b in other.bones}
     differ = sorted(k for k in mine if k in theirs and mine[k][0] != theirs[k][0])
-    if set(mine) != set(theirs) or differ:
+    if differ:
         return [Finding("E008", f"animation_library {m.animation_library!r} has another skeleton (parents differ: {', '.join(differ) or '-'}): "
                         "give both the same rig", m.path, None, "animation_library")]  # fmt: skip
-    off = sorted((float(np.linalg.norm(mine[k][1] - theirs[k][1])), k) for k in mine)
+    off = sorted((float(np.linalg.norm(mine[k][1] - theirs[k][1])), k) for k in mine if k in theirs)
     far = [(d, k) for d, k in off if d > LIBRARY_PIVOT]
     disabled = set(project.config.lint_disable) | set(m.lint_disable)
     if far and "W114" not in disabled:
