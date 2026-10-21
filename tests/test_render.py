@@ -129,3 +129,16 @@ def test_lineup_gallery_versus(tmp_path: Path, ball: Built, hero: Built) -> None
     vs = pv.versus(ball, images, size=48)
     assert vs.width >= 3 * 48
     assert pv.inspiration_images(tmp_path / "styles", "nope") == []
+
+
+def test_glow_blooms_in_previews(project: Project) -> None:
+    # LOOSE #42: emissive parts spread light when the style's look has glow (soft_toy does)
+    from dataclasses import replace
+
+    text = "name: thing\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.2 }\n    color: gold\n    material: glow\n"
+    built = built_of(project, text)
+    on = np.asarray(render(built, View(0, 10), 96))
+    dull = replace(built, style=replace(built.style, look=replace(built.style.look, glow=False)))
+    off = np.asarray(render(dull, View(0, 10), 96))
+    ring = (off[..., 3] == 0) & (on[..., 3] > 0)  # around the sphere: transparent without glow, lit with it
+    assert ring.sum() > 50

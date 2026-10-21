@@ -15,6 +15,7 @@ before 1.0).
 
 ### Added
 
+- Previews bloom emissive materials when the style's look has `glow` (as Godot's environment glow does; LOOSE #42).
 - `origin: base | center | [x, y, z]` on models (LOOSE #40): the exported glb's origin (the root node carries the
   shift; LODs share the full model's); manifest `origin`.
 - `uv: cylindrical | spherical | box | along` on parts (LOOSE #39): projected texture coordinates in the part's

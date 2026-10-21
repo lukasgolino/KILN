@@ -174,6 +174,7 @@ def render(
     hit = best_tri >= 0
     rgba = np.zeros((res * res, 4))
     rgba[:] = np.array(background) / 255.0
+    glow = np.zeros((res * res, 3))  # emissive light (linear) that the look's glow spreads (bloom)
     if hit.any():
         T = best_tri[hit]
         bary = best_bary[hit]
@@ -230,6 +231,8 @@ def render(
             rim_term = rim[:, None] * np.power(1 - np.clip(n @ view_dir, 0, 1), 3)[:, None] * sky
             color = diffuse + spec[:, None] * spec_col * sun_col + rim_term
         color = color + albedo * emit[:, None]
+        if look.glow and (emit > 0).any():
+            glow[hit] = albedo * emit[:, None] * look.exposure
         color = color * look.exposure
         color = _filmic(color) if look.tonemapper != "linear" else color
         lum = (color * np.array([0.2126, 0.7152, 0.0722])).sum(axis=1, keepdims=True)
@@ -240,8 +243,37 @@ def render(
     image = rgba.reshape(res, res, 4)
     if look.outline > 0:
         image = _outline(image, best_depth.reshape(res, res), max(1, int(round(look.outline * scale))), look.outline_color)
+    if glow.any():
+        image = _bloom(image, glow.reshape(res, res, 3), max(1, int(res * 0.025)))
     out = Image.fromarray((image * 255 + 0.5).astype(np.uint8), "RGBA")
     return out.resize((size, size), Image.Resampling.BOX)
+
+
+def _blur(x: Array, radius: int) -> Array:
+    """Three box blurs along each image axis (close to a gaussian of sigma ~ radius)."""
+    for axis in (0, 1):
+        for _ in range(3):
+            pad = [(0, 0)] * x.ndim
+            pad[axis] = (radius + 1, radius)
+            c = np.cumsum(np.pad(x, pad), axis=axis)
+            hi = np.take(c, np.arange(2 * radius + 1, c.shape[axis]), axis=axis)
+            lo = np.take(c, np.arange(0, c.shape[axis] - 2 * radius - 1), axis=axis)
+            x = (hi - lo) / (2 * radius + 1)
+    return x
+
+
+def _bloom(image: Array, glow: Array, radius: int) -> Array:
+    """Emissive light spread over its surroundings (Godot's glow, roughly), also onto a transparent background."""
+    halo = _blur(glow, radius) * 0.8 + _blur(glow, radius * 3) * 0.6
+    srgb = image[..., :3]
+    lin = np.where(srgb <= 0.04045, srgb / 12.92, ((srgb + 0.055) / 1.055) ** 2.4)
+    alpha = image[..., 3:4]
+    premult = lin * alpha + halo
+    out_alpha = np.clip(alpha + (halo * np.array([0.2126, 0.7152, 0.0722])).sum(axis=-1, keepdims=True) * 2, 0, 1)
+    out = image.copy()
+    out[..., :3] = _to_srgb(premult / np.maximum(out_alpha, 1e-6))
+    out[..., 3:4] = out_alpha
+    return out
 
 
 def _outline(image: Array, depth: Array, width: int, hex_color: str) -> Array:
