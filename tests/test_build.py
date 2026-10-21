@@ -491,3 +491,27 @@ def test_animation_library_with_mixed_loadouts(project: Project) -> None:
     moving_tail = carrier.split("  wave:")[0] + "  swish: { fps: 4, poses: [{ tail: { rotate: [0, 30, 0] } }] }\n"
     write_model(project, moving_tail, "anims")
     assert any(f.rule == "E008" and "tail" in f.message for f in errors_of(project, arms_text("hero").split("animations:\n")[0] + "animation_library: anims\n", "hero"))
+
+
+def test_gib_pieces_for_parts_that_come_off(project: Project) -> None:
+    """#35: `gib` on a rig entry also exports that part (and what hangs from it) as one closed static piece in the
+    model's frame; a mirrored entry gets its twin's piece too."""
+    from kiln.mesher import open_edges
+
+    write_model(project, arms_text("hero").replace("arm_l: { pivot: [0.3, 0.6, 0] }", "arm_l: { pivot: [0.3, 0.6, 0], gib: true }"), "hero")
+    result = build(project)
+    assert result.errors == []
+    out = project.output_dir / "models"
+    gibs = result.manifest["models"]["hero"]["gibs"]
+    assert gibs == {"arm_l": {"glb": "models/hero.gib.arm_l.glb", "parts": ["arm_l"]}, "arm_r": {"glb": "models/hero.gib.arm_r.glb", "parts": ["arm_r"]}}
+    for side in ("arm_l", "arm_r"):
+        data = (out / f"hero.gib.{side}.glb").read_bytes()
+        assert check_glb(data) == []
+        doc, _ = read_glb(data)
+        assert "skins" not in doc and "animations" not in doc  # a static piece
+    from kiln.importer import read_mesh
+
+    vertices, faces, _, _ = read_mesh(out / "hero.gib.arm_l.glb")  # the left arm's piece: where the arm is, closed
+    assert len(open_edges(vertices, faces)) == 0 and vertices[:, 0].min() > 0.15
+    write_model(project, arms_text("hero"), "hero")
+    assert build(project).errors == [] and not list(out.glob("hero.gib.*"))  # dropped with the gib

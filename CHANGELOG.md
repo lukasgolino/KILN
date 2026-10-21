@@ -16,6 +16,8 @@ before 1.0).
 - Imported (retargeted) animations take `retarget: { keep: { joint: share }, offset: { joint: [x, y, z] } }`: damp a
   joint's turn away from rest (base names cover both sides) and add a fixed turn, for clips made for another body
   type (#34).
+- `gib: true | [ids]` on a rig entry: `kiln build` also writes `models/<name>.gib.<id>.glb`, the part (and what hangs
+  from it) as one closed static piece in the model's frame, for parts that come off; manifest `gibs` (#35).
 
 ### Changed
 

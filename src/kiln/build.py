@@ -147,6 +147,34 @@ def model_entry(built: Built, out: Path, glb: Path, merged: bool = False) -> dic
 LIBRARY_PIVOT = 0.01  # metres: joints further than this from the carrier's move when its clips play (W114)
 
 
+def gib_models(model: Model) -> list[tuple[str, Model]]:
+    """For every rig entry with `gib`: the model cut down to those parts (a static, closed piece in model space, at
+    rest): what the game throws away when that part comes off. `gib: true` = the part and every part hanging from it."""
+    from dataclasses import replace
+
+    out = []
+    for part_id, entry in sorted(model.rig.items()):
+        if not entry.gib:
+            continue
+        if entry.gib == ("*",):
+            ids = {part_id}
+            grew = True
+            while grew:
+                grew = False
+                for other, e in model.rig.items():
+                    if other not in ids and e.parent in ids:
+                        ids.add(other)
+                        grew = True
+        else:
+            ids = set(entry.gib)
+        parts = [p for p in model.parts if p.id in ids and (p.fit is None or set(p.fit[0]) <= ids)]
+        sub = replace(model, name=f"{model.name}.gib.{part_id}", parts=parts, rig={}, skin="none", animations={}, variants={}, lod=(),
+                      effect=None, animation_library=None, animations_only=False, node_prefix="", source=None,
+                      text=f"{model.text}\n# gib {part_id}: {' '.join(sorted(ids))}")  # fmt: skip
+        out.append((part_id, sub))
+    return out
+
+
 def library_findings(project: Project, built: Built, cache: Path) -> list[Finding]:
     """A model playing a carrier's clips needs the bones they share on the same parents (E008) at the same places (W114:
     a clip's position tracks put each bone where the carrier has it). Bones only one of them has may differ."""
@@ -294,6 +322,14 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         write(glb, to_glb(built, generator, None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid))
         merged = project.config.merge_rigid and built.skin == "rigid"
         entry = model_entry(built, out, glb, merged)
+        gibs: dict[str, Any] = {}
+        for part_id, sub in gib_models(model):  # closed pieces of parts that come off, same frame as the model's glb
+            gbuilt = build_cached(sub, style, palette, cache)
+            gpath = out / "models" / f"{name}.gib.{part_id}.glb"
+            write(gpath, to_glb(gbuilt, generator, None, project.config.vertex_colors, origin=built.origin()))
+            gibs[part_id] = {"glb": f"models/{gpath.name}", "parts": sorted({p.id for p in sub.parts})}
+        if gibs:
+            entry["gibs"] = gibs
         if merged:  # one skinned mesh: hide a part by scaling its bone to 0
             entry["merged_rigid"] = True
         uv_parts = sorted({built.model.parts[g.part].id for g in built.painted.groups if g.part >= 0 and built.model.parts[g.part].uv is not None})
