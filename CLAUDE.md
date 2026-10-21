@@ -5,7 +5,7 @@ KILN (Keyed Implicit Language & Notation) is a standalone Python CLI/library tha
 paint, rigs, animations, glTF and Godot scenes. It is PAGAN's 3D sibling (PAGAN = pixel art as text) and copies
 PAGAN's workflow and conventions. The design is in the decisions log below and the notation in
 `src/kiln/skill/reference.md`. Bugs and feature requests live in GitHub issues (label `later`: tracked, not planned
-until the owner asks), never in markdown files in the repo.
+until requested), never in markdown files in the repo.
 
 ## Setup and commands
 
@@ -48,20 +48,20 @@ anything that changes output.
 - CLI: human output by default, `--json` for machines, non-zero exit on errors. Findings (rule id, file, line,
   `where`, a message that says how to fix it), collected rather than stopping at the first (PAGAN's `Finding`).
 - Units: metres, +Y up, front +Z, models stand on y = 0. Colours from PAGAN palettes by name.
-- Commit only when the owner authorizes (milestones), as plain git under the owner's identity. NEVER add AI
+- Commit only when authorized (milestones), as plain git under our identity. NEVER add AI
   attribution. Push only when asked; ask before tags.
 - Versioning as PAGAN: bump `version` in pyproject.toml, CHANGELOG entry (Keep a Changelog), tag `vX.Y.Z` for any
   change to the notation, settings, manifest/exporter output or meshes.
-- Dependencies: numpy, Pillow, PyYAML, fast-simplification, fonttools (font text for extrudes; owner approved 2026-10-21) (PAGAN is vendored, not a dependency); extra `mcp`. Others only if needed:
+- Dependencies: numpy, Pillow, PyYAML, fast-simplification, fonttools (font text for extrudes; approved 2026-10-21) (PAGAN is vendored, not a dependency); extra `mcp`. Others only if needed:
   log why below.
 
 ## Decisions log
 
-- 2026-10-20: KILN exists because PAGAN's voxel meshes didn't give the smooth "normal 3D" look (owner; PAGAN 3D
-  frozen at v0.9.0). Free only: Claude (Max) writes text, KILN builds it; no paid generators (owner rejected Tripo).
+- 2026-10-20: KILN exists because PAGAN's voxel meshes didn't give the smooth "normal 3D" look (decided; PAGAN 3D
+  frozen at v0.9.0). Free only: Claude (Max) writes text, KILN builds it; no paid generators (Tripo rejected).
 - 2026-10-20: Signed distance fields with smooth unions: shapes an LLM can place well, joints that look sculpted.
-  Spike v1/v2 (spike/) showed the Dear Passengers family is reachable; owner: "much better, let's make that".
-- 2026-10-20: No Blender in the core (owner: optional). Meshing is dual contouring in numpy (sharp corners where
+  Spike v1/v2 (spike/) showed the Dear Passengers family is reachable; verdict: "much better, let's make that".
+- 2026-10-20: No Blender in the core (optional at most). Meshing is dual contouring in numpy (sharp corners where
   shapes have them), decimation is fast-simplification (MIT, quadric), output via PAGAN's deterministic glb writer.
 - 2026-10-20: Colour borders are cut into the mesh along where two parts' distances are equal (and along pattern
   zero lines, after local refinement): crisp borders without textures. Decals are the only textures.
@@ -72,14 +72,14 @@ anything that changes output.
 - 2026-10-20: Godot scenes keep shaders and the material script as sub-resources inside the .tscn (no .gdshader/.gd
   files, whose .uid sidecars would make output non-deterministic, as found in PAGAN). Godot's text format writes
   Transform3D bases row-major.
-- 2026-10-20: Styles are chosen per game (owner: "I want to choose inspirations"); presets soft_toy, low_poly, toon,
+- 2026-10-20: Styles are chosen per game ("we want to choose inspirations"); presets soft_toy, low_poly, toon,
   clay, diorama; project styles `extends` a preset; inspiration images in styles/<name>/inspiration/.
-- 2026-10-20: Decimation keeps colour borders (owner: "weird artifacts, jagged edges"): paint groups and patterns
+- 2026-10-20: Decimation keeps colour borders (after "weird artifacts, jagged edges"): paint groups and patterns
   are cut at full resolution, borders thinned (BORDER_TOLERANCE) and locked through fast-simplification's
   preserve_border, then welded via its collapse replay. The replay's own positions are wrong for some vertices
   (0.2.0), so only its index mapping is used. Afterwards bad faces (tilted > 25 degrees or slivers) are relaxed
   along the surface; crease vertices within one part stay. Border corners take per-side face-normal averages.
-- 2026-10-20: LOOSE report items 1-16 (owner: "fix them all"). PAGAN is vendored into `kiln.vendor` (v0.9.0 copies of
+- 2026-10-20: LOOSE report items 1-16 (decided: fix them all). PAGAN is vendored into `kiln.vendor` (v0.9.0 copies of
   findings, yamlio, palette, color, gltf): a git dependency can't take a version range, and games pin their own PAGAN.
   Keep the palette format in step by hand. Families copy PAGAN's template/extends/remove. `separate` parts are their
   own pieces (`Field.only`: same part indices, only some adding parts form the surface). Godot checks run in a sandbox
@@ -88,7 +88,7 @@ anything that changes output.
   (shape-driven; locked borders from full detail starved shapes: hexagonal wheels, flattened boots) -> cut colour
   regions -> alternate border thinning and border-locked decimation -> relax bad faces. Thin parts (< PROTECT x the
   budget's edge length) get their own region. Lint workers are limited by free memory (WORKER_MEMORY).
-- 2026-10-21: CC0 parity (plan to match KayKit/Kenney; owner: "do everything in there"). Hard surface is a second, exact path:
+- 2026-10-21: CC0 parity (plan to match KayKit/Kenney; decided: do everything in there). Hard surface is a second, exact path:
   parts tessellated from their shape and combined with BSP CSG (csg.js algorithm) in pure Python, then coplanar
   fragments re-triangulated (holes bridged, straight points dropped only where every patch agrees) so it stays
   watertight. Hard parts aren't decimated; budget pressure lowers their detail (bevel -> chamfer -> none -> fewer sides).
@@ -100,7 +100,7 @@ anything that changes output.
   ordinary parts at parse time. Fitted shells (`fit`) are a wall around another part's distance field.
 - 2026-10-21: Humanoids retarget CC0 clips (KayKit Rig_Medium) at build time: per joint, the clip's world-space change
   from its rest times the turn putting the KILN bone onto the clip's rest direction (so A-pose bodies play T-pose clips);
-  hips move scaled by hip height. KayKit CC0 files are committed as test fixtures (tests/fixtures/kaykit, ~2 MB, owner OK).
+  hips move scaled by hip height. KayKit CC0 files are committed as test fixtures (tests/fixtures/kaykit, ~2 MB, approved).
 - 2026-10-21: Attachments for CC0 characters fit a shell to the character's own mesh via an exact point-to-triangle
   distance over a cell grid (each triangle filed in every cell within one cell of it), exported in the bone's space.
 - 2026-10-21: The template library lives in src/kiln/library (generated by tools/gen_library.py); `extends` takes a
@@ -109,17 +109,17 @@ anything that changes output.
   projected per part in its local frame; TEXCOORD_0 unless the atlas/decals use it (then TEXCOORD_1). `attr` numbers
   go to custom `_NAME` attributes and the first to COLOR_0.a: Godot 4.7.2 drops custom attributes (verified).
   Polygon distance is tiled (exact; sign from the nearest edge/corner pseudo-normal, even-odd fallback for crossing
-  outlines). Text is SVG `path:` on extrude, not fonts (fontTools would be a new dependency: owner). No glb
+  outlines). Text is SVG `path:` on extrude, not fonts (fontTools would be a new dependency: needs approval). No glb
   quantization: Godot 4.7.2 doesn't support KHR_mesh_quantization or meshopt (checked).
-- 2026-10-21: Owner approved fonttools: extrude `text` + `font` (glyph outlines via SVGPathPen -> svgpath; no
-  kerning/shaping). `effect:` (LOOSE #41, owner: "why not"): KILN only describes; `models/<name>.effect.json` holds
+- 2026-10-21: fonttools approved: extrude `text` + `font` (glyph outlines via SVGPathPen -> svgpath; no
+  kerning/shaping). `effect:` (LOOSE #41, approved: "why not"): KILN only describes; `models/<name>.effect.json` holds
   every particle pre-rolled with Python's `random.Random(seed)` (stable across machines, unlike numpy streams) so the
   game's player and `preview --effect` match; closed-form motion with linear drag. LOOSE #35 (glb size) dropped.
-- 2026-10-21: Scope (owner): KILN makes art and the data/glue a game needs to use it (glb, scenes, materials,
+- 2026-10-21: Scope (decided): KILN makes art and the data/glue a game needs to use it (glb, scenes, materials,
   manifest, effect JSON; small generated scripts like the .tscn material setup are fine). Game logic and runtime
   players stay in the game: no Godot effect player. `effect:` stays (LOOSE reskins on 0.7.0).
-- 2026-10-21: Tracking moved to GitHub issues (owner): no PLAN.md / report / plan markdown files in the repo; label
-  `later` = tracked, not planned until the owner asks. 0.8.0 closes LOOSE report 44-58 (issues #1-#14).
+- 2026-10-21: Tracking moved to GitHub issues (decided): no PLAN.md / report / plan markdown files in the repo; label
+  `later` = tracked, not planned until requested. 0.8.0 closes LOOSE report 44-58 (issues #1-#14).
 - 2026-10-21: Hard CSG builds each BSP tree from the whole solid (a tree of only the polygons near the other solid
   misclassifies points: cracks, #2); only nearby polygons are clipped (~1.3x slower). The DC grid grows on any side
   the surface reaches (blends bulge out of part boxes, #11). merge_rigid (one skinned mesh for rigid skins, #9) is

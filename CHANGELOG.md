@@ -98,7 +98,7 @@ settings, partial builds, and E013 crack fixes. Hard-surface and humanoid output
 
 - The skill asks agents to report what got in their way (crashes, misleading messages, workarounds, missing
   features) as GitHub issues at https://github.com/lukasgolino/KILN/issues: a minimal-repro draft, a duplicate
-  check, and filing only with the user's OK. `.github/ISSUE_TEMPLATE/agent-report.md` and the `agent-report` label.
+  check, and filing only once approved. `.github/ISSUE_TEMPLATE/agent-report.md` and the `agent-report` label.
   Run `kiln skill install` to update a project's copy of the skill.
 
 ### Fixed
@@ -217,7 +217,7 @@ Toward CC0 parity (from the LOOSE! dogfooding report, items 23-25).
   metrics (printed and under `compare` in `--json`): silhouette IoU over 8 views, triangles and their ratio, surfaces,
   materials, colours, facet regularity and open edges of both. `--vs` without a path still shows the inspiration
   images. The MCP `preview` tool takes `reference` and `ref_height` with `which: "vs"`.
-- Skill: a "match a reference" workflow (iterate until the metrics are inside the owner's thresholds).
+- Skill: a "match a reference" workflow (iterate until the metrics are inside the agreed thresholds).
 
 ### Fixed
 
