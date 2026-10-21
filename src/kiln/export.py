@@ -77,17 +77,35 @@ def gltf_name(name: str, loop: bool) -> str:
 def face_uvs(built: Built) -> Array | None:
     """(F, 3, 2) corner UVs from the parts' `uv:` projections (zero elsewhere), or None when no part has one."""
     p = built.painted
-    with_uv = [g for g, group in enumerate(p.groups) if group.uv >= 0]
+    with_uv = [g for g, group in enumerate(p.groups) if group.part >= 0 and built.model.parts[group.part].uv is not None]
     if not with_uv:
         return None
     from kiln.uv import project
 
     out = np.zeros((len(p.faces), 3, 2))
     for g in with_uv:
-        part = built.model.parts[p.groups[g].uv]
+        part = built.model.parts[p.groups[g].part]
         sel = np.flatnonzero(p.face_group == g)
         if len(sel) and part.uv is not None:
             out[sel] = project(part.geometry, part.uv, p.vertices[p.faces[sel]])
+    return out
+
+
+def attr_names(built: Built) -> list[str]:
+    """The `attr:` names the model's parts use (sorted: the first also goes in COLOR_0's alpha)."""
+    return sorted({name for part in built.model.parts for name, _ in part.attr})
+
+
+def face_attrs(built: Built) -> dict[str, Array]:
+    """name -> (F,) value per face (0 where the part doesn't set it)."""
+    p = built.painted
+    out = {name: np.zeros(len(p.faces)) for name in attr_names(built)}
+    for g, group in enumerate(p.groups):
+        if group.part < 0:
+            continue
+        sel = p.face_group == g
+        for name, value in built.model.parts[group.part].attr:
+            out[name][sel] = value
     return out
 
 
@@ -102,6 +120,7 @@ class _Writer:
         self.origin = np.zeros(3) if origin is None else origin
         self.b = built
         self.face_uv = face_uvs(built)
+        self.face_attr = face_attrs(built)
         self.uv_set = uv_channel(built, atlas)
         self.swap = swap
         self.vertex_colors = vertex_colors
@@ -227,6 +246,9 @@ class _Writer:
             rows = np.concatenate([corners[:, None].astype(float), np.round(normals, 5), colors], axis=1)
             if self.face_uv is not None:  # projected UVs split vertices along their seams
                 rows = np.concatenate([rows, np.round(self.face_uv[sel].reshape(-1, 2), 6)], axis=1)
+            attr_col = rows.shape[1]
+            for name in self.face_attr:  # and attributes along part borders
+                rows = np.concatenate([rows, np.repeat(self.face_attr[name][sel], 3)[:, None]], axis=1)
             unique, inverse = np.unique(rows, axis=0, return_inverse=True)
             vidx = unique[:, 0].astype(np.int64)
             pos = p.vertices[vidx] - origin
@@ -236,20 +258,30 @@ class _Writer:
                 "POSITION": self.doc.accessor(pos.astype(np.float32), target=ARRAY_BUFFER, bounds=True),
                 "NORMAL": self.doc.accessor(nrm.astype(np.float32), target=ARRAY_BUFFER),
             }
+            color = None  # COLOR_0 (written later, with alpha, when the model has attr:)
             if self.vertex_colors and self.atlas is None:  # every surface carries its colours (glow ones keep their own material too)
-                rgb = np.array([srgb_to_linear(palette[int(c)]) for c in unique[:, 4]], dtype=np.float32)
-                attributes["COLOR_0"] = self.doc.accessor(rgb, target=ARRAY_BUFFER)
+                color = np.array([srgb_to_linear(palette[int(c)]) for c in unique[:, 4]], dtype=np.float32)
+                if not self.face_attr:
+                    attributes["COLOR_0"] = self.doc.accessor(color, target=ARRAY_BUFFER)
             shared = self.atlas is not None and key[3] < 0
             if shared:
                 assert self.atlas is not None
                 attributes["TEXCOORD_0"] = self.doc.accessor(self.atlas.atlas.uvs(unique[:, 4]).astype(np.float32), target=ARRAY_BUFFER)
             if self.ao is not None:  # baked occlusion: a grey multiplier (glTF multiplies COLOR_0 into the base colour)
-                attributes["COLOR_0"] = self.doc.accessor(np.repeat(self.ao[vidx][:, None], 3, axis=1).astype(np.float32), target=ARRAY_BUFFER)
+                color = np.repeat(self.ao[vidx][:, None], 3, axis=1).astype(np.float32)
+                if not self.face_attr:
+                    attributes["COLOR_0"] = self.doc.accessor(color, target=ARRAY_BUFFER)
             if key[3] >= 0:
                 uv = decal_uv(p.decals[key[3]], p.vertices[vidx])
                 attributes["TEXCOORD_0"] = self.doc.accessor(uv.astype(np.float32), target=ARRAY_BUFFER)
             if self.face_uv is not None:
                 attributes[f"TEXCOORD_{self.uv_set}"] = self.doc.accessor(unique[:, 5:7].astype(np.float32), target=ARRAY_BUFFER)
+            for k, name in enumerate(self.face_attr):
+                values = unique[:, attr_col + k].astype(np.float32)
+                attributes[f"_{name.upper()}"] = self.doc.accessor(values, target=ARRAY_BUFFER)
+                if k == 0:  # the first also in COLOR_0's alpha (Godot: COLOR.a), over the colours or white
+                    rgb = color if color is not None else np.ones((len(unique), 3), dtype=np.float32)
+                    attributes["COLOR_0"] = self.doc.accessor(np.concatenate([rgb, values[:, None]], axis=1), target=ARRAY_BUFFER)
             if skinned:
                 assert self.b.joints is not None and self.b.weights is not None
                 attributes["JOINTS_0"] = self.doc.accessor(self.b.joints[vidx].astype(np.uint16), target=ARRAY_BUFFER)

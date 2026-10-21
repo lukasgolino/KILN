@@ -23,6 +23,8 @@ before 1.0).
   between the points, height = the distance when not given.
 - `pattern:` takes a list (painted in order, each over the last) and `frame: part` (axes in the part's own
   frame, following rotate/aim) (LOOSE #30); ring arrays turn `around` any direction `[x, y, z]` (LOOSE #29).
+- `attr: { name: number }` on parts (LOOSE #38): custom glTF attributes `_NAME` per vertex; the first name also in
+  COLOR_0's alpha (what Godot imports); manifest `attributes`.
 - `extrude` takes `holes` (outlines cut through, rounded with the rest; LOOSE #27) and `offset` (grow or shrink
   the outline; LOOSE #28).
 

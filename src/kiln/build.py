@@ -16,7 +16,7 @@ from kiln import __version__
 from kiln.atlas import CELL, Atlas, AtlasUse, layout
 from kiln.builder import build_cached
 from kiln.retarget import HUMANOID, OPTIONAL
-from kiln.export import Built, gltf_name, to_glb, uv_channel
+from kiln.export import Built, attr_names, gltf_name, to_glb, uv_channel
 from kiln.godot import find_godot_project, look_scene, model_scene, res_path
 from kiln.lint import LintResult, lint_project
 from kiln.notation import Model
@@ -189,9 +189,12 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                              project.config.atlas_ao, glow)  # fmt: skip
         write(glb, to_glb(built, generator, None, project.config.vertex_colors, atlas))
         entry = model_entry(built, out, glb)
-        uv_parts = sorted({built.model.parts[g.uv].id for g in built.painted.groups if g.uv >= 0})
+        uv_parts = sorted({built.model.parts[g.part].id for g in built.painted.groups if g.part >= 0 and built.model.parts[g.part].uv is not None})
         if uv_parts:  # projected texture coordinates (parts' uv:)
             entry["uv"] = {"set": f"TEXCOORD_{uv_channel(built, atlas)}", "parts": uv_parts}
+        names = attr_names(built)
+        if names:  # per-vertex numbers (parts' attr:): custom glTF attributes, the first also in COLOR_0's alpha
+            entry["attributes"] = {name: {"gltf": f"_{name.upper()}", "color_alpha": k == 0} for k, name in enumerate(names)}
         if atlas is not None:
             entry["atlas"] = atlas_entry(atlas.atlas, {k: f"models/{v}" for k, v in sorted(atlas_files[""].items())}, atlas.ao)
         variants: dict[str, dict[str, Any]] = {}

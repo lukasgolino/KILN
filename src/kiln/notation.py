@@ -33,9 +33,10 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim"}  # fmt: skip
+               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
+ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
               "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin"}  # fmt: skip
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
@@ -85,6 +86,7 @@ class Part:
     keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
     uv: UVSpec | None = None  # texture coordinates projected from its shape (kiln.uv)
     patterns: tuple[Pattern, ...] = ()  # painted in order (a later one paints over earlier ones)
+    attr: tuple[tuple[str, float], ...] = ()  # named numbers exported per vertex (shader keys: heat, opacity)
 
 
 @dataclass(frozen=True)
@@ -520,6 +522,16 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             ok = False
         else:
             uv = UVSpec(str(u_map["project"]), UV_AXES[u_map.get("axis", "y")], (float(u_scale[0]), float(u_scale[1])))
+    attr: tuple[tuple[str, float], ...] = ()
+    if "attr" in raw:
+        a_raw = raw["attr"]
+        if not isinstance(a_raw, dict) or not a_raw or not all(isinstance(k, str) and ATTR_RE.match(k) and _num(v) for k, v in a_raw.items()) \
+                or op != "add":
+            ctx.error("E003", "attr is named numbers a shader reads per vertex: attr: { heat: 0.9 } (names: lower case letters, digits, _; "
+                      "on an adding part)", line, f"{where}.attr")  # fmt: skip
+            ok = False
+        else:
+            attr = tuple(sorted((str(k), float(v)) for k, v in a_raw.items()))
     fit = None
     if "fit" in raw:
         f_raw = raw["fit"]
@@ -541,7 +553,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
-                   "keep": keep, "cut_only": cut_only, "uv": uv, "patterns": patterns}  # fmt: skip
+                   "keep": keep, "cut_only": cut_only, "uv": uv, "patterns": patterns, "attr": attr}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])

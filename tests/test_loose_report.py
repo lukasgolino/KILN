@@ -534,3 +534,31 @@ def test_ring_array_around_any_direction(project: Project) -> None:
     g = ok_model(project, text)[0].parts[0].geometry
     centres = np.array([c.to_world(np.array([[0.0, 1.0, 0.0]]))[0] for c in g.copies])
     np.testing.assert_allclose(centres, [[0, 1, 0], [0, 0, 1], [0, -1, 0], [0, 0, -1]], atol=1e-9)
+
+
+# 38. per-part numbers exported per vertex
+def test_attr_per_vertex(project: Project) -> None:
+    from kiln.vendor.gltf import validate
+
+    text = """\
+name: thing
+parts:
+  - sphere: { at: [0, 0.3, 0], radius: 0.3 }
+    color: red
+    attr: { heat: 0.25 }
+  - sphere: { at: [0, 0.8, 0], radius: 0.25 }
+    color: red
+    attr: { heat: 1, fade: 0.5 }
+"""
+    write_model(project, text)
+    result = build(project)
+    entry = result.manifest["models"]["thing"]
+    assert entry["attributes"] == {"fade": {"gltf": "_FADE", "color_alpha": True}, "heat": {"gltf": "_HEAT", "color_alpha": False}}
+    doc, binary = read_glb((project.output_dir / "models" / "thing.glb").read_bytes())
+    assert not validate(doc, binary)
+    prim = doc["meshes"][0]["primitives"][0]
+    pos = read_accessor(doc, binary, prim["attributes"]["POSITION"])
+    heat = read_accessor(doc, binary, prim["attributes"]["_HEAT"]).reshape(-1)
+    color = read_accessor(doc, binary, prim["attributes"]["COLOR_0"])
+    assert color.shape[1] == 4 and set(np.round(color[:, 3], 3)) == {0.0, 0.5}
+    assert set(np.round(heat[pos[:, 1] < 0.3], 3)) == {0.25} and set(np.round(heat[pos[:, 1] > 0.9], 3)) == {1.0}
