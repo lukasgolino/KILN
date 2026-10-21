@@ -549,12 +549,15 @@ def _triangulate_2d(pts: list[tuple[float, float]]) -> list[tuple[int, int, int]
     return tris
 
 
-def _extrude_polys(points: Sequence[Sequence[float]], height: float, bevel: float, segments: int) -> list[list[Point]]:
+def _extrude_polys(points: Sequence[Sequence[float]], height: float, bevel: float, segments: int, offset: float = 0.0) -> list[list[Point]]:
+    """`offset` grows the outline (mitred corners; < 0 shrinks it)."""
     # (u, v) = (z, x): counter-clockwise in (u, v) is counter-clockwise seen from above (+y)
     uv = [(float(p[1]), float(p[0])) for p in points]
     area = sum(uv[i][0] * uv[(i + 1) % len(uv)][1] - uv[(i + 1) % len(uv)][0] * uv[i][1] for i in range(len(uv)))
     if area < 0:
         uv.reverse()
+    if offset:
+        uv = _offset_outline(uv, -offset)
     h = height / 2
     # rings from the bottom cap up to the top cap: (inset, y)
     rings: list[tuple[float, float]] = []
@@ -655,7 +658,7 @@ def local_polys(shape: str, p: dict[str, object], spec: HardSpec) -> list[list[P
     if shape == "torus":
         return _oriented(_torus_polys(float(p["radius"]), float(p["thickness"]), sides))  # type: ignore[arg-type]
     if shape == "extrude":
-        return _oriented(_extrude_polys(p["points"], float(p["height"]), bevel, seg))  # type: ignore[arg-type]
+        return _oriented(_extrude_polys(p["points"], float(p["height"]), bevel, seg, float(p.get("offset", 0.0))))  # type: ignore[arg-type]
     raise ValueError(f"{shape} has no hard tessellation")
 
 
@@ -725,6 +728,12 @@ def solid(g: Geometry, spec: HardSpec, tag: int) -> Solid:
         local_pts = [list(poly.points) for poly in local_solid]
     else:
         local_pts = local_polys(g.shape, g.params, spec)
+    holes = g.params.get("holes") if g.shape == "extrude" else None
+    if holes:  # cut through by prisms a little taller than the part (their edges stay sharp)
+        offset, height = float(g.params.get("offset", 0.0)), float(g.params["height"])
+        cutters = [[q for q in (polygon(pts, tag) for pts in _oriented(_extrude_polys(h, height + 0.02, 0.0, 1, -offset))) if q] for h in holes]
+        body = subtract([q for q in (polygon(pts, tag) for pts in local_pts) if q], _union_all(cutters))
+        local_pts = [list(poly.points) for poly in body]
     m = g.rotation if g.rotation is not None else np.eye(3)
     placed = _place(local_pts, m, g.at, tag)
     if g.shell:  # a wall inside the surface, or centred on it (side: both); open: one side cut away, showing the rim

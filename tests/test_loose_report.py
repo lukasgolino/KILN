@@ -455,3 +455,27 @@ def test_tiled_polygon_distance_matches_even_odd() -> None:
         a = np.concatenate([np.roll(lp, 1, axis=0) for lp in loops])
         b = np.concatenate(loops)
         np.testing.assert_allclose(polygons_2d(p, loops), _even_odd(p, a, b), atol=1e-12)
+
+
+# 27/28. extrude with holes (one round for every edge) and offset outlines
+@pytest.mark.parametrize("hard", [False, True])
+def test_extrude_holes_and_offset(project: Project, hard: bool) -> None:
+    from kiln.sdf import SHAPES
+
+    square = "[[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]"
+    hole = "[[-0.2, -0.2], [0.2, -0.2], [0.2, 0.2], [-0.2, 0.2]]"
+    extra = ", hard: true" if hard else ""
+    text = f"name: thing\nparts:\n  - extrude: {{ points: {square}, holes: [{hole}], height: 0.2, offset: 0.05, at: [0, 0.1, 0] }}\n    color: red{extra}\n"
+    text = text.replace(", hard: true", "\n    hard: true")
+    model, _ = ok_model(project, text)
+    g = model.parts[0].geometry
+    p = np.array([[0.0, 0.1, 0.0], [0.4, 0.1, 0.0], [0.53, 0.1, 0.0], [0.6, 0.1, 0.0], [0.17, 0.1, 0.0]])
+    inside = SHAPES["extrude"].fn(p - g.at, g.params) < 0
+    assert inside.tolist() == [False, True, True, False, True]  # hole, wall, grown edge, outside, where the hole shrank
+    built = built_of(project, text)
+    v = built.painted.vertices[np.unique(built.painted.faces)]
+    assert v[:, 0].max() == pytest.approx(0.55, abs=0.02)
+    centre = np.abs(v[:, [0, 2]]).max(axis=1)
+    assert ((centre > 0.14) & (centre < 0.16)).any()  # the hole's wall, 0.05 in from 0.2
+    assert not (centre < 0.1).any()
+    assert closed_faces(built.painted.faces) if hard else True

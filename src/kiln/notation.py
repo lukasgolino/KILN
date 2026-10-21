@@ -212,6 +212,9 @@ def _check_value(kind: str, v: Any) -> Any:
         if isinstance(v, list) and len(v) >= 2 and all(_vec(p) is not None for p in v):
             return [list(_vec(p) or ()) for p in v]
         return None
+    if kind == "holes2":
+        holes = [_check_value("points2", h) for h in v] if isinstance(v, list) else [None]
+        return holes if all(h is not None for h in holes) else None
     if kind in ("points2", "profile"):
         if isinstance(v, list) and len(v) >= 3 and all(_vec(p, 2) is not None for p in v):
             pts = [list(_vec(p, 2) or ()) for p in v]
@@ -230,6 +233,7 @@ KIND_HELP = {
     "num": "a number", "pos": "a number > 0", "nonneg": "a number >= 0", "vec3": "[x, y, z]",
     "posvec3": "[x, y, z], each > 0", "points3": "a list of 2+ points [x, y, z]",
     "points2": "a list of 3+ different points [x, z]", "bool": "true or false",
+    "holes2": "a list of outlines, each 3+ different points [x, z] (inside the outline: even-odd)",
     "profile": "a list of 3+ different points [r, y] with r >= 0", "sides": "a whole number of sides (3-64)",
 }  # fmt: skip
 

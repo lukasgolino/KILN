@@ -329,7 +329,8 @@ def lathe(p: Array, s: dict[str, Any]) -> Array:
 
 def extrude(p: Array, s: dict[str, Any]) -> Array:
     """A 2D outline [[x, z], ...] (seen from above) extruded along y: floor plans, shields, signs, stars."""
-    d2 = polygon_2d(p[:, [0, 2]], np.asarray(s["points"], float))
+    loops = [np.asarray(s["points"], float), *(np.asarray(h, float) for h in s.get("holes", ()))]
+    d2 = polygons_2d(p[:, [0, 2]], loops) - float(s.get("offset", 0.0))
     return _round_extrude(d2, p[:, 1], s["height"] / 2, s["round"])
 
 
@@ -377,7 +378,8 @@ def _bounds_lathe(s: dict[str, Any]) -> tuple[Array, Array]:
 def _bounds_extrude(s: dict[str, Any]) -> tuple[Array, Array]:
     pts = np.asarray(s["points"], float)
     h = s["height"] / 2
-    return np.array([pts[:, 0].min(), -h, pts[:, 1].min()]), np.array([pts[:, 0].max(), h, pts[:, 1].max()])
+    grow = max(float(s.get("offset", 0.0)), 0.0)
+    return np.array([pts[:, 0].min() - grow, -h, pts[:, 1].min() - grow]), np.array([pts[:, 0].max() + grow, h, pts[:, 1].max() + grow])
 
 
 SHAPES: dict[str, ShapeDef] = {
@@ -401,8 +403,9 @@ SHAPES: dict[str, ShapeDef] = {
                       "radius (ring), thickness (tube radius), sides; ring in the xz plane"),
     "lathe": ShapeDef(lathe, {"profile": "profile", "smooth": "bool", "sides": "sides"}, ("profile",), {"smooth": True}, _bounds_lathe,
                       "profile: [[r, y], ...] outline spun around y (closed; points on the axis have r = 0), smooth: true|false, sides"),
-    "extrude": ShapeDef(extrude, {"points": "points2", "height": "pos", "round": "nonneg"}, ("points", "height"), {"round": 0.0},
-                        _bounds_extrude, "points: [[x, z], ...] outline seen from above, height (along y), round"),
+    "extrude": ShapeDef(extrude, {"points": "points2", "height": "pos", "round": "nonneg", "holes": "holes2", "offset": "num"}, ("points", "height"),
+                        {"round": 0.0}, _bounds_extrude, "points: [[x, z], ...] outline seen from above, height (along y), round, "
+                        "holes: [[[x, z], ...], ...] (cut through; round rounds their edges too), offset (grow the outline, < 0 shrinks)"),
     "wedge": ShapeDef(wedge, {"size": "posvec3"}, ("size",), {}, lambda s: _sym(np.asarray(s["size"], float) / 2),
                       "size: [x, y, z]; ridge along x at the top (a roof)"),
 }
