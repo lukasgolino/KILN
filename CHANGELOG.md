@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-21
+
+CC0 parity, second half: palette atlas (M9), humanoids and clip retargeting (M5), attachments for CC0 characters (M6),
+the template library (M4).
+
 ### Added
 
 - Palette atlas (M9): `atlas = true` (kiln.toml) gives every model one material: colours, roughness/metal, glow (and
@@ -177,7 +182,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/lukasgolino/KILN/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lukasgolino/KILN/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lukasgolino/KILN/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lukasgolino/KILN/compare/v0.1.0...v0.2.0
