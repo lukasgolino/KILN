@@ -66,6 +66,9 @@ jobs:
           kiln build
           diff -r /tmp/first ../godot/assets/kiln
       - name: Showcase scene
-        run: $GODOT --headless --path examples/godot -s res://tests/check_showcase.gd
+        run: |
+          # a fresh checkout has no import cache (.godot/ is ignored): import first, or the glbs don't load
+          $GODOT --headless --path examples/godot --import
+          $GODOT --headless --path examples/godot -s res://tests/check_showcase.gd
       - name: Godot tests
         run: pytest -q -k godot
