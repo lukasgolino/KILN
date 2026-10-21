@@ -11,12 +11,13 @@ import pytest
 
 from conftest import arms_text, errors_of, make_project, sphere_text, write_model
 from kiln.build import MANIFEST, build
-from kiln.gltf_check import check_glb
+from kiln.gltf_check import accessor, check_glb
 from kiln.vendor.gltf import read_glb
 from kiln.godot import find_godot_binary, look_scene, model_scene, verify
 from kiln.project import Project, load_project
 from kiln.style import load_style
 
+CONFIG_MERGE = 'default_style = "fast"\ndefault_palette = "main"\noutput_dir = "out"\nmerge_rigid = true\n'
 GODOT_CONFIG = 'default_style = "fast"\ndefault_palette = "main"\noutput_dir = "game/assets/kiln"\nexport = ["glb", "godot"]\n'
 PROJECT_GODOT = """\
 config_version=5
@@ -185,6 +186,31 @@ def test_animation_library_errors(project: Project) -> None:
     assert any("needs its own animations" in f.message for f in errors_of(project, sphere_text("thing") + "animations_only: true\n"))
 
 
+def test_merge_rigid_writes_one_skinned_mesh(tmp_path: Path) -> None:
+    # #9: a rigid skin costs one draw call per id; merge_rigid makes it one skinned mesh, every vertex 100% on its
+    # part's bone (rigid look), separate parts still their own nodes
+    project = make_project(tmp_path, CONFIG_MERGE)
+    write_model(project, rich_model().replace("lod: [300, 100000]\n", "rig:\n  arm_l: { pivot: [0.3, 0.6, 0] }\n  arm_r: { separate: true, pivot: [-0.3, 0.6, 0] }\n")
+                .replace("rig:\n  arm_l: { pivot: [0.3, 0.6, 0] }\nskin", "skin"), "hero")  # fmt: skip
+    result = build(project)
+    assert result.errors == [], [f.format() for f in result.errors]
+    data = (project.output_dir / "models" / "hero.glb").read_bytes()
+    assert check_glb(data) == []
+    doc, binary = read_glb(data)
+    skinned = [n for n in doc["nodes"] if "skin" in n]
+    assert len(skinned) == 1 and len(doc["skins"]) == 1
+    names = {n["name"]: n for n in doc["nodes"]}
+    assert "mesh" in names["arm_r"] and "mesh" not in names["arm_l"] and "mesh" not in names["root"]  # separate: its own node
+    used = set()
+    for prim in doc["meshes"][skinned[0]["mesh"]]["primitives"]:  # one per colour here (no atlas)
+        weights = accessor(doc, binary, prim["attributes"]["WEIGHTS_0"])
+        assert np.allclose(weights[:, 0], 1.0) and np.allclose(weights[:, 1:], 0.0)
+        used |= set(accessor(doc, binary, prim["attributes"]["JOINTS_0"])[:, 0].tolist())
+    assert len(used) == 2  # root and arm_l
+    entry = result.manifest["models"]["hero"]
+    assert entry["merged_rigid"] is True and entry["skin"] == "rigid"
+
+
 def test_build_is_deterministic(tmp_path: Path) -> None:
     a = make_project(tmp_path / "a")
     b = make_project(tmp_path / "b")
@@ -291,7 +317,7 @@ def test_godot_import_settings_for_atlas_and_carriers(tmp_path: Path) -> None:
 @pytest.mark.slow
 @pytest.mark.skipif(find_godot_binary() is None, reason="needs a Godot 4 binary (GODOT=/path)")
 def test_godot_loads_a_carrier_as_a_library(tmp_path: Path) -> None:
-    project = make_project(tmp_path, GODOT_CONFIG + "atlas = true\n")
+    project = make_project(tmp_path, GODOT_CONFIG + "atlas = true\nmerge_rigid = true\n")  # rigid skins as one mesh too
     (tmp_path / "game").mkdir()
     (tmp_path / "game" / "project.godot").write_text(PROJECT_GODOT)
     carrier_and_player(project)

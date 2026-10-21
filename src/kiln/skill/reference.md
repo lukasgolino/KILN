@@ -24,6 +24,8 @@ preview_dir = "previews"
 export = ["glb", "godot"]
 style_version = 1
 variant_glbs = true            # false: no .glb per variant; Godot gets <name>.<variant>.tscn recolouring the base glb
+merge_rigid = false            # true: a rigid skin is one skinned mesh (one draw call; every vertex 100% on its part's bone;
+                               #   separate parts stay nodes; hide a part by scaling its bone to 0); manifest merged_rigid
 vertex_colors = false          # true: colours in the vertices, one surface per material preset (fewer draw calls)
 atlas = false                  # true: one material per model from small palette textures (1 surface, 2 with decals)
 atlas_ao = false               # true (with atlas): ambient occlusion baked into the vertex colours

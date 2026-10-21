@@ -4,7 +4,7 @@ skinned mesh, animations. Deterministic (PAGAN's writer: sorted JSON, float32, a
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -388,11 +388,32 @@ class _Writer:
 
 
 def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, vertex_colors: bool = False, atlas: AtlasUse | None = None,
-           origin: Array | None = None) -> bytes:
+           origin: Array | None = None, merge_rigid: bool = False) -> bytes:
     """`atlas`: one material from the palette textures it names (kiln.toml atlas = true); `swap` then only recolours
     decals (the palette texture carries the variant's colours). `origin`: the model-space point at the glb's origin
-    (default `built.origin()`; LODs pass the full model's so every level lines up)."""
-    return _Writer(built, swap or {}, generator, vertex_colors, atlas, built.origin() if origin is None else origin).write()
+    (default `built.origin()`; LODs pass the full model's so every level lines up). `merge_rigid`: a rigid skin is
+    one skinned mesh (every vertex fully on its part's bone; `separate` parts stay their own nodes)."""
+    origin = built.origin() if origin is None else origin
+    if merge_rigid and built.skin == "rigid":
+        built = rigid_as_one(built)
+    return _Writer(built, swap or {}, generator, vertex_colors, atlas, origin).write()
 
 
-__all__ = ["Built", "ROOT_ID", "gltf_name", "srgb_to_linear", "to_glb"]
+def rigid_as_one(built: Built) -> Built:
+    """A rigid skin as a soft one whose every vertex follows only its own part's bone: the same look and motion in one
+    skinned mesh (one draw call). Vertices shared by two parts (colour borders) are split, one copy per bone."""
+    p, sk = built.painted, built.skeleton
+    group_bone = np.array([sk.index(g.bone) for g in p.groups] or [0], dtype=np.int64)
+    corner_bone = np.repeat(group_bone[p.face_group], 3)
+    keys = np.stack([p.faces.reshape(-1), corner_bone], axis=1)
+    unique, inverse = np.unique(keys, axis=0, return_inverse=True)
+    faces = inverse.reshape(-1, 3).astype(np.int64)
+    joints = np.zeros((len(unique), 4), dtype=np.int64)
+    joints[:, 0] = unique[:, 1]
+    weights = np.zeros((len(unique), 4))
+    weights[:, 0] = 1.0
+    painted = replace(p, vertices=p.vertices[unique[:, 0]], faces=faces)
+    return replace(built, painted=painted, skin="soft", joints=joints, weights=weights)
+
+
+__all__ = ["Built", "ROOT_ID", "gltf_name", "rigid_as_one", "srgb_to_linear", "to_glb"]

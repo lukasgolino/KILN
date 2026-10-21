@@ -331,7 +331,7 @@ def _compare(project: Project, built: Any, ref_path: Path, ref_height: float | N
         ref_joints = joint_heights(ref_path) if built.model.skeleton == "humanoid" else {}  # head/hips: humanoid bands
     except (ImportError_, ValueError, KeyError, IndexError, OSError) as exc:
         raise _usage(f"can't read {ref_path}: {exc}") from None
-    counts = gltf_counts(to_glb(built, "kiln", None, project.config.vertex_colors))
+    counts = gltf_counts(to_glb(built, "kiln", None, project.config.vertex_colors, merge_rigid=project.config.merge_rigid))
     metrics = {"file": display_path(ref_path), "ref_height": ref_height, **pv.compare(built, ref, counts, ref_counts, ref_joints)}
     path = folder / f"vs_{ref_path.stem}.png"
     pv.versus_reference(built, ref, metrics, ref_path.name).save(path)

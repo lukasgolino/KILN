@@ -25,6 +25,7 @@ class Config:
     export: tuple[str, ...] = ("glb",)
     style_version: int = 1
     lint_disable: tuple[str, ...] = ()
+    merge_rigid: bool = False  # true: a rigid skin is one skinned mesh (each vertex 100% on its part's bone)
     variant_glbs: bool = True  # false: variants are Godot scenes recolouring the base glb (no glb per variant)
     vertex_colors: bool = False  # true: colours in the vertices, one surface per material preset (fewer draw calls)
     atlas: bool = False  # true: one material per model, colours and presets from small palette textures
@@ -166,7 +167,7 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
         findings.append(Finding("E000", message, path, None, where))
 
     allowed = {"default_style", "default_palette", "output_dir", "preview_dir", "export", "style_version", "variant_glbs", "vertex_colors",
-               "atlas", "atlas_ao", "lint"}  # fmt: skip
+               "atlas", "atlas_ao", "merge_rigid", "lint"}  # fmt: skip
     for key in data:
         if key not in allowed:
             bad(f"unknown setting {key!r}; allowed: {', '.join(sorted(allowed))}", key)
@@ -198,6 +199,11 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
             bad("style_version is a whole number >= 1", "style_version")
         else:
             cfg.style_version = sv
+    if "merge_rigid" in data:
+        if not isinstance(data["merge_rigid"], bool):
+            bad("merge_rigid is true (a rigid skin is one skinned mesh: one draw call) or false (a mesh per part)", "merge_rigid")
+        else:
+            cfg.merge_rigid = data["merge_rigid"]
     if "variant_glbs" in data:
         if not isinstance(data["variant_glbs"], bool):
             bad("variant_glbs is true (a .glb per variant) or false (variants recolour the base glb's materials)", "variant_glbs")

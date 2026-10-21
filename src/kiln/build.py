@@ -61,7 +61,8 @@ def _f(v: float) -> float:
     return round(float(v), 5)
 
 
-def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
+def model_entry(built: Built, out: Path, glb: Path, merged: bool = False) -> dict[str, Any]:
+    """The manifest's entry for a model. `merged`: a rigid skin written as one skinned mesh (merge_rigid)."""
     m: Model = built.model
     lo, hi = built.bounds()
     sk = built.skeleton
@@ -80,7 +81,7 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
             "separate": bone.separate,
             "node_path": "/".join(chain),  # glTF node names from the root (Godot soft skins: bones of the Skeleton3D)
         }
-        own_mesh = m.skin != "soft" or bone.separate
+        own_mesh = (built.skin != "soft" and not merged) or bone.separate
         if m.node_prefix and own_mesh and (face_bone == i).any():  # the part's mesh node, a child of its node
             parts[bone.name]["mesh_node"] = f"{'/'.join(chain)}/{m.node_prefix}{bone.name}"
         if bone.sockets:
@@ -129,7 +130,7 @@ def model_entry(built: Built, out: Path, glb: Path) -> dict[str, Any]:
         entry["animations_only"] = True
     if m.node_prefix:
         entry["node_prefix"] = m.node_prefix
-        if built.skin == "soft":
+        if built.skin == "soft" or merged:
             entry["mesh_node"] = f"{m.node_prefix}mesh"  # the skinned mesh
     if m.origin is not None:  # the glb's origin in model space (everything else here is model space): glb = model - origin
         entry["origin"] = [_f(v) for v in built.origin()]
@@ -287,8 +288,11 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 write(out / "models" / f"{name}.rim.png", cells.rim_png(built))
             atlas = AtlasUse(cells, atlas_files[""]["palette"], atlas_files[""]["material"], atlas_files[""].get("glow"),
                              project.config.atlas_ao, glow)  # fmt: skip
-        write(glb, to_glb(built, generator, None, project.config.vertex_colors, atlas))
-        entry = model_entry(built, out, glb)
+        write(glb, to_glb(built, generator, None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid))
+        merged = project.config.merge_rigid and built.skin == "rigid"
+        entry = model_entry(built, out, glb, merged)
+        if merged:  # one skinned mesh: hide a part by scaling its bone to 0
+            entry["merged_rigid"] = True
         uv_parts = sorted({built.model.parts[g.part].id for g in built.painted.groups if g.part >= 0 and built.model.parts[g.part].uv is not None})
         if uv_parts:  # projected texture coordinates (parts' uv:)
             entry["uv"] = {"set": f"TEXCOORD_{uv_channel(built, atlas)}", "parts": uv_parts}
@@ -306,7 +310,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 variants[vname].update({k: f"models/{v}" for k, v in sorted(atlas_files[vname].items())})
             if project.config.variant_glbs:
                 vpath = out / "models" / f"{name}.{vname}.glb"
-                write(vpath, to_glb(built, generator, swap, project.config.vertex_colors, vatlas))
+                write(vpath, to_glb(built, generator, swap, project.config.vertex_colors, vatlas, merge_rigid=project.config.merge_rigid))
                 variants[vname]["glb"] = vpath.relative_to(out).as_posix()
         if variants:
             entry["variants"] = variants
@@ -321,7 +325,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 result.findings.append(Finding("W111", f"lod {k} ({budget} triangles) loses part {part.index} ({part.geometry.shape}, "
                                                f"{part.color_name})", model.path, part.line, part.where))  # fmt: skip
             lpath = out / "models" / f"{name}.lod{k}.glb"
-            write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors, atlas, built.origin()))
+            write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors, atlas, built.origin(), project.config.merge_rigid))
             lods.append({"glb": lpath.relative_to(out).as_posix(), "triangles": lod_built.triangles})
         if lods:
             entry["lods"] = lods

@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- `merge_rigid = true` in kiln.toml (#9): a rigid skin is exported as one skinned mesh, every vertex 100% on its
+  part's bone (rigid look, one draw call instead of one per id); `separate` parts stay their own nodes. Hide a part by
+  scaling its bone to 0. Manifest: `merged_rigid`.
 - Shared clips (#5): `animations_only: true` makes a model a clip carrier; `animation_library: <carrier>` on another
   model plays its animations (same part ids: E008; joints over 1 cm away from the carrier's: W114) and its glb
   carries no clips. Manifest: `animation_library`, `animations_only`. With "godot" the carrier is imported as an
