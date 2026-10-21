@@ -267,7 +267,8 @@ def _parse_copies(ctx: _Ctx, raw: Any, line: int | None, where: str) -> tuple[Co
         center = _vec(raw.get("center", [0, 0, 0]))
         angle = raw.get("angle", 360)
         vector = _vec(axis) if isinstance(axis, list) else None
-        if bad or (axis not in AXES and (vector is None or not any(vector))) or center is None or not _num(angle):
+        if bad or (vector is None and not (isinstance(axis, str) and axis in AXES)) or (vector is not None and not any(vector)) or center is None \
+                or not _num(angle):
             ctx.error("E003", "a ring array is { count, around: x|y|z or a direction [x, y, z], center: [x, y, z], angle: 360 }", line, where)
             return None
         unit = np.zeros(3)
