@@ -34,6 +34,7 @@ before 1.0).
   slowly or crack with bevels. Fonts without overlaps give the same outlines as before; SVG `path:` stays even-odd (#29).
 - `kiln build` removes decal textures Godot extracted from a glb (`models/<name>_decal<N>_<hex>.png` and its `.import`)
   once no glb embeds that image any more (the colour changed, or the model is gone) (#32).
+- `kiln preview --vs` counts `surfaces` and `materials` as `kiln build` writes them, with `atlas` on too (#36).
 
 ## [0.8.0] - 2026-10-21
 

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from conftest import built_of, run_json, sphere_text, write_model
+from conftest import CONFIG, built_of, make_project, run_json, sphere_text, write_model
 from kiln.export import Built, to_glb
 from kiln.importer import gltf_counts, joint_heights, load_reference
 from kiln.preview import TILE_BG, body_bands, compare, distance_row, facet_regularity, screen_ppm, versus_reference, visual_mass
@@ -176,3 +176,21 @@ def test_mcp_preview_reference(project: Project) -> None:
     assert not result["ok"] and "outside" in result["findings"][0]["message"] and images == 0
     result, _ = call(project, "preview", {"model": "ball", "reference": "imports/box.glb"})
     assert not result["ok"]
+
+
+def test_cli_vs_counts_what_the_build_writes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """#36: `--vs` surfaces/materials follow atlas and merge_rigid, as the built glb does."""
+    from conftest import arms_text
+    from kiln.build import build
+
+    project = make_project(tmp_path, CONFIG + "atlas = true\nmerge_rigid = true\n")
+    monkeypatch.chdir(tmp_path)
+    write_model(project, arms_text("hero"), "hero")
+    box_glb(project.root / "imports" / "box.glb")
+    assert build(project).errors == []
+    built_counts = gltf_counts(project.output_dir / "models" / "hero.glb")
+    code, result = run_json(["preview", "hero", "--vs", "imports/box.glb", "--ref-height", "0.6"], capsys)
+    assert code == 0, result
+    model = result["compare"]["model"]
+    assert {"surfaces": model["surfaces"], "materials": model["materials"]} == built_counts
+    assert built_counts["materials"] == 1  # the atlas: one material for every colour
