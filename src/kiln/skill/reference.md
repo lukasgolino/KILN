@@ -245,7 +245,8 @@ skin: soft
 - `revealed: [arm_l]`: a part shown only once one of those is gone (a stump cap at the shoulder, under a
   detachable arm). It is its own piece (separate), hidden by KILN's .tscn scenes, `kiln_revealed_by` in its node's
   extras and `revealed_by` in the manifest's part: the game shows it when it removes the arm. Mirrored twins
-  are revealed by the twins (`arm_r`).
+  are revealed by the twins (`arm_r`). Previews (and `--vs`) leave it out like the game does; `--detach` shows it
+  under the part taken off.
 - `gib: true` (or `gib: [upperarm_l, lowerarm_l, hand_l]`): the part comes off as a piece of its own. Besides the model,
   `kiln build` writes `models/<name>.gib.<id>.glb`: that part (and, with `true`, every part hanging from it) meshed on
   its own, so it's closed where it met the body; static, at rest, in the model's frame (same origin as the model's glb),

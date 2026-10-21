@@ -287,7 +287,15 @@ def _shared_fit(a: Built, b: Built) -> tuple[Array, float]:
 
 
 def _corners(built: Built) -> Array:
-    return np.asarray(built.painted.vertices[built.painted.faces])
+    """The triangles as seen in the game: `revealed` parts (hidden until a part comes off) are left out."""
+    from kiln.render import with_unrevealed
+
+    p = built.painted
+    hidden = with_unrevealed(built)
+    if not hidden:
+        return np.asarray(p.vertices[p.faces])
+    shown = np.array([p.groups[g].bone not in hidden for g in p.face_group], dtype=bool)
+    return np.asarray(p.vertices[p.faces[shown]])
 
 
 def facet_regularity(vertices: Array, faces: Array) -> float:

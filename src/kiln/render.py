@@ -91,6 +91,12 @@ def _to_srgb(x: Array) -> Array:
     return np.where(x <= 0.0031308, x * 12.92, 1.055 * np.power(x, 1 / 2.4) - 0.055)
 
 
+def with_unrevealed(built: Built, hide: frozenset[str] = frozenset()) -> frozenset[str]:
+    """`hide` plus every `revealed` part none of whose revealers is in it: they start hidden in the game."""
+    waiting = {pid for pid, entry in built.model.rig.items() if entry.revealed and not set(entry.revealed) & hide}
+    return hide | waiting
+
+
 def render(
     built: Built,
     view: View,
@@ -103,7 +109,9 @@ def render(
     hide: frozenset[str] = frozenset(),
 ) -> Image.Image:
     """One view. `fit` = (centre, half-extent in metres) to frame several renders the same way; default: the
-    model's own bounding sphere. `hide`: bones (part ids) left out, e.g. a detached helmet."""
+    model's own bounding sphere. `hide`: bones (part ids) left out, e.g. a detached helmet. `revealed` parts (stump caps)
+    are left out too, as in the exported scenes, unless a part that reveals them is hidden."""
+    hide = with_unrevealed(built, hide)
     look: Look = built.style.look
     swap = swap or {}
     corners, normals = posed(built, track, frame)
