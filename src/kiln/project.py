@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -112,7 +112,9 @@ class Project:
         return model, style, findings + mf
 
     def _library(self, model: Model) -> list[Finding]:
-        """Copy a model's animation_library's animations into it: same part ids, a carrier (animations_only)."""
+        """Copy a model's animation_library's animations into it (a carrier: animations_only). Every part id the clips
+        move must be in the model; other ids may differ (a helmet on one loadout, a shield on another): the model's
+        extra parts follow their parents, and tracks of carrier parts the model lacks aren't copied."""
         name = model.animation_library
         lib_path = self.models_dir / f"{name}{MODEL_SUFFIX}"
 
@@ -126,12 +128,20 @@ class Project:
             return bad(f"animation_library {name!r} has errors: fix it first")
         if not lib.animations_only:
             return bad(f"animation_library {name!r} isn't a clip carrier: give it animations_only: true")
-        if set(lib.ids) != set(model.ids) or lib.skeleton != model.skeleton:
-            only_here, only_there = sorted(set(model.ids) - set(lib.ids)), sorted(set(lib.ids) - set(model.ids))
-            return bad(f"animation_library {name!r} has other part ids (here only: {', '.join(only_here) or '-'}; there only: "
-                       f"{', '.join(only_there) or '-'}{'; and another skeleton' if lib.skeleton != model.skeleton else ''}): "
-                       "a clip moves bones by id, so both need the same ones")  # fmt: skip
-        model.animations = dict(lib.animations)
+        if lib.skeleton != model.skeleton:
+            return bad(f"animation_library {name!r} has another skeleton ({lib.skeleton or 'none'}, here {model.skeleton or 'none'}): give both the same")
+        driven: set[str] = set()
+        for anim in lib.animations.values():
+            if anim.cycle is not None or anim.source is not None:
+                driven |= set(lib.ids)  # procedural / imported clips: any carrier id may move
+            for pose in anim.poses:
+                driven |= set(pose)
+        missing = sorted(driven - set(model.ids))
+        if missing:
+            return bad(f"animation_library {name!r} moves part ids this model doesn't have ({', '.join(missing)}): a clip moves bones "
+                       "by id, so add them, or leave them out of the carrier's clips (ids nothing animates may differ)")  # fmt: skip
+        mine = set(model.ids)
+        model.animations = {k: replace(a, poses=[{i: p for i, p in pose.items() if i in mine} for pose in a.poses]) for k, a in lib.animations.items()}
         model.library_text = lib.text
         return []
 

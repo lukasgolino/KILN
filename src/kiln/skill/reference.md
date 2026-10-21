@@ -528,8 +528,9 @@ later (uid, imported files) are kept.
 
 **Shared clips**: `animations_only: true` makes a model a clip carrier (its animations are what counts; give it the
 same rig as the models that use it); `animation_library: <carrier>` on another model plays the carrier's animations
-(same part ids, E008 otherwise; joints more than 1 cm from the carrier's: W114, since a clip's position tracks put
-bones where the carrier has them). That model's glb carries no clips; previews and the manifest's `animations` still
+(every part id its clips move must be in the model, E008 otherwise; other ids may differ, e.g. a helmet on one loadout:
+they follow their parents, and tracks for carrier parts the model lacks are left out; shared joints more than 1 cm from
+the carrier's: W114, since a clip's position tracks put bones where the carrier has them; same skeleton). That model's glb carries no clips; previews and the manifest's `animations` still
 list them, plus `animation_library` (`model`, `glb`). With "godot" the carrier's glb is imported as an
 AnimationLibrary (no `.tscn`); add it to each model's AnimationPlayer.
 `kiln build --verify-godot` checks everything in a throwaway copy of the output (nothing else in the game's project is
