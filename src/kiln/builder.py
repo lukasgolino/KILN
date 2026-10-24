@@ -160,7 +160,13 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     # air gap between the two surfaces would tear both
     fitted = sorted({model.parts[i].id for i in adding if model.parts[i].geometry.fit is not None and model.parts[i].id not in separate})
     own = set(separate) | set(fitted)
-    all_pieces = [[i for i in adding if model.parts[i].id not in own]]
+    main = [i for i in adding if model.parts[i].id not in own]
+    # union: per_bone (rigid skins): each bone's parts are one closed surface; neighbouring bones' surfaces overlap
+    # instead of being cut along where they meet, so turning a joint can't open the mesh (#50)
+    per_bone = model.union == "per_bone" and model.skin == "rigid"
+    bones = [pid for pid in model.ids if any(model.parts[i].id == pid for i in main)] if per_bone else []
+    all_pieces = [[i for i in main if model.parts[i].id == pid] for pid in bones] if per_bone else [main]
+    n_main = len(all_pieces)
     all_pieces += [[i for i in adding if model.parts[i].id == pid] for pid in [*separate, *fitted]]
     # hard parts are exact polygons, made first: what they leave of the budget goes to the smooth parts
     hard_pieces = [frozenset(i for i in inc if i in hard) for inc in all_pieces]
@@ -198,7 +204,7 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
         fields = [f for _, f, _ in live]
         painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, soft_target, [inc for inc, _, _ in live], full_areas)
     floating = 1
-    if groups_of[0] and painted is not None:  # separate parts may float
+    if groups_of[0] and painted is not None and not per_bone:  # separate parts may float
         main_faces = np.flatnonzero(region_piece[painted.face_group] == 0)
         floating = _pieces(model, field, Mesh(painted.vertices, painted.faces[main_faces]), step)
     hidden = tuple(sorted({*hidden, *kept_hidden}))
@@ -212,10 +218,13 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
                                             style.smooth, style.sharp_angle) for hp in hard_painted]  # fmt: skip
         painted, normals = _merge([painted] if painted is not None else [], [normals] if len(normals) else [], hard_painted, hard_normals)
         hidden = tuple(sorted({*hidden, *(i for inc, m in zip(hard_pieces, hard_meshes, strict=True) for i in inc if i not in set(m.face_part.tolist()))}))
-        if hard_pieces[0] <= frozenset(all_pieces[0]):  # the main piece has hard parts: they may float too
+        if not per_bone and hard_pieces[0] <= frozenset(all_pieces[0]):  # the main piece has hard parts: they may float too
             soft_points = painted.vertices[:n_soft] if n_soft else np.zeros((0, 3))
             floating = _hard_floating(model, field, hard_meshes[0], soft_points, groups_of[0], step, floating)
     assert painted is not None
+    if per_bone:
+        main_ids = {model.parts[i].id for inc in all_pieces[:n_main] for i in inc}
+        floating = _touching_pieces(model, field, painted, main_ids, step)
     skeleton = build_skeleton(model, field) if rigged else Skeleton([Bone(ROOT_ID, -1, np.zeros(3), {}, False)])
     joints = weights = None
     if model.skin == "soft":
@@ -307,6 +316,35 @@ def _hard_floating(model: Model, field: Field, mesh: HardMesh, soft_points: Arra
             continue
         extra += 1
     return max(1, extra) if soft is None else soft_pieces + extra
+
+
+def _touching_pieces(model: Model, field: Field, painted: Painted, ids: set[str], step: float) -> int:
+    """W103 for `union: per_bone`: the bones' surfaces overlap without being joined, so pieces are counted by touch.
+    Each connected piece of the surface (of the parts with these ids) is on some parts; two pieces touch where one's
+    vertices are near or inside the other's parts. Pieces only on `loose: true` parts don't count."""
+    faces = painted.faces[np.isin(np.array([g.bone for g in painted.groups] or [""], dtype=object)[painted.face_group], sorted(ids))]
+    if not len(faces):
+        return 1
+    labels = component_labels(Mesh(painted.vertices, faces))
+    used = np.unique(faces)
+    adding = [i for i, p in enumerate(model.parts) if p.geometry.op == "add" and p.id in ids]
+    d = np.stack([field.part_distance(i, painted.vertices[used]) for i in adding])  # parts x used vertices
+    comps = sorted(set(labels[used].tolist()))
+    on = [{adding[k] for k in np.flatnonzero((np.abs(d[:, labels[used] == c]) < step).any(axis=1))} for c in comps]
+    near = [(d[:, labels[used] == c] < step * 1.5).any(axis=1) for c in comps]  # per piece: the parts it touches
+    keep = [k for k, parts in enumerate(on) if parts and not all(model.parts[i].loose for i in parts)]
+    group = {k: k for k in keep}
+
+    def find(k: int) -> int:
+        while group[k] != k:
+            k = group[k]
+        return k
+
+    for a in keep:
+        for b in keep:
+            if a < b and (any(near[a][adding.index(i)] for i in on[b]) or any(near[b][adding.index(i)] for i in on[a])):
+                group[find(a)] = find(b)
+    return max(1, len({find(k) for k in keep}))
 
 
 def _pieces(model: Model, field: Field, mesh: Mesh, step: float) -> int:

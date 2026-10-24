@@ -33,6 +33,7 @@ AXES = {"x": 0, "y": 1, "z": 2}
 PATTERNS = ("stripes", "checker", "dots", "band")
 STATUSES = ("draft", "approved")
 SKINS = ("none", "rigid", "soft")
+UNIONS = ("whole", "per_bone")
 CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "chain")
 INTERPOLATIONS = ("linear", "step")
 
@@ -43,7 +44,7 @@ OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
               "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
-              "animation_library", "animations_only"}  # fmt: skip
+              "animation_library", "animations_only", "union"}  # fmt: skip
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
@@ -154,6 +155,7 @@ class Model:
     parts: list[Part] = field(default_factory=list)
     rig: dict[str, RigEntry] = field(default_factory=dict)
     skin: str = "none"
+    union: str = "whole"  # per_bone (rigid skins): each bone's parts are their own closed surface, so joints never tear
     animations: dict[str, Animation] = field(default_factory=dict)
     variants: dict[str, dict[str, str]] = field(default_factory=dict)  # name -> {hex: hex}
     lod: tuple[int, ...] = ()
@@ -1161,6 +1163,14 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         ctx.error("E007", "skin is none (static), rigid (each part moves as one piece) or soft (blended joints bend)", _line(data, "skin"), "skin")
     else:
         model.skin = str(skin)
+    union = data.get("union")
+    if union is not None:
+        if union not in UNIONS:
+            ctx.error("E007", "union is whole (all parts one surface) or per_bone (each bone's parts their own closed surface)", _line(data, "union"), "union")
+        elif union == "per_bone" and model.skin != "rigid":
+            ctx.error("E007", "union: per_bone needs skin: rigid (a soft skin bends where parts blend, so it stays one surface)", _line(data, "union"), "union")
+        else:
+            model.union = str(union)
     model.animations = _parse_animations(ctx, data.get("animations"), ids, _line(data, "animations"), model.skeleton is not None)
     if model.animations and model.skin == "none":
         ctx.error("E008", "animations move parts: give the model a rig (pivots and parents) or skin: rigid", _line(data, "animations"), "animations")

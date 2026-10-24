@@ -211,6 +211,68 @@ def test_merge_rigid_writes_one_skinned_mesh(tmp_path: Path) -> None:
     assert entry["merged_rigid"] is True and entry["skin"] == "rigid"
 
 
+SEAM = """\
+name: seam
+class: character
+skeleton: humanoid
+skin: rigid
+{union}parts:
+  - box: {{at: [0, 1.3, 0], size: [0.42, 0.3, 0.26]}}
+    id: chest
+    color: red
+  - cone: {{aim: [[0.215, 1.45, 0], [0.245, 1.16, 0]], radius: 0.085, radius_top: 0.07}}
+    id: upperarm_l
+    color: blue
+  - capsule: {{from: [0.6, 1.3, 0], to: [0.8, 1.3, 0], radius: 0.05}}
+    id: lowerarm_l
+    color: blue
+rig:
+  chest: {{pivot: [0, 1.24, 0]}}
+  upperarm_l: {{pivot: [0.215, 1.455, 0]}}
+lint: {{disable: [W107]}}
+"""
+
+
+def _open_edges_per_bone(project: Project, text: str) -> tuple[dict[int, int], int]:
+    """Boundary edges of the merged rigid mesh per bone (vertices welded by position and bone), and W103's count."""
+    from kiln.builder import build_model
+    from kiln.export import rigid_as_one
+
+    model, style, findings = project.load(write_model(project, text, "seam"))
+    assert model is not None and style is not None, [f.format() for f in findings]
+    built = build_model(model, style)
+    merged = rigid_as_one(built)
+    assert merged.joints is not None
+    v, f, bone = merged.painted.vertices, merged.painted.faces, merged.joints[:, 0]
+    keys = np.concatenate([np.round(v, 6), bone[:, None]], axis=1)
+    _, weld = np.unique(keys, axis=0, return_inverse=True)
+    tri = weld.reshape(-1)[f.reshape(-1)].reshape(-1, 3)
+    edges = np.sort(np.concatenate([tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]]), axis=1)
+    unique, counts = np.unique(edges, axis=0, return_counts=True)
+    vertex_bone = np.zeros(weld.max() + 1, dtype=np.int64)
+    vertex_bone[weld] = bone
+    out: dict[int, int] = {}
+    for e in unique[counts == 1]:
+        out[int(vertex_bone[e[0]])] = out.get(int(vertex_bone[e[0]]), 0) + 1
+    return out, built.pieces
+
+
+def test_union_per_bone_keeps_every_bone_closed(tmp_path: Path) -> None:
+    # #50: one union across bones cuts each part where another overlaps it; turning the joint opens the cut
+    project = make_project(tmp_path, CONFIG_MERGE)
+    whole, floating = _open_edges_per_bone(project, SEAM.format(union=""))
+    assert sum(whole.values()) > 0 and floating == 2  # the lower arm floats away from the rest
+    per_bone, floating = _open_edges_per_bone(project, SEAM.format(union="union: per_bone\n"))
+    assert per_bone == {}  # every bone's surface is closed: rotating it can't tear the mesh
+    assert floating == 2  # overlapping bones count as touching; the floating lower arm still counts (W103)
+    joined = SEAM.format(union="union: per_bone\n").replace("from: [0.6, 1.3, 0], to: [0.8, 1.3, 0]", "from: [0.25, 1.15, 0], to: [0.3, 0.9, 0]")
+    assert _open_edges_per_bone(project, joined) == ({}, 1)
+    model, _, findings = project.load(write_model(project, SEAM.format(union="union: per_bone\n").replace("skin: rigid", "skin: soft"), "seam"))
+    assert any(f.rule == "E007" and "per_bone needs skin: rigid" in f.message for f in findings)
+    _, _, findings = project.load(write_model(project, SEAM.format(union="union: bones\n"), "seam"))
+    assert any(f.rule == "E007" and f.where == "union" for f in findings)
+
+
 def test_build_is_deterministic(tmp_path: Path) -> None:
     a = make_project(tmp_path / "a")
     b = make_project(tmp_path / "b")

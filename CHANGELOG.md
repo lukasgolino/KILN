@@ -6,6 +6,13 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- `union: per_bone` on a rigid-skinned model (#50): each bone's parts are meshed as their own closed surface and
+  neighbouring bones overlap instead of being cut where they meet, so turning a joint (animations, ragdolls) can't
+  tear the mesh, with or without `merge_rigid`. Default `whole` (unchanged meshes). W103 counts the bones' pieces as
+  joined where they touch. `per_bone` on a soft or static skin is E007.
+
 ## [0.9.0] - 2026-10-21
 
 Issues #28-#37: font text that holds together (nonzero fill, variable fonts, thin bevels), effect floors, gib pieces,
