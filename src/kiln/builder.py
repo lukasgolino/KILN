@@ -331,7 +331,7 @@ def _touching_pieces(model: Model, field: Field, painted: Painted, ids: set[str]
     d = np.stack([field.part_distance(i, painted.vertices[used]) for i in adding])  # parts x used vertices
     comps = sorted(set(labels[used].tolist()))
     on = [{adding[k] for k in np.flatnonzero((np.abs(d[:, labels[used] == c]) < step).any(axis=1))} for c in comps]
-    near = [(d[:, labels[used] == c] < step * 1.5).any(axis=1) for c in comps]  # per piece: the parts it touches
+    near: list[Array] = [np.asarray((d[:, labels[used] == c] < step * 1.5).any(axis=1)) for c in comps]  # per piece: the parts it touches
     keep = [k for k, parts in enumerate(on) if parts and not all(model.parts[i].loose for i in parts)]
     group = {k: k for k in keep}
 
