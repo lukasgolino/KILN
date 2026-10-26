@@ -6,6 +6,14 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-26
+
+### Fixed
+
+- Atlas palette textures (and clip carriers) get KILN's Godot `.import` settings whenever the output is inside a
+  Godot project, not only with `export = ["godot"]`: a game that loads the glbs itself no longer gets VRAM-compressed,
+  blurred palette cells (#56).
+
 ## [0.10.0] - 2026-10-26
 
 Issues #22-#25 and #50: `union: per_bone` for rigid skins, manifold meshes on thin parts, clean shell and sharp rims,
@@ -363,7 +371,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/lukasgolino/KILN/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/lukasgolino/KILN/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/lukasgolino/KILN/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/lukasgolino/KILN/compare/v0.7.1...v0.8.0
