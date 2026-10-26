@@ -130,3 +130,6 @@ anything that changes output.
   holes becomes a thin prism, the prisms are unioned with the hard CSG and the union's top face gives the outlines
   (no polygon-clipping dependency). Non-overlapping outlines pass through unchanged; SVG `path:` stays even-odd.
   `font_axes` instances variable fonts with fontTools' instancer (overlaps kept, the fill handles them).
+- 2026-10-25: #50: `union: per_bone` (model field, rigid skins only) meshes each bone's parts as their own piece (like
+  `separate`), so rotated joints can't tear; a model field, not a kiln.toml one, because it changes the mesh (cache key)
+  and non-merged rigid skins tear the same way. Opt-in: `whole` stays the default so existing meshes don't change.

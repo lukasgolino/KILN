@@ -74,7 +74,7 @@ Write the answers into BRIEF.md and STYLE.md.
   positions (hip, shoulder, hinge, axle). Without a pivot a part turns about its box centre (W109).
 - **Skin:** `rigid` (each part moves as one piece: robots, machines, props, toys) or `soft` (one mesh that bends
   where parts blend: creatures, bean characters). `separate: true` keeps a part rigid inside a soft skin
-  (detachable helmet).
+  (detachable helmet). Rigid joints that turn far (ragdolls): `union: per_bone`, so no turn opens the mesh.
 - **Animations:** explicit `poses` (one per frame, per part: offset/rotate/scale) or a `cycle` that writes the
   poses for you: walk, waddle, hop, bob, spin, swing, breathe, wave, chain (reference.md). Both together: the cycle
   moves everything, and parts named in the poses follow the poses (walking while carrying).

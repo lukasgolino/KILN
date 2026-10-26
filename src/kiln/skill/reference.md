@@ -55,6 +55,7 @@ animations_only: true          # optional: this model is a clip carrier for othe
 parts: [...]                   # the shapes (below)
 rig: {...}                     # optional: bones (below)
 skin: soft                     # none (static) | rigid | soft; default rigid when there is a rig
+union: whole                   # rigid skins: whole | per_bone (each bone its own closed surface: joints can't tear)
 animations: {...}              # optional
 variants:                      # optional: recoloured copies (<name>.<variant>.glb, or swap tables: variant_glbs)
   copilot: { swap: { red: green } }
@@ -236,7 +237,10 @@ skin: soft
 
 - Every part id is a bone/node. `pivot` is where it turns (hip, shoulder, hinge, axle); default: its box centre.
 - A rig entry for `arm_l` also rigs its `mirror_id` twin (pivot mirrored; parent mapped to its twin if any).
-- `skin: rigid`: each id is a separate mesh node that moves as one piece.
+- `skin: rigid`: each id is a separate mesh node that moves as one piece. By default all parts are one surface, cut
+  where bones meet: fine while joints stay near their bind pose. `union: per_bone` makes each bone's parts their own
+  closed surface; neighbouring bones overlap instead (a few hidden triangles), so turning a joint far (a ragdoll, an
+  arm along the chest) never opens a hole. Blends between parts of different bones are then lost.
 - `skin: soft`: one skinned mesh; weights come from each part's distance, so blended joints bend smoothly.
   `separate: true` makes a part its own closed, rigid mesh (detachable things): it may overlap the body (a helmet
   on a head) without fusing, and removing it leaves no hole. `under: { color: hair }` (with `separate: true`) paints
