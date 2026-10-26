@@ -53,3 +53,16 @@ def test_library_and_new_extends(in_project: Project, capsys: pytest.CaptureFixt
     assert code == 0 and "extends: [body_slim, head_female, helmet_crown]" in (in_project.models_dir / "hero.kiln.yaml").read_text()
     code, _ = run_json(["new", "model", "nope", "--extends", "body_wobbly"], capsys)
     assert code != 0
+
+
+def test_a_helmet_doesnt_float_the_head(project: Project) -> None:
+    """The neck joins head and body: without it a helmet (a slightly different grid) could leave the head a separate piece."""
+    built = built_of(project, "name: squire\nclass: character\nstyle: soft_toy\nextends: [body_slim, head_young, helmet_kettle]\n", "squire")
+    assert built.pieces == 1
+
+
+@pytest.mark.parametrize("helmet", ["helmet_great", "helmet_crown"])
+def test_hair_stays_inside_helmets(project: Project, helmet: str) -> None:
+    write_model(project, f"name: royal\nclass: character\nextends: [body_stocky, head_young, {helmet}]\n", "royal")
+    findings = lint_project(project).findings
+    assert not [f.format() for f in findings if f.rule in ("W103", "W113")]

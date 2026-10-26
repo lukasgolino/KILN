@@ -45,11 +45,6 @@ parts:
     blend: 0.03
     mirror: x
     mirror_id: foot_r
-  - capsule: {from: [0, 0.94, 0], to: [0, 1.1, 0], radius: 0.22419999999999998}
-    id: spine
-    color: cloth_blue
-    material: fabric
-    blend: 0.04
   - cone: {at: [0, 0.8, 0], radius: 0.2738, radius_top: 0.22419999999999998, height: 0.18}
     id: hips
     color: cloth_blue
@@ -65,7 +60,7 @@ parts:
     color: cloth_blue
     material: fabric
     blend: 0.05
-  - torus: {at: [0, 1.385, 0], radius: 0.085, thickness: 0.03}
+  - torus: {at: [0, 1.446, 0], radius: 0.085, thickness: 0.03}
     id: chest
     color: cloth_linen
     material: fabric
