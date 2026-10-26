@@ -478,9 +478,16 @@ def corner_normals(painted: Painted, field: Field, step: float, smooth: bool, sh
     vn = field.gradient(v, step * 0.25)[f]  # (F, 3, 3)
     # the surface's normal a little way into the face from each corner: on a crisp edge (a box's corner, a crisp
     # seam between parts) it's the face's own side, elsewhere the same as at the corner. Judging sharpness by the
-    # surface, not the triangle, keeps big decimated triangles smooth.
+    # surface, not the triangle, keeps big decimated triangles smooth. A point on the face lies under a curved
+    # surface (the face is its chord), and next to a crisp edge (a shell's rim) nearer the other side, whose normal
+    # it then has (dark wedges along rims): so it's taken half a step off the face, outside a convex edge or inside
+    # a concave one, whichever normal is nearer the face's own.
     centre = v[f].mean(axis=1, keepdims=True)
-    inset = field.gradient((v[f] + (centre - v[f]) * 0.15).reshape(-1, 3), step * 0.25).reshape(-1, 3, 3)
+    on_face = (v[f] + (centre - v[f]) * 0.15).reshape(-1, 3)
+    away = np.repeat(face_n, 3, axis=0) * step * 0.5
+    outer, inner = field.gradient(on_face + away, step * 0.25), field.gradient(on_face - away, step * 0.25)
+    pick_outer = (outer * away).sum(axis=1) >= (inner * away).sum(axis=1)
+    inset = np.where(pick_outer[:, None], outer, inner).reshape(-1, 3, 3)
     # on a crisp edge the field's normal is the bisector: half the edge's angle away from each face
     cos_limit = math.cos(math.radians(sharp_angle / 2))
     agree = (vn * inset).sum(axis=2) >= cos_limit

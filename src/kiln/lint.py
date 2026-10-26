@@ -18,7 +18,7 @@ import numpy as np
 
 from kiln.builder import build_cached, cached, field_of, hard_parts, kept_parts
 from kiln.export import Built
-from kiln.mesher import crack_groups, open_edges
+from kiln.mesher import crack_groups, open_edges, pinches
 from kiln.notation import Model
 from kiln.project import Project
 from kiln.sdf import Array, part_thickness
@@ -73,19 +73,30 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         out.append(Finding(rule, message, m.path, line, where))
 
     if m.source is None:
-        cracks = open_edges(built.painted.vertices, built.painted.faces)
-        if len(cracks):
-            p = built.painted
-            places = []
-            groups = crack_groups(cracks)
+        p = built.painted
+
+        def places(pairs: Array, corners: int) -> str:
+            """Where these vertex pairs are, grouped (connected ones together): how many, where, on what (the faces
+            with at least `corners` of their vertices)."""
+            found = []
+            groups = crack_groups(pairs)
             for g in groups[:CRACKS_SHOWN]:
-                centre = p.vertices[cracks[g]].reshape(-1, 3).mean(axis=0)
-                on = np.isin(p.faces, np.unique(cracks[g])).sum(axis=1) >= 2  # faces along this crack
+                centre = p.vertices[pairs[g]].reshape(-1, 3).mean(axis=0)
+                on = np.isin(p.faces, np.unique(pairs[g])).sum(axis=1) >= corners
                 names = sorted({f"{p.groups[k].color_name.split('#')[0] or p.groups[k].color_name} ({p.groups[k].bone})" for k in np.unique(p.face_group[on])})
-                places.append(f"{len(g)} at [{centre[0]:.3f}, {centre[1]:.3f}, {centre[2]:.3f}] on {', '.join(names[:3])}")
+                found.append(f"{len(g)} at [{centre[0]:.3f}, {centre[1]:.3f}, {centre[2]:.3f}] on {', '.join(names[:3])}")
             more = f"; and {len(groups) - CRACKS_SHOWN} more" if len(groups) > CRACKS_SHOWN else ""
-            warn("E013", f"the mesh has {len(cracks)} open edges (cracks) in {len(groups)} place(s): {'; '.join(places)}{more}: a KILN bug, "
-                 "please report it with the model; meanwhile moving the parts there a little usually helps")  # fmt: skip
+            return f"{len(groups)} place(s): {'; '.join(found)}{more}"
+
+        report = "a KILN bug, please report it with the model; meanwhile moving the parts there a little usually helps"
+        cracks = open_edges(p.vertices, p.faces)
+        if len(cracks):
+            warn("E013", f"the mesh has {len(cracks)} open edges (cracks) in {places(cracks, 2)}: {report}")
+        crowded, pinched = pinches(p.vertices, p.faces)
+        if len(crowded) or len(pinched):
+            spots = np.concatenate([crowded, np.stack([pinched, pinched], axis=1)])
+            warn("E013", f"the mesh isn't a manifold: {len(crowded)} edge(s) with more than two faces and {len(pinched)} point(s) where "
+                 f"two sheets touch, in {places(spots, 1)}: {report}")  # fmt: skip
         for i in built.hidden:
             part = m.parts[i]
             warn("W101", f"part {part.index} ({part.geometry.shape}, {part.color_name}) has no visible surface: later parts cover it or a "

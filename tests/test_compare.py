@@ -27,6 +27,7 @@ def _against(built: Built, path: Path, height: float | None = None) -> dict[str,
 
 def test_model_against_its_own_glb(project: Project) -> None:
     built = built_of(project, sphere_text("ball"), "ball")
+    built.painted.vertices[:, 1] -= built.painted.vertices[:, 1].min()  # the reference stands on y = 0: the ball too
     path = project.root / "imports" / "ball.glb"
     path.write_bytes(to_glb(built, "kiln test"))
     metrics = _against(built, path)

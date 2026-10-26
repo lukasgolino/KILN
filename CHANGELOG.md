@@ -23,6 +23,15 @@ before 1.0).
   piece (W103) on some grids; `helmet_great` reaches from the shoulders to above every hairstyle (hair poked through
   its top) and `helmet_crown` is a ring open at both ends (its closed bottom crossed the head); `body_big`'s collar sits
   on its chest instead of inside it and its hidden spine capsule is gone (W101).
+- Thin soft parts and narrow gaps no longer pinch (#25): dual contouring gives a cell one vertex per sheet of the
+  surface crossing it (both sides of a wall thinner than a cell used to share one: edges with four faces), and where
+  decimation joins the two sides of a thin part the vertex is split back into one per side. E013 now also reports
+  edges with more than two faces and points where two sheets touch, not only open edges.
+- Smooth shells shade cleanly at their rims (#25): a crisp corner's normal is sampled just off its face, so it no
+  longer picks up the rim's normal (dark wedges along helmet and bowl rims).
+- Thin sharp rims (a cone roof overhanging its tower) reach their edge instead of coming out ragged (#25): crossing
+  points are found on the surface rather than interpolated linearly, and a best-fit point just beyond its cell is
+  kept where it lies on the surface.
 
 ## [0.9.0] - 2026-10-21
 
