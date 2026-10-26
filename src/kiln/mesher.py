@@ -102,6 +102,141 @@ def _grid(field: Field, step: float) -> tuple[Array, tuple[int, int, int], Array
     return corner, dims, values  # type: ignore[return-value]
 
 
+def _others(axis: int) -> tuple[int, int]:
+    return (1, 2) if axis == 0 else (0, 2) if axis == 1 else (0, 1)
+
+
+def _cube_edge(axis: int, corner: int) -> int:
+    """A cell's edge along `axis` from `corner` (bits x + 2y + 4z): axis * 4 + its offset in the two other axes."""
+    u, w = _others(axis)
+    return axis * 4 + ((corner >> u) & 1) + 2 * ((corner >> w) & 1)
+
+
+def _cube_faces() -> list[tuple[list[int], list[int]]]:
+    """A cell's six faces: their corners in order around the face, and the edges between them."""
+    out = []
+    for d in range(3):
+        u, w = _others(d)
+        for s in (0, 1):
+            corners = [(s << d) | (cu << u) | (cw << w) for cu, cw in ((0, 0), (1, 0), (1, 1), (0, 1))]
+            pairs = [(corners[k], corners[(k + 1) % 4]) for k in range(4)]
+            out.append((corners, [_cube_edge((a ^ b).bit_length() - 1, a & b) for a, b in pairs]))
+    return out
+
+
+def _cube_edge_ends() -> list[tuple[int, int]]:
+    """Each of a cell's edges (in `_cube_edge` order): its two corners."""
+    out = []
+    for axis in range(3):
+        u, w = _others(axis)
+        for k in range(4):
+            low = ((k & 1) << u) | ((k >> 1) << w)
+            out.append((low, low | (1 << axis)))
+    return out
+
+
+CUBE_FACES = _cube_faces()
+CUBE_EDGE_ENDS = _cube_edge_ends()
+
+
+def _sheets(code: int) -> tuple[list[int], int]:
+    """Which surface sheet each of a cell's 12 edges crosses (-1: none), and which faces (bit k) one sheet crosses
+    twice. `code`: bit c = corner c inside, bit 8 + k = face k's inside corners are joined across it (when it has
+    four crossings). Crossings pair up on each face (on a face with four, cutting off the corners that aren't
+    joined), so every sheet is a loop of edges around the cell: one vertex each keeps two sheets in one cell (a thin
+    plate, a narrow gap) apart instead of pinching them."""
+    inside = [(code >> c) & 1 for c in range(8)]
+    parent = list(range(12))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            i = parent[i]
+        return i
+
+    four = []
+    for k, (corners, edges) in enumerate(CUBE_FACES):
+        crossed = [e for j, e in enumerate(edges) if inside[corners[j]] != inside[corners[(j + 1) % 4]]]
+        if len(crossed) == 2:
+            parent[find(crossed[0])] = find(crossed[1])
+        elif len(crossed) == 4:
+            four.append(k)
+            joined = (code >> (8 + k)) & 1  # the inside corners are joined: cut off the outside ones
+            for j in range(4):
+                if inside[corners[j]] != joined:
+                    parent[find(edges[j - 1])] = find(edges[j])
+    roots: dict[int, int] = {}
+    out = []
+    for e, (a, b) in enumerate(CUBE_EDGE_ENDS):
+        out.append(roots.setdefault(find(e), len(roots)) if inside[a] != inside[b] else -1)
+    twice = sum(1 << k for k in four if len({find(e) for e in CUBE_FACES[k][1]}) == 1)
+    return out, twice
+
+
+def _cell_codes(values: Array, cell_idx: Array, flip: Array) -> Array:
+    """Every cell's `_sheets` code: corner signs, and for faces with four crossings whether the bilinear surface
+    across the face joins the inside corners (the asymptotic decider: from the face's values alone, so both cells
+    sharing it agree), the other way round on `flip`ped faces (cells, 6)."""
+    corner = np.stack([values[cell_idx[:, 0] + (c & 1), cell_idx[:, 1] + ((c >> 1) & 1), cell_idx[:, 2] + (c >> 2)] for c in range(8)], axis=1)
+    inside = corner < 0
+    code = (inside.astype(np.int64) << np.arange(8)).sum(axis=1)
+    for k, (corners, _) in enumerate(CUBE_FACES):
+        a, b, c, d = (corner[:, i] for i in corners)
+        ambiguous = (inside[:, corners[0]] == inside[:, corners[2]]) & (inside[:, corners[1]] == inside[:, corners[3]])
+        ambiguous &= inside[:, corners[0]] != inside[:, corners[1]]
+        denominator = np.where(ambiguous, a + c - b - d, 1.0)
+        joined = ambiguous & (((a * c - b * d) / denominator < 0) != flip[:, k])
+        code |= joined.astype(np.int64) << (8 + k)
+    return code
+
+
+def _cell_sheets(values: Array, cell_idx: Array) -> Array:
+    """Every cell's `_sheets` (cells, 12). Where both cells beside a face have a sheet crossing it twice (a handle of
+    the surface smaller than a cell), one vertex for each would give their edge four faces: those faces are read
+    the other way round, which splits the sheets."""
+    dims = np.array(values.shape)
+    face_id = np.stack([(k >> 1) * int(dims.prod()) + np.ravel_multi_index((cell_idx + (k & 1) * np.eye(3, dtype=np.int64)[k >> 1]).T, values.shape)
+                        for k in range(6)], axis=1)  # fmt: skip
+    flipped = np.zeros(0, dtype=np.int64)
+    for _ in range(4):
+        codes, code_of = np.unique(_cell_codes(values, cell_idx, np.isin(face_id, flipped)), return_inverse=True)
+        table = [_sheets(int(c)) for c in codes]
+        sheet = np.array([t[0] for t in table], dtype=np.int64)[code_of.reshape(-1)]
+        twice = np.array([t[1] for t in table], dtype=np.int64)[code_of.reshape(-1)]
+        ids, count = np.unique(face_id[((twice[:, None] >> np.arange(6)) & 1).astype(bool)], return_counts=True)
+        if not (count > 1).any():
+            break
+        flipped = np.union1d(flipped, ids[count > 1])
+    return sheet
+
+
+CROSSING_TOLERANCE = 0.01  # grid steps: a crossing point further off the surface than this is searched for
+CROSSING_STEPS = 4
+RIM_TOLERANCE = 0.05  # grid steps: a best-fit point outside its cell this close to the surface is kept there
+
+
+def _crossings(field: Field, start: Array, edge: Array, f0: Array, f1: Array, t: Array, step: float) -> Array:
+    """Where the surface crosses each grid edge (start + t * edge, the ends' values f0 and f1 of opposite signs).
+    Between the ends the field is taken as linear, which is exact on a flat surface; next to a sharp rim, though,
+    the field outside is the distance to the rim, the guess sits off the surface where the normal is the rim's
+    (halfway between its sides), and the best-fit point then cuts the rim off: thin sharp rims came out ragged.
+    Guesses off the surface are moved onto it by false position (the Illinois variant)."""
+    t, ta, tb, fa, fb = t.copy(), np.zeros_like(t), np.ones_like(t), f0.copy(), f1.copy()
+    todo = np.arange(len(t))
+    for _ in range(CROSSING_STEPS):
+        d = field.distance(start[todo] + t[todo, None] * edge[todo])
+        off = np.abs(d) > CROSSING_TOLERANCE * step
+        todo, d = todo[off], d[off]
+        if not len(todo):
+            break
+        lower = np.sign(d) == np.sign(fa[todo])
+        ta[todo] = np.where(lower, t[todo], ta[todo])
+        fa[todo] = np.where(lower, d, fa[todo] / 2)  # Illinois: halve the end that stays, so both ends move
+        tb[todo] = np.where(lower, tb[todo], t[todo])
+        fb[todo] = np.where(lower, fb[todo] / 2, d)
+        t[todo] = ta[todo] + (tb[todo] - ta[todo]) * fa[todo] / (fa[todo] - fb[todo])
+    return start + t[:, None] * edge
+
+
 def dual_contour(field: Field, step: float) -> Mesh:
     lo, dims, values = _grid(field, step)
     nx, ny, nz = dims
@@ -109,7 +244,7 @@ def dual_contour(field: Field, step: float) -> Mesh:
     cell_dims = (nx - 1, ny - 1, nz - 1)
 
     # crossing edges, their surface points and normals
-    points_list, normals_list, edges_list = [], [], []
+    points_list, normals_list, edges_list, ends_list = [], [], [], []
     for axis in range(3):
         a = [slice(None)] * 3
         b = [slice(None)] * 3
@@ -127,12 +262,15 @@ def dual_contour(field: Field, step: float) -> Mesh:
         pts = lo + (idx + t[:, None] * unit) * step
         points_list.append(pts)
         edges_list.append((axis, idx, inside[tuple(a)][crossing]))
+        ends_list.append((lo + idx * step, np.broadcast_to(unit * step, pts.shape), f0, f1, t))
     if not points_list:
         return Mesh(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64))
-    all_points = np.concatenate(points_list)
+    begin, edge, f0, f1, t = (np.concatenate(x) for x in zip(*ends_list, strict=True))
+    all_points = _crossings(field, begin, edge, f0, f1, t, step)
     all_normals = field.gradient(all_points, step * 0.1)
     offsets = np.cumsum([0] + [len(p) for p in points_list])
     for i in range(len(points_list)):
+        points_list[i] = all_points[offsets[i] : offsets[i + 1]]
         normals_list.append(all_normals[offsets[i] : offsets[i + 1]])
 
     # each crossed edge's four cells (only cells the surface passes through get a vertex: storing just those keeps
@@ -151,10 +289,18 @@ def dual_contour(field: Field, step: float) -> Mesh:
         stacked, pts, nrm, lower_inside = stacked[valid], pts[valid], nrm[valid], lower_inside[valid]
         flat = np.ravel_multi_index(stacked.reshape(-1, 3).T, cell_dims).reshape(-1, 4)
         edges.append((flat, pts, nrm, lower_inside, axis))
-    active, compact = np.unique(np.concatenate([e[0].reshape(-1) for e in edges]), return_inverse=True)
+    # one vertex per sheet of the surface in a cell (usually one; two where a thin part or gap is under a cell wide)
+    occupied, cell_of = np.unique(np.concatenate([e[0].reshape(-1) for e in edges]), return_inverse=True)
+    sheet = _cell_sheets(values, np.stack(np.unravel_index(occupied, cell_dims), axis=1))
+    # the crossed edge is, in each of its four cells (in order around it), the cell's edge with these offsets
+    local_edge = np.concatenate([np.broadcast_to(axis * 4 + np.array([3, 2, 0, 1]), e.shape).reshape(-1) for e, *_, axis in edges])
+    cell_of = cell_of.reshape(-1)
+    keys = cell_of * 4 + sheet[cell_of, local_edge]
+    vertex_key, compact = np.unique(keys, return_inverse=True)
     compact = compact.reshape(-1)
-    # accumulate each cell's QEF from the (up to 12) crossed edges around it
-    n = len(active)
+    active = occupied[vertex_key // 4]
+    # accumulate each vertex's QEF from the (up to 12) crossed edges around it
+    n = len(vertex_key)
     ata = np.zeros((n, 3, 3))
     atb = np.zeros((n, 3))
     mass = np.zeros((n, 3))
@@ -179,7 +325,14 @@ def dual_contour(field: Field, step: float) -> Mesh:
     x = m + np.linalg.solve(a_mat, rhs[:, :, None])[:, :, 0]
     cell_idx = np.stack(np.unravel_index(active, cell_dims), axis=1)
     cell_lo = lo + cell_idx * step
-    x = np.clip(x, cell_lo - 0.25 * step, cell_lo + 1.25 * step)
+    # best-fit points stay in (or just by) their cell, except where one lies on the surface further out: the tip of a
+    # thin sharp rim (a roof overhanging its tower) is often beyond the cells whose crossings see both of its sides
+    near = np.clip(x, cell_lo - 0.25 * step, cell_lo + 1.25 * step)
+    far = np.clip(x, cell_lo - step, cell_lo + 2 * step)
+    out = np.flatnonzero((near != far).any(axis=1))
+    reach = out[np.abs(field.distance(far[out])) < RIM_TOLERANCE * step] if len(out) else out
+    near[reach] = far[reach]
+    x = near
 
     faces = []
     for q, lower_inside, axis in quads:  # (E, 4) vertex indices
@@ -209,6 +362,9 @@ def dual_contour(field: Field, step: float) -> Mesh:
         if not len(moved):
             break
         x[moved] = m[moved]
+    if len(pinches(x, f)[0]):  # sheets one cell apart can still share an edge on coarse grids: split them
+        x, f = unpinch(x, f)
+        return remove_unused(Mesh(project(field, x, step * 2), f))
     return Mesh(x, f)
 
 
@@ -231,8 +387,9 @@ def decimate(field: Field, mesh: Mesh, budget: int, step: float) -> Mesh:
         v, f = fast_simplification.simplify(v, f, target_count=int(budget), agg=6.0)
         if len(f) <= budget * 1.02 or len(f) > before * 0.97:
             break
-    v = project(field, np.asarray(v, dtype=np.float64), step * 2)
-    (f,) = drop_twins(np.asarray(f, dtype=np.int64))
+    v, f = unpinch(np.asarray(v, dtype=np.float64), np.asarray(f, dtype=np.int64))
+    v = project(field, v, step * 2)
+    (f,) = drop_twins(*merge_coincident(v, f))
     return remove_unused(Mesh(v, f))
 
 
@@ -420,22 +577,45 @@ def decimate_regions(
         weld[out] = out[np.flatnonzero(first)[np.cumsum(first) - 1]]
     f, face_region = drop_twins(weld[f], face_region)
     used, inverse = np.unique(f, return_inverse=True)
-    v, f = v[used], inverse.reshape(-1, 3).astype(np.int64)
+    v, f, face_region = unpinch(v[used], inverse.reshape(-1, 3).astype(np.int64), face_region)
     # borders (vertices shared by faces of two regions) stay exactly where they are; other vertices belong to one
     vertex_region = np.full(len(v), -1)
     np.maximum.at(vertex_region, f.reshape(-1), np.repeat(face_region, 3))
     border = np.zeros(len(v), dtype=bool)
     np.logical_or.at(border, f.reshape(-1), vertex_region[f.reshape(-1)] != np.repeat(face_region, 3))
     if fields is None or region_piece is None:
-        return relax(field, Mesh(project(field, v, step * 2), f), border, step), face_region
-    piece = region_piece[vertex_region]
-    for k, piece_field in enumerate(fields):
-        mine = piece == k
-        v[mine] = project(piece_field, v[mine], step * 2)
-    for k, piece_field in enumerate(fields):
-        v = relax(piece_field, Mesh(v, f), border | (piece != k), step).vertices
-    return Mesh(v, f), face_region
+        v = relax(field, Mesh(project(field, v, step * 2), f), border, step).vertices
+    else:
+        piece = region_piece[vertex_region]
+        for k, piece_field in enumerate(fields):
+            mine = piece == k
+            v[mine] = project(piece_field, v[mine], step * 2)
+        for k, piece_field in enumerate(fields):
+            v = relax(piece_field, Mesh(v, f), border | (piece != k), step).vertices
+    f, face_region = drop_twins(*merge_coincident(v, f, face_region))
+    used, inverse = np.unique(f, return_inverse=True)
+    return Mesh(v[used], inverse.reshape(-1, 3).astype(np.int64)), face_region
 
+
+def merge_coincident(vertices: Array, faces: Array, *extra: Array) -> tuple[Array, ...]:
+    """Join the ends of edges of no length and drop the faces that leaves without area. Decimation can leave two
+    vertices at one place without joining them; seen as one point (as the crack check sees them), their faces
+    pinch (four faces on an edge). Other per-face arrays in `extra` are filtered alike."""
+    key = np.round(vertices, 9)
+    e = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    e = e[(key[e[:, 0]] == key[e[:, 1]]).all(axis=1) & (e[:, 0] != e[:, 1])]
+    if not len(e):
+        return (faces, *extra)
+    into = np.arange(len(vertices))
+    for _ in range(len(e)):  # chains of coincident vertices: until every one points at the chain's lowest
+        before = into.copy()
+        np.minimum.at(into, e[:, 0], into[e[:, 1]])
+        np.minimum.at(into, e[:, 1], into[e[:, 0]])
+        if np.array_equal(into, before):
+            break
+    f = into[faces]
+    keep = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 2] != f[:, 0])
+    return (f[keep], *(x[keep] for x in extra))
 
 
 def drop_twins(faces: Array, *extra: Array) -> tuple[Array, ...]:
@@ -472,6 +652,131 @@ def open_edges(vertices: Array, faces: Array) -> Array:
     fwd = e[:, 0] * len(vertices) + e[:, 1]
     rev = e[:, 1] * len(vertices) + e[:, 0]
     return np.asarray(e[~np.isin(fwd, rev)])
+
+
+def pinches(vertices: Array, faces: Array) -> tuple[Array, Array]:
+    """Where a closed surface isn't a manifold: edges (vertex pairs) with more than two faces, and other vertices whose
+    faces don't form one fan (two sheets touching at a point). Vertices at the same place count as one."""
+    if not len(faces):
+        return np.zeros((0, 2), dtype=np.int64), np.zeros(0, dtype=np.int64)
+    _, first, inverse = np.unique(np.round(vertices, 9), axis=0, return_index=True, return_inverse=True)
+    f = first[inverse.reshape(-1)][faces]
+    f = f[(f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 2] != f[:, 0])]
+    label, crowded = _fans(vertices, f, False)
+    fans = np.bincount(f.reshape(-1)[np.unique(label)], minlength=len(vertices))
+    return crowded, np.setdiff1d(np.flatnonzero(fans > 1), crowded)  # (a crowded edge's ends have several fans too)
+
+
+POCKET_FACES = 16  # a piece this small cut off a bigger one by `unpinch` is a pocket of folded faces: it goes
+
+
+def unpinch(vertices: Array, faces: Array, *extra: Array) -> tuple[Array, ...]:
+    """Split every vertex whose faces form several fans (the simplifier doesn't check that an edge's two ends share
+    only the vertices across it, so on thin parts and in narrow gaps it can join the two sides: an edge with four
+    faces, or two sheets touching at a vertex) into one vertex per fan, each moved halfway towards the middle of its
+    own fan so that pulling it back onto the surface puts it on its own side. A collapse that folded a few faces in
+    on themselves leaves them a closed pocket of their own: pockets are dropped. Other per-face arrays in `extra` are
+    filtered alike."""
+    if not len(faces):
+        return (vertices, faces, *extra)
+    label, _ = _fans(vertices, faces, True)
+    roots = np.unique(label)
+    owner = faces.reshape(-1)[roots]
+    if len(np.unique(owner)) == len(roots):
+        return (vertices, faces, *extra)
+    order = np.lexsort((roots, owner))
+    first = np.r_[True, owner[order][1:] != owner[order][:-1]]
+    vertex_of = np.empty(len(roots), dtype=np.int64)
+    vertex_of[order[first]] = owner[order[first]]
+    vertex_of[order[~first]] = len(vertices) + np.arange(int((~first).sum()))
+    new_faces = vertex_of[np.searchsorted(roots, label)].reshape(-1, 3)
+    split = np.zeros(len(vertices), dtype=bool)
+    split[owner[order[~first]]] = True
+    v = np.concatenate([vertices, vertices[owner[order[~first]]]])
+    # every fan of a split vertex: towards the middle of the other corners of its faces
+    corner = np.flatnonzero(split[faces.reshape(-1)])
+    mine = new_faces.reshape(-1)[corner]
+    rows = new_faces[corner // 3]
+    total = np.zeros_like(v)
+    count = np.zeros(len(v))
+    np.add.at(total, mine, v[rows].sum(axis=1) - v[mine])
+    np.add.at(count, mine, 2.0)
+    moved = np.unique(mine)
+    v[moved] += (total[moved] / count[moved, None] - v[moved]) * 0.5
+    # the pieces each connected piece fell into: all but the biggest go if they're pockets
+    was = _join(len(vertices), faces[:, :2].reshape(-1), faces[:, 1:].reshape(-1))[faces[:, 0]]
+    now = _join(len(v), new_faces[:, :2].reshape(-1), new_faces[:, 1:].reshape(-1))[new_faces[:, 0]]
+    piece, of_face, size = np.unique(now, return_inverse=True, return_counts=True)
+    source = np.zeros(len(piece), dtype=np.int64)
+    source[of_face] = was
+    biggest = np.zeros(int(was.max()) + 1, dtype=np.int64)
+    np.maximum.at(biggest, source, size)
+    keep = ((size >= POCKET_FACES) | (size == biggest[source]))[of_face]
+    return (v, new_faces[keep], *(x[keep] for x in extra))
+
+
+def _fans(vertices: Array, f: Array, pair_crowded: bool) -> tuple[Array, Array]:
+    """Every face corner's fan (the lowest corner in it) and the edges with more than two faces. Two faces on an edge
+    join their corners at both ends, so a vertex's corners joined that way are one fan; with `pair_crowded`, the
+    faces on a crowded edge pair up too (`_pair_crowded`)."""
+    # half-edge k of face i runs from corner 3i + k to corner 3i + (k + 1) % 3
+    corner = np.arange(f.size).reshape(-1, 3)
+    start, end = f.reshape(-1), np.roll(f, -1, axis=1).reshape(-1)
+    next_corner = np.roll(corner, -1, axis=1).reshape(-1)
+    key = np.minimum(start, end) * len(vertices) + np.maximum(start, end)
+    order = np.argsort(key, kind="stable")
+    _, first_of, count = np.unique(key[order], return_index=True, return_counts=True)
+    many = count > 2
+    crowded = np.sort(np.stack([start[order[first_of[many]]], end[order[first_of[many]]]], axis=1), axis=1)
+    pair = first_of[count == 2]
+    h1, h2 = order[pair], order[pair + 1]
+    ok = start[h1] == end[h2]  # opposite directions
+    h1, h2 = h1[ok], h2[ok]
+    a, b = np.concatenate([h1, next_corner[h1]]), np.concatenate([next_corner[h2], h2])
+    label = _join(f.size, a, b)
+    if pair_crowded and many.any():
+        extra_a, extra_b = [a], [b]
+        for i, n in zip(first_of[many], count[many], strict=True):
+            half = order[i : i + n]
+            at_a = np.where(start[half] == start[half[0]], half, next_corner[half])  # each face's corner at either end
+            at_b = np.where(start[half] == start[half[0]], next_corner[half], half)
+            k = _pair_crowded(label, start, half, at_a, at_b)
+            extra_a += [at_a[k[:, 0]], at_b[k[:, 0]]]
+            extra_b += [at_a[k[:, 1]], at_b[k[:, 1]]]
+        label = _join(f.size, np.concatenate(extra_a), np.concatenate(extra_b))
+    return label, crowded
+
+
+def _join(n: int, a: Array, b: Array) -> Array:
+    """Connected groups of n items joined pairwise (a[i] with b[i]): each item's lowest member."""
+    label = np.arange(n)
+    while True:
+        before = label
+        lowest = np.minimum(label[a], label[b])
+        label = label.copy()
+        np.minimum.at(label, a, lowest)
+        np.minimum.at(label, b, lowest)
+        label = label[label]
+        if np.array_equal(label, before):
+            return label
+
+
+def _pair_crowded(label: Array, start: Array, half: Array, at_a: Array, at_b: Array) -> Array:
+    """The faces on one crowded edge (its half-edges `half`) in pairs (indices into `half`). Around an end of the edge,
+    the faces form open fans that each begin and end on the edge (a collapse joined two vertices that shared a
+    neighbour besides the ones across their edge): the two faces ending one fan pair up, which splits that end back
+    into one vertex per fan. Without such an end, all of them are joined (the edge stays crowded)."""
+    forward = start[half] == start[half[0]]
+    for at in (at_a, at_b):
+        fan = label[at]
+        order = np.argsort(fan, kind="stable")
+        same = fan[order]
+        if len(half) % 2 == 0 and (same[0::2] == same[1::2]).all() and (same[1:-1:2] != same[2::2]).all():
+            k = order.reshape(-1, 2)
+            if (forward[k[:, 0]] != forward[k[:, 1]]).all():
+                return k
+    n = len(half)
+    return np.stack([np.zeros(n - 1, dtype=np.int64), np.arange(1, n)], axis=1)
 
 
 def crack_groups(edges: Array) -> list[Array]:

@@ -107,6 +107,21 @@ def test_e013_reports_cracks(project: Project) -> None:
     assert f"[{top[0]:.3f}, {top[1]:.3f}, {top[2]:.3f}]" in message
 
 
+def test_e013_reports_sheets_that_touch(project: Project) -> None:
+    # #25: closed but not a manifold (no open edges): a second ball standing on the first one's top vertex
+    built = built_of(project, "name: thing\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: red\n")
+    p = built.painted
+    top, bottom = int(np.argmax(p.vertices[:, 1])), int(np.argmin(p.vertices[:, 1]))
+    stacked = np.concatenate([p.vertices, p.vertices - p.vertices[bottom] + p.vertices[top]])
+    two = replace(built, painted=replace(p, vertices=stacked, faces=np.concatenate([p.faces, p.faces + len(p.vertices)]),
+                                         face_group=np.tile(p.face_group, 2), face_decal=np.tile(p.face_decal, 2)))  # fmt: skip
+    found = [f for f in geometry_warnings(two, {}, project) if f.rule == "E013"]
+    assert len(found) == 1 and found[0].severity == "error"
+    at = p.vertices[top]
+    assert f"0 edge(s) with more than two faces and 1 point(s) where two sheets touch, in 1 place(s): 1 at [{at[0]:.3f}, {at[1]:.3f}, " \
+           f"{at[2]:.3f}] on red (root)" in found[0].message
+
+
 def test_detach_preview(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
     write_model(in_project, GUARD, "guard")
     code, data = run_json(["preview", "guard", "--detach"], capsys)

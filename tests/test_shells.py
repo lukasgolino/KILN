@@ -89,3 +89,15 @@ def test_fit_needs_a_shell_and_a_target(project: Project) -> None:
     assert any("fit wraps a shell" in f.message for f in errors_of(project, base.replace("{extra}", "    fit: head\n")))
     no_target = base.replace("{extra}", "    shell: { thickness: 0.02 }\n    fit: hat\n")
     assert any("no other part has id hat" in f.message for f in errors_of(project, no_target))
+
+
+def test_shell_rims_shade_like_their_own_side(project: Project) -> None:
+    # #25: a crisp corner's normal is the field's a little way into its face, but on the face, which cuts under the
+    # curved wall: next to the rim that point was nearer the rim's surface and the corner took the rim's normal (dark
+    # wedges along the rims of bowls and helmets)
+    built = built_of(project, "name: thing\nparts:\n  - ellipsoid: { at: [0, 0.25, 0], radii: [0.3, 0.25, 0.3] }\n    color: red\n"
+                              "    shell: { thickness: 0.04, open: +y }\n")  # fmt: skip
+    v, f = built.painted.vertices, built.painted.faces
+    face = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    face /= np.linalg.norm(face, axis=1, keepdims=True)
+    assert ((built.normals * face[:, None, :]).sum(axis=2) > np.cos(np.radians(45))).all()

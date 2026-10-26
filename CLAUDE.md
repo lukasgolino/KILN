@@ -133,3 +133,10 @@ anything that changes output.
 - 2026-10-25: #50: `union: per_bone` (model field, rigid skins only) meshes each bone's parts as their own piece (like
   `separate`), so rotated joints can't tear; a model field, not a kiln.toml one, because it changes the mesh (cache key)
   and non-merged rigid skins tear the same way. Opt-in: `whole` stays the default so existing meshes don't change.
+- 2026-10-26: #25: dual contouring gives a cell one vertex per sheet (crossings paired around each cell face, the
+  asymptotic decider on faces with four; a face both of whose cells would loop a sheet through it twice is read the
+  other way), so walls and gaps thinner than a cell stay manifold. fast-simplification has no link-condition check:
+  vertices it pinches are split per fan afterwards (`unpinch`; folded pockets that leaves are dropped) rather than
+  locking areas and re-running (locked full-detail patches ate low budgets and cracked thin shells). Crossings are
+  found on the surface (false position), not interpolated, and best-fit points may leave their cell by a step where
+  they lie on the surface (sharp rims).

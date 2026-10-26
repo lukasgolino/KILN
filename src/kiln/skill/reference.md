@@ -470,7 +470,8 @@ rim_light_power = 3.0          # higher: thinner rim
 Errors: E000 usage/config, E001 file/YAML, E002 unknown field, E003 bad value, E004 unknown colour, E005 unknown
 material, E006 style problem, E007 rig problem, E008 animation problem, E009 nothing to mesh, E010 import file
 problem, E011 decal image missing, E012 extends problem (no such model, not a template, a loop, unknown remove id),
-E013 the built mesh has open edges (cracks: a KILN bug; report it).
+E013 the built mesh has open edges (cracks), edges with more than two faces or sheets touching at a vertex (a KILN
+bug; report it).
 
 Warnings: W101 part has no visible surface, W102 part thinner than the mesh resolution, W103 separate pieces,
 W104 colour not in the palette, W106 not standing on y = 0, W107 made under an older style_version, W108 size

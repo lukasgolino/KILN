@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from conftest import closed, signed_volume
-from kiln.mesher import MAX_CELLS, Mesh, components, decimate, dual_contour, grid_step, model_step, remove_unused
+from kiln.mesher import MAX_CELLS, Mesh, components, decimate, dual_contour, grid_step, model_step, pinches, remove_unused, unpinch
 from kiln.sdf import SHAPES, Field, Geometry
 
 
@@ -158,3 +158,73 @@ def test_grid_grows_where_blends_bulge_out_of_the_boxes() -> None:
     step = 0.005
     assert f.distance(np.array([[0.0, f.bounds()[0][1] - 2.5 * step, 0.0]]))[0] < 0  # the surface is below the old grid
     check_closed_outward(dual_contour(f, step))
+
+
+def no_pinches(mesh: Mesh) -> bool:
+    edges, vertices = pinches(mesh.vertices, mesh.faces)
+    return len(edges) == 0 and len(vertices) == 0
+
+
+def test_a_wall_thinner_than_a_cell_meshes_as_a_manifold() -> None:
+    # #25: both sides of the wall cross the same cells; one vertex per cell pinched them together (edges with four faces)
+    shell = Geometry("sphere", {**SHAPES["sphere"].defaults, "radius": 0.3}, shell=0.012, shell_side="in", open=(1, -1.0))
+    mesh = dual_contour(Field([shell], margin=0.06), 0.02)
+    check_closed_outward(mesh)
+    assert no_pinches(mesh)
+
+
+def test_decimating_a_thin_plate_leaves_no_pinches() -> None:
+    # #25: the simplifier doesn't check that an edge's ends share only the vertices across it, and joined both sides
+    # of a plate thinner than its triangles
+    f = field("box", {"size": [0.6, 0.012, 0.6]})
+    mesh = dual_contour(f, 0.02)
+    for budget in (2000, 600):
+        out = decimate(f, mesh, budget, 0.02)
+        assert out.triangles <= budget * 1.02
+        check_closed_outward(out)
+        assert no_pinches(out)
+        assert np.abs(f.distance(out.vertices)).max() < 0.004  # each side pulled back onto its own surface
+
+
+def tetrahedron(flip: tuple[float, float, float] = (1, 1, 1)) -> tuple[np.ndarray, np.ndarray]:
+    v = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], float) * np.array(flip)
+    f = np.array([[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]])
+    return v, (f if np.prod(flip) > 0 else f[:, ::-1])
+
+
+def test_unpinch_splits_sheets_that_touch() -> None:
+    a, fa = tetrahedron()
+    for shared, flip in ((1, (-1, -1, -1)), (2, (1, -1, -1))):  # touching at a vertex; along an edge (four faces on it)
+        b, fb = tetrahedron(flip)
+        v = np.concatenate([a, b[shared:]])
+        f = np.concatenate([fa, np.where(fb < shared, fb, fb + 4 - shared)])
+        edges, vertices = pinches(v, f)
+        assert (len(edges), len(vertices)) == ((0, 1) if shared == 1 else (1, 0))
+        out = Mesh(*unpinch(v, f))
+        assert len(out.vertices) == len(v) + shared and no_pinches(out)
+        check_closed_outward(out)
+        untouched = np.flatnonzero(~np.isin(f, np.arange(shared)).any(axis=1))
+        np.testing.assert_array_equal(out.faces[untouched], f[untouched])
+    # a few faces split off a bigger piece are a pocket a collapse folded up: dropped
+    ball = dual_contour(field("sphere", {"radius": 0.3}), 0.05)
+    top = int(np.argmax(ball.vertices[:, 1]))
+    v = np.concatenate([ball.vertices, a[1:] * 0.01 + ball.vertices[top]])
+    f = np.concatenate([ball.faces, np.where(fa == 0, top, fa - 1 + len(ball.vertices))])
+    np.testing.assert_array_equal(unpinch(v, f)[1], ball.faces)
+
+
+def test_thin_sharp_rim_reaches_its_edge() -> None:
+    # #25: a cone roof overhanging its post; the rim's tip is thinner than a cell. Crossing points taken linearly
+    # between grid values sat off the surface there (with the rim's in-between normal), and best-fit points beyond
+    # their cell were held back: the rim came out ragged, up to 3/4 of a step short
+    step = 0.02
+    post = Geometry("cylinder", {**SHAPES["cylinder"].defaults, "radius": 0.2, "height": 0.6}, at=np.array([0, 0.3, 0.0]))
+    roof = Geometry("cone", {**SHAPES["cone"].defaults, "radius": 0.4, "radius_top": 0.0, "height": 0.3}, at=np.array([0, 0.75, 0.0]))
+    mesh = dual_contour(Field([post, roof], margin=0.06), step)
+    check_closed_outward(mesh)
+    v = mesh.vertices[np.unique(mesh.faces)]
+    rim = v[np.abs(v[:, 1] - 0.6) < 2 * step]
+    sector = ((np.arctan2(rim[:, 2], rim[:, 0]) + np.pi) / (2 * np.pi) * 90).astype(int) % 90
+    radius = np.linalg.norm(rim[:, [0, 2]], axis=1)
+    reach = (np.array([radius[sector == k].max() for k in range(90)]) - 0.4) / step  # the rim's furthest point, per 4 degrees
+    assert reach.min() > -0.2 and reach.max() < 0.05 and reach.std() < 0.05
