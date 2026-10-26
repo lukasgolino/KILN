@@ -34,7 +34,7 @@ SETTINGS = {
     "variant_glbs": "true: a .glb per variant; false: variants are swap tables (Godot: <name>.<variant>.tscn recolours the base)",
     "vertex_colors": "true: colours in the vertices, one surface per material preset (fewer draw calls); needs variant_glbs",
     "atlas": "true: one material per model (palette textures; variants swap the texture): 1 surface, 2 with decals",
-    "atlas_ao": "true (with atlas): bake ambient occlusion into the vertex colours",
+    "atlas_ao": "true or a strength 0..1 (with atlas): bake ambient occlusion into the vertex colours",
 }
 
 

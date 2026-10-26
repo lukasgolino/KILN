@@ -101,7 +101,7 @@ Write the answers into BRIEF.md and STYLE.md.
   so a character costs 2-4 draw calls instead of one per colour.
 - Crowds, best: `atlas = true` gives every model one material (colours and presets in a small palette texture): 1 draw
   call per mesh (2 with a decal), and team colours become a texture swap on one shared mesh. `atlas_ao = true` adds
-  baked ambient occlusion. Use it instead of `vertex_colors`.
+  baked ambient occlusion (a number 0..1 sets its strength). Use it instead of `vertex_colors`.
 - Warnings W111 (a part lost to the triangle budget) and W112 (a LOD well over its target) mean: raise the budget.
 - `kiln preview <name> --engine` renders through Godot itself (needs a display): use it to confirm the look.
 - `manifest.json` lists every model: glb, scene, size and bounds in metres, triangles, parts (pivot, parent, meta),
