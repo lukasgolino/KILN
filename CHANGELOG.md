@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `kiln build --verify-godot` hangs every attachment fitted to a CC0 character (`fit_to`) on its bone of a copy of that
+  character (BoneAttachment3D) and checks it lands where it was made (#22).
 - `atlas_ao` takes a strength 0..1 as well as `true` (0.65, unchanged): the darkest corner's colour is x (1 - strength);
   the manifest's `atlas` gives it as `ao_strength` (#24).
 - `union: per_bone` on a rigid-skinned model (#50): each bone's parts are meshed as their own closed surface and

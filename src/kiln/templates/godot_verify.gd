@@ -1,10 +1,13 @@
 # Run by `kiln build --verify-godot` (from a temp folder): loads every model KILN built and checks it against the
 # manifest: the .glb and .tscn load, part nodes (or skeleton bones) exist, animations exist with the right loop
-# flag, and every surface gets the style's material once the scene is ready.
+# flag, and every surface gets the style's material once the scene is ready. Attachments fitted to a CC0 character
+# (the characters are copied into the sandbox) hang on their bone through a BoneAttachment3D and must land where they
+# were made.
 extends SceneTree
 
 var _manifest: Dictionary = {}
 var _scenes: Array = []
+var _attached: Array = []  # [model, character, attachment on its bone, the attachment alone]
 var _frames := 0
 var _failures := 0
 
@@ -24,6 +27,9 @@ func _init() -> void:
 		return
 	_manifest = parsed
 	var base := path.get_base_dir()
+	var characters: Dictionary = {}
+	if args.size() > 1:
+		characters = JSON.parse_string(FileAccess.get_file_as_string(args[1]))
 	for name in _manifest["models"]:
 		var entry: Dictionary = _manifest["models"][name]
 		if entry.get("animations_only", false):  # a clip carrier: imported as an AnimationLibrary
@@ -49,6 +55,8 @@ func _init() -> void:
 			var node: Node = scene.instantiate()
 			root.add_child(node)
 			_scenes.append([name, node])
+		if entry.has("attach") and characters.has(name):
+			attach(name, base.path_join(entry["glb"]), characters[name], entry["attach"]["bone"])
 	for style in _manifest.get("looks", {}):
 		var look = load(_manifest["looks"][style])
 		if look == null or not (look is PackedScene):
@@ -66,6 +74,8 @@ func _process(_delta: float) -> bool:
 		return false
 	for pair in _scenes:
 		check_model(pair[0], pair[1])
+	for item in _attached:
+		check_attached(item[0], item[1], item[2], item[3])
 	if _failures > 0:
 		printerr("KILN_VERIFY_FAIL ", _failures, " problems")
 		quit(1)
@@ -73,6 +83,52 @@ func _process(_delta: float) -> bool:
 		print("KILN_VERIFY_OK ", _scenes.size(), " models")
 		quit(0)
 	return true
+
+
+func attach(name: String, glb: String, character_path: String, bone: String) -> void:
+	var character_scene = load(character_path)
+	var attachment_scene = load(glb)
+	if not (character_scene is PackedScene) or not (attachment_scene is PackedScene):
+		fail("%s: can't load %s or %s" % [name, character_path, glb])
+		return
+	var character: Node3D = character_scene.instantiate()
+	var skeleton: Skeleton3D = null
+	for s in character.find_children("*", "Skeleton3D", true, false):
+		skeleton = s
+	if skeleton == null or skeleton.find_bone(bone) < 0:
+		fail("%s: %s has no skeleton bone %s" % [name, character_path, bone])
+		character.free()
+		return
+	var holder := BoneAttachment3D.new()
+	holder.bone_name = bone
+	skeleton.add_child(holder)
+	holder.add_child(attachment_scene.instantiate())
+	var alone: Node3D = attachment_scene.instantiate()
+	root.add_child(character)
+	root.add_child(alone)
+	_attached.append([name, character, holder, alone])
+
+
+# The meshes' box in `frame`'s space.
+func bounds(meshes: Node, frame: Node3D) -> AABB:
+	var box := AABB()
+	var first := true
+	for mesh_instance in meshes.find_children("*", "MeshInstance3D", true, false):
+		if mesh_instance.mesh == null:
+			continue
+		var b: AABB = (frame.global_transform.affine_inverse() * mesh_instance.global_transform) * mesh_instance.mesh.get_aabb()
+		box = b if first else box.merge(b)
+		first = false
+	return box
+
+
+func check_attached(name: String, character: Node3D, holder: Node3D, alone: Node3D) -> void:
+	# made in the character's space: the glb's root node undoes the bone, so on the bone it must be back where it was made
+	var made := bounds(alone, alone.get_child(0))
+	var landed := bounds(holder, character)
+	var tolerance := 0.01 + 0.01 * made.size.length()
+	if made.size == Vector3.ZERO or made.position.distance_to(landed.position) > tolerance or made.end.distance_to(landed.end) > tolerance:
+		fail("%s on its bone lands at %s, made at %s (character space)" % [name, landed, made])
 
 
 func check_library(name: String, glb: String, animations: Dictionary) -> void:

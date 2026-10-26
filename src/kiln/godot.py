@@ -7,6 +7,7 @@ file with a random id next to every .gdshader/.gd, which would make builds non-d
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -371,21 +372,46 @@ def _sandbox(godot_root: Path, folder_res: str, tmp: Path) -> Path:
     return root
 
 
+def _characters(project: Path, attachments: dict[str, Path]) -> str:
+    """Copy the characters attachments are fitted to into the sandbox (with the files they refer to); returns the
+    res:// path of a JSON file mapping each attachment to its character's scene."""
+    from kiln.importer import external_files
+
+    folders: dict[Path, str] = {}
+    scenes: dict[str, str] = {}
+    for model, source in sorted(attachments.items()):
+        if source not in folders:  # one folder per file: KayKit's and Kenney's texture names collide
+            folders[source] = f"kiln_characters/{len(folders)}"
+            target = project / folders[source]
+            target.mkdir(parents=True)
+            shutil.copy(source, target / source.name)
+            for rel in external_files(source):
+                (target / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(source.parent / rel, target / rel)
+        scenes[model] = f"res://{folders[source]}/{source.name}"
+    (project / "kiln_characters.json").write_text(json.dumps(scenes, sort_keys=True), encoding="utf-8")
+    return "res://kiln_characters.json"
+
+
 def _folder(res: str) -> str:
     """The output folder of a res:// path inside it (models/, looks/ or the manifest's own folder)."""
     parent = res.rsplit("/", 1)[0]
     return parent.rsplit("/", 1)[0] if parent.endswith(("/models", "/looks")) else parent
 
 
-def verify(godot: str, godot_root: Path, manifest_res: str, timeout: int = 300) -> GodotCheck:
+def verify(godot: str, godot_root: Path, manifest_res: str, attachments: dict[str, Path] | None = None, timeout: int = 300) -> GodotCheck:
+    """Load everything KILN built in a sandbox copy of the output. `attachments` (model -> the character file it's fitted
+    to) also hangs each attachment on its bone of that character (a BoneAttachment3D) and checks it lands where it was
+    made."""
     script = files("kiln").joinpath("templates", "godot_verify.gd").read_text(encoding="utf-8")
     with tempfile.TemporaryDirectory(prefix="kiln-verify-") as tmp:
         path = Path(tmp) / "kiln_verify.gd"
         path.write_text(script, encoding="utf-8")
         project = _sandbox(godot_root, _folder(manifest_res), Path(tmp))
+        characters = _characters(project, attachments or {})
         try:
             subprocess.run([godot, "--headless", "--path", str(project), "--import"], capture_output=True, text=True, timeout=timeout)
-            run = subprocess.run([godot, "--headless", "--path", str(project), "-s", str(path), "--", manifest_res],
+            run = subprocess.run([godot, "--headless", "--path", str(project), "-s", str(path), "--", manifest_res, characters],
                                  capture_output=True, text=True, timeout=timeout)  # fmt: skip
         except (OSError, subprocess.TimeoutExpired) as exc:
             return GodotCheck(False, f"couldn't run Godot: {exc}")

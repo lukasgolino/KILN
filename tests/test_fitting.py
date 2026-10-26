@@ -9,9 +9,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import built_of, errors_of, write_model
+from conftest import CONFIG, built_of, errors_of, make_project, write_model
 from kiln.build import build
 from kiln.fitting import MeshDistance, bone_matrix, read_surface
+from kiln.godot import find_godot_binary, verify
 from kiln.lint import geometry_warnings
 from kiln.mesher import open_edges
 from kiln.project import Project
@@ -88,3 +89,25 @@ def test_fit_to_errors(knight: Project) -> None:
     assert any("no mesh Knight_Hat" in f.message for f in errors_of(knight, HELM.replace("[Knight_Head]", "[Knight_Hat]")))
     no_target = HELM.replace("fit_to: { file: imports/Knight.glb, bone: head, meshes: [Knight_Head] }\n", "")
     assert any("fit: target" in f.message for f in errors_of(knight, no_target))
+
+
+@pytest.mark.skipif(find_godot_binary() is None, reason="needs Godot 4 (GODOT=/path/to/godot)")
+def test_godot_hangs_the_attachment_on_its_bone(tmp_path: Path) -> None:
+    godot = find_godot_binary()
+    assert godot is not None
+    (tmp_path / "project.godot").write_text("config_version=5\n")
+    project = make_project(tmp_path / "art", CONFIG + 'output_dir = "../assets/kiln"\nexport = ["glb", "godot"]\n')
+    for name in ("Knight.glb", "knight_texture.png"):
+        shutil.copy(KAYKIT / name, project.root / "imports" / name)
+    write_model(project, HELM)
+    result = build(project)
+    assert not result.errors and result.godot_root is not None
+    assert result.attachments == {"thing": project.root / "imports" / "Knight.glb"}
+    check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json", result.attachments)
+    assert check.ok, check.output[-3000:]
+    manifest = project.output_dir / "manifest.json"  # on the wrong bone it lands elsewhere: the check sees it
+    data = json.loads(manifest.read_text())
+    data["models"]["thing"]["attach"]["bone"] = "chest"
+    manifest.write_text(json.dumps(data))
+    check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json", result.attachments)
+    assert not check.ok and "thing on its bone lands at" in check.output, check.output[-3000:]
