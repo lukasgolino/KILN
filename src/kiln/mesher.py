@@ -362,6 +362,9 @@ def dual_contour(field: Field, step: float) -> Mesh:
         if not len(moved):
             break
         x[moved] = m[moved]
+    if len(pinches(x, f)[0]):  # sheets one cell apart can still share an edge on coarse grids: split them
+        x, f = unpinch(x, f)
+        return remove_unused(Mesh(project(field, x, step * 2), f))
     return Mesh(x, f)
 
 
