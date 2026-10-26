@@ -538,8 +538,8 @@ variant's textures (variant glbs are still written unless `variant_glbs = false`
 also `palette` (+ `glow`): to recolour at runtime, write other colours into a copy of the palette at the cells'
 pixels. `atlas_ao = true` bakes ambient occlusion from the model's distance field (imported models: from the mesh's
 dents) into COLOR_0 (a number sets its strength: the darkest corner is x (1 - strength); true = 0.65), a grey multiplier glTF viewers apply; in Godot only KILN's .tscn scenes use it
-(`vertex_color_use_as_albedo`). Previews don't show it. With "godot", KILN writes the palette textures' `.import`
-settings (lossless, no mipmaps, no VRAM compression on first 3D use: 4x4 cells stay exact); settings Godot adds
+(`vertex_color_use_as_albedo`). Previews don't show it. When the output is inside a Godot project (with "godot" or
+not), KILN writes the palette textures' `.import` settings (lossless, no mipmaps, no VRAM compression on first 3D use: 4x4 cells stay exact); settings Godot adds
 later (uid, imported files) are kept.
 
 **Shared clips**: `animations_only: true` makes a model a clip carrier (its animations are what counts; give it the
@@ -547,7 +547,7 @@ same rig as the models that use it); `animation_library: <carrier>` on another m
 (every part id its clips move must be in the model, E008 otherwise; other ids may differ, e.g. a helmet on one loadout:
 they follow their parents, and tracks for carrier parts the model lacks are left out; shared joints more than 1 cm from
 the carrier's: W114, since a clip's position tracks put bones where the carrier has them; same skeleton). That model's glb carries no clips; previews and the manifest's `animations` still
-list them, plus `animation_library` (`model`, `glb`). With "godot" the carrier's glb is imported as an
+list them, plus `animation_library` (`model`, `glb`). Inside a Godot project the carrier's glb is imported as an
 AnimationLibrary (no `.tscn`); add it to each model's AnimationPlayer.
 `kiln build --verify-godot` checks everything in a throwaway copy of the output (nothing else in the game's project is
 imported or touched). Attachments (`fit_to`) are hung on their bone of a copy of the character through a

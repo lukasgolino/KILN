@@ -261,6 +261,9 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                                            "point output_dir into your Godot project, e.g. ../game/assets/kiln", project.config_path))  # fmt: skip
             return result
         result.godot_root = godot_root
+    # Godot's import settings (lossless palettes, carriers as AnimationLibrary) whenever the output is in a Godot
+    # project, scenes or not: a game may load the glbs itself and still import the textures (#56)
+    import_root = godot_root or find_godot_project(out)
     produced: set[Path] = set()
     generator = f"kiln {__version__}"
     models: dict[str, Any] = {}
@@ -371,12 +374,12 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             lods.append({"glb": lpath.relative_to(out).as_posix(), "triangles": lod_built.triangles})
         if lods:
             entry["lods"] = lods
-        if godot_root is not None:  # Godot's import settings: lossless palette textures, carriers as AnimationLibrary
+        if import_root is not None:  # Godot's import settings: lossless palette textures, carriers as AnimationLibrary
             for files_of in atlas_files.values():
                 for rel in sorted(files_of.values()):
-                    import_settings(out / "models" / rel, godot_root, TEXTURE_IMPORT, result)
+                    import_settings(out / "models" / rel, import_root, TEXTURE_IMPORT, result)
             if model.animations_only:
-                import_settings(glb, godot_root, LIBRARY_IMPORT, result)
+                import_settings(glb, import_root, LIBRARY_IMPORT, result)
         if godot_root is not None and not model.animations_only:  # (a carrier's glb isn't a scene)
             scene = out / "models" / f"{name}.tscn"
             models_dir = out / "models"

@@ -223,6 +223,24 @@ def test_imported_models_get_cavity_occlusion(tmp_path: Path) -> None:
     assert ao.shape[0] > 0 and np.all(ao == 1.0)  # a convex box has no cavities
 
 
+def test_glb_only_output_in_a_godot_project_gets_lossless_palettes(tmp_path: Path) -> None:
+    """A game that loads the glbs itself (no "godot" export) still gets the palettes' import settings (#56)."""
+    (tmp_path / "game").mkdir()
+    (tmp_path / "game" / "project.godot").write_text("config_version=5\n")
+    project = make_project(tmp_path / "game" / "art", CONFIG + 'output_dir = "../assets/kiln"\nexport = ["glb"]\natlas = true\n')
+    write_model(project, GLOW)
+    result = build(project)
+    assert not result.errors and result.godot_root is None
+    models = tmp_path / "game" / "assets" / "kiln" / "models"
+    assert not list(models.glob("*.tscn"))
+    for name in ("thing.palette.png", "thing.material.png", "thing.glow.png"):
+        settings = (models / f"{name}.import").read_text()
+        assert "compress/mode=0" in settings and "mipmaps/generate=false" in settings and "detect_3d/compress_to=0" in settings
+    outside = make_project(tmp_path / "loose", CONFIG + 'export = ["glb"]\natlas = true\n')  # no Godot project above: none
+    write_model(outside, GLOW)
+    assert not build(outside).errors and not list(outside.output_dir.rglob("*.import"))
+
+
 @pytest.mark.skipif(find_godot_binary() is None, reason="needs Godot 4 (GODOT=/path/to/godot)")
 def test_godot_loads_atlas_scenes(tmp_path: Path) -> None:
     godot = find_godot_binary()
