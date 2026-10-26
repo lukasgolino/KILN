@@ -28,7 +28,7 @@ merge_rigid = false            # true: a rigid skin is one skinned mesh (one dra
                                #   separate parts stay nodes; hide a part by scaling its bone to 0); manifest merged_rigid
 vertex_colors = false          # true: colours in the vertices, one surface per material preset (fewer draw calls)
 atlas = false                  # true: one material per model from small palette textures (1 surface, 2 with decals)
-atlas_ao = false               # true (with atlas): ambient occlusion baked into the vertex colours
+atlas_ao = false               # true or a strength 0..1 (with atlas): ambient occlusion baked into the vertex colours
 [lint]
 disable = ["W106"]
 ```
@@ -533,10 +533,10 @@ samplers are NEAREST without mipmaps. One material for the whole model: 1 surfac
 or rigid skins alike (rigid parts are nodes sharing the material). A variant is a texture swap:
 `<name>.<variant>.palette.png` (+ `.glow.png`), same cells, same mesh; its Godot scene is the base glb with the
 variant's textures (variant glbs are still written unless `variant_glbs = false`). Manifest per model: `atlas`
-(`palette`, `material`, `glow`, `rim`, `size`, `cell`, `cells`: `color`, `material`, `uv`, `pixel`; `ao`), variants
+(`palette`, `material`, `glow`, `rim`, `size`, `cell`, `cells`: `color`, `material`, `uv`, `pixel`; `ao`, `ao_strength`), variants
 also `palette` (+ `glow`): to recolour at runtime, write other colours into a copy of the palette at the cells'
 pixels. `atlas_ao = true` bakes ambient occlusion from the model's distance field (imported models: from the mesh's
-dents) into COLOR_0, a grey multiplier glTF viewers apply; in Godot only KILN's .tscn scenes use it
+dents) into COLOR_0 (a number sets its strength: the darkest corner is x (1 - strength); true = 0.65), a grey multiplier glTF viewers apply; in Godot only KILN's .tscn scenes use it
 (`vertex_color_use_as_albedo`). Previews don't show it. With "godot", KILN writes the palette textures' `.import`
 settings (lossless, no mipmaps, no VRAM compression on first 3D use: 4x4 cells stay exact); settings Godot adds
 later (uid, imported files) are kept.

@@ -70,6 +70,7 @@ def test_uvs_sit_on_cell_centres_of_the_right_colour(demo: tuple[Project, BuildR
     project, result = demo
     entry = result.manifest["models"]["knight"]["atlas"]
     assert entry["palette"] == "models/knight.palette.png" and entry["material"] == "models/knight.material.png" and entry["ao"] is True
+    assert entry["ao_strength"] == AO_STRENGTH
     image = png(project, "knight.palette.png")
     w, h = entry["size"]
     assert image.shape == (h, w, 3) and entry["cell"] == CELL
@@ -126,6 +127,18 @@ def test_ao_is_a_grey_multiplier_in_range(demo: tuple[Project, BuildResult]) -> 
     assert ao.min() < 0.85 and np.median(ao) > 0.9  # creases darken, open surfaces stay bright
 
 
+def test_ao_strength_scales_the_darkening(demo: tuple[Project, BuildResult]) -> None:
+    from kiln.builder import build_model
+
+    project, _ = demo
+    model, style, _ = project.load(project.root / "models" / "knight.kiln.yaml")
+    assert model is not None and style is not None
+    built = build_model(model, style)
+    full, light = ambient_occlusion(built), ambient_occlusion(built, 0.2)
+    assert light.min() >= 0.8 - 1e-6 and light.min() > full.min()
+    assert np.allclose(1 - light, (1 - full) * 0.2 / AO_STRENGTH, atol=1e-3)  # the same occlusion, scaled
+
+
 def test_builds_are_deterministic(demo: tuple[Project, BuildResult]) -> None:
     project, first = demo
     files = {p: p.read_bytes() for p in first.written}
@@ -150,6 +163,11 @@ def test_settings_combinations() -> None:
     assert [f.where for f in parse_config({"atlas": True, "vertex_colors": True}, None)[1]] == ["atlas"]
     assert [f.where for f in parse_config({"atlas_ao": True}, None)[1]] == ["atlas_ao"]
     assert [f.where for f in parse_config({"atlas": "yes"}, None)[1]] == ["atlas"]
+    assert parse_config({"atlas": True, "atlas_ao": True}, None)[0].atlas_ao == AO_STRENGTH
+    assert parse_config({"atlas": True, "atlas_ao": 0.3}, None)[0].atlas_ao == 0.3
+    assert parse_config({"atlas": True, "atlas_ao": False}, None)[0].atlas_ao == 0.0
+    assert [f.where for f in parse_config({"atlas": True, "atlas_ao": 1.5}, None)[1]] == ["atlas_ao"]
+    assert [f.where for f in parse_config({"atlas": True, "atlas_ao": "strong"}, None)[1]] == ["atlas_ao"]
 
 
 GLOW = sphere_text() + """\

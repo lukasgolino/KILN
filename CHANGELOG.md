@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `atlas_ao` takes a strength 0..1 as well as `true` (0.65, unchanged): the darkest corner's colour is x (1 - strength);
+  the manifest's `atlas` gives it as `ao_strength` (#24).
 - `union: per_bone` on a rigid-skinned model (#50): each bone's parts are meshed as their own closed surface and
   neighbouring bones overlap instead of being cut where they meet, so turning a joint (animations, ragdolls) can't
   tear the mesh, with or without `merge_rigid`. Default `whole` (unchanged meshes). W103 counts the bones' pieces as

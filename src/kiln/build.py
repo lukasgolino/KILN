@@ -237,11 +237,11 @@ def import_settings(path: Path, godot_root: Path, want: ImportSettings, result: 
     _write(sidecar, data.encode(), result)
 
 
-def atlas_entry(atlas: Atlas, files: dict[str, str], ao: bool) -> dict[str, Any]:
+def atlas_entry(atlas: Atlas, files: dict[str, str], ao: float) -> dict[str, Any]:
     """Manifest `atlas`: the textures (paths in the output dir) and where every colour sits in them."""
     w, h = atlas.size
     cells = [{"color": c, "material": m, "uv": [_f(v) for v in atlas.uv(i)], "pixel": list(atlas.pixel(i))} for i, (c, m) in enumerate(atlas.cells)]
-    return {**files, "size": [w, h], "cell": CELL, "cells": cells, "ao": ao}
+    return {**files, "size": [w, h], "cell": CELL, "cells": cells, "ao": ao > 0, **({"ao_strength": _f(ao)} if ao > 0 else {})}
 
 
 def build(project: Project, only_valid: bool = True, progress: Callable[[str], None] | None = None, paths: list[Path] | None = None) -> BuildResult:

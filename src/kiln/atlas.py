@@ -4,8 +4,8 @@ B = metallic), glow (`<name>.glow.png`, only when a preset glows) and, for Godot
 point their UVs at their cell's centre; samplers are NEAREST without mipmaps, so cells never bleed. A variant is
 another palette (and glow) texture with the same layout: no mesh change.
 
-`atlas_ao = true` also bakes ambient occlusion per vertex (COLOR_0, a multiplier): from the model's distance field
-(sampled a few steps along the normal), or from the mesh's concavity for imported models.
+`atlas_ao = true` (or a strength 0..1) also bakes ambient occlusion per vertex (COLOR_0, a multiplier): from the model's
+distance field (sampled a few steps along the normal), or from the mesh's concavity for imported models.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ CELL = 4  # pixels per cell side (a multiple of 4: GPU block compression keeps a
 COLUMNS = 16
 AO_STEPS = 5
 AO_RADIUS = 0.04  # x the model's bounding-box diagonal: how far occluders count
-AO_STRENGTH = 0.65  # darkest multiplier = 1 - AO_STRENGTH
+AO_STRENGTH = 0.65  # atlas_ao = true: darkest multiplier = 1 - AO_STRENGTH
 RIM_TINT = 0.6  # Godot rim_tint (as the non-atlas scenes)
 
 
@@ -112,7 +112,7 @@ class AtlasUse:
     palette: str
     material: str
     glow: str | None = None  # set when a preset glows
-    ao: bool = False
+    ao: float = 0.0  # baked occlusion strength; 0 = none
     glow_strength: float = 0.0
 
 
@@ -155,8 +155,8 @@ def vertex_normals(built: Built) -> Array:
     return np.asarray(acc / np.maximum(np.linalg.norm(acc, axis=1, keepdims=True), 1e-12))
 
 
-def ambient_occlusion(built: Built) -> Array:
-    """(V,) multipliers in [1 - AO_STRENGTH, 1] for every painted vertex (unused vertices get 1)."""
+def ambient_occlusion(built: Built, strength: float = AO_STRENGTH) -> Array:
+    """(V,) multipliers in [1 - strength, 1] for every painted vertex (unused vertices get 1)."""
     p = built.painted
     ao = np.ones(len(p.vertices))
     used = np.unique(p.faces)
@@ -164,7 +164,7 @@ def ambient_occlusion(built: Built) -> Array:
         return ao
     m = built.model
     occlusion = _cavity(built, used) if m.source is not None or not m.parts else _field_occlusion(built, used)
-    ao[used] = 1.0 - AO_STRENGTH * np.clip(occlusion, 0.0, 1.0)
+    ao[used] = 1.0 - strength * np.clip(occlusion, 0.0, 1.0)
     return np.round(ao, 4)  # rounded: the same multiplier whatever float noise the field adds
 
 

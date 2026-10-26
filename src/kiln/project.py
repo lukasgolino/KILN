@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from kiln.atlas import AO_STRENGTH
 from kiln.notation import MODEL_SUFFIX, NAME_RE, Model, load_model
 from kiln.style import Style, load_style
 from kiln.vendor.findings import Finding, PaganError
@@ -29,7 +30,7 @@ class Config:
     variant_glbs: bool = True  # false: variants are Godot scenes recolouring the base glb (no glb per variant)
     vertex_colors: bool = False  # true: colours in the vertices, one surface per material preset (fewer draw calls)
     atlas: bool = False  # true: one material per model, colours and presets from small palette textures
-    atlas_ao: bool = False  # true (with atlas): baked ambient occlusion in the vertex colours
+    atlas_ao: float = 0.0  # with atlas: strength of the ambient occlusion baked into the vertex colours (0 = none)
 
 
 @dataclass
@@ -224,13 +225,20 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
             bad("vertex_colors is true (colours in the vertices: fewer surfaces) or false (a material per colour)", "vertex_colors")
         else:
             cfg.vertex_colors = data["vertex_colors"]
-    for key, meaning in (("atlas", "true (one material per model from palette textures) or false (a material per colour)"),
-                         ("atlas_ao", "true (bake ambient occlusion into the vertex colours; needs atlas = true) or false")):  # fmt: skip
-        if key in data:
-            if not isinstance(data[key], bool):
-                bad(f"{key} is {meaning}", key)
-            else:
-                setattr(cfg, key, data[key])
+    if "atlas" in data:
+        if not isinstance(data["atlas"], bool):
+            bad("atlas is true (one material per model from palette textures) or false (a material per colour)", "atlas")
+        else:
+            cfg.atlas = data["atlas"]
+    if "atlas_ao" in data:
+        ao = data["atlas_ao"]
+        if isinstance(ao, bool):
+            cfg.atlas_ao = AO_STRENGTH if ao else 0.0
+        elif isinstance(ao, (int, float)) and 0 <= ao <= 1:
+            cfg.atlas_ao = float(ao)
+        else:
+            bad(f"atlas_ao is true (bake ambient occlusion into the vertex colours; needs atlas = true), false, or its strength "
+                f"0..1 (the darkest corner's colour is x (1 - strength); true = {AO_STRENGTH})", "atlas_ao")
     if cfg.atlas and cfg.vertex_colors:
         bad("atlas and vertex_colors are two ways to cut draw calls: set one (atlas = true gives one surface per model)", "atlas")
     if cfg.atlas_ao and not cfg.atlas:

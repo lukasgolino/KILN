@@ -126,7 +126,7 @@ class _Writer:
         self.vertex_colors = vertex_colors
         self.atlas = atlas
         self.atlas_material: int | None = None
-        self.ao: Array | None = ambient_occlusion(built) if atlas is not None and atlas.ao else None
+        self.ao: Array | None = ambient_occlusion(built, atlas.ao) if atlas is not None and atlas.ao > 0 else None
         self.doc = Document(generator)
         self.materials: dict[tuple[str, str, int], int] = {}
         self.textures: dict[tuple[int, str], int] = {}
