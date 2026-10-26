@@ -208,7 +208,7 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
             finding = Finding("E000", "--verify-godot needs a Godot binary (GODOT=/path) and export \"godot\"")
             out.failure([finding], data)
             return 1
-        check = verify(godot, result.godot_root, res_path(result.output_dir / "manifest.json", result.godot_root))
+        check = verify(godot, result.godot_root, res_path(result.output_dir / "manifest.json", result.godot_root), result.attachments)
         data["godot"] = {"ok": check.ok, "models": check.models}
         if not check.ok:
             out.say(check.output)

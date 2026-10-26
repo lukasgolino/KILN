@@ -94,7 +94,7 @@ Write the answers into BRIEF.md and STYLE.md.
   `looks/<style>.tscn` (the look kit: sky, sun, tonemapper, SSAO, glow, grading). Tell the owner to instance the
   look kit once in each scene: half of the style is lighting.
 - `kiln build --verify-godot` loads everything in headless Godot (in a throwaway copy) and checks parts, animations
-  and materials.
+  and materials (and that attachments fitted to a CC0 character land on its bone).
 - Many team colours: `variant_glbs = false` in kiln.toml keeps one glb per model; each variant becomes a Godot scene
   that recolours it (and a `swap` table in the manifest for other engines).
 - Crowds (many instances): `vertex_colors = true` puts colours in the vertices, one surface per material preset,

@@ -40,6 +40,7 @@ class BuildResult:
     findings: list[Finding] = field(default_factory=list)
     godot_root: Path | None = None
     manifest: dict[str, Any] = field(default_factory=dict)
+    attachments: dict[str, Path] = field(default_factory=dict)  # model -> the character file it's fitted to (fit_to)
 
     @property
     def errors(self) -> list[Finding]:
@@ -322,6 +323,8 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         write(glb, to_glb(built, generator, None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid))
         merged = project.config.merge_rigid and built.skin == "rigid"
         entry = model_entry(built, out, glb, merged)
+        if model.fit_to is not None:
+            result.attachments[name] = model.fit_to[0]
         gibs: dict[str, Any] = {}
         for part_id, sub in gib_models(model):  # closed pieces of parts that come off, same frame as the model's glb
             gbuilt = build_cached(sub, style, palette, cache)

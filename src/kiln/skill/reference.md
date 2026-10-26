@@ -549,7 +549,8 @@ the carrier's: W114, since a clip's position tracks put bones where the carrier 
 list them, plus `animation_library` (`model`, `glb`). With "godot" the carrier's glb is imported as an
 AnimationLibrary (no `.tscn`); add it to each model's AnimationPlayer.
 `kiln build --verify-godot` checks everything in a throwaway copy of the output (nothing else in the game's project is
-imported or touched).
+imported or touched). Attachments (`fit_to`) are hung on their bone of a copy of the character through a
+BoneAttachment3D and must land where they were made.
 
 In Godot:
 
