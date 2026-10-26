@@ -8,6 +8,11 @@ parts:
     color: skin_light
     material: skin
     blend: 0.04
+  - capsule: {from: [0, 1.33, 0], to: [0, 1.5, 0], radius: 0.08}
+    id: head
+    color: skin_light
+    material: skin
+    blend: 0.01
   - ellipsoid: {at: [0, 1.6, 0.185], radii: [0.032, 0.045, 0.04]}
     id: head
     color: skin_light

@@ -46,6 +46,7 @@ RIG = {
 def body(name: str, description: str, girth: float, tunic: str, trousers: str, sleeves: str, skirt: float, belly: float = 0.0,
          shoulders: float = 0.0) -> dict[str, Any]:  # fmt: skip
     g = girth
+    chest = 0.2 * g + shoulders
     parts: list[Part] = [
         mirrored(part("capsule", trousers, "fabric", "upperleg_l", **{"from": [0.11, 0.84, 0], "to": [0.12, 0.48, 0]}, radius=0.08 * g ** 0.5,
                       blend=0.04), "upperleg_r"),  # fmt: skip
@@ -54,11 +55,12 @@ def body(name: str, description: str, girth: float, tunic: str, trousers: str, s
         mirrored(part("capsule", "leather_dark", "leather", "lowerleg_l", **{"from": [0.12, 0.34, 0], "to": [0.12, 0.12, 0.01]},
                       radius=0.076 * g ** 0.5), "lowerleg_r"),  # fmt: skip
         mirrored(part("box", "leather_dark", "leather", "foot_l", at=[0.12, 0.05, 0.05], size=[0.13, 0.1, 0.25], round=0.045, blend=0.03), "foot_r"),
-        part("capsule", tunic, "fabric", "spine", **{"from": [0, 0.94, 0], "to": [0, 1.1, 0]}, radius=0.19 * g, blend=0.04),
+        *([] if belly else [part("capsule", tunic, "fabric", "spine", **{"from": [0, 0.94, 0], "to": [0, 1.1, 0]}, radius=0.19 * g, blend=0.04)]),
         part("cone", tunic, "fabric", "hips", at=[0, 0.86 - skirt / 2, 0], radius=0.23 * g + 0.02 * skirt, radius_top=0.19 * g, height=skirt + 0.06,
              blend=0.02),  # fmt: skip
-        part("capsule", tunic, "fabric", "chest", **{"from": [0, 1.14, 0], "to": [0, 1.19, 0]}, radius=0.2 * g + shoulders, blend=0.05),
-        part("torus", "cloth_linen", "fabric", "chest", at=[0, 1.385, 0], radius=0.085, thickness=0.03, blend=0.02),
+        part("capsule", tunic, "fabric", "chest", **{"from": [0, 1.14, 0], "to": [0, 1.19, 0]}, radius=chest, blend=0.05),
+        # the collar sits on the chest's top (inside a broad chest it would be hidden)
+        part("torus", "cloth_linen", "fabric", "chest", at=[0, max(1.385, 1.18 + chest), 0], radius=0.085, thickness=0.03, blend=0.02),
         {"band": {"fit": "spine", "at": [0, 0.97, 0], "width": 0.07, "thickness": 0.014}, "id": "spine", "color": "leather", "material": "leather"},
         part("box", "gold", "gold", "spine", at=[0, 0.97, 0.19 * g + belly + 0.02], size=[0.08, 0.07, 0.03], hard=True, chamfer=0.008),
         mirrored(part("capsule", sleeves, "fabric", "upperarm_l", **{"from": [0.21, 1.35, 0], "to": [0.3, 1.1, 0]}, radius=0.07 * g ** 0.5 + shoulders / 3,
@@ -67,8 +69,8 @@ def body(name: str, description: str, girth: float, tunic: str, trousers: str, s
                       blend=0.03), "lowerarm_r"),  # fmt: skip
         mirrored(part("sphere", "leather_dark", "leather", "hand_l", at=[0.355, 0.8, 0.02], radius=0.062, blend=0.03), "hand_r"),
     ]
-    if belly:
-        parts.insert(6, part("ellipsoid", tunic, "fabric", "spine", at=[0, 1.0, 0.04], radii=[0.21 * g, 0.2, 0.18 * g + belly], blend=0.06))
+    if belly:  # in place of the spine capsule, which it would hide
+        parts.insert(5, part("ellipsoid", tunic, "fabric", "spine", at=[0, 1.0, 0.04], radii=[0.21 * g, 0.2, 0.18 * g + belly], blend=0.06))
     return template(name, description, parts, **{"class": "character", "skeleton": "humanoid", "skin": "soft", "budget": 14000, "rig": RIG})
 
 
@@ -80,6 +82,9 @@ def head(name: str, description: str, skin: str, hair: str, style: str, nose: fl
     s = {"color": skin, "material": "skin"}
     parts: list[Part] = [
         part("ellipsoid", id="head", **s, at=[0, 1.63, 0], radii=[0.19, 0.21, 0.19], blend=0.04),
+        # the neck reaches into the collar: without it the head only touches the body, and a slightly different grid
+        # (a helmet changes the model's size) can mesh the head as a floating piece
+        part("capsule", id="head", **s, **{"from": [0, 1.33, 0], "to": [0, 1.5, 0]}, radius=0.08, blend=0.01),
         *([part("ellipsoid", id="head", **s, at=[0, 1.535, 0.04], radii=[0.15 * jaw, 0.1, 0.14], blend=0.07)] if beard != "full" else []),
         part("ellipsoid", id="head", **s, at=[0, 1.6, 0.185], radii=[0.032 * nose, 0.045 * nose, 0.04 * nose], blend=0.02),
         {**part("ellipsoid", id="head", **s, at=[0.185, 1.61, 0], radii=[0.03, 0.05, 0.035], blend=0.02), "mirror": "x"},
@@ -143,10 +148,11 @@ HELMETS = [
         cut("box", "helmet", at=[0, 1.55, 0.2], size=[0.1, 0.15, 0.25]),
     ]),
     helmet("helmet_great", "a great helm: a flat-topped steel pot with an eye slit and breaths", [
-        {**part("cylinder", "steel", "metal", "helmet", at=[0, 1.42, 0], radius=0.26, height=0.84, sides=16), "hard": True,
+        # open at its centre: from the shoulders to above the tallest hair (head_goofy's tuft)
+        {**part("cylinder", "steel", "metal", "helmet", at=[0, 1.45, 0], radius=0.26, height=1.0, sides=16), "hard": True,
          "shell": {"thickness": 0.025, "open": "-y"}},
         cut("box", "helmet", at=[0, 1.65, 0.2], size=[0.3, 0.035, 0.2]),
-        {**cut("cylinder", "helmet", at=[0.09, 1.55, 0.25], radius=0.012, height=0.1, rotate=[90, 0, 0]), "array": {"count": 3, "step": [0, -0.05, 0]},
+        {**cut("cylinder", "helmet", at=[0.09, 1.58, 0.25], radius=0.012, height=0.1, rotate=[90, 0, 0]), "array": {"count": 3, "step": [0, -0.05, 0]},
          "mirror": "x"},  # fmt: skip
         part("box", "gold", "gold", "helmet", at=[0, 1.6, 0.255], size=[0.03, 0.26, 0.02], hard=True),
         part("box", "gold", "gold", "helmet", at=[0, 1.7, 0.255], size=[0.26, 0.03, 0.02], hard=True),
@@ -157,11 +163,12 @@ HELMETS = [
         part("box", "steel", "metal", "helmet", at=[0, 1.55, -0.24], size=[0.36, 0.025, 0.2], rotate=[-30, 0, 0], hard=True, chamfer=0.006),
     ]),
     helmet("helmet_crown", "a crown: a gold band with points and jewels", [
-        {**part("cylinder", "gold", "gold", "helmet", at=[0, 1.79, 0], radius=0.215, height=0.2, sides=16), "hard": True,
-         "shell": {"thickness": 0.025, "open": "+y"}},
-        {**part("cone", "gold", "gold", "helmet", at=[0, 1.82, 0.205], radius=0.035, radius_top=0.0, height=0.08, sides=4), "hard": True,
+        # a ring open at both ends (a shell is open on one side only: its bottom would cross the head), clear of the hair
+        part("cylinder", "gold", "gold", "helmet", at=[0, 1.75, 0], radius=0.23, height=0.12, sides=16, hard=True),
+        cut("cylinder", "helmet", at=[0, 1.75, 0], radius=0.205, height=0.3, sides=16),
+        {**part("cone", "gold", "gold", "helmet", at=[0, 1.82, 0.22], radius=0.035, radius_top=0.0, height=0.08, sides=4), "hard": True,
          "array": {"count": 8, "around": "y", "center": [0, 0, 0]}},  # fmt: skip
-        {**part("sphere", "cloth_red", "glass", "helmet", at=[0, 1.74, 0.22], radius=0.02, sides=6), "hard": True,
+        {**part("sphere", "cloth_red", "glass", "helmet", at=[0, 1.74, 0.235], radius=0.02, sides=6), "hard": True,
          "array": {"count": 4, "around": "y", "center": [0, 0, 0]}},  # fmt: skip
     ]),
 ]

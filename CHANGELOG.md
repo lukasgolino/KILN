@@ -15,6 +15,13 @@ before 1.0).
   tear the mesh, with or without `merge_rigid`. Default `whole` (unchanged meshes). W103 counts the bones' pieces as
   joined where they touch. `per_bone` on a soft or static skin is E007.
 
+### Fixed
+
+- Template library (#23): heads have a neck reaching into the collar, so a helmet no longer leaves the head a separate
+  piece (W103) on some grids; `helmet_great` reaches from the shoulders to above every hairstyle (hair poked through
+  its top) and `helmet_crown` is a ring open at both ends (its closed bottom crossed the head); `body_big`'s collar sits
+  on its chest instead of inside it and its hidden spine capsule is gone (W101).
+
 ## [0.9.0] - 2026-10-21
 
 Issues #28-#37: font text that holds together (nonzero fill, variable fonts, thin bevels), effect floors, gib pieces,
