@@ -994,15 +994,14 @@ def to_mesh(polys: Solid) -> HardMesh:
                 inserted = True
                 dvec = vertices[w] - vertices[u]
                 full += sorted(set(extra), key=lambda x: float((vertices[x] - vertices[u]) @ dvec))
-        if len(full) < 3:
-            continue
-        tris = _fan(full, vertices, polys[pi].plane.normal, inserted)
-        if tris is None:  # needs a middle point
-            c = len(vertices)
-            vertices = np.concatenate([vertices, vertices[full].mean(axis=0, keepdims=True)])
-            tris = [(c, full[k], full[(k + 1) % len(full)]) for k in range(len(full))]
-        faces += tris
-        face_poly += [pi] * len(tris)
+        for sub in _simple_loops(full):
+            tris = _fan(sub, vertices, polys[pi].plane.normal, inserted)
+            if tris is None:  # needs a middle point
+                c = len(vertices)
+                vertices = np.concatenate([vertices, vertices[sub].mean(axis=0, keepdims=True)])
+                tris = [(c, sub[k], sub[(k + 1) % len(sub)]) for k in range(len(sub))]
+            faces += tris
+            face_poly += [pi] * len(tris)
     f = np.array(faces, dtype=np.int64).reshape(-1, 3)
     fp = np.array(face_poly, dtype=np.int64)
     tags = np.array([polys[i].tag for i in fp], dtype=np.int64)
@@ -1010,6 +1009,25 @@ def to_mesh(polys: Solid) -> HardMesh:
     f, tags, normals, fp = _merge_planar(vertices, f, tags, normals, fp)
     used, inverse = np.unique(f, return_inverse=True)
     return HardMesh(vertices[used], inverse.reshape(-1, 3).astype(np.int64), tags, normals, fp)
+
+
+def _simple_loops(loop: list[int]) -> list[list[int]]:
+    """A polygon's outline split where it visits a point twice, keeping the pieces with three or more points. A CSG
+    sliver thinner than WELD can have one of its own corners on its opposite edge: that edge, split there like any
+    T-junction, folds the outline back over itself, and fanning it whole gives two faces back to back (#67). The
+    pieces of fewer than three points are the folds (an edge out and back): no area, so they go."""
+    out: list[list[int]] = []
+    stack: list[int] = []
+    for x in loop + loop[:1]:
+        if x in stack:
+            k = stack.index(x)
+            piece = stack[k:]
+            del stack[k + 1 :]
+            if len(piece) >= 3:
+                out.append(piece)
+        else:
+            stack.append(x)
+    return out
 
 
 def _merge_planar(vertices: Array, faces: Array, tags: Array, normals: Array, poly: Array) -> tuple[Array, Array, Array, Array]:
