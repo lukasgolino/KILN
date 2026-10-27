@@ -15,13 +15,14 @@ from PIL import Image, ImageDraw, ImageFont
 
 from kiln.export import Built
 from kiln.mesher import open_edges
-from kiln.render import View, render, silhouette
+from kiln.render import View, camera_basis, render, silhouette
 from kiln.sdf import Array
 
 BG = (32, 33, 40)
 TEXT = (230, 232, 238)
 DIM = (150, 155, 168)
 TILE_BG = (214, 224, 236, 255)
+GRID = (150, 162, 180, 255)  # an effect's floor
 HEADINGS = [("front", 0.0), ("front-left", 45.0), ("left", 90.0), ("back-left", 135.0), ("back", 180.0),
             ("back-right", 225.0), ("right", 270.0), ("front-right", 315.0)]  # fmt: skip
 INSPIRATION_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
@@ -163,9 +164,10 @@ def filmstrip(built: Built, animation: str, size: int = 200) -> Image.Image:
     return sheet(f"{built.model.name} · {animation}", f"{t.frames} frames at {t.fps:g} fps ({t.frames / t.fps:.2f} s), {loop}, {t.interpolation}", rows)
 
 
-def effect_strip(built: Built, pieces: dict[str, Built], frames: int = 8, size: int = 200) -> Image.Image:
-    """A model's `effect:` over its duration: every live particle's mesh moved, turned and scaled as the effect file
-    says (fade only hides a piece once it's gone, < 1%; heat isn't shown). Lit with the effect model's style."""
+def effect_strip(built: Built, pieces: dict[str, Built], frames: int = 8, size: int = 200, times: list[float] | None = None) -> Image.Image:
+    """A model's `effect:` over its duration (or at `times`, seconds: a contact sheet): every live particle's mesh moved,
+    turned and scaled as the effect file says, its fade drawn as ordered dithering (gone below 1%; heat isn't shown),
+    and the effect's floor, if it has one, as a thin grid. Lit with the effect model's style."""
     from dataclasses import replace
 
     from kiln.builder import _merge
@@ -175,10 +177,12 @@ def effect_strip(built: Built, pieces: dict[str, Built], frames: int = 8, size: 
     if effect is None:
         raise KeyError("no effect")
     rolled = particles(effect)
-    times = [effect.duration * i / max(frames - 1, 1) for i in range(frames)]
-    scenes: list[Built | None] = []
+    chosen = times is not None
+    if times is None:
+        times = [effect.duration * i / max(frames - 1, 1) for i in range(frames)]
+    scenes: list[tuple[Built, Array] | None] = []
     for t in times:
-        paints, normals = [], []
+        paints, normals, fades = [], [], []
         for p in rolled:
             s = state(effect, p, t)
             if s is None or s.fade < 0.01 or s.scale <= 0:
@@ -187,22 +191,64 @@ def effect_strip(built: Built, pieces: dict[str, Built], frames: int = 8, size: 
             v = ((b.painted.vertices - b.origin()) @ s.rotation.T) * s.scale + s.position
             paints.append(replace(b.painted, vertices=v))
             normals.append(b.normals @ s.rotation.T)
+            fades.append(np.full(len(b.painted.faces), min(s.fade, 1.0)))
         if not paints:
             scenes.append(None)
             continue
         painted, merged = _merge(paints, normals, [], [])
-        scenes.append(replace(built, painted=painted, normals=merged, skin="none", tracks=[], joints=None, weights=None))
-    boxes = [s.bounds() for s in scenes if s is not None]
+        scene = replace(built, painted=painted, normals=merged, skin="none", tracks=[], joints=None, weights=None)
+        scenes.append((scene, np.concatenate(fades)))
+    boxes = [s.bounds() for s, _ in filter(None, scenes)]
     if not boxes:
         raise ValueError("no particle is alive at any frame")
     lo, hi = np.min([b[0] for b in boxes], axis=0), np.max([b[1] for b in boxes], axis=0)
+    if effect.floor is not None:
+        lo[1] = min(lo[1], effect.floor)
     fit = ((lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2 * 1.1)
-    blank = Image.new("RGBA", (size, size), TILE_BG)
+    spacing = _grid_spacing(fit[1])
     rows = []
     for label, view in (("3/4 front", View(30.0, 12.0)), ("from above", View(30.0, 55.0))):
-        rows.append((label, [(f"{t:.2f}s", render(s, view, size, fit=fit, background=TILE_BG) if s is not None else blank) for t, s in zip(times, scenes, strict=True)]))
+        tiles = []
+        for t, shown in zip(times, scenes, strict=True):
+            tile = Image.new("RGBA", (size, size), TILE_BG)
+            if effect.floor is not None:
+                _floor_grid(tile, view, fit, effect.floor, spacing)
+            if shown is not None:  # over the grid: both views look down on the floor, which nothing is ever under
+                tile.alpha_composite(render(shown[0], view, size, fit=fit, fade=shown[1]))
+            tiles.append((f"{t:g}s" if chosen else f"{t:.2f}s", tile))
+        rows.append((label, tiles))
     loop = "loops" if effect.loop else "plays once"
-    return sheet(f"{built.model.name} · effect", f"{len(rolled)} particles, {effect.duration:g} s, {loop}, seed {effect.seed}", rows)
+    floor = f", floor y = {effect.floor:g} (grid {spacing:g} m)" if effect.floor is not None else ""
+    return sheet(f"{built.model.name} · effect", f"{len(rolled)} particles, {effect.duration:g} s, {loop}, seed {effect.seed}{floor}", rows)
+
+
+def _grid_spacing(half: float) -> float:
+    """A round spacing (1, 2 or 5 x 10^n m) giving about eight grid cells across a view `half` metres wide."""
+    raw = 2 * half / 8
+    power = 10 ** math.floor(math.log10(raw))
+    return float(next(power * m for m in (1, 2, 5, 10) if power * m >= raw))
+
+
+def _floor_grid(tile: Image.Image, view: View, fit: tuple[Array, float], floor: float, spacing: float) -> None:
+    """Thin lines on the plane y = `floor` every `spacing` metres (world-aligned), under the same camera as `render`."""
+    centre, half = fit
+    right, up, _ = camera_basis(view)
+    scale = tile.width / (2 * half)
+    reach = 2 * half  # beyond the view in x and z, so the plane runs off the tile's edges
+    first = [math.floor((float(centre[i]) - reach) / spacing) for i in (0, 2)]
+    count = int(2 * reach / spacing) + 2
+
+    def screen(x: float, z: float) -> tuple[float, float]:
+        rel = np.array([x, floor, z]) - centre
+        return float(rel @ right * scale + tile.width / 2), float(tile.height / 2 - rel @ up * scale)
+
+    draw = ImageDraw.Draw(tile)
+    x0, x1 = first[0] * spacing, (first[0] + count) * spacing
+    z0, z1 = first[1] * spacing, (first[1] + count) * spacing
+    for k in range(count + 1):
+        x, z = (first[0] + k) * spacing, (first[1] + k) * spacing
+        draw.line([screen(x, z0), screen(x, z1)], fill=GRID, width=1)
+        draw.line([screen(x0, z), screen(x1, z)], fill=GRID, width=1)
 
 
 def lineup(builts: list[Built], height_px: int = 480) -> Image.Image:

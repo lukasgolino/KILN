@@ -24,6 +24,7 @@ from kiln.sdf import Array, rotation_matrix
 from kiln.style import Look
 
 SUPERSAMPLE = 2
+BAYER = (np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]) + 0.5) / 16  # ordered-dither thresholds
 
 
 @dataclass(frozen=True)
@@ -107,10 +108,13 @@ def render(
     fit: tuple[Array, float] | None = None,
     background: tuple[int, int, int, int] = (0, 0, 0, 0),
     hide: frozenset[str] = frozenset(),
+    fade: Array | None = None,
 ) -> Image.Image:
     """One view. `fit` = (centre, half-extent in metres) to frame several renders the same way; default: the
     model's own bounding sphere. `hide`: bones (part ids) left out, e.g. a detached helmet. `revealed` parts (stump caps)
-    are left out too, as in the exported scenes, unless a part that reveals them is hidden."""
+    are left out too, as in the exported scenes, unless a part that reveals them is hidden. `fade`: an opacity per face
+    (0..1), drawn as ordered (Bayer 4x4) dithering at the output's pixel scale: what's behind shows through the holes,
+    and outlines leave them alone."""
     hide = with_unrevealed(built, hide)
     look: Look = built.style.look
     swap = swap or {}
@@ -143,6 +147,7 @@ def render(
     best_depth = np.full(res * res, np.inf)
     best_tri = np.full(res * res, -1)
     best_bary = np.zeros((res * res, 3))
+    dropped = np.full(res * res, np.inf)  # nearest depth per pixel at which a faded face was dithered away
     chunk = 4_000_000
     start = 0
     while start < len(tri):
@@ -165,9 +170,13 @@ def render(
         l2 = 1 - l0 - l1
         inside = (l0 >= -1e-6) & (l1 >= -1e-6) & (l2 >= -1e-6)
         px, py, T, l0, l1, l2 = px[inside], py[inside], T[inside], l0[inside], l1[inside], l2[inside]
+        depth = l0 * sz[T, 0] + l1 * sz[T, 1] + l2 * sz[T, 2]
+        if fade is not None:
+            keep = BAYER[(py // SUPERSAMPLE) % 4, (px // SUPERSAMPLE) % 4] < fade[T]
+            np.minimum.at(dropped, py[~keep] * res + px[~keep], depth[~keep])
+            px, py, T, l0, l1, l2, depth = px[keep], py[keep], T[keep], l0[keep], l1[keep], l2[keep], depth[keep]
         if not len(px):  # nothing in this chunk covers a pixel centre (all off screen in a close framing)
             continue
-        depth = l0 * sz[T, 0] + l1 * sz[T, 1] + l2 * sz[T, 2]
         pix = py * res + px
         order = np.lexsort((depth, pix))
         pix, depth = pix[order], depth[order]
@@ -253,7 +262,7 @@ def render(
         rgba[hit, 3] = 1.0
     image = rgba.reshape(res, res, 4)
     if look.outline > 0:
-        image = _outline(image, best_depth.reshape(res, res), max(1, int(round(look.outline * scale))), look.outline_color)
+        image = _outline(image, best_depth.reshape(res, res), max(1, int(round(look.outline * scale))), look.outline_color, (dropped < best_depth).reshape(res, res))
     if glow.any():
         image = _bloom(image, glow.reshape(res, res, 3), max(1, int(res * 0.025)))
     out = Image.fromarray((image * 255 + 0.5).astype(np.uint8), "RGBA")
@@ -287,8 +296,9 @@ def _bloom(image: Array, glow: Array, radius: int) -> Array:
     return out
 
 
-def _outline(image: Array, depth: Array, width: int, hex_color: str) -> Array:
-    """Silhouette and depth-step edges, `width` pixels."""
+def _outline(image: Array, depth: Array, width: int, hex_color: str, dropped: Array | None = None) -> Array:
+    """Silhouette and depth-step edges, `width` pixels. None at or next to `dropped` pixels (dither holes): a faded
+    piece would otherwise be outlined around every hole."""
     solid = np.isfinite(depth)
     d = np.where(solid, depth, 1e9)
     edge = np.zeros_like(solid)
@@ -297,9 +307,12 @@ def _outline(image: Array, depth: Array, width: int, hex_color: str) -> Array:
         shifted = np.roll(np.roll(d, dy, axis=0), dx, axis=1)
         edge |= np.abs(shifted - d) > max(span * 0.04, 1e-6)
     edge &= solid | np.roll(solid, 1, axis=0) | np.roll(solid, -1, axis=0) | np.roll(solid, 1, axis=1) | np.roll(solid, -1, axis=1)
+    holes = dropped if dropped is not None else np.zeros_like(solid)
+    edge &= ~(holes | np.roll(holes, 1, 0) | np.roll(holes, -1, 0) | np.roll(holes, 1, 1) | np.roll(holes, -1, 1))
     grown = edge.copy()
     for _ in range(width - 1):
         grown = grown | np.roll(grown, 1, 0) | np.roll(grown, -1, 0) | np.roll(grown, 1, 1) | np.roll(grown, -1, 1)
+    grown &= ~holes
     out = image.copy()
     col = np.array([int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5)])
     out[grown, :3] = col
