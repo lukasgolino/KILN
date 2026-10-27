@@ -48,10 +48,33 @@ def test_mesh_distance_is_signed_and_exact_near_the_surface() -> None:
     centres = v[f].mean(axis=1)[:50]
     normals = np.cross(v[f[:50, 1]] - v[f[:50, 0]], v[f[:50, 2]] - v[f[:50, 0]])
     normals /= np.linalg.norm(normals, axis=1, keepdims=True)
-    assert np.allclose(md.distance(centres), 0, atol=1e-9)
+    assert (md.distance(centres) < 1e-9).all()  # on the surface, or buried in another piece (the ear)
+    assert np.isclose(md.distance(centres), 0, atol=1e-9).mean() > 0.9
     # (a face in a crease, or with another part of the head just behind it, may be nearer: most aren't)
     assert np.isclose(md.distance(centres + normals * 0.01), 0.01).mean() > 0.9
     assert np.isclose(md.distance(centres - normals * 0.005), -0.005).mean() > 0.9
+
+
+def _winding(p: np.ndarray, tri: np.ndarray) -> np.ndarray:
+    """Generalised winding number of the triangles around each point (Jacobson et al. 2013)."""
+    a, b, c = (tri[None, :, k] - p[:, None] for k in range(3))
+    la, lb, lc = (np.linalg.norm(x, axis=2) for x in (a, b, c))
+    num = (a * np.cross(b, c)).sum(2)
+    den = la * lb * lc + (a * b).sum(2) * lc + (b * c).sum(2) * la + (c * a).sum(2) * lb
+    return np.asarray(np.arctan2(num, den).sum(1) / (2 * np.pi))
+
+
+def test_mesh_distance_reads_inside_like_the_winding_number() -> None:
+    # #57: the head is eight pieces (ears, eyes, brows and nose partly sunk into it), and a point inside the head
+    # but outside a sunk piece, or deep inside it (beyond the grid's reach), is still inside
+    v, f = read_surface(KAYKIT / "Knight.glb", ("Knight_Head",))
+    md = MeshDistance.build(v, f)
+    assert md.piece.max() == 7
+    p = np.random.default_rng(0).uniform(v.min(axis=0) - 0.1, v.max(axis=0) + 0.1, (1000, 3))
+    d = md.distance(p)
+    assert ((d < 0) == (_winding(p, v[f]) > 0.5)).all()
+    near = np.abs(d) < 0.03
+    assert 50 < near.sum() < 900  # (some near the surface, where the distance is exact, and some far)
 
 
 def test_helmet_fitted_to_the_knights_head(knight: Project) -> None:
@@ -63,7 +86,6 @@ def test_helmet_fitted_to_the_knights_head(knight: Project) -> None:
     assert depth.max() < 0.055 + 2 * built.step  # hugging the head: within the gap plus the wall
 
 
-@pytest.mark.xfail(reason="#57: a wall also forms inside the head, around its inner pieces", strict=True)
 def test_helmet_fitted_to_the_knights_head_stays_out_of_it(knight: Project) -> None:
     built = built_of(knight, HELM)
     p = built.painted
