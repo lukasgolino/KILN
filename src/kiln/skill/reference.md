@@ -333,6 +333,9 @@ character without it.
 A burst (an explosion's debris, sparks, puffs of smoke) as other models thrown out over time. KILN doesn't play
 effects: `kiln build` writes `models/<name>.effect.json` (manifest `effect`) with every particle already rolled from
 the seed, so an engine-side player shows exactly what `kiln preview <model> --effect` shows.
+The preview plays it in 8 evenly spaced frames; `--at 0,0.1,0.25,0.5,1` (seconds) gives a contact sheet at those
+times instead (tune particle sizes there). Each piece's `fade` is drawn as ordered dithering (a reversed envelope shows
+as pieces that appear instead of vanish) and a `floor` as a thin grid.
 
 ```yaml
 effect:
@@ -349,7 +352,7 @@ effect:
       spin: [-90, 90]        # degrees/s about a random axis
       scale: { 0: 0.2, 0.2: 1, 1: 0 }   # over life (0..1), linear between keys; or one number
       heat: { 0: 1, 1: 0 }   # for the game's shader (e.g. into the attr it reads)
-      fade: { 0.8: 1, 1: 0 } # opacity for the game; previews only hide gone pieces
+      fade: { 0.8: 1, 1: 0 } # opacity for the game (1 = solid); previews dither it
       bounce: 0.3            # with a floor: vertical speed kept at a hit (0 = stops dead); friction: 0.6 (horizontal)
       settle: true           # with a floor: rest once slower than 0.2 m/s on it (no motion, no spin)
   floor: 0                   # optional: a height (effect frame) debris bounces on and settles on, instead of falling through
@@ -486,7 +489,7 @@ Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`.
 ## Commands
 
 `kiln init [dir] --style soft_toy` · `kiln new model <name> --template bean|prop|empty --class C` ·
-`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--detach] [--fit] [--effect] [--engine] [--variant V]` ·
+`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--detach] [--fit] [--effect [--at T,T,...]] [--engine] [--variant V]` ·
 `kiln lineup [models]` · `kiln gallery` · `kiln build [models] [--verify-godot]` (named models only: the others keep their last output) · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
 `kiln config show|get|set` · `kiln import <file> --licence L` · `kiln credits` · `kiln doctor` ·

@@ -271,15 +271,19 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
         variant: str | None = None,
         reference: str | None = None,
         ref_height: float | None = None,
+        at: list[float] | None = None,
     ) -> list[Any]:
         """Render a preview sheet and return it as an image: turntable (8 sides x 3 heights), closeup on a part, an
         animation's frames (pose), the model beside the style's inspiration images (vs), each separate part taken off
-        (detach), the model's effect: block played out over time (effect), or Godot's own render (engine). vs with `reference` (a .glb/.gltf in the project, e.g. imports/x.glb;
+        (detach), the model's effect: block played out over time (effect; `at`: seconds for a contact sheet at those times
+        instead of 8 evenly spaced frames), or Godot's own render (engine). vs with `reference` (a .glb/.gltf in the project, e.g. imports/x.glb;
         `ref_height` metres to scale it): the model against it at one scale, with metrics in `compare` (silhouette IoU
         over 8 views, triangles and ratio, surfaces, materials, colours, facet regularity, open edges)."""
         argv = ["preview", model]
         if (reference or ref_height is not None) and which != "vs":
             return [{"ok": False, "findings": [{"rule": "E000", "message": "reference and ref_height go with which='vs'"}]}]
+        if at is not None and which != "effect":
+            return [{"ok": False, "findings": [{"rule": "E000", "message": "at goes with which='effect'"}]}]
         if which == "closeup":
             if not part:
                 return [{"ok": False, "findings": [{"rule": "E000", "message": "closeup needs part"}]}]
@@ -302,6 +306,8 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
             argv += ["--detach"]
         elif which == "effect":
             argv += ["--effect"]
+            if at is not None:
+                argv += ["--at=" + ",".join(repr(float(t)) for t in at)]
         elif which == "engine":
             if not kiln.allow_godot:
                 return [{"ok": False, "findings": [{"rule": "E000", "message": "engine previews need the server started with --allow-godot"}]}]

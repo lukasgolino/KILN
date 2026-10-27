@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -237,6 +238,17 @@ def _built(project: Project, name: str) -> Any:
         raise PaganError([Finding("E009", str(exc), path)]) from None
 
 
+def _times(text: str) -> list[float]:
+    """`--at 0,0.1,0.25`: effect times in seconds."""
+    try:
+        times = [float(t) for t in text.split(",")]
+    except ValueError:
+        times = []
+    if not times or not all(math.isfinite(t) and t >= 0 for t in times):
+        raise _usage(f"--at takes times in seconds (>= 0) separated by commas, e.g. 0,0.1,0.25,0.5,1 (got {text!r})")
+    return times
+
+
 def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     from kiln import preview as pv
 
@@ -252,6 +264,8 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     wanted_any = args.closeup or args.pose or args.vs is not None or args.engine or args.detach or args.fit or args.effect
     if args.ref_height is not None and not args.vs:
         raise _usage("--ref-height goes with --vs <ref.glb>")
+    if args.at is not None and not args.effect:
+        raise _usage("--at goes with --effect")
     if args.turntable or not wanted_any:
         path = folder / (f"turntable.{args.variant}.png" if args.variant else "turntable.png")
         pv.turntable(built, swap=swap).save(path)
@@ -290,7 +304,10 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
             raise _usage(f"{name} has no effect: block")
         pieces = {e.model: built if e.model == name else _built(project, e.model) for e in effect.emitters}
         path = folder / "effect.png"
-        pv.effect_strip(built, pieces).save(path)
+        try:
+            pv.effect_strip(built, pieces, times=_times(args.at) if args.at is not None else None).save(path)
+        except ValueError as exc:
+            raise _usage(f"{name} effect: {exc}") from None
         outputs["effect"] = display_path(path)
     metrics: dict[str, Any] | None = None
     if args.vs:
@@ -701,6 +718,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--detach", action="store_true", help="each separate part taken off: what's left, and what it covered")
     s.add_argument("--fit", action="store_true", help="an attachment (fit_to) on its character, and the character without it")
     s.add_argument("--effect", action="store_true", help="the model's effect: block played out (its emitted models over time)")
+    s.add_argument("--at", metavar="T,T,...", help="with --effect: a contact sheet at these times (seconds) instead of 8 evenly spaced frames")
     s.add_argument("--engine", action="store_true", help="render through Godot (needs a display and a build)")
     s.add_argument("--variant")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")
