@@ -6,6 +6,29 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-27
+
+Issues #31, #57, #60 and #61: effect previews show fade, the floor and chosen times; fitted shells no longer grow walls
+inside their target; two E013 (non-manifold) failures fixed.
+
+### Added
+
+- `kiln preview <model> --effect --at 0,0.1,0.25,0.5,1` (seconds) gives a contact sheet at those times instead of 8
+  evenly spaced frames (MCP `preview`: `at`, with `which='effect'`). Effect previews draw each piece's `fade` as ordered
+  dithering, and an effect with a `floor` gets the plane drawn as a thin grid (#31). Built output is unchanged.
+
+### Fixed
+
+- Two hard parts (a sphere and an aimed cone, a flared cone through a chamfered box) no longer fail E013 with two
+  zero-area faces back to back: points the CSG leaves a hair off an edge two flat patches share now count as straight
+  in both patches (#60). Hard-part meshes can change where this happened.
+- Smooth models with blended parts of different colours no longer fail E013 with crowded edges at a colour border:
+  vertices the simplifier puts exactly onto a border vertex are joined before projecting and relaxing (#61). Smooth
+  meshes can change where this happened.
+- Shells fitted to a CC0 mesh (`fit_to`, `fit: target`) no longer grow walls inside the target around its inner
+  pieces: the target's distance is signed per connected piece (angle-weighted pseudo-normals, min over pieces) and
+  points enclosed by a piece read inside (#57). Such shells change; cached ones rebuild.
+
 ## [0.10.1] - 2026-10-26
 
 ### Fixed
@@ -371,7 +394,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/lukasgolino/KILN/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/lukasgolino/KILN/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/lukasgolino/KILN/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/lukasgolino/KILN/compare/v0.8.0...v0.9.0
