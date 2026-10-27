@@ -11,7 +11,7 @@ from conftest import built_of, closed_faces, errors_of, ok_model, signed_volume
 from kiln.builder import build_model, hard_parts
 from kiln.export import to_glb
 from kiln.hard import HardSpec, bevelled, intersect, solid, subtract, to_mesh, union
-from kiln.hard import _planes_box
+from kiln.hard import _planes_box, _simple_loops
 from kiln.lint import geometry_warnings
 from kiln.mesher import open_edges, pinches
 from kiln.project import Project, load_project
@@ -348,3 +348,48 @@ def test_shared_edges_of_flat_patches_get_no_sliver_pairs(project: Project, text
     assert len(crowded) == 0 and len(pinched) == 0
     assert len(open_edges(p.vertices, p.faces)) == 0
     assert not [f for f in geometry_warnings(built, {}, project) if f.rule == "E013"]
+
+
+# #67: a CSG sliver thinner than WELD between interlocked links had a corner on its own opposite edge; splitting that
+# edge there folded its outline over itself and fanning it gave two faces back to back (four on one edge, E013)
+CHAIN = """\
+name: thing
+class: prop
+style: low_poly
+lint: {disable: [W106, W110]}
+parts:
+  - torus: {at: [0.0013, 0.140, -0.0001], radius: 0.052, thickness: 0.015, rotate: [90, -5.65, 0], sides: 8}
+    color: '#808080'
+    hard: true
+  - torus: {at: [-0.0006, 0.218, 0.0025], radius: 0.052, thickness: 0.015, rotate: [90, -4.63, 90], sides: 8}
+    color: '#808080'
+    hard: true
+  - torus: {at: [-0.0017, 0.296, 0.0002], radius: 0.052, thickness: 0.015, rotate: [90, -9.6, 0], sides: 8}
+    color: '#808080'
+    hard: true
+  - torus: {at: [0.002, 0.374, -0.0014], radius: 0.052, thickness: 0.015, rotate: [90, -5.94, 90], sides: 8}
+    color: '#808080'
+    hard: true
+  - torus: {at: [0.002, 0.452, 0.0018], radius: 0.052, thickness: 0.015, rotate: [90, -10.6, 0], sides: 8}
+    color: '#808080'
+    hard: true
+  - torus: {at: [-0.002, 0.530, -0.0013], radius: 0.052, thickness: 0.015, rotate: [90, -9.6, 90], sides: 8}
+    color: '#808080'
+    hard: true
+"""
+
+
+def test_interlocked_links_leave_no_folded_slivers(project: Project) -> None:
+    built = built_of(project, CHAIN)
+    p = built.painted
+    crowded, pinched = pinches(p.vertices, p.faces)
+    assert len(crowded) == 0 and len(pinched) == 0
+    assert len(open_edges(p.vertices, p.faces)) == 0
+    assert not [f for f in geometry_warnings(built, {}, project) if f.rule == "E013"]
+
+
+def test_outlines_split_where_they_visit_a_point_twice() -> None:
+    assert _simple_loops([1, 2, 3, 4]) == [[1, 2, 3, 4]]
+    assert _simple_loops([5, 6, 5, 7]) == []  # a sliver folded onto one edge: no area
+    assert _simple_loops([1, 2, 3, 1, 4, 5]) == [[1, 2, 3], [1, 4, 5]]
+    assert _simple_loops([1, 2]) == []
