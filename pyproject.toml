@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kiln"
-version = "0.10.1"
+version = "0.11.0"
 description = "KILN (Keyed Implicit Language & Notation): write smooth stylised 3D models as text, build them into game-ready glTF."
 readme = "README.md"
 license = "MIT"
