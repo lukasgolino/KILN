@@ -575,7 +575,10 @@ def decimate_regions(
         src, out = source[kept][order], mapping[kept][order]
         first = np.r_[True, src[1:] != src[:-1]]
         weld[out] = out[np.flatnonzero(first)[np.cumsum(first) - 1]]
-    f, face_region = drop_twins(weld[f], face_region)
+    # the simplifier can also put a vertex exactly onto a locked border vertex next to it: join those now, while
+    # they're at one place (moving one first, as projecting and relaxing do, would leave slivers, and the vertices
+    # still at one place no longer joined by an edge: crowded edges, #61)
+    f, face_region = drop_twins(*merge_coincident(v, weld[f], face_region))
     used, inverse = np.unique(f, return_inverse=True)
     v, f, face_region = unpinch(v[used], inverse.reshape(-1, 3).astype(np.int64), face_region)
     # borders (vertices shared by faces of two regions) stay exactly where they are; other vertices belong to one

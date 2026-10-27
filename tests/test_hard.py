@@ -13,7 +13,7 @@ from kiln.export import to_glb
 from kiln.hard import HardSpec, bevelled, intersect, solid, subtract, to_mesh, union
 from kiln.hard import _planes_box
 from kiln.lint import geometry_warnings
-from kiln.mesher import open_edges
+from kiln.mesher import open_edges, pinches
 from kiln.project import Project, load_project
 from kiln.sdf import Geometry, cylinder
 
@@ -304,3 +304,47 @@ parts:
     built = built_of(project, text)
     assert len(open_edges(built.painted.vertices, built.painted.faces)) == 0
     assert built.pieces == 1
+
+
+# #60: points the CSG leaves a hair (1e-10 m) off an edge two flat patches share were corners on both sides, so each
+# patch cut the same zero-area ear: two faces back to back on a chord (an edge with four faces, E013)
+SLIVER_MODELS = [
+    """\
+name: thing
+class: prop
+style: low_poly
+parts:
+  - sphere: {at: [0.215, 1.445, 0], radius: 0.092, sides: 8}
+    color: '#c8b48c'
+  - cone: {aim: [[0.215, 1.455, 0], [0.245, 1.165, 0.0]], radius: 0.085, radius_top: 0.07, sides: 8}
+    color: '#c8b48c'
+lint: {disable: [W106]}
+""",
+    """\
+name: thing
+class: prop
+style: low_poly
+parts:
+  - cone: {radius: 0.03, radius_top: 0.035, height: 0.7335, sides: 6}
+    color: "#5a4030"
+    aim: [[0.0, -0.3, 0.13], [0.0, 0.42, 0.27]]
+  - cone: {radius: 0.05, radius_top: 0.065, height: 0.14, sides: 6}
+    color: "#202020"
+    aim: [[0, 0.36, 0.26], [0, 0.5, 0.285]]
+  - ellipsoid: {at: [0, 0.52, 0.29], radii: [0.06, 0.035, 0.06], sides: 6}
+    color: "#ff8020"
+lint: {disable: [W106]}
+""",
+]
+
+
+@pytest.mark.parametrize("text", SLIVER_MODELS, ids=["sphere_cone", "cones_ellipsoid"])
+def test_shared_edges_of_flat_patches_get_no_sliver_pairs(project: Project, text: str) -> None:
+    model, style = ok_model(project, text)
+    assert style.hard_surface == "always"
+    built = built_of(project, text)
+    p = built.painted
+    crowded, pinched = pinches(p.vertices, p.faces)
+    assert len(crowded) == 0 and len(pinched) == 0
+    assert len(open_edges(p.vertices, p.faces)) == 0
+    assert not [f for f in geometry_warnings(built, {}, project) if f.rule == "E013"]

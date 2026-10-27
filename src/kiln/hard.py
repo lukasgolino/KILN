@@ -1074,16 +1074,22 @@ def _outline_points(tris: list[list[int]], v: list[list[float]], normal: Array) 
         pts = {x for t in tris for x in t}
         return set(), pts
     prev = {b: a for a, b in boundary.items()}
-    pts2 = _project2(normal, v, set(boundary))
-    scale = max((max(abs(c) for c in p) for p in pts2.values()), default=1.0) or 1.0
-    eps = 1e-12 * scale * scale
     straight: set[int] = set()
     corners: set[int] = set()
     for b, c in boundary.items():
-        a = prev[b]
-        cr = (pts2[b][0] - pts2[a][0]) * (pts2[c][1] - pts2[a][1]) - (pts2[b][1] - pts2[a][1]) * (pts2[c][0] - pts2[a][0])
-        (straight if abs(cr) <= eps else corners).add(b)
+        (straight if _in_line(v, prev[b], b, c) else corners).add(b)
     return straight, corners
+
+
+def _in_line(v: list[list[float]], a: int, b: int, c: int) -> bool:
+    """Is point b within WELD of the line through a and c? The same test in every patch sharing the three points
+    (a test in each patch's own projection, or one tighter than the weld, can call a point the CSG left a hair off a
+    shared edge a corner on both sides: each side then cuts the same zero-area ear, two faces back to back, #60)."""
+    pa, pb, pc = v[a], v[b], v[c]
+    d = (pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2])
+    e = (pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2])
+    cr = _cross(d, e)
+    return _dot(cr, cr) <= WELD * WELD * max(_dot(d, d), 1e-24)
 
 
 def _retriangulate(tris: list[list[int]], v: list[list[float]], normal: Array, keep_point: set[int]) -> list[list[int]] | None:
@@ -1115,7 +1121,7 @@ def _retriangulate(tris: list[list[int]], v: list[list[float]], normal: Array, k
             left.discard(nxt)
         # points in a line go (all at once: taking them one by one would decide differently in each patch), unless
         # some patch needs them
-        straight = {loop[k] for k in range(len(loop)) if abs(cross(loop[k - 1], loop[k], loop[(k + 1) % len(loop)])) <= eps}
+        straight = {loop[k] for k in range(len(loop)) if _in_line(v, loop[k - 1], loop[k], loop[(k + 1) % len(loop)])}
         loop = [x for x in loop if x in keep_point or x not in straight]
         if len(loop) < 3:
             return None
@@ -1177,7 +1183,7 @@ def _retriangulate(tris: list[list[int]], v: list[list[float]], normal: Array, k
         guard += 1
         for k in range(len(ring)):
             a, b, c = ring[k - 1], ring[k], ring[(k + 1) % len(ring)]
-            if a == c or cross(a, b, c) <= eps:
+            if a == c or cross(a, b, c) <= eps or _in_line(v, a, b, c):
                 continue
             if any(p not in (a, b, c) and cross(a, b, p) >= -eps and cross(b, c, p) >= -eps and cross(c, a, p) >= -eps for p in ring):
                 continue
@@ -1187,7 +1193,7 @@ def _retriangulate(tris: list[list[int]], v: list[list[float]], normal: Array, k
         else:
             return None
     if len(ring) == 3:
-        if cross(ring[0], ring[1], ring[2]) <= eps:
+        if cross(ring[0], ring[1], ring[2]) <= eps or _in_line(v, ring[0], ring[1], ring[2]):
             return None
         out.append(list(ring))
     return out
