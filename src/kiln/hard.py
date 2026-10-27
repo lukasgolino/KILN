@@ -557,6 +557,61 @@ def inset_limits(pts: list[tuple[float, float]]) -> list[float]:
     return out
 
 
+def _segment_gaps(a: Array, b: Array) -> Array:
+    """Distances between every pair of segments a[i]-b[i] and a[j]-b[j] (0 where they cross)."""
+
+    def orient(p: Array, q: Array, r: Array) -> Array:
+        return np.asarray((q[..., 0] - p[..., 0]) * (r[..., 1] - p[..., 1]) - (q[..., 1] - p[..., 1]) * (r[..., 0] - p[..., 0]), float)
+
+    def to_segment(p: Array, s0: Array, s1: Array) -> Array:
+        e = s1 - s0
+        t = np.clip(((p - s0) * e).sum(axis=-1) / np.maximum((e * e).sum(axis=-1), 1e-300), 0.0, 1.0)
+        return np.asarray(np.linalg.norm(p - (s0 + t[..., None] * e), axis=-1))
+
+    p, q, r, s = a[:, None], b[:, None], a[None, :], b[None, :]
+    d1, d2, d3, d4 = orient(r, s, p), orient(r, s, q), orient(p, q, r), orient(p, q, s)
+    cross = ((d1 > 0) != (d2 > 0)) & ((d3 > 0) != (d4 > 0))
+    gap = np.minimum(np.minimum(to_segment(p, r, s), to_segment(q, r, s)), np.minimum(to_segment(r, p, q), to_segment(s, p, q)))
+    return np.where(cross, 0.0, gap)
+
+
+def _folds(pts: list[tuple[float, float]], moved: list[tuple[float, float]]) -> list[set[int]]:
+    """Where an inset outline folds over itself, as groups of vertices: the ends of an edge that turned around, or
+    of two non-neighbouring edges that cross or come within WELD of each other (and weren't that close before)."""
+    k = len(pts)
+    a0, a = np.asarray(pts, float), np.asarray(moved, float)
+    b0, b = np.roll(a0, -1, axis=0), np.roll(a, -1, axis=0)
+    turned = (((b - a) * (b0 - a0)).sum(axis=1) <= 0) & (((b0 - a0) ** 2).sum(axis=1) > 0)
+    groups = [{int(u), (int(u) + 1) % k} for u in np.flatnonzero(turned)]
+    near = (_segment_gaps(a, b) < WELD) & (_segment_gaps(a0, b0) >= WELD)
+    for u, w in zip(*(x.tolist() for x in np.nonzero(np.triu(near, 2))), strict=True):
+        if (w + 1) % k != u:  # not the closing pair of neighbours
+            groups.append({u, (u + 1) % k, w, (w + 1) % k})
+    return groups
+
+
+def _unfolded(pts: list[tuple[float, float]], each: list[float]) -> list[float]:
+    """Per-vertex insets lowered where the inset outline would still fold. The limits of `inset_limits` hold for one
+    vertex moving against still edges; neighbours clamped to different depths can still sweep their edges across
+    each other (thin joins, where a glyph's overlapping contours were united), and two sides of a bar can meet. The
+    vertices of each fold take the smallest inset among them (halved once they agree), until the outline is clean;
+    vertices away from folds keep theirs, and outlines that don't fold are unchanged."""
+    each = list(each)
+    for _ in range(64):
+        groups = _folds(pts, _offset_outline(pts, each))
+        if not groups:
+            return each
+        for group in groups:
+            low = min(each[v] for v in group)
+            agree = all(math.isclose(each[v], low, rel_tol=1e-12, abs_tol=1e-15) for v in group)
+            for v in group:
+                each[v] = low / 2 if agree else low
+    for group in _folds(pts, _offset_outline(pts, each)):
+        for v in group:
+            each[v] = 0.0
+    return each
+
+
 def _offset_outline(pts: list[tuple[float, float]], d: float | Sequence[float]) -> list[tuple[float, float]]:
     """A counter-clockwise outline moved inwards by d (mitred corners); d may be one value per vertex."""
     out = []
@@ -612,7 +667,7 @@ def _extrude_polys(points: Sequence[Sequence[float]], height: float, bevel: floa
     if area < 0:
         uv.reverse()
     if offset:  # a shrink is clamped like a bevel's inset: thin sections stay (thinner) instead of folding over
-        uv = _offset_outline(uv, [min(-offset, lim) for lim in inset_limits(uv)] if offset < 0 else -offset)
+        uv = _offset_outline(uv, _unfolded(uv, [min(-offset, lim) for lim in inset_limits(uv)]) if offset < 0 else -offset)
     h = height / 2
     # rings from the bottom cap up to the top cap: (inset, y)
     rings: list[tuple[float, float]] = []
@@ -627,6 +682,15 @@ def _extrude_polys(points: Sequence[Sequence[float]], height: float, bevel: floa
     # Thin sections (font serifs, hairlines) can't take the full bevel: each vertex insets at most its own limit, so
     # the bevel flattens there instead of the outline folding over itself (cracks).
     limits = inset_limits(uv) if bevel > 0 else []
+    for _ in range(64):  # every ring clean (smaller rings use the same per-vertex limits, so the bands don't cross)
+        lowered = False
+        for inset in sorted({inset for inset, _ in rings if inset}):
+            wanted = [min(inset, lim) for lim in limits]
+            for v, got in enumerate(_unfolded(uv, wanted)):
+                if got < wanted[v]:
+                    limits[v], lowered = got, True
+        if not lowered:
+            break
     insets = [[min(inset, lim) for lim in limits] if inset else [0.0] * len(uv) for inset, _ in rings]
     outlines = [[(x, y, z) for z, x in (_offset_outline(uv, each) if any(each) else uv)] for each, (_, y) in zip(insets, rings, strict=True)]
     polys: list[list[Point]] = []
