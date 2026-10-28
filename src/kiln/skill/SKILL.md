@@ -106,6 +106,9 @@ Write the answers into BRIEF.md and STYLE.md.
 - `kiln preview <name> --engine` renders through Godot itself (needs a display): use it to confirm the look.
 - `manifest.json` lists every model: glb, scene, size and bounds in metres, triangles, parts (pivot, parent, meta),
   animations (Godot names, loop, fps), variants, LODs, licences. That's the contract with game code.
+- Not Godot: `export = ["glb"]`; the per-engine notes (Unity, Unreal, Bevy, three.js, Defold) are in KILN's
+  `docs/engines.md` (https://github.com/lukasgolino/KILN/blob/main/docs/engines.md). Outside Godot `atlas = true` is
+  usually the best colour mode; look kits, toon, outlines and rim light are Godot-only.
 
 ## 5. Styles and inspirations
 
