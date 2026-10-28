@@ -129,7 +129,7 @@ def model_entry(built: Built, out: Path, glb: Path, merged: bool = False) -> dic
         "colors": sorted({g.color for g in built.painted.groups}),
     }
     if m.source is not None:
-        entry["source"] = {"file": m.source.file.name, "licence": m.source.licence, "author": m.source.author, "url": m.source.url}
+        entry["source"] = {"file": (m.source.original or m.source.file).name, "licence": m.source.licence, "author": m.source.author, "url": m.source.url}
     if m.animation_library is not None:  # its clips are in the carrier's glb (Godot: an AnimationLibrary)
         entry["animation_library"] = {"model": m.animation_library, "glb": f"models/{m.animation_library}.glb"}
     if m.animations_only:

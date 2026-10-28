@@ -588,18 +588,26 @@ def cmd_config(args: argparse.Namespace, out: Output) -> int:
 def cmd_import(args: argparse.Namespace, out: Output) -> int:
     project = _require_project()
     src = Path(args.file).resolve()
-    if not src.is_file() or src.suffix.lower() not in (".glb", ".gltf"):
-        raise _usage(f"{args.file}: need a .glb or .gltf file")
+    if not src.is_file() or src.suffix.lower() not in (".glb", ".gltf", ".fbx", ".blend", ".obj"):
+        raise _usage(f"{args.file}: need a .glb or .gltf file (or .fbx/.blend/.obj with Blender 4.x)")
     name = args.name or re.sub(r"[^a-z0-9_-]+", "_", src.stem.lower()).strip("_")
     if not NAME_RE.match(name):
         raise _usage("give the model a name: --name tree_big")
     dest_dir = project.root / "imports"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / src.name
-    missing = missing_files(src)
-    if missing:
+    from kiln.blender import BlenderError, converted, needs_blender
+
+    if needs_blender(src):  # converted once into imports/<stem>.glb: the project then builds without Blender
+        try:
+            glb = converted(src, project.root / ".kiln-cache")
+        except BlenderError as exc:
+            raise _usage(str(exc), src) from exc
+        dest = dest_dir / f"{src.stem}.glb"
+        shutil.copyfile(glb, dest)
+    elif missing := missing_files(src):
         raise _usage(f"{args.file} refers to {', '.join(missing)}, which isn't next to it: import from the pack's own folder")
-    if src != dest:
+    elif src != dest:
         shutil.copy2(src, dest)
         for uri in external_files(src):  # buffers and textures, keeping their relative paths (Textures/...)
             (dest_dir / uri).parent.mkdir(parents=True, exist_ok=True)
@@ -615,7 +623,7 @@ def cmd_import(args: argparse.Namespace, out: Output) -> int:
         "status: draft",
         f"style_version: {project.config.style_version}",
         "source:",
-        f"  file: imports/{src.name}",
+        f"  file: imports/{dest.name}",
         f"  licence: {args.licence}",
         f"  author: {json.dumps(args.author or '')}",
         f"  url: {json.dumps(args.url or '')}",
@@ -637,9 +645,10 @@ def cmd_credits(args: argparse.Namespace, out: Output) -> int:
     for path in project.model_paths():
         model, _, _ = project.load(path)
         if model is not None and model.source is not None:
-            rows.append({"model": model.name, "file": model.source.file.name, "licence": model.source.licence,
+            credited = model.source.original or model.source.file
+            rows.append({"model": model.name, "file": credited.name, "licence": model.source.licence,
                          "author": model.source.author, "url": model.source.url})  # fmt: skip
-            out.say(f"{model.name}: {model.source.file.name} by {model.source.author or '?'} ({model.source.licence}) {model.source.url}")
+            out.say(f"{model.name}: {credited.name} by {model.source.author or '?'} ({model.source.licence}) {model.source.url}")
     if not rows:
         out.say("no imported models: everything was made in KILN")
     out.result({"credits": rows})
@@ -651,9 +660,14 @@ def cmd_doctor(args: argparse.Namespace, out: Output) -> int:
 
     godot = find_godot_binary()
     display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY") or sys.platform in ("win32", "darwin"))
-    info = {"kiln": __version__, "python": sys.version.split()[0], "godot": godot, "display": display}
+    from kiln.blender import blender_version, find_blender
+
+    blender = find_blender()
+    blender_ver = blender_version(blender) if blender else None
+    info = {"kiln": __version__, "python": sys.version.split()[0], "godot": godot, "display": display, "blender": blender, "blender_version": blender_ver}
     out.say(f"kiln {__version__}, Python {info['python']}")
     out.say(f"Godot: {godot or 'not found (set GODOT=/path/to/godot for --verify-godot and --engine)'}")
+    out.say(f"Blender: {f'{blender} ({blender_ver})' if blender_ver else 'not found (set BLENDER=/path/to/blender, 4.x, for .fbx/.blend/.obj imports)'}")
     out.say(f"display: {'yes' if display else 'no (preview --engine needs one; the built-in renderer does not)'}")
     out.result(info)
     return 0
