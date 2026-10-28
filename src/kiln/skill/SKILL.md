@@ -78,6 +78,9 @@ Write the answers into BRIEF.md and STYLE.md.
 - **Animations:** explicit `poses` (one per frame, per part: offset/rotate/scale) or a `cycle` that writes the
   poses for you: walk, waddle, hop, bob, spin, swing, breathe, wave, chain (reference.md). Both together: the cycle
   moves everything, and parts named in the poses follow the poses (walking while carrying).
+- **CC0 clip libraries:** a `skeleton: humanoid` character plays imported clips
+  (`walk: { import: imports/clips.glb, clip: Walking_A }`); any other skeleton (quadrupeds, birds) plays them through
+  `skeleton: { map: { <part id>: <clip joint>, ... }, root_motion: <clip joint> }` (reference.md, "Clips on any skeleton").
 - **Cloth and flags:** split them into 3-4 segments along their length, each its own id parented to the previous one
   (pivots on the seams), crisp seams (`blend: 0`), `skin: soft`, and animate with `cycle: { type: chain, parts: [...] }`. Check every animation with
   `kiln preview <name> --pose <animation>`: the filmstrip shows each frame from the front and the side.

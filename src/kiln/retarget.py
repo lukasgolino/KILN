@@ -1,5 +1,6 @@
 """Standard humanoid skeleton and animation retargeting: play CC0 clip libraries (KayKit Character Animations,
-Rig_Medium; anything with the same joint names) on KILN characters.
+Rig_Medium; anything with the same joint names) on KILN characters, and any other skeleton through a joint map
+(`skeleton: { map: ... }`: quadrupeds, birds).
 
 A humanoid model names its parts after the standard joints (`hips`, `upperarm_l`, ...). An imported clip is
 sampled frame by frame; every joint's change from the clip's own rest pose (in world space) is applied to the KILN
@@ -48,6 +49,20 @@ REQUIRED = tuple(row[0] for row in HUMANOID)
 CHILD = {"hips": "spine", "spine": "chest", "chest": "head", "upperarm_l": "lowerarm_l", "lowerarm_l": "hand_l",
          "upperarm_r": "lowerarm_r", "lowerarm_r": "hand_r", "upperleg_l": "lowerleg_l", "lowerleg_l": "foot_l",
          "upperleg_r": "lowerleg_r", "lowerleg_r": "foot_r", "foot_l": "toes_l", "foot_r": "toes_r"}  # fmt: skip
+
+
+@dataclass(frozen=True)
+class JointMap:
+    """Which clip joint drives which KILN bone. `joints`: KILN bone -> clip joint; `child`: KILN bone -> the KILN bone
+    whose direction aims it (onto the clip's direction between the two joints); `root_motion`: the clip joint whose
+    movement moves the model (None: rotations only)."""
+
+    joints: dict[str, str]
+    child: dict[str, str]
+    root_motion: str | None = None
+
+
+HUMANOID_MAP = JointMap({kid: row[2] for kid, row in JOINTS.items()}, CHILD, "hips")
 
 
 # --- quaternions (x, y, z, w) -------------------------------------------------------------------------------
@@ -176,6 +191,12 @@ def clip_names(path: Path) -> list[str]:
     return [str(a.get("name", f"animation{i}")) for i, a in enumerate(doc.get("animations", []))]
 
 
+def joint_names(path: Path) -> list[str]:
+    """Every node's name in a clip file (its joints, and whatever else it holds)."""
+    doc, _ = _document(path, path.stat().st_mtime)
+    return [str(n.get("name", "")) for n in doc.get("nodes", [])]
+
+
 def load_clip(path: Path, name: str) -> Clip:
     doc, binary = _document(path, path.stat().st_mtime)
     nodes = doc["nodes"]
@@ -213,26 +234,46 @@ def _per_bone(values: dict[str, Any], name: str) -> Any:
     return values.get(name[:-2]) if name.endswith(("_l", "_r")) else None
 
 
+def mover(joints: JointMap, clip: Clip) -> tuple[str, int] | None:
+    """The KILN bone the root motion moves (and the clip joint mapped to it): the bone mapped to the `root_motion`
+    joint, else the one mapped to its nearest mapped descendant in the clip (breadth first); None without one."""
+    if joints.root_motion is None or joints.root_motion not in clip.names:
+        return None
+    by_joint: dict[str, str] = {}
+    for kid, name in joints.joints.items():
+        by_joint.setdefault(name, kid)
+    queue = [clip.index(joints.root_motion)]
+    while queue:
+        node = queue.pop(0)
+        if clip.names[node] in by_joint:
+            return by_joint[clip.names[node]], node
+        queue.extend(i for i, p in enumerate(clip.parent) if p == node)
+    return None
+
+
 def retarget(clip: Clip, bones: list[tuple[str, int, Array]], fps: float, speed: float = 1.0,
-             keep: dict[str, float] | None = None, offset: dict[str, Array] | None = None) -> tuple[Array, Array]:  # fmt: skip
+             keep: dict[str, float] | None = None, offset: dict[str, Array] | None = None,
+             joints: JointMap = HUMANOID_MAP) -> tuple[Array, Array]:  # fmt: skip
     """(translation, rotation) per frame and bone for KILN bones (name, parent index, rest pivot), root first,
-    parents before children. Bones that aren't humanoid joints (or have no joint in the clip) follow their parent.
-    `keep` scales a joint's turn away from its rest (by joint or base name; children follow), `offset` adds a fixed
-    turn (a quaternion, model axes) to it: clips made for another body type."""
+    parents before children. Bones that aren't in the joint map (humanoid joints by default; or have no joint in the
+    clip) follow their parent. `keep` scales a joint's turn away from its rest (by joint or base name; children
+    follow), `offset` adds a fixed turn (a quaternion, model axes) to it: clips made for another body type. The bone
+    `mover` finds moves by the `root_motion` joint's movement, scaled by the ratio of its rest height to the joint's
+    (for humanoids: the hips)."""
     frames = max(1, int(round(clip.duration / speed * fps)) + 1)
     n = len(bones)
     rest_local = np.array([pivot - (bones[p][2] if p >= 0 else np.zeros(3)) for _, p, pivot in bones])
     joint = {}
     for b, (name, _, _) in enumerate(bones):
-        row = JOINTS.get(name)
-        if row is not None and row[2] in clip.names:
-            joint[b] = clip.index(row[2])
+        mapped = joints.joints.get(name)
+        if mapped is not None and mapped in clip.names:
+            joint[b] = clip.index(mapped)
     rest_wp, rest_wr = clip.world(clip.rest_t, clip.rest_r)
     # the turn putting each KILN bone onto the clip's rest direction (bones with no child: their parent's turn)
     by_name = {name: b for b, (name, _, _) in enumerate(bones)}
     align = [np.array([0.0, 0.0, 0.0, 1.0]) for _ in range(n)]
     for b, (name, parent, pivot) in enumerate(bones):
-        child = CHILD.get(name)
+        child = joints.child.get(name)
         if b in joint and child in by_name and by_name[child] in joint:
             mine = bones[by_name[child]][2] - pivot
             theirs = rest_wp[joint[by_name[child]]] - rest_wp[joint[b]]
@@ -241,10 +282,12 @@ def retarget(clip: Clip, bones: list[tuple[str, int, Array]], fps: float, speed:
                 continue
         if parent >= 0:
             align[b] = align[parent]
-    hips = by_name.get("hips")
+    moving = mover(joints, clip)
+    hips = by_name.get(moving[0]) if moving is not None else None  # the bone that moves (humanoids: the hips)
+    source = clip.index(joints.root_motion) if moving is not None and joints.root_motion is not None else -1  # moves it
     scale = 1.0
-    if hips is not None and hips in joint and rest_wp[joint[hips]][1] > 1e-6:
-        scale = float(bones[hips][2][1] / rest_wp[joint[hips]][1])
+    if hips is not None and hips in joint and rest_wp[source][1] > 1e-6:
+        scale = float(bones[hips][2][1] / rest_wp[source][1])
     out_t = np.repeat(rest_local[None], frames, axis=0)
     out_r = np.tile(np.array([0.0, 0.0, 0.0, 1.0]), (frames, n, 1))
     ident = np.array([0.0, 0.0, 0.0, 1.0])
@@ -275,7 +318,10 @@ def retarget(clip: Clip, bones: list[tuple[str, int, Array]], fps: float, speed:
                 world[b] = parent_world
                 placed[b] = parent_placed
         if hips is not None and hips in joint:
-            move = (wp[joint[hips]] - rest_wp[joint[hips]]) * scale
+            move = (wp[source] - rest_wp[source]) * scale
+            up = bones[hips][1]
+            if up >= 0 and np.any(placed[up] != ident):  # a moving parent: its axes
+                move = q_rotate(q_inv(placed[up]), move)
             out_t[f, hips] = rest_local[hips] + move
     # one hemisphere per bone over time (smooth interpolation between frames)
     for f in range(1, frames):
@@ -301,4 +347,4 @@ def default_pivot(name: str, box: tuple[Array, Array], parent_centre: Array | No
     return np.asarray(a if np.linalg.norm(a - parent_centre) <= np.linalg.norm(b - parent_centre) else b)
 
 
-__all__ = ["HUMANOID", "JOINTS", "REQUIRED", "Clip", "clip_names", "default_pivot", "load_clip", "retarget"]
+__all__ = ["HUMANOID", "HUMANOID_MAP", "JOINTS", "REQUIRED", "Clip", "JointMap", "clip_names", "default_pivot", "joint_names", "load_clip", "mover", "retarget"]

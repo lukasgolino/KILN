@@ -143,3 +143,8 @@ anything that changes output.
 - 2026-10-28: #18: other engines get import notes only (`docs/engines.md`: Unity, Unreal, Bevy, three.js, Defold), no
   generated materials or prefabs: no game targets another engine yet, and generated setup would need that engine
   installed for a headless verify like `--verify-godot`. Outside Godot `atlas = true` is the recommended colour mode.
+- 2026-10-28: #64: imported clips play on any skeleton through `skeleton: { map, root_motion }` (KILN bone -> clip joint,
+  optional `child` aiming it). Humanoids run the same retarget with their table as the map (output byte-identical);
+  they take no map. Without `root_motion` clips play in place (rotations only, the conservative default); an unmapped
+  `root_motion` joint moves the bone mapped to its nearest mapped descendant. Mapped joints missing from a clip file
+  are errors (a typo would leave a bone still), unlike humanoids' optional toes.
