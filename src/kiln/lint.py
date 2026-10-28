@@ -41,6 +41,8 @@ WARNING_RULES = {
     "W113": "a part pokes through another part's shell (eyes through a visor, a head through a helmet)",
     "W114": "a model's joints sit elsewhere than in its animation_library (from kiln build)",
     "W115": "kiln.lock lists a file that isn't in the project any more",
+    "W116": "a terrain's splat layer barely shows anywhere (its rules hardly ever hold)",
+    "W117": "a terrain's height shape lies off the map (it changes nothing)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -169,6 +171,33 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     return out
 
 
+SPLAT_SHOWN = 0.005  # W116: a layer covering less of the map than this
+
+
+def terrain_warnings(model: Model, palette: dict[str, str], cache: Path) -> list[Finding]:
+    """A terrain's warnings: shapes off the map (W117), splat layers that barely show (W116), colours off the palette."""
+    from kiln.terrain import heightfield_cached
+
+    t = model.terrain
+    assert t is not None
+    field_ = heightfield_cached(model.name, t, model.text, palette, cache)
+    out = []
+    for k in field_.shapes_outside:
+        s = t.shapes[k]
+        out.append(Finding("W117", f"this {s.kind} is off the map (x and z run from {-t.size[0] / 2:g} to {t.size[0] / 2:g}, {-t.size[1] / 2:g} to "
+                           f"{t.size[1] / 2:g}): move it onto the map or remove it", model.path, s.line, f"terrain.{s.where}"))  # fmt: skip
+    cover = field_.weights.reshape(-1, len(t.layers)).mean(axis=0)
+    for layer, c in zip(t.layers, cover, strict=True):
+        if c < SPLAT_SHOWN:
+            out.append(Finding("W116", f"splat layer {layer.name} covers {float(c) * 100:.2f}% of the map: loosen its rules (lower slope above, "
+                               "wider height band, larger path within, more noise cover) or remove it", model.path, layer.line, layer.where))  # fmt: skip
+    hexes = set(palette.values())
+    for layer in t.layers:
+        if palette and layer.color not in hexes:
+            out.append(Finding("W104", f"colour {layer.color} isn't in the palette: use a palette colour name", model.path, layer.line, f"{layer.where}.color"))
+    return out
+
+
 def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
     """(shell part, part poking through it, overlap volume in m3, where) for every part whose solid crosses a shell's
     wall and shows outside it next to the wall. Parts sharing the shell's id are its own details (a crest)."""
@@ -283,7 +312,8 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
         if missing:
             keep.append(Finding("E011", f"effect emits {', '.join(missing)}: no models/<name>.kiln.yaml for it", path, None, "effect"))
     # templates are bases, not models: checked as text only
-    meshed = [k for k, (_, m, st, _, keep) in enumerate(loaded) if geometry and m and st and not m.template and not any(f.severity == "error" for f in keep)]
+    meshed = [k for k, (_, m, st, _, keep) in enumerate(loaded)
+              if geometry and m and st and not m.template and m.terrain is None and not any(f.severity == "error" for f in keep)]  # fmt: skip
     builds = dict(zip(meshed, build_all([(loaded[k][1], loaded[k][2], loaded[k][3], cache) for k in meshed]), strict=True))  # type: ignore[misc]
     for k, (path, model, style, palette, keep) in enumerate(loaded):
         if k in builds:
@@ -294,6 +324,8 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                 assert model is not None
                 result.built[model.name] = built
                 keep += geometry_warnings(built, palette, project)
+        if geometry and model is not None and model.terrain is not None and not any(f.severity == "error" for f in keep):
+            keep += terrain_warnings(model, palette, cache)
         if model is not None and style is not None and not any(f.severity == "error" for f in keep) and not model.template:
             result.models[model.name] = (model, style)
         disabled = set(project.config.lint_disable) | set(model.lint_disable if model else ())

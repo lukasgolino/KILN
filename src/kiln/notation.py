@@ -16,6 +16,8 @@ import numpy as np
 
 from kiln.effect import Effect
 from kiln.effect import parse as parse_effect
+from kiln.terrain import Terrain
+from kiln.terrain import parse as parse_terrain
 from kiln.hardware import HARDWARE, expand
 from kiln.retarget import REQUIRED, JointMap
 from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
@@ -44,7 +46,8 @@ OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
               "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
-              "animation_library", "animations_only", "union"}  # fmt: skip
+              "animation_library", "animations_only", "union", "terrain"}  # fmt: skip
+TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
@@ -174,6 +177,7 @@ class Model:
     animations_only: bool = False  # a clip carrier: Godot imports its glb as an AnimationLibrary (no scene)
     library_text: str = ""  # the carrier's source (cache key)
     effect: Effect | None = None  # a burst of other models' meshes (models/<name>.effect.json)
+    terrain: Terrain | None = None  # a heightfield with splat layers instead of parts (kiln.terrain)
 
     @property
     def ids(self) -> list[str]:
@@ -1207,6 +1211,17 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     else:
         model.lint_disable = tuple(lint.get("disable", []))
 
+    if "terrain" in data:  # a heightfield, not parts: only the model's identity, style and palette go with it
+        others = [str(k) for k in data if k not in TERRAIN_TOP]
+        if others:
+            ctx.error("E003", f"a terrain has no {', '.join(others)}: only {', '.join(sorted(TERRAIN_TOP))}", _line(data, others[0]), others[0])
+        if "class" not in data:
+            model.cls = "terrain"
+        model.terrain = parse_terrain(data["terrain"], _line(data, "terrain"), lambda message, line, where: ctx.error("E003", message, line, where),
+                                      lambda raw, line, where: _color(ctx, raw, line, where))  # fmt: skip
+        if model.terrain is None and not any(f.severity == "error" for f in ctx.findings):
+            ctx.error("E003", "terrain: see the problems above", _line(data, "terrain"), "terrain")
+        return model, ctx.findings
     if "source" in data:
         if "parts" in data:
             ctx.error("E003", "a model has parts (made in KILN) or source (an imported mesh), not both", _line(data, "source"), "source")

@@ -35,6 +35,7 @@ anything that changes output.
   - `packs.py` CC0 pack recipes (`recipes/*.toml`), the per-user mirror cache, index/search, `kiln.lock`;
   - `lint.py` E/W rules; `build.py` `kiln build` (glb, variants, LODs, Godot, manifest, credits, stale cleanup);
   - `render.py` vectorised software renderer; `preview.py` sheets (turntable, closeup, filmstrip, lineup, gallery, vs);
+  - `terrain.py` `terrain:` models: height shapes -> `Heightfield` (height/normal/slope/splat queries), chunked LOD meshes, splat map, Godot scene;
   - `godot.py` model scenes, look kits, headless verify, engine renders; `templates/` Godot scripts, init files;
   - `fonttext.py` font glyphs as SVG path data; `fillrule.py` nonzero fill (overlapping glyph contours joined);
   - `cli.py`, `mcp_server.py`, `api.py` (generator scripts), `skill/` (SKILL.md + reference.md).
@@ -173,3 +174,10 @@ anything that changes output.
   records every copied file in `kiln.lock` (JSON); with a lock, lint/build check it (E014 changed hash, non-CC0;
   W115 a listed file gone). Files without an entry (local `kiln import`) aren't checked, so existing projects build
   as before. No pack_add MCP tool: downloads stay an explicit command.
+- 2026-10-28: #15: terrains are a model kind (`terrain:` instead of `parts:`), text only (no heightmap input): height
+  shapes (hill, ridge, plateau, noise, path) applied in order with add/subtract/max/min/set blends. A heightfield is
+  2.5D, so it is a regular grid meshed as one (no dual contouring): chunks with LODs (halved grids) and skirts, one glb
+  per LOD with a node per chunk, shown by distance through visibility ranges set by the scene's inline script (Godot's
+  own import LODs off: they would crack chunk seams). Splats are palette colours (no tiling textures in v1) in an RGB
+  map, layer 1 implicit (no alpha: Godot's fix_alpha_border would rewrite colour under alpha 0). Collision is an inline
+  HeightMapShape3D scaled uniformly (heights stored / spacing). Noise hashes integer lattice points (no random streams).

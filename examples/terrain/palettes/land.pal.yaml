@@ -1,0 +1,7 @@
+name: land
+# Ground colours for the terrain example (PAGAN palette format).
+colors:
+  "0": { hex: "#6aa84f", name: grass }
+  "1": { hex: "#9c7a4f", name: dirt }
+  "2": { hex: "#8d877c", name: rock }
+  "3": { hex: "#e3d29a", name: sand }

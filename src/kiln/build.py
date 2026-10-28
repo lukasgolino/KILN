@@ -205,6 +205,64 @@ def library_findings(project: Project, built: Built, cache: Path) -> list[Findin
     return []
 
 
+def terrain_files(model: Model, style: Style, palette: dict[str, str], cache: Path, out: Path, generator: str, write: Callable[[Path, bytes], None],
+                  godot_root: Path | None, import_root: Path | None, result: BuildResult) -> dict[str, Any]:  # fmt: skip
+    """A terrain's files (`<name>.glb` = LOD 0, `<name>.lod<k>.glb`, `<name>.splat.png`, Godot's `<name>.tscn`) and its
+    manifest entry."""
+    from kiln import terrain as tr
+
+    t = model.terrain
+    assert t is not None
+    name = model.name
+    field_ = tr.heightfield_cached(name, t, model.text, palette, cache)
+    models_dir = out / "models"
+    glbs, counts = [], []
+    for k in range(len(t.lod) + 1):  # one LOD's meshes at a time: bounded memory
+        chunks = tr.meshes(field_, k)
+        path = models_dir / (f"{name}.glb" if k == 0 else f"{name}.lod{k}.glb")
+        write(path, tr.chunks_glb(name, chunks, generator))
+        glbs.append(path)
+        counts.append(sum(len(c.faces) for c in chunks))
+        del chunks
+    splat = models_dir / f"{name}.splat.png"
+    write(splat, tr.splat_png(field_))
+    lo, hi = field_.bounds()
+    channels = ["rest", "r", "g", "b"]
+    entry: dict[str, Any] = {
+        "glb": glbs[0].relative_to(out).as_posix(),
+        "description": model.description,
+        "tags": list(model.tags),
+        "status": model.status,
+        "style_version": model.style_version,
+        "class": model.cls,
+        "style": style.name,
+        "triangles": counts[0],
+        "bounds": {"min": [_f(v) for v in lo], "max": [_f(v) for v in hi]},
+        "size": [_f(v) for v in hi - lo],
+        "colors": sorted({layer.color for layer in t.layers}),
+        "terrain": {
+            "size": [_f(v) for v in t.size], "cell": _f(t.cell), "samples": [t.cells[0] + 1, t.cells[1] + 1], "chunk": _f(t.chunk),
+            "chunks": list(t.chunks), "lod_distances": [_f(d) for d in t.lod], "skirt": _f(tr.skirt_depth(field_)),
+            "height_range": [_f(lo[1]), _f(hi[1])], "splat": splat.relative_to(out).as_posix(),
+            "layers": [{"name": layer.name, "color": layer.color_name, "hex": layer.color, "channel": channels[k]} for k, layer in enumerate(t.layers)],
+            "collision": {"samples": [t.cells[0] // t.collision + 1, t.cells[1] // t.collision + 1], "spacing": _f(t.cell * t.collision)} if t.collision else None,
+            "probes": tr.probes(field_),
+        },
+    }  # fmt: skip
+    if len(glbs) > 1:
+        entry["lods"] = [{"glb": g.relative_to(out).as_posix(), "triangles": c} for g, c in zip(glbs[1:], counts[1:], strict=True)]
+    if import_root is not None:  # the splat map is data (lossless, no mipmaps); the chunks have their own LODs
+        import_settings(splat, import_root, TEXTURE_IMPORT, result)
+        for g in glbs:
+            import_settings(g, import_root, TERRAIN_IMPORT, result)
+    if godot_root is not None:
+        scene = models_dir / f"{name}.tscn"
+        write(scene, tr.godot_scene(name, field_, [res_path(g, godot_root) for g in glbs], res_path(splat, godot_root), style).encode())
+        entry["godot_scene"] = res_path(scene, godot_root)
+        entry["glb_res"] = res_path(glbs[0], godot_root)
+    return entry
+
+
 @dataclass(frozen=True)
 class ImportSettings:
     importer: str
@@ -216,6 +274,7 @@ class ImportSettings:
 TEXTURE_IMPORT = ImportSettings("texture", "CompressedTexture2D", (("compress/mode", "0"), ("mipmaps/generate", "false"),
                                                                     ("detect_3d/compress_to", "0")))  # fmt: skip
 LIBRARY_IMPORT = ImportSettings("animation_library", "AnimationLibrary", ())
+TERRAIN_IMPORT = ImportSettings("scene", "PackedScene", (("meshes/generate_lods", "false"),))  # chunks bring their own LODs (and skirts)
 
 
 def import_settings(path: Path, godot_root: Path, want: ImportSettings, result: BuildResult) -> None:
@@ -324,6 +383,11 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         if progress:
             progress(f"building {name}")
         palette, _ = project.palette(model.palette)
+        if model.terrain is not None:  # a heightfield: chunked LOD glbs, splat map, scene with collision
+            models[name] = terrain_files(model, style, palette, cache, out, generator, write, godot_root, import_root, result)
+            styles_used[style.name] = style
+            result.models.append(name)
+            continue
         built = build_cached(model, style, palette, cache)
         if model.animation_library is not None:
             problems = library_findings(project, built, cache)

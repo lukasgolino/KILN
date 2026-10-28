@@ -1,0 +1,22 @@
+name: valley
+description: A 256 m valley with hills, a ridge, a flat-topped mesa, a hollow and a road through it.
+terrain:
+  size: [256, 256]
+  cell: 0.5
+  chunk: 32
+  lod: [64, 160]
+  seed: 3
+  shapes:
+    - noise: { scale: 70, height: 3, octaves: 5 }
+    - hill: { at: [-70, -50], radius: 55, height: 22 }
+    - hill: { at: [-20, -90], radius: [40, 25], rotate: 30, height: 12 }
+    - ridge: { points: [[-128, 90], [-40, 105], [40, 80], [128, 100]], width: 35, height: 20 }
+    - noise: { scale: 45, height: 1.2, octaves: 3, ridged: true, seed: 1 }
+    - plateau: { at: [70, -55], radius: 26, edge: 10, height: 14, blend: max, smooth: 3 }
+    - hill: { at: [40, 35], radius: 28, height: 5, blend: subtract }
+    - path: { points: [[-128, 10], [-60, 25], [0, 0], [50, -15], [128, 5]], width: 5, edge: 5, depth: 0.25 }
+  splat:
+    - grass: { color: grass }
+    - dirt: { color: dirt, path: { within: 3.5, fade: 1.5 }, noise: { scale: 6, cover: 0.85 } }
+    - rock: { color: rock, slope: { above: 28, fade: 6 } }
+    - sand: { color: sand, height: { below: -1.5, fade: 1 } }

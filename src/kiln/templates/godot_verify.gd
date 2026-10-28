@@ -189,3 +189,31 @@ func check_model(name: String, node: Node) -> void:
 		fail("%s has no mesh surfaces" % name)
 	if entry.has("atlas") and not textured:
 		fail("%s has a palette atlas but no surface samples it" % name)
+	if entry.has("terrain"):
+		check_terrain(name, node, entry["terrain"])
+
+
+# A terrain: its splat shader compiles (the dummy renderer parses shaders: a broken one has no uniforms), its LODs are
+# instanced, and its HeightMapShape3D has the grid's size and puts the ground where KILN has it (rays at the probes).
+func check_terrain(name: String, node: Node, terrain: Dictionary) -> void:
+	var material = node.get("material")
+	if not (material is ShaderMaterial) or material.shader == null or material.shader.get_shader_uniform_list().size() < 5:
+		fail("%s splat shader doesn't compile" % name)
+	for k in terrain["lod_distances"].size() + 1:
+		if node.get_node_or_null("lod%d" % k) == null:
+			fail("%s has no lod%d" % [name, k])
+	if terrain.get("collision") == null:
+		return
+	var holder := node.get_node_or_null("Collision/Shape") as CollisionShape3D
+	if holder == null or not (holder.shape is HeightMapShape3D):
+		fail("%s has no HeightMapShape3D" % name)
+		return
+	var shape := holder.shape as HeightMapShape3D
+	if shape.map_width != int(terrain["collision"]["samples"][0]) or shape.map_depth != int(terrain["collision"]["samples"][1]):
+		fail("%s HeightMapShape3D is %dx%d, not %s" % [name, shape.map_width, shape.map_depth, terrain["collision"]["samples"]])
+	var space := (node as Node3D).get_world_3d().direct_space_state
+	for probe in terrain["probes"]:
+		var at := Vector3(probe[0], probe[2], probe[1])
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(at + Vector3.UP * 100.0, at + Vector3.DOWN * 100.0))
+		if hit.is_empty() or absf(hit["position"].y - at.y) > 0.02:
+			fail("%s collision at (%s, %s) is %s, not %s" % [name, probe[0], probe[1], hit.get("position", "no hit"), probe[2]])
