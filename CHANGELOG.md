@@ -6,6 +6,23 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-28
+
+Issues #66, #67, #70, #71 and #72: hard-surface and text fixes (E013 cracks and crowded edges, an E009 crash, a hang).
+
+### Fixed
+
+- Bevelled extrudes no longer crack where a bar is narrower than twice the bevel (text with overlapping contours, such
+  as a heavy serif S, and plain `path:`/`points` outlines alike): rings that would fold have their insets lowered just
+  around the fold (#66). Bevelled outlines that folded before change there; others are unchanged.
+- Interlocked hard parts (chain links with small turns) no longer fail E013 with faces back to back: CSG slivers
+  thinner than the weld whose outline folds over itself are dropped (#67).
+- A hard part beside loose hard links no longer fails with E009 "max() iterable argument is empty": a flat patch
+  with no outline is kept as it is (#70).
+- Text glyphs drawn as one self-crossing contour (Cinzel's 3 and 8) are filled nonzero like overlapping contours, so
+  they bevel without cracks (#71). Such glyphs change, bevelled or not.
+- Glyphs whose serif bars abut their strokes (Cinzel's X) fill as one piece and bevel without hanging (#72).
+
 ## [0.11.0] - 2026-10-27
 
 Issues #31, #57, #60 and #61: effect previews show fade, the floor and chosen times; fitted shells no longer grow walls
@@ -394,7 +411,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/lukasgolino/KILN/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/lukasgolino/KILN/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/lukasgolino/KILN/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/lukasgolino/KILN/compare/v0.9.0...v0.10.0
