@@ -9,7 +9,7 @@ from typing import Any
 
 from kiln.atlas import AO_STRENGTH
 from kiln.notation import MODEL_SUFFIX, NAME_RE, Model, load_model
-from kiln.style import Style, load_style
+from kiln.style import Style, load_style, resolve_look
 from kiln.vendor.findings import Finding, PaganError
 from kiln.vendor.palette import PALETTE_SUFFIX, load_palette_file
 
@@ -107,6 +107,10 @@ class Project:
         findings += [Finding(f.rule, f.message, f.path or path, f.line, f.where) for f in sf]
         findings += [Finding(f.rule, f.message, f.path or path, f.line, f.where) for f in pf]
         if style is None:
+            return None, None, findings
+        style, lf = resolve_look(style, palette)  # a palette colour in [look] (palettes are per model)
+        findings += [Finding(f.rule, f.message, f.path or path, f.line, f.where) for f in lf]
+        if lf:
             return None, None, findings
         model, mf = load_model(path, palette, set(style.materials))
         if model is not None and model.animation_library is not None:

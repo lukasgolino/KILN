@@ -158,3 +158,9 @@ anything that changes output.
   normal glb path. `kiln import` writes it to `imports/<stem>.glb` so projects build without Blender; files named
   directly in a model convert into `.kiln-cache/blender/` keyed on source sha256 + Blender version + script version
   (4.2.3's glTF export is byte-stable run to run). Blender tests skip without it (CI).
+- 2026-10-28: #26: richer toon kit as opt-in `[look]` keys (softness, shadow colour, specular, banded received
+  shadows, pixel outlines, darkened per-part outlines; no hard rim: no style asks for one). The shaders are generated
+  per look and are the plain ones, byte for byte, with every key off. Shadow colour is light added where the sun's is
+  missing (light() can't tint Godot's ambient); the specular blob goes through DIFFUSE_LIGHT divided by the albedo so
+  `specular_disabled` keeps the plain toon's ambient. Headless Godot parses shaders (SHADER ERROR now fails a verify);
+  nothing here renders them on a GPU, so the look needs a visual check with `--engine` on a machine with a display.

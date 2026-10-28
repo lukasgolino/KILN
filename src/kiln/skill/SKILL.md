@@ -117,7 +117,8 @@ Write the answers into BRIEF.md and STYLE.md.
 
 A style (`styles/<name>.style.toml`, usually `extends = "soft_toy"` or another preset) decides: smooth or faceted
 (`[shape]`), mesh resolution, triangle budgets per class, material presets (roughness, metal, glow, rim) and the
-look kit (`[look]`: shader standard/toon, outline, tonemapper, exposure, saturation, contrast, SSAO, glow, sky,
+look kit (`[look]`: shader standard/toon (bands, softness, shadow colour, specular, banded shadows), outline
+(metres or pixels, one colour or each part's darkened), tonemapper, exposure, saturation, contrast, SSAO, glow, sky,
 sun, fog). The `notes` field holds the shape language and proportions in words: write it, and follow it.
 
 From inspirations: look at the images; describe shapes (rounded? chunky? faceted?), proportions (head size, limb
