@@ -16,6 +16,7 @@ import tempfile
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
+from typing import TypeAlias
 
 from kiln.style import Look, Style
 
@@ -162,6 +163,166 @@ ATLAS_SCRIPT = _swap_lines(APPLY_SCRIPT, [
 
 def res_path(path: Path, godot_root: Path) -> str:
     return "res://" + path.resolve().relative_to(godot_root.resolve()).as_posix()
+
+
+BONE_MAP_NODE = '"PATH:Skeleton3D"'  # the glTF importer's skeleton for a KILN skin (in _subresources -> "nodes")
+BONE_MAP_KEY = '"retarget/bone_map"'
+
+
+def bone_map_tres(pairs: list[tuple[str, str]]) -> str:
+    """A Godot `BoneMap` on `SkeletonProfileHumanoid`: (profile bone, skeleton bone) pairs. No uid in the header and a
+    fixed sub-resource id, so the file is the same every build (Godot keeps a resource's uid in its cache)."""
+    lines = ['[gd_resource type="BoneMap" format=3]', "", '[sub_resource type="SkeletonProfileHumanoid" id="SkeletonProfileHumanoid_kiln"]',
+             "", "[resource]", 'profile = SubResource("SkeletonProfileHumanoid_kiln")']  # fmt: skip
+    lines += [f'bone_map/{profile} = &"{bone}"' for profile, bone in pairs]
+    return "\n".join(lines) + "\n"
+
+
+# Godot's variant text (the value of an .import's `_subresources`): dictionaries are parsed, anything else is kept as
+# its text. Entries are (key text, value).
+_Value: TypeAlias = "str | list[tuple[str, _Value]]"
+_Dict: TypeAlias = "list[tuple[str, _Value]]"
+
+
+def _skip(text: str, i: int) -> int:
+    while i < len(text) and text[i] in " \t\r\n":
+        i += 1
+    return i
+
+
+def _raw(text: str, i: int) -> int:
+    """The end of the value starting at i that isn't a dictionary: up to a `,` `:` `}` or `]` outside brackets/strings."""
+    depth = 0
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            i += 1
+            while i < len(text) and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif c in ",:" and depth == 0:
+            return i
+        i += 1
+    return i
+
+
+def _parse(text: str, i: int) -> tuple[_Value, int]:
+    i = _skip(text, i)
+    if i >= len(text) or text[i] != "{":
+        end = _raw(text, i)
+        if end == i:
+            raise ValueError(f"no value at {i}")
+        return text[i:end].strip(), end
+    entries: _Dict = []
+    i = _skip(text, i + 1)
+    while i < len(text) and text[i] != "}":
+        key_end = _raw(text, i)
+        key = text[i:key_end].strip()
+        i = _skip(text, key_end)
+        if i >= len(text) or text[i] != ":":
+            raise ValueError(f"expected : at {i}")
+        value, i = _parse(text, i + 1)
+        entries.append((key, value))
+        i = _skip(text, i)
+        if i < len(text) and text[i] == ",":
+            i = _skip(text, i + 1)
+    if i >= len(text):
+        raise ValueError("unclosed {")
+    return entries, i + 1
+
+
+def _dump(value: _Value) -> str:
+    if isinstance(value, str):
+        return value
+    if not value:
+        return "{}"
+    return "{\n" + ",\n".join(f"{k}: {_dump(v)}" for k, v in value) + "\n}"
+
+
+def _get(d: _Dict, key: str) -> _Value | None:
+    return next((v for k, v in d if k == key), None)
+
+
+def with_bone_map(import_text: str, bone_map_res: str, on: bool) -> str | None:
+    """An `.import` (Godot's scene importer settings) with the skeleton's `retarget/bone_map` set to `bone_map_res`
+    (`on`) or, when it points there, removed (not `on`); everything else in the file and in `_subresources` stays.
+    None when nothing needs to change (or `_subresources` can't be read: it's left as it is)."""
+    lines = import_text.splitlines(keepends=True)
+    section, start = "", None
+    params_end = None
+    offset = 0
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]") and "=" not in stripped:
+            if section == "params" and params_end is None:
+                params_end = offset
+            section = stripped[1:-1]
+        elif section == "params" and start is None and line.startswith("_subresources="):
+            start = offset + len("_subresources=")
+        offset += len(line)
+    if start is None:
+        if not on:
+            return None
+        if params_end is None and section != "params":
+            body = import_text if import_text.endswith("\n") or not import_text else import_text + "\n"
+            return body + ("\n" if body else "") + "[params]\n\n" + _subresources_line([], bone_map_res)
+        at = params_end if params_end is not None else len(import_text)
+        before = import_text[:at]
+        if before and not before.endswith("\n"):
+            before += "\n"
+        return before + _subresources_line([], bone_map_res) + import_text[at:]
+    try:
+        tree, end = _parse(import_text, start)
+    except ValueError:
+        return None
+    if not isinstance(tree, list):
+        return None
+    nodes = _get(tree, '"nodes"')
+    skeleton = _get(nodes, BONE_MAP_NODE) if isinstance(nodes, list) else None
+    current = _get(skeleton, BONE_MAP_KEY) if isinstance(skeleton, list) else None
+    ours = isinstance(current, str) and f'"{bone_map_res}"' in current
+    if on == ours:
+        return None
+    if not on and (not isinstance(nodes, list) or not isinstance(skeleton, list)):
+        return None
+    value = f'Resource("{bone_map_res}")'
+    if on:
+        tree = _set_path(tree, ['"nodes"', BONE_MAP_NODE, BONE_MAP_KEY], value)
+    else:
+        tree = _drop_path(tree, ['"nodes"', BONE_MAP_NODE, BONE_MAP_KEY])
+    return import_text[:start] + _dump(tree) + import_text[end:]
+
+
+def _subresources_line(tree: _Dict, bone_map_res: str) -> str:
+    return "_subresources=" + _dump(_set_path(tree, ['"nodes"', BONE_MAP_NODE, BONE_MAP_KEY], f'Resource("{bone_map_res}")')) + "\n"
+
+
+def _set_path(d: _Dict, keys: list[str], value: str) -> _Dict:
+    key, rest = keys[0], keys[1:]
+    child = _get(d, key)
+    new: _Value = _set_path(child if isinstance(child, list) else [], rest, value) if rest else value
+    if child is None:
+        return [*d, (key, new)]
+    return [(k, new if k == key else v) for k, v in d]
+
+
+def _drop_path(d: _Dict, keys: list[str]) -> _Dict:
+    """`d` without the entry at `keys`; dictionaries left empty on the way go too."""
+    key, rest = keys[0], keys[1:]
+    out: _Dict = []
+    for k, v in d:
+        if k != key:
+            out.append((k, v))
+        elif rest and isinstance(v, list):
+            new = _drop_path(v, rest)
+            if new:
+                out.append((k, new))
+    return out
 
 
 def find_godot_project(start: Path) -> Path | None:
@@ -444,4 +605,4 @@ def render_engine(godot: str, godot_root: Path, scene_res: str, look_res: str, v
     return images, output
 
 
-__all__ = ["ATLAS_SCRIPT", "ATLAS_TOON_SHADER", "GodotCheck", "find_godot_binary", "find_godot_project", "look_scene", "model_scene", "render_engine", "res_path", "verify"]
+__all__ = ["ATLAS_SCRIPT", "ATLAS_TOON_SHADER", "GodotCheck", "bone_map_tres", "find_godot_binary", "find_godot_project", "look_scene", "model_scene", "render_engine", "res_path", "verify", "with_bone_map"]

@@ -148,3 +148,8 @@ anything that changes output.
   they take no map. Without `root_motion` clips play in place (rotations only, the conservative default); an unmapped
   `root_motion` joint moves the bone mapped to its nearest mapped descendant. Mapped joints missing from a clip file
   are errors (a typo would leave a bone still), unlike humanoids' optional toes.
+- 2026-10-28: #21: humanoid bone names for Godot are a `BoneMap` (SkeletonProfileHumanoid) in the glb's `.import`, not
+  renamed glb bones (renaming for other engines only if one needs it). It is opt-in (`godot_bonemap`, kiln.toml: an
+  import setting like the palette textures', no mesh change) because Godot then renames the imported bones and the
+  skeleton node, breaking paths games already use. KILN edits only that key in `_subresources` (other settings and
+  Godot's uid stay) and takes it out again when the flag goes off.

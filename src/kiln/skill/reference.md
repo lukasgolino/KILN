@@ -29,6 +29,8 @@ merge_rigid = false            # true: a rigid skin is one skinned mesh (one dra
 vertex_colors = false          # true: colours in the vertices, one surface per material preset (fewer draw calls)
 atlas = false                  # true: one material per model from small palette textures (1 surface, 2 with decals)
 atlas_ao = false               # true or a strength 0..1 (with atlas): ambient occlusion baked into the vertex colours
+godot_bonemap = false          # true: humanoids get models/<name>.bonemap.tres in their glb's .import; Godot RENAMES
+                               #   their bones to SkeletonProfileHumanoid's (see Humanoids)
 [lint]
 disable = ["W106"]
 ```
@@ -311,6 +313,19 @@ animation: `retarget: { keep: { upperarm: 0.35, lowerleg: 0.5 }, offset: { upper
 share of each joint's turn away from rest it keeps (0 = held at rest, 1 = as the clip; a base name like `upperarm`
 covers both sides; children follow), `offset` a fixed turn in degrees (model axes) added on top.
 
+`godot_bonemap = true` (kiln.toml, off by default; output inside a Godot project) writes `models/<name>.bonemap.tres`
+for each humanoid with a skeleton in its glb (soft skins; rigid ones with `merge_rigid`), clip carriers included: a
+`BoneMap` on `SkeletonProfileHumanoid` from the manifest's names (`root` -> `Root`, `hips` -> `Hips`, `upperleg_l` ->
+`LeftUpperLeg`, ...), and points the glb's `.import` at it (`_subresources` -> `PATH:Skeleton3D` ->
+`retarget/bone_map`; the rest of the sidecar stays). Godot then retargets on import: any humanoid clip made for the
+profile (Mixamo, Godot's own retargeted libraries) plays on the character with no renaming in the game. The glb itself
+doesn't change, but in Godot **the bones take the profile's names** (`Hips`, `LeftUpperLeg`; unmapped bones keep
+theirs), the skeleton node becomes `%GeneralSkeleton`, and clip tracks follow: node paths, `find_bone("hips")` and
+BoneAttachment3D names in game code must use the new names (manifest `humanoid` has them; the entry says
+`godot_bonemap`). Use it for a new game or one sharing clips with other humanoids; leave it off where code already
+names KILN's bones. Turning it off removes the files and the `.import` setting again (Godot reimports with KILN's
+names).
+
 ### Clips on any skeleton (joint map)
 
 A creature that isn't a humanoid (a quadruped, a bird) plays a clip library made for another armature through a
@@ -561,7 +576,8 @@ style materials) and `looks/<style>.tscn` (WorldEnvironment + Sun), `manifest.js
 Manifest per model: `glb`, `godot_scene`, `class`, `style`, `status`, `triangles`, `bounds` and `size` (metres),
 `skin`, `parts` (parent, pivot, meta, separate, `node_path`: glTF node names from the root, `aabb`: the part's box
 in model space, rest pose, for hit zones), `animations` (gltf_name, fps, frames, loop, interpolation, duration),
-`variants` (`swap`, `glb` unless variant_glbs = false, `godot_scene`), `lods`, `colors`, `source` (imports), `effect`;
+`variants` (`swap`, `glb` unless variant_glbs = false, `godot_scene`), `lods`, `colors`, `source` (imports), `effect`,
+`humanoid` (each joint's KayKit, Mixamo, Godot name), `godot_bonemap` (with godot_bonemap = true: the BoneMap file);
 parts also have `sockets`, animations a `start` (the parts their first frame moves, e.g. an arm built level but
 cocked when the animation starts). With `vertex_colors = true`, a game loading the .glb itself must set
 `vertex_color_use_as_albedo = true` on the imported materials (KILN's .tscn scenes do it); variants are then swap
