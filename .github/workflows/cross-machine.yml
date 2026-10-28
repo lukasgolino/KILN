@@ -1,0 +1,73 @@
+name: Cross-machine
+
+# Measure only (#27): builds the demo on x86-64 Linux, arm64 Linux and arm64 macOS and reports how the outputs differ
+# from the x86-64 build (per file; per accessor for .glb files). It never fails the workflow and isn't a required
+# check: it tells us how far apart float libraries put the builds before we decide whether identity must be enforced.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            name: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            name: linux-arm64
+          - runner: macos-14
+            name: macos-arm64
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Versions
+        run: |
+          kiln --version
+          python -c "import platform, numpy; print(platform.platform(), platform.machine()); numpy.show_config()"
+          pip freeze
+      - name: Build the demo
+        working-directory: examples/demo
+        run: kiln build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.name }}
+          path: examples/godot/assets/kiln
+          include-hidden-files: true
+
+  compare:
+    needs: build
+    if: always()
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e .
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: build-*
+          path: builds
+      - name: Compare with the x86-64 build
+        run: |
+          python tools/compare_builds.py linux-x86_64=builds/build-linux-x86_64 \
+            linux-arm64=builds/build-linux-arm64 macos-arm64=builds/build-macos-arm64 --out report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cross-machine-report
+          path: report.md
