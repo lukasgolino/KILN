@@ -3,7 +3,8 @@ holes into each other, as even-odd would. Used for `extrude: { text: ... }`; pla
 
 Outlines that don't overlap (and whose holes sit inside an outline of the opposite winding) fill the same either way
 and are returned as they are. Otherwise each outer contour minus its own holes is extruded into a thin prism, the
-prisms are unioned with the hard-surface CSG, and the union's top face gives the new outlines."""
+prisms are unioned with the hard-surface CSG, and the union's top face gives the new outlines. A contour that crosses
+itself is first split at its crossings into loops that don't (`untangle`), keeping every point's winding number."""
 
 from __future__ import annotations
 
@@ -61,6 +62,31 @@ def _depth(k: int, loops: list[Loop]) -> int:
     return sum(_inside(loops[k][0], loop) for j, loop in enumerate(loops) if j != k)
 
 
+def _crossing(p: list[float], q: list[float], r: list[float], s: list[float]) -> list[float]:
+    """Where segment p-q crosses segment r-s (they're known to cross)."""
+    d = (q[0] - p[0]) * (s[1] - r[1]) - (q[1] - p[1]) * (s[0] - r[0])
+    t = ((r[0] - p[0]) * (s[1] - r[1]) - (r[1] - p[1]) * (s[0] - r[0])) / d
+    return [p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]
+
+
+def untangle(loop: Loop) -> list[Loop]:
+    """A contour that crosses itself (a font's 8 drawn as one outline) as loops that don't, each going the way its
+    part of the contour went, so every point keeps its winding number: at a crossing the contour is cut into the
+    stretch between the two visits and the rest, both closed at the crossing point (repeated until none cross)."""
+    k = len(loop)
+    for i in range(k):
+        for j in range(i + 2, k):
+            if (j + 1) % k == i:  # the closing pair of neighbouring edges
+                continue
+            p, q, r, s = loop[i], loop[(i + 1) % k], loop[j], loop[(j + 1) % k]
+            if _segments_cross(p, q, r, s):
+                at = _crossing(p, q, r, s)
+                inner = [at, *loop[i + 1 : j + 1]]
+                outer = [at, *loop[j + 1 :], *loop[: i + 1]]
+                return [*untangle(inner), *untangle(outer)]
+    return [loop]
+
+
 def needs_union(loops: list[Loop]) -> bool:
     """True when even-odd and nonzero would fill these outlines differently: contours that cross, or one inside
     another with the same winding (overlapping strokes), or a hole winding the same way as what it's in."""
@@ -82,7 +108,11 @@ def needs_union(loops: list[Loop]) -> bool:
 def nonzero(loops: list[Loop]) -> list[Loop]:
     """The outlines of the region the loops fill by the nonzero rule (as non-overlapping outlines + holes)."""
     loops = [loop for loop in loops if len(loop) >= 3 and abs(_area(loop)) > 1e-14]
-    if len(loops) < 2 or not needs_union(loops):
+    parts = [untangle(loop) for loop in loops]
+    tangled = any(len(each) > 1 for each in parts)
+    if tangled:  # loops start just after their crossing point, so the nesting tests below don't sample on an edge
+        loops = [lp[1:] + lp[:1] for each in parts for lp in each if len(lp) >= 3 and abs(_area(lp)) > 1e-14]
+    if not tangled and (len(loops) < 2 or not needs_union(loops)):
         return loops
     from kiln.hard import Solid, _extrude_polys, polygon, subtract, to_mesh, union
 
