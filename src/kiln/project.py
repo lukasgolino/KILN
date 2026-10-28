@@ -31,6 +31,7 @@ class Config:
     vertex_colors: bool = False  # true: colours in the vertices, one surface per material preset (fewer draw calls)
     atlas: bool = False  # true: one material per model, colours and presets from small palette textures
     atlas_ao: float = 0.0  # with atlas: strength of the ambient occlusion baked into the vertex colours (0 = none)
+    godot_bonemap: bool = False  # true: humanoids get a Godot BoneMap in their glb's .import (bones take the profile's names)
 
 
 @dataclass
@@ -182,7 +183,7 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
         findings.append(Finding("E000", message, path, None, where))
 
     allowed = {"default_style", "default_palette", "output_dir", "preview_dir", "export", "style_version", "variant_glbs", "vertex_colors",
-               "atlas", "atlas_ao", "merge_rigid", "lint"}  # fmt: skip
+               "atlas", "atlas_ao", "merge_rigid", "godot_bonemap", "lint"}  # fmt: skip
     for key in data:
         if key not in allowed:
             bad(f"unknown setting {key!r}; allowed: {', '.join(sorted(allowed))}", key)
@@ -219,6 +220,11 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
             bad("merge_rigid is true (a rigid skin is one skinned mesh: one draw call) or false (a mesh per part)", "merge_rigid")
         else:
             cfg.merge_rigid = data["merge_rigid"]
+    if "godot_bonemap" in data:
+        if not isinstance(data["godot_bonemap"], bool):
+            bad("godot_bonemap is true (Godot renames humanoids' bones to SkeletonProfileHumanoid's via a BoneMap) or false", "godot_bonemap")
+        else:
+            cfg.godot_bonemap = data["godot_bonemap"]
     if "variant_glbs" in data:
         if not isinstance(data["variant_glbs"], bool):
             bad("variant_glbs is true (a .glb per variant) or false (variants recolour the base glb's materials)", "variant_glbs")
