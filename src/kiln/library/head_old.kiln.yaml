@@ -2,6 +2,8 @@ name: head_old
 description: 'an old face: bald, grey fringe, big nose, moustache'
 template: true
 palette: people
+rig:
+  hair: {parent: head, fold: true}
 parts:
   - ellipsoid: {at: [0, 1.63, 0], radii: [0.19, 0.21, 0.19]}
     id: head
@@ -44,7 +46,7 @@ parts:
     color: lip
     material: default
   - torus: {at: [0, 1.6, -0.03], radius: 0.17, thickness: 0.045, rotate: [-12, 0, 0]}
-    id: head
+    id: hair
     color: hair_grey
     material: default
     blend: 0.02

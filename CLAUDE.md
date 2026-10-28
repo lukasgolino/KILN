@@ -181,3 +181,9 @@ anything that changes output.
   own import LODs off: they would crack chunk seams). Splats are palette colours (no tiling textures in v1) in an RGB
   map, layer 1 implicit (no alpha: Godot's fix_alpha_border would rewrite colour under alpha 0). Collision is an inline
   HeightMapShape3D scaled uniformly (heights stored / spacing). Noise hashes integer lattice points (no random streams).
+- 2026-10-28: #23: the library heads' hair is its own id `hair` rigged `{ parent: head, fold: true }`: `fold` puts a part
+  back into its parent unless one of its `revealed` parts is in the model (none listed: always), so every existing
+  combo, helmeted ones included, builds byte-identically (checked over all 152 library combos). Hiding the hair under
+  a helmet is opt-in per model (`rig: { hair: { parent: head, revealed: [helmet], fold: true } }`): the hair is then
+  hidden until the helmet comes off and the helmet fits the skull (KayKit's helmets replace the hair). A model line
+  rather than duplicate `helmet_*` templates: no second set of names, and it works with project helmets too.

@@ -765,9 +765,9 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, template: b
                 ctx.error("E007", f"rig: no part has id {part_id!r} (ids: {', '.join(sorted(ids))})", rline, where)
             continue
         spec = spec if spec is not None else {}
-        if not isinstance(spec, dict) or any(k not in ("pivot", "parent", "meta", "separate", "sockets", "under", "revealed", "gib") for k in spec):
+        if not isinstance(spec, dict) or any(k not in ("pivot", "parent", "meta", "separate", "sockets", "under", "revealed", "gib", "fold") for k in spec):
             ctx.error("E007", "a rig entry is { pivot: [x, y, z], parent: id, meta: { key: value }, separate: true|false, sockets: { name: [x, y, z] }, "
-                      "under: { color, material, gap }, revealed: [ids], gib: true | [ids] }", rline, where)  # fmt: skip
+                      "under: { color, material, gap }, revealed: [ids], fold: true, gib: true | [ids] }", rline, where)  # fmt: skip
             continue
         pivot = _vec(spec["pivot"]) if "pivot" in spec else None
         if "pivot" in spec and pivot is None:
@@ -801,6 +801,11 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, template: b
             continue
         if revealed and separate is False and "separate" in spec:
             ctx.error("E007", "a revealed part is its own piece (separate): drop separate: false", rline, f"{where}.separate")
+            continue
+        fold = spec.get("fold", False)
+        if not isinstance(fold, bool) or (fold and parent in (None, ROOT_ID)):
+            ctx.error("E007", "fold: true folds a part into its parent while none of its revealed parts is in the model (hair under a "
+                      "helmet, on a head without one): { parent: head, revealed: [helmet], fold: true }", rline, f"{where}.fold")  # fmt: skip
             continue
         separate = separate or bool(revealed)
         raw_gib = spec.get("gib", False)
@@ -1126,11 +1131,92 @@ def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, huma
     return out
 
 
+def _relined(src: Any, items: dict[Any, Any]) -> dict[Any, Any]:
+    """`items` as a mapping that keeps `src`'s source lines (a LineMap when `src` is one)."""
+    if not isinstance(src, LineMap):
+        return dict(items)
+    out = LineMap()
+    out.update(items)
+    out.line, out.key_lines, out.value_spans = src.line, dict(src.key_lines), dict(src.value_spans)
+    return out
+
+
+def _fold_unrevealed(data: dict[Any, Any]) -> dict[Any, Any]:
+    """A built model's rig entries with `fold: true` and none of their `revealed` parts in the model (hair hidden by a
+    helmet, on a head without one; no `revealed`: always): their parts take the parent's id, as if they had no id of
+    their own, and the entry goes. Where some revealers are there, the missing ones are dropped. Templates are left as
+    written."""
+    rig = data.get("rig")
+    raw_parts = data.get("parts")
+    if data.get("template") is True or not isinstance(rig, dict) or not isinstance(raw_parts, list):
+        return data
+    folding = {k: v for k, v in rig.items() if isinstance(v, dict) and v.get("fold") is True}
+    if not folding:
+        return data
+    present = {p.get(k) for p in raw_parts if isinstance(p, dict) for k in ("id", "mirror_id")}
+    into: dict[Any, Any] = {}
+    kept: dict[Any, Any] = {}
+    for key, spec in folding.items():
+        revealed = spec.get("revealed")
+        names = [revealed] if isinstance(revealed, str) else [] if revealed is None else revealed
+        parent = spec.get("parent")
+        if not isinstance(names, list) or not isinstance(parent, str) or parent == key:
+            continue  # _parse_rig reports it
+        there = [r for r in names if r in present]
+        if there:
+            kept[key] = _relined(spec, {**spec, "revealed": there})
+        else:
+            into[key] = parent
+    for key in into:  # a chain (a folded part's parent folded too) ends at the first id that stays
+        seen = {key}
+        while into[key] in into and into[key] not in seen:
+            seen.add(into[key])
+            into[key] = into[into[key]]
+    if not into and not kept:
+        return data
+
+    def ref(v: Any) -> Any:
+        if isinstance(v, str):
+            return into.get(v, v)
+        return [into.get(x, x) if isinstance(x, str) else x for x in v] if isinstance(v, list) else v
+
+    def part(raw: Any) -> Any:
+        if not isinstance(raw, dict):
+            return raw
+        changed = dict(raw)
+        if raw.get("id") in into:
+            changed["id"] = into[raw["id"]]
+        if isinstance(raw.get("cut"), str):
+            changed["cut"] = ref(raw["cut"])
+        if "fit" in raw:
+            changed["fit"] = _relined(raw["fit"], {**raw["fit"], "to": ref(raw["fit"].get("to"))}) if isinstance(raw["fit"], dict) else ref(raw["fit"])
+        for kind in HARDWARE:
+            if isinstance(raw.get(kind), dict) and "fit" in raw[kind]:
+                changed[kind] = _relined(raw[kind], {**raw[kind], "fit": ref(raw[kind]["fit"])})
+        return _relined(raw, changed) if changed != raw else raw
+
+    new_rig = {}
+    for key, raw_spec in rig.items():
+        if key in into:
+            continue
+        entry: Any = kept.get(key, raw_spec)
+        if isinstance(entry, dict) and entry.get("parent") in into:
+            entry = _relined(entry, {**entry, "parent": into[entry["parent"]]})
+        new_rig[key] = entry
+    out = {k: v for k, v in data.items() if k != "rig" or new_rig}
+    if new_rig:
+        out["rig"] = _relined(rig, new_rig)
+    out["parts"] = [part(p) for p in raw_parts]
+    return _relined(data, out)
+
+
+
 def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials: set[str], text: str = "") -> tuple[Model | None, list[Finding]]:
     ctx = _Ctx(path, palette, materials)
     if not isinstance(data, dict):
         ctx.error("E001", "a model file is a mapping (name, parts, ...)", None, None or "")
         return None, ctx.findings
+    data = _fold_unrevealed(data)
     unknown = [k for k in data if k not in TOP_FIELDS]
     if unknown:
         ctx.error("E002", f"unknown field(s) {', '.join(map(str, unknown))}; allowed: {', '.join(sorted(TOP_FIELDS))}", _line(data, unknown[0]), str(unknown[0]))

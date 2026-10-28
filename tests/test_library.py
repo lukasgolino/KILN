@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import pytest
 
-from conftest import built_of, ok_model, run_json, write_model
+from conftest import built_of, make_project, ok_model, run_json, write_model
 from kiln.lint import lint_project
 from kiln.mesher import open_edges
 from kiln.notation import MODEL_SUFFIX, library_dir
@@ -66,3 +69,102 @@ def test_hair_stays_inside_helmets(project: Project, helmet: str) -> None:
     write_model(project, f"name: royal\nclass: character\nextends: [body_stocky, head_young, {helmet}]\n", "royal")
     findings = lint_project(project).findings
     assert not [f.format() for f in findings if f.rule in ("W103", "W113")]
+
+
+HEADS = [t for t in TEMPLATES if t.startswith("head_")]
+
+
+def _without_hair_id(name: str) -> str:
+    """A head template as it was before its hair had an id of its own (#23): every part `head`, no rig."""
+    text = (library_dir() / f"{name}{MODEL_SUFFIX}").read_text()
+    lines = [ln for ln in text.splitlines() if not ln.startswith("rig:") and not ln.startswith("  hair:")]
+    return "\n".join(ln.replace("id: hair", "id: head") for ln in lines).replace(f"name: {name}", "name: old_head") + "\n"
+
+
+def _built_as(root: Path, bases: str, old_head: str | None = None) -> tuple[bytes, Any]:
+    """The glb and manifest entry of `hero` extending `bases` in a fresh project (with the old head template)."""
+    from kiln.build import build
+
+    project = make_project(root)
+    if old_head is not None:
+        write_model(project, _without_hair_id(old_head), "old_head")
+    write_model(project, f"name: hero\nclass: character\nextends: [{bases}]\n", "hero")
+    result = build(project)
+    assert not result.errors, [f.format() for f in result.errors]
+    return (project.output_dir / "models" / "hero.glb").read_bytes(), result.manifest["models"]["hero"]
+
+
+@pytest.mark.parametrize("head", HEADS)
+def test_a_head_without_a_helmet_builds_as_before(tmp_path: Path, head: str) -> None:
+    """#23: hair has its own id, but without a helmet it folds back into the head: byte-identical output."""
+    assert _built_as(tmp_path / "new", head) == _built_as(tmp_path / "old", "old_head", head)
+
+
+def test_a_body_and_head_with_a_hood_build_as_before(tmp_path: Path) -> None:
+    new = _built_as(tmp_path / "new", "body_slim, head_female, armour_hood")
+    assert new == _built_as(tmp_path / "old", "body_slim, old_head, armour_hood", "head_female")
+
+
+@pytest.mark.parametrize("helmet", ["helmet_kettle", "helmet_crown"])
+def test_a_helmet_on_a_head_builds_as_before(tmp_path: Path, helmet: str) -> None:
+    """#23: without the opt-in the hair stays part of the head under a helmet too: byte-identical output."""
+    new = _built_as(tmp_path / "new", f"body_stocky, head_young, {helmet}")
+    assert new == _built_as(tmp_path / "old", f"body_stocky, old_head, {helmet}", "head_young")
+
+
+HIDE_HAIR = "rig:\n  hair: { parent: head, revealed: [helmet], fold: true }\n"
+
+
+def test_a_helmet_hides_the_hair_and_fits_the_skull_when_asked(project: Project) -> None:
+    """#23 (opt-in): under a helmet the hair is its own piece, hidden until the helmet comes off (as KayKit's helmets
+    replace hair); the helmet wraps the head without it, so it no longer follows hair lumps."""
+    text = "name: squire\nclass: character\nextends: [body_slim, head_goofy, helmet_kettle]\n"
+    plain, _ = ok_model(project, text, "squire")
+    assert "hair" not in plain.rig and not any(p.id == "hair" for p in plain.parts)
+    model, _ = ok_model(project, text + HIDE_HAIR, "squire")
+    hair = model.rig["hair"]
+    assert hair.parent == "head" and hair.revealed == ("helmet",) and hair.separate
+    dome = next(p for p in model.parts if p.id == "helmet" and p.geometry.fit is not None)
+    assert dome.geometry.fit is not None
+    wrapped = {q.id for q in model.parts if any(q.geometry is t for t in dome.geometry.fit[0])}
+    assert wrapped == {"head"}
+    assert any(p.id == "hair" for p in model.parts)
+    bare, _ = ok_model(project, "name: squire\nclass: character\nextends: [body_slim, head_goofy]\n" + HIDE_HAIR, "squire")
+    assert "hair" not in bare.rig  # the same opt-in on a head without a helmet: folded, nothing to hide
+
+
+FOLD = """name: thing
+parts:
+  - sphere: {{ at: [0, 1, 0], radius: 0.3 }}
+    id: head
+    color: red
+  - sphere: {{ at: [0, 1.25, 0], radius: 0.2 }}
+    id: hair
+    color: blue
+  - sphere: {{ at: [0, 1.3, 0.1], radius: 0.05 }}
+    cut: hair
+{extra}rig:
+  hair: {{ parent: head, revealed: {revealed}, fold: true }}
+"""
+
+
+def test_fold_takes_the_parent_id_unless_a_revealer_is_there() -> None:
+    from conftest import parse
+
+    model, findings = parse(FOLD.format(extra="", revealed="[helmet, hood]"))
+    assert model is not None and not findings, [f.format() for f in findings]
+    assert {p.id for p in model.parts if p.geometry.op == "add"} == {"head"} and "hair" not in model.rig
+    assert model.parts[2].geometry.cut_only == frozenset({0, 1})  # the cut followed the hair into the head
+    hood = "  - sphere: { at: [0, 1.3, 0], radius: 0.35 }\n    id: hood\n    color: red\n"
+    model, findings = parse(FOLD.format(extra=hood, revealed="[helmet, hood]"))
+    assert model is not None and not findings, [f.format() for f in findings]
+    assert model.rig["hair"].revealed == ("hood",) and model.rig["hair"].separate  # the missing helmet is dropped
+    model, findings = parse(FOLD.format(extra="", revealed="[]"))  # no revealers: always folded (a crown over the hair)
+    assert model is not None and not findings and "hair" not in model.rig
+
+
+def test_fold_needs_a_parent() -> None:
+    from conftest import parse
+
+    _, findings = parse(FOLD.format(extra="", revealed="[head]").replace("parent: head, ", ""))
+    assert any(f.rule == "E007" and "fold" in f.message for f in findings)
