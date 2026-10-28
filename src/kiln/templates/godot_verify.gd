@@ -152,6 +152,9 @@ func check_model(name: String, node: Node) -> void:
 		var found := node.find_child(part, true, false) != null
 		if not found and skeleton != null:
 			found = skeleton.find_bone(part) >= 0
+		if not found and skeleton != null and entry.has("godot_bonemap"):  # Godot renamed the bone to the profile's
+			var profile: String = "Root" if part == "root" else entry.get("humanoid", {}).get(part, {}).get("godot", "")
+			found = profile != "" and skeleton.find_bone(profile) >= 0
 		if not found:
 			fail("%s has no node or bone %s" % [name, part])
 	for part in entry.get("parts", {}):

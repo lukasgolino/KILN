@@ -18,13 +18,14 @@ from kiln.builder import build_cached
 from kiln.effect import to_json
 from kiln.retarget import HUMANOID, OPTIONAL
 from kiln.export import Built, attr_names, gltf_name, to_glb, uv_channel
-from kiln.godot import find_godot_project, look_scene, model_scene, res_path
+from kiln.godot import bone_map_tres, find_godot_project, look_scene, model_scene, res_path, with_bone_map
 from kiln.lint import LintResult, lint_paths, lint_project
 from kiln.notation import MODEL_SUFFIX, Model
 from kiln.rig import animation_poses
 from kiln.project import Project
 from kiln.style import Style
 from kiln.vendor.findings import Finding
+from kiln.vendor.gltf import read_glb
 
 MANIFEST = "manifest.json"
 CREDITS = "CREDITS.md"
@@ -55,7 +56,8 @@ def _write(path: Path, data: bytes, result: BuildResult) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_bytes(data)
     tmp.replace(path)
-    result.written.append(path)
+    if path not in result.written:  # (a sidecar can be written twice: importer, then bone map)
+        result.written.append(path)
 
 
 def _f(v: float) -> float:
@@ -238,6 +240,29 @@ def import_settings(path: Path, godot_root: Path, want: ImportSettings, result: 
     _write(sidecar, data.encode(), result)
 
 
+def bone_map_pairs(built: Built) -> list[tuple[str, str]]:
+    """A humanoid's (SkeletonProfileHumanoid bone, KILN bone) pairs: the manifest's `humanoid` names, and the root."""
+    bones = {b.name for b in built.skeleton.bones}
+    pairs = [("Root", "root")] if "root" in bones else []
+    return pairs + [(gd, kid) for kid, _, _, _, gd in HUMANOID + OPTIONAL if kid in bones]
+
+
+def bone_map_import(glb: Path, godot_root: Path, bone_map: Path, on: bool, result: BuildResult) -> None:
+    """Point the glb's Godot `.import` at `bone_map` (its skeleton retargeted onto SkeletonProfileHumanoid), or, not
+    `on`, drop that setting again. The rest of the sidecar (uid, Godot's other settings) stays; without one, a
+    minimal sidecar is written and Godot fills in the rest on import."""
+    sidecar = glb.with_name(glb.name + ".import")
+    try:
+        text = sidecar.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        if not on:
+            return
+        text = f'[remap]\n\nimporter="scene"\ntype="PackedScene"\n\n[deps]\n\nsource_file="{res_path(glb, godot_root)}"\n\n[params]\n\n'
+    new = with_bone_map(text, res_path(bone_map, godot_root), on)
+    if new is not None:
+        _write(sidecar, new.encode(), result)
+
+
 def atlas_entry(atlas: Atlas, files: dict[str, str], ao: float) -> dict[str, Any]:
     """Manifest `atlas`: the textures (paths in the output dir) and where every colour sits in them."""
     w, h = atlas.size
@@ -323,7 +348,8 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 write(out / "models" / f"{name}.rim.png", cells.rim_png(built))
             atlas = AtlasUse(cells, atlas_files[""]["palette"], atlas_files[""]["material"], atlas_files[""].get("glow"),
                              project.config.atlas_ao, glow)  # fmt: skip
-        write(glb, to_glb(built, generator, None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid))
+        glb_data = to_glb(built, generator, None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid)
+        write(glb, glb_data)
         merged = project.config.merge_rigid and built.skin == "rigid"
         entry = model_entry(built, out, glb, merged)
         if model.fit_to is not None:
@@ -380,6 +406,13 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                     import_settings(out / "models" / rel, import_root, TEXTURE_IMPORT, result)
             if model.animations_only:
                 import_settings(glb, import_root, LIBRARY_IMPORT, result)
+            # opt-in: Godot renames the skeleton's bones to SkeletonProfileHumanoid's (a skeleton: a skin in the glb)
+            bone_map = out / "models" / f"{name}.bonemap.tres"
+            mapped = project.config.godot_bonemap and model.skeleton == "humanoid" and bool(read_glb(glb_data)[0].get("skins"))
+            if mapped:
+                write(bone_map, bone_map_tres(bone_map_pairs(built)).encode())
+                entry["godot_bonemap"] = bone_map.relative_to(out).as_posix()
+            bone_map_import(glb, import_root, bone_map, mapped, result)
         if godot_root is not None and not model.animations_only:  # (a carrier's glb isn't a scene)
             scene = out / "models" / f"{name}.tscn"
             models_dir = out / "models"
@@ -442,7 +475,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
     result.manifest = manifest
     for rel in previous:
         path = (out / rel).resolve()
-        if path not in produced and path.is_file() and path.is_relative_to(out) and path.suffix in (".glb", ".tscn", ".json", ".md", ".png"):
+        if path not in produced and path.is_file() and path.is_relative_to(out) and path.suffix in (".glb", ".tscn", ".tres", ".json", ".md", ".png"):
             path.unlink()
             result.removed.append(path)
             sidecar = path.with_name(path.name + ".import")

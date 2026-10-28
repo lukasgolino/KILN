@@ -89,6 +89,11 @@ add_child(pilot)
 pilot.get_node("AnimationPlayer").play("walk")
 ```
 
+Humanoids can opt in to Godot's retargeting: `godot_bonemap = true` in kiln.toml writes a `BoneMap` on
+`SkeletonProfileHumanoid` per humanoid and sets it in the glb's `.import`, so clips made for the profile play on them.
+Godot then renames the skeleton's bones (`hips` -> `Hips`, `upperleg_l` -> `LeftUpperLeg`) and the skeleton node
+(`%GeneralSkeleton`): game code that names KILN's bones must change, so it's off by default and reversible.
+
 `kiln build --verify-godot` loads everything in headless Godot and checks parts, animations and materials.
 `manifest.json` is the contract for any engine: files, sizes and bounds in metres, triangles, parts (pivots,
 parents, gameplay metadata), animations, variants, LODs and licences. `examples/godot` is a runnable Godot 4.7
