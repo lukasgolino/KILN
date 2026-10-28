@@ -17,7 +17,7 @@ import numpy as np
 from kiln.effect import Effect
 from kiln.effect import parse as parse_effect
 from kiln.hardware import HARDWARE, expand
-from kiln.retarget import REQUIRED
+from kiln.retarget import REQUIRED, JointMap
 from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
 from kiln.uv import AXES as UV_AXES
 from kiln.uv import PROJECTIONS, UVSpec
@@ -165,6 +165,7 @@ class Model:
     template: bool = False  # a base for `extends` (not built on its own)
     extends: str | None = None
     skeleton: str | None = None  # humanoid: standard joint names, clip retargeting
+    joint_map: JointMap | None = None  # skeleton: { map, root_motion }: clips retargeted onto any skeleton
     fit_to: tuple[Path, str, tuple[str, ...]] | None = None  # (glb, bone, meshes): an attachment made around a CC0 character
     origin: str | tuple[float, float, float] | None = None  # base | center | a model-space point: the exported files' origin
     node_prefix: str = ""  # mesh nodes are <prefix><id> children of their parts' nodes (several models in one scene)
@@ -891,7 +892,8 @@ def _pose(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, where: str) -> d
     return out
 
 
-def _parse_import(ctx: _Ctx, name: str, spec: dict[str, Any], line: int | None, where: str, humanoid: bool) -> Animation | None:
+def _parse_import(ctx: _Ctx, name: str, spec: dict[str, Any], line: int | None, where: str, humanoid: bool,
+                  joint_map: JointMap | None = None) -> Animation | None:  # fmt: skip
     """An animation retargeted from a clip library: { import: imports/Rig_Medium_General.glb, clip: Idle_A }."""
     bad = [k for k in spec if k not in ("import", "clip", "fps", "loop", "speed", "retarget")]
     fps, loop, speed = spec.get("fps", 30), spec.get("loop", True), spec.get("speed", 1.0)
@@ -900,11 +902,12 @@ def _parse_import(ctx: _Ctx, name: str, spec: dict[str, Any], line: int | None, 
         ctx.error("E008", "an imported animation is { import: imports/clips.glb, clip: Walking_A, fps: 30, loop: true, speed: 1, "
                   "retarget: { keep: { upperarm: 0.35 }, offset: { upperarm_l: [0, 0, -12] } } }", line, where)  # fmt: skip
         return None
-    adjust = _parse_retarget(ctx, spec.get("retarget"), line, f"{where}.retarget")
+    adjust = _parse_retarget(ctx, spec.get("retarget"), line, f"{where}.retarget", joint_map)
     if "retarget" in spec and adjust is None:
         return None
-    if not humanoid:
-        ctx.error("E008", "imported clips play on humanoids: add skeleton: humanoid (and name the parts after its joints)", line, where)
+    if not humanoid and joint_map is None:
+        ctx.error("E008", "imported clips play on humanoids: add skeleton: humanoid (and name the parts after its joints), or map "
+                  "the bones onto the clip's joints: skeleton: { map: { body: Torso, ... } }", line, where)  # fmt: skip
         return None
     base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
     file = (base / spec["import"]).resolve()
@@ -921,10 +924,101 @@ def _parse_import(ctx: _Ctx, name: str, spec: dict[str, Any], line: int | None, 
     if spec["clip"] not in names:
         ctx.error("E008", f"{spec['import']} has no clip {spec['clip']!r} (it has: {', '.join(names)})", line, f"{where}.clip")
         return None
+    if joint_map is not None and not _check_joints(ctx, joint_map, file, spec["import"], line, where):
+        return None
     return Animation(name, float(fps), loop, "linear", [], None, (file, str(spec["clip"]), float(speed)), adjust)
 
 
-def _parse_retarget(ctx: _Ctx, raw: Any, line: int | None, where: str) -> dict[str, dict[str, Any]] | None:
+def _check_joints(ctx: _Ctx, joint_map: JointMap, file: Path, shown: str, line: int | None, where: str) -> bool:
+    """Every joint a skeleton map names is in the clip file (a typo would leave its bone still)."""
+    import difflib
+
+    from kiln.retarget import joint_names
+
+    have = joint_names(file)
+    named = [(f"skeleton.map.{bone}", joint) for bone, joint in joint_map.joints.items()]
+    if joint_map.root_motion is not None:
+        named.append(("skeleton.root_motion", joint_map.root_motion))
+    ok = True
+    for at, joint in named:
+        if joint not in have:
+            near = difflib.get_close_matches(joint, have, 3, 0.5)
+            hint = f"did you mean {', '.join(near)}?" if near else f"its joints: {', '.join(have[:40])}{', ...' if len(have) > 40 else ''}"
+            ctx.error("E008", f"{at} names joint {joint!r}, which {shown} doesn't have ({hint}): map the bone onto one of the clip's joints",
+                      line, where)  # fmt: skip
+            ok = False
+    return ok
+
+
+def _parse_skeleton_map(ctx: _Ctx, raw: dict[str, Any], model: Model, line: int | None) -> JointMap | None:
+    """`skeleton: { map: { body: Torso2, neck: { joint: Neck1, child: head } }, root_motion: Torso }`: which clip joint
+    drives each KILN bone, which KILN bone aims it (its child), and the clip joint whose movement moves the model."""
+    usage = ("skeleton is humanoid, or { map: { <bone id>: <clip joint> | { joint: <clip joint>, child: <bone id> } }, root_motion: <clip joint> } "
+             "for any other skeleton (a humanoid uses its standard table; it takes no map)")  # fmt: skip
+    mapping = raw.get("map")
+    if any(k not in ("map", "root_motion") for k in raw) or not isinstance(mapping, dict) or not mapping:
+        ctx.error("E007", usage, line, "skeleton")
+        return None
+    ids = set(model.ids)
+    parent_of = {pid: (model.rig[pid].parent if pid in model.rig else None) or ROOT_ID for pid in ids if pid != ROOT_ID}
+
+    def below(child: str, bone: str) -> bool:  # child is a descendant of bone in the KILN hierarchy
+        seen: set[str] = set()
+        while child in parent_of and child not in seen:
+            seen.add(child)
+            child = parent_of[child]
+            if child == bone:
+                return True
+        return False
+
+    joints: dict[str, str] = {}
+    children: dict[str, str] = {}
+    ok = True
+    for bone, spec in mapping.items():
+        where = f"skeleton.map.{bone}"
+        mline = _line(mapping, bone) or line
+        if not isinstance(bone, str) or bone == ROOT_ID or (bone not in ids and not model.template):
+            ctx.error("E007", f"skeleton.map: unknown bone {bone!r}: map part ids (bones: {', '.join(sorted(ids - {ROOT_ID}))})", mline, where)
+            ok = False
+            continue
+        if isinstance(spec, str) and spec:
+            joints[bone] = spec
+            continue
+        if not isinstance(spec, dict) or any(k not in ("joint", "child") for k in spec) or not isinstance(spec.get("joint"), str) \
+                or not spec["joint"] or ("child" in spec and not isinstance(spec["child"], str)):
+            ctx.error("E007", f"a mapped bone is a clip joint name or {{ joint: <clip joint>, child: <bone id> }} (e.g. {bone}: {{ joint: Neck1, child: head }})",
+                      mline, where)  # fmt: skip
+            ok = False
+            continue
+        joints[bone] = spec["joint"]
+        if "child" in spec:
+            children[bone] = spec["child"]
+    for bone, child in children.items():
+        where = f"skeleton.map.{bone}.child"
+        mline = _line(mapping, bone) or line
+        if model.template:
+            continue
+        if child not in ids or child == ROOT_ID:
+            ctx.error("E007", f"child {child!r} isn't a bone (bones: {', '.join(sorted(ids - {ROOT_ID}))})", mline, where)
+            ok = False
+        elif not below(child, bone):
+            ctx.error("E007", f"child {child!r} isn't below {bone!r} in the rig: name one of its descendants (give rig: {{ {child}: {{ parent: ... }} }} "
+                      "if the hierarchy is off)", mline, where)  # fmt: skip
+            ok = False
+        elif child not in joints:
+            ctx.error("E007", f"child {child!r} isn't mapped: the aim runs from {bone}'s joint to its child's, so map {child} too", mline, where)
+            ok = False
+    root_motion = raw.get("root_motion")
+    if root_motion is not None and (not isinstance(root_motion, str) or not root_motion):
+        ctx.error("E007", "root_motion names the clip joint whose movement moves the model (e.g. root_motion: Torso)", _line(raw, "root_motion") or line,
+                  "skeleton.root_motion")  # fmt: skip
+        ok = False
+    if not ok:
+        return None
+    return JointMap(joints, children, root_motion)
+
+
+def _parse_retarget(ctx: _Ctx, raw: Any, line: int | None, where: str, joint_map: JointMap | None = None) -> dict[str, dict[str, Any]] | None:
     """`retarget: { keep: { upperarm: 0.35, lowerleg: 0.5 }, offset: { upperarm_l: [-12, 0, -12] } }`: per joint (a
     joint name, or its base name for both sides), the share of the clip's turn away from rest it keeps, and a fixed
     turn (degrees, model axes) added to it. For clips made for another body type (chibi clips on adult bodies)."""
@@ -932,14 +1026,16 @@ def _parse_retarget(ctx: _Ctx, raw: Any, line: int | None, where: str) -> dict[s
 
     if raw is None:
         return None
-    bases = {n[:-2] for n in JOINTS if n.endswith(("_l", "_r"))}
-    usage = ("retarget is { keep: { <joint>: share 0-2 }, offset: { <joint>: [x, y, z] degrees } }; a joint is a humanoid joint "
+    bones = set(JOINTS) if joint_map is None else set(joint_map.joints)
+    bases = {n[:-2] for n in bones if n.endswith(("_l", "_r"))}
+    kind = "a humanoid joint" if joint_map is None else "a mapped bone"
+    usage = (f"retarget is {{ keep: {{ <joint>: share 0-2 }}, offset: {{ <joint>: [x, y, z] degrees }} }}; a joint is {kind} "
              f"name or a base name for both sides ({', '.join(sorted(bases))})")  # fmt: skip
     if not isinstance(raw, dict) or not raw or any(k not in ("keep", "offset") for k in raw):
         ctx.error("E008", usage, line, where)
         return None
     keep, offset = raw.get("keep", {}), raw.get("offset", {})
-    known = set(JOINTS) | bases
+    known = bones | bases
     if not (isinstance(keep, dict) and all(k in known and _num(v) and 0 <= v <= 2 for k, v in keep.items())
             and isinstance(offset, dict) and all(k in known and isinstance(v, list) and len(v) == 3 and all(_num(x) for x in v) for k, v in offset.items())):  # fmt: skip
         ctx.error("E008", usage, line, where)
@@ -947,7 +1043,8 @@ def _parse_retarget(ctx: _Ctx, raw: Any, line: int | None, where: str) -> dict[s
     return {"keep": {str(k): float(v) for k, v in keep.items()}, "offset": {str(k): tuple(float(x) for x in v) for k, v in offset.items()}}
 
 
-def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, humanoid: bool = False) -> dict[str, Animation]:
+def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, humanoid: bool = False,
+                      joint_map: JointMap | None = None) -> dict[str, Animation]:  # fmt: skip
     out: dict[str, Animation] = {}
     if raw is None:
         return out
@@ -965,7 +1062,7 @@ def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, huma
             ctx.error("E008", f"animations {twin!r} and {name!r} differ only in case: rename one", aline, where)
             continue
         if isinstance(spec, dict) and "import" in spec:
-            imported = _parse_import(ctx, name, spec, aline, where, humanoid)
+            imported = _parse_import(ctx, name, spec, aline, where, humanoid, joint_map)
             if imported is not None:
                 out[name] = imported
             continue
@@ -1148,10 +1245,13 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     ids = set(model.ids) if model.parts else {ROOT_ID}
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig"), model.template), model.parts)
     skeleton = data.get("skeleton")
-    if skeleton is not None:
+    if isinstance(skeleton, dict):
+        model.joint_map = _parse_skeleton_map(ctx, skeleton, model, _line(data, "skeleton"))
+    elif skeleton is not None:
         missing = [j for j in REQUIRED if j not in ids]
         if skeleton != "humanoid":
-            ctx.error("E007", "skeleton is humanoid (parts named after the standard joints: hips, spine, chest, head, upperarm_l, ...)",
+            ctx.error("E007", "skeleton is humanoid (parts named after the standard joints: hips, spine, chest, head, upperarm_l, ...) "
+                      "or { map: { <bone id>: <clip joint>, ... }, root_motion: <clip joint> } (clips on any other skeleton)",
                       _line(data, "skeleton"), "skeleton")  # fmt: skip
         elif missing and not model.template:
             ctx.error("E007", f"a humanoid needs parts with ids {', '.join(missing)} (standard joints; mirror_id makes the _r side)",
@@ -1171,7 +1271,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
             ctx.error("E007", "union: per_bone needs skin: rigid (a soft skin bends where parts blend, so it stays one surface)", _line(data, "union"), "union")
         else:
             model.union = str(union)
-    model.animations = _parse_animations(ctx, data.get("animations"), ids, _line(data, "animations"), model.skeleton is not None)
+    model.animations = _parse_animations(ctx, data.get("animations"), ids, _line(data, "animations"), model.skeleton is not None, model.joint_map)
     if model.animations and model.skin == "none":
         ctx.error("E008", "animations move parts: give the model a rig (pivots and parents) or skin: rigid", _line(data, "animations"), "animations")
     library = data.get("animation_library")

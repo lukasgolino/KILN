@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from kiln.notation import ROOT_ID, Animation, Model, PartPose
-from kiln.retarget import JOINTS, default_pivot, load_clip, retarget
+from kiln.retarget import HUMANOID_MAP, JOINTS, default_pivot, load_clip, retarget
 from kiln.sdf import IDENTITY, Array, Field, Geometry, rotation_matrix
 
 MAX_INFLUENCES = 4
@@ -301,7 +301,7 @@ def tracks(model: Model, skeleton: Skeleton) -> list[Track]:
             bones = [(b.name, b.parent, b.pivot) for b in skeleton.bones]
             adjust = anim.retarget or {}
             offsets = {k: quaternion(v) for k, v in adjust.get("offset", {}).items()}
-            tr_, rot_ = retarget(load_clip(path, clip_name), bones, anim.fps, speed, adjust.get("keep"), offsets)
+            tr_, rot_ = retarget(load_clip(path, clip_name), bones, anim.fps, speed, adjust.get("keep"), offsets, model.joint_map or HUMANOID_MAP)
             out.append(Track(anim.name, anim.fps, anim.loop, anim.interpolation, tr_, rot_, np.ones(tr_.shape)))
             continue
         poses = animation_poses(anim, model)

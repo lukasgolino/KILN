@@ -311,6 +311,45 @@ animation: `retarget: { keep: { upperarm: 0.35, lowerleg: 0.5 }, offset: { upper
 share of each joint's turn away from rest it keeps (0 = held at rest, 1 = as the clip; a base name like `upperarm`
 covers both sides; children follow), `offset` a fixed turn in degrees (model axes) added on top.
 
+### Clips on any skeleton (joint map)
+
+A creature that isn't a humanoid (a quadruped, a bird) plays a clip library made for another armature through a
+map from its part ids (bones) to the clip's joints:
+
+```yaml
+skin: rigid
+rig: { body: { pivot: [0, 0.5, 0] }, neck: { pivot: [0, 0.55, 0.3], parent: body }, head: { parent: neck }, ... }
+skeleton:
+  map:
+    body: Torso2
+    neck: { joint: Neck1, child: head }        # child: the bone whose direction aims this one
+    head: Head
+    fl_up_l: { joint: FrontUpperLeg.L, child: fl_low_l }
+    fl_low_l: FrontLowerLeg.L
+    tail1: { joint: Tail1, child: tail2 }
+    tail2: Tail4
+  root_motion: Torso   # the clip joint whose movement moves the model
+animations:
+  walk: { import: imports/Horse.glb, clip: Walk, retarget: { keep: { tail1: 0.5 } } }
+```
+
+Each mapped bone turns by its joint's world-space turn from the clip's rest. A bone with a `child` (another mapped
+bone below it in the rig) is first turned so it points where the clip's joint points to the child's joint (as each
+humanoid limb is), so a creature built in its own rest pose plays the clip; without `child` it keeps its parent's
+aim. Unmapped bones follow their parent (a saddle on the body); unmapped clip joints are ignored (IK and pole
+bones). The map changes nothing else: parents, pivots and skin come from `rig` and `skin` as usual, so give the
+creature a hierarchy (`parent:`) and a skin (`rigid` or `soft`). `retarget: { keep, offset }` works per mapped bone
+(by id, or a base name for `_l`/`_r` pairs).
+
+`root_motion` names the clip joint whose movement moves the model: its movement, scaled by the moving bone's rest
+height over the joint's rest height (a joint at ground level: unscaled), moves the bone mapped to that joint, or,
+when it isn't mapped (`Torso` above), the bone mapped to its nearest mapped joint below it (`body`: `Torso2`). Without
+`root_motion` nothing moves: the clip plays in place, rotations only (the body's bob and travel are dropped).
+
+`skeleton: humanoid` uses the standard table and takes no map (`skeleton: { ... }` is for every other skeleton).
+Findings (E007): a map key that isn't a part id (or is `root`), a `child` that isn't a mapped bone below it; (E008)
+a mapped joint or `root_motion` the clip file doesn't have (with the nearest names). Check with `--pose <animation>`.
+
 ## Attachments for CC0 characters
 
 A helmet, shield or banner made around a CC0 character (a KayKit Knight) instead of a KILN body:
