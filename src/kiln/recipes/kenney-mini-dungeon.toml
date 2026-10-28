@@ -1,0 +1,13 @@
+# Kenney's own upload to OpenGameArt (kenney.nl hands out signed, expiring links only).
+name = "kenney-mini-dungeon"
+version = "2.0"
+title = "Kenney Mini Dungeon"
+source = "kenney"
+author = "Kenney"
+homepage = "https://kenney.nl/assets/mini-dungeon"
+url = "https://opengameart.org/sites/default/files/kenney_mini-dungeon_2.0.zip"
+sha256 = "19c4648680cb1d2e8836cade96cbf9781c0c1f45fbc6d2ce41cee8239a3ec4d8"
+licence = "CC0-1.0"
+licence_file = "License.txt"
+models = "Models/GLB format"
+tags = ["dungeon", "fantasy", "medieval"]

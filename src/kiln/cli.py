@@ -1,4 +1,4 @@
-"""`kiln` command line: init, new, lint, build, preview, lineup, gallery, status, mark, style, config, import,
+"""`kiln` command line: init, new, lint, build, preview, lineup, gallery, status, mark, style, config, import, pack,
 credits, doctor, skill, mcp. Human-readable output by default, `--json` for machines, non-zero exit on errors."""
 
 from __future__ import annotations
@@ -585,6 +585,34 @@ def cmd_config(args: argparse.Namespace, out: Output) -> int:
     return 0
 
 
+def _write_imported(project: Project, name: str, file: str, licence: str, author: str, url: str, height: float | None, cls: str,
+                    description: str, force: bool) -> Path:  # fmt: skip
+    """The model file for an imported mesh (`kiln import`, `kiln pack import`)."""
+    path = project.models_dir / f"{name}{MODEL_SUFFIX}"
+    if path.exists() and not force:
+        raise _usage(f"{display_path(path)} already exists (use --force)", path)
+    process = [f"  height: {height}"] if height else ["  scale: 1.0"]
+    text = "\n".join([
+        f"name: {name}",
+        f"description: {json.dumps(description)}",
+        f"class: {cls}",
+        "status: draft",
+        f"style_version: {project.config.style_version}",
+        "source:",
+        f"  file: {file}",
+        f"  licence: {licence}",
+        f"  author: {json.dumps(author)}",
+        f"  url: {json.dumps(url)}",
+        "process:",
+        *process,
+        "  recolor: auto           # snap colours to the project palette (keep = the file's own colours)",
+        "",
+    ])  # fmt: skip
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 def cmd_import(args: argparse.Namespace, out: Output) -> int:
     project = _require_project()
     src = Path(args.file).resolve()
@@ -612,43 +640,152 @@ def cmd_import(args: argparse.Namespace, out: Output) -> int:
         for uri in external_files(src):  # buffers and textures, keeping their relative paths (Textures/...)
             (dest_dir / uri).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src.parent / uri, dest_dir / uri)
-    path = project.models_dir / f"{name}{MODEL_SUFFIX}"
-    if path.exists() and not args.force:
-        raise _usage(f"{display_path(path)} already exists (use --force)", path)
-    process = [f"  height: {args.height}"] if args.height else ["  scale: 1.0"]
-    text = "\n".join([
-        f"name: {name}",
-        f"description: {json.dumps(args.description or f'imported from {src.name}')}",
-        f"class: {args.cls}",
-        "status: draft",
-        f"style_version: {project.config.style_version}",
-        "source:",
-        f"  file: imports/{dest.name}",
-        f"  licence: {args.licence}",
-        f"  author: {json.dumps(args.author or '')}",
-        f"  url: {json.dumps(args.url or '')}",
-        "process:",
-        *process,
-        "  recolor: auto           # snap colours to the project palette (keep = the file's own colours)",
-        "",
-    ])  # fmt: skip
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    path = _write_imported(project, name, f"imports/{dest.name}", args.licence, args.author or "", args.url or "", args.height, args.cls,
+                           args.description or f"imported from {src.name}", args.force)
     out.say(f"imported {src.name} as {display_path(path)}; `kiln preview {name}` to check scale and colours")
     out.result({"model": display_path(path), "file": display_path(dest)})
     return 0
 
 
+def _pack_error(exc: Exception) -> PaganError:
+    return _usage(str(exc))
+
+
+def cmd_pack(args: argparse.Namespace, out: Output) -> int:
+    from kiln import packs
+
+    try:
+        if args.pack_cmd == "list":
+            return _pack_list(out)
+        if args.pack_cmd == "add":
+            recipe = packs.load_recipe(args.recipe)
+            if not out.as_json:
+                print(f"kiln: mirroring {recipe.key} from {recipe.url}", file=sys.stderr)
+            mirror, fetched = packs.add(recipe, force=args.force)
+            usable = sum(1 for e in mirror.models if "error" not in e)
+            out.say(f"{mirror.key}: {'mirrored' if fetched else 'already mirrored'} in {mirror.path} ({usable} models"
+                    f"{f', {len(mirror.models) - usable} unreadable' if usable < len(mirror.models) else ''}); `kiln pack search <words>`")  # fmt: skip
+            out.result({"pack": mirror.recipe.name, "version": mirror.recipe.version, "path": str(mirror.path), "fetched": fetched,
+                        "models": len(mirror.models), "unreadable": len(mirror.models) - usable, "archive_sha256": mirror.archive_sha256})  # fmt: skip
+            return 0
+        if args.pack_cmd == "search":
+            return _pack_search(args, out)
+        return _pack_import(args, out)
+    except packs.PackError as exc:
+        raise _pack_error(exc) from None
+
+
+def _pack_list(out: Output) -> int:
+    from kiln import packs
+
+    mirrored = {m.key: m for m in packs.mirrors()}
+    rows: list[dict[str, Any]] = []
+    for r in packs.builtin_recipes().values():
+        m = mirrored.pop(r.key, None)
+        rows.append({"pack": r.name, "version": r.version, "title": r.title, "source": r.source, "licence": r.licence, "url": r.url,
+                     "shipped": True, "mirrored": m is not None, "models": len(m.models) if m else None})  # fmt: skip
+    for m in mirrored.values():  # from recipe files, or older versions
+        r = m.recipe
+        rows.append({"pack": r.name, "version": r.version, "title": r.title, "source": r.source, "licence": r.licence, "url": r.url,
+                     "shipped": False, "mirrored": True, "models": len(m.models)})  # fmt: skip
+    for row in rows:
+        state = f"mirrored, {row['models']} models" if row["mirrored"] else "not mirrored (kiln pack add " + row["pack"] + ")"
+        out.say(f"{row['pack'] + '@' + row['version']:<52} {row['licence']:<8} {state}")
+    out.say(f"cache: {packs.cache_root()}")
+    out.result({"packs": rows, "cache": str(packs.cache_root())})
+    return 0
+
+
+def _pack_search(args: argparse.Namespace, out: Output) -> int:
+    from kiln import packs
+
+    if args.limit < 1:
+        raise _usage("--limit is at least 1")
+    hits = packs.search(args.terms, args.pack)
+    shown = hits[: args.limit]
+    for h in shown:
+        e = h.entry
+        stats = f"{e['triangles']} tris, {' x '.join(f'{s:g}' for s in e['size'])}" if "triangles" in e else f"unreadable: {e.get('error')}"
+        out.say(f"{h.mirror.key:<44} {e['path']:<40} {stats}  [{', '.join(e['tags'])}]")
+    if not hits:
+        out.say("no models found" + ("" if packs.mirrors() else ": no packs mirrored yet (kiln pack list, kiln pack add <pack>)"))
+    elif len(hits) > len(shown):
+        out.say(f"{len(hits)} models, first {len(shown)} shown (--limit)")
+    data: dict[str, Any] = {"hits": [h.to_dict() for h in shown], "total": len(hits)}
+    if args.lineup:
+        data["lineup"] = _pack_lineup([h for h in shown if "error" not in h.entry][:LINEUP_MAX])
+        out.say(f"line-up: {data['lineup']}")
+    out.result(data)
+    return 0
+
+
+LINEUP_MAX = 12  # search hits in a --lineup sheet
+
+
+def _pack_lineup(hits: list[Any]) -> str:
+    """The hits side by side at one scale (each in its file's own units, standing on the ground)."""
+    from kiln import preview as pv
+    from kiln.importer import ImportError_, load_reference
+
+    root = find_project_root(Path.cwd())
+    project = load_project(root) if root is not None else None
+    style, findings = project.style() if project is not None else load_style("soft_toy")
+    if style is None:
+        raise PaganError(findings)
+    builts = []
+    for h in hits:
+        try:
+            built = load_reference(h.mirror.file(h.entry), style)
+            built.model.name = str(h.entry["name"])  # the tile's label (KayKit's chair.gltf.glb -> chair)
+            builts.append(built)
+        except (ImportError_, ValueError, KeyError, IndexError, OSError):
+            continue
+    folder = project.preview_dir if project is not None else Path.cwd()
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "pack-search.png"
+    pv.lineup(builts).save(path)
+    return display_path(path)
+
+
+def _pack_import(args: argparse.Namespace, out: Output) -> int:
+    from kiln import packs
+
+    project = _require_project()
+    mirror = packs.find_mirror(args.pack)
+    entry = packs.find_model(mirror, args.model)
+    name = args.name or re.sub(r"[^a-z0-9_-]+", "_", str(entry["name"]).lower()).strip("_")
+    if not NAME_RE.match(name):
+        raise _usage("give the model a name: --name tree_big")
+    model_path = project.models_dir / f"{name}{MODEL_SUFFIX}"
+    if model_path.exists() and not args.force:
+        raise _usage(f"{display_path(model_path)} already exists (use --force)", model_path)
+    dest, written = packs.copy_into_project(project.root, mirror, entry, force=args.force)
+    r = mirror.recipe
+    path = _write_imported(project, name, dest.relative_to(project.root).as_posix(), r.licence, r.author, r.homepage or r.url, args.height,
+                           args.cls, args.description or f"{entry['path']} from {r.key}", True)  # fmt: skip
+    out.say(f"imported {entry['path']} from {r.key} as {display_path(path)} ({len(written)} file{'s' if len(written) > 1 else ''} in {packs.LOCK_NAME}); "
+            f"`kiln preview {name}` to check scale and colours")  # fmt: skip
+    out.result({"model": display_path(path), "file": display_path(dest), "pack": r.name, "version": r.version, "locked": sorted(written)})
+    return 0
+
+
 def cmd_credits(args: argparse.Namespace, out: Output) -> int:
+    from kiln.packs import locked_pack
+
     project = _require_project()
     rows = []
     for path in project.model_paths():
         model, _, _ = project.load(path)
         if model is not None and model.source is not None:
             credited = model.source.original or model.source.file
-            rows.append({"model": model.name, "file": credited.name, "licence": model.source.licence,
-                         "author": model.source.author, "url": model.source.url})  # fmt: skip
-            out.say(f"{model.name}: {credited.name} by {model.source.author or '?'} ({model.source.licence}) {model.source.url}")
+            row = {"model": model.name, "file": credited.name, "licence": model.source.licence,
+                   "author": model.source.author, "url": model.source.url}  # fmt: skip
+            pack = locked_pack(project.root, model.source.file)
+            if pack is not None:  # imported with `kiln pack import` (kiln.lock)
+                row["pack"] = pack
+            rows.append(row)
+            out.say(f"{model.name}: {credited.name} by {model.source.author or '?'} ({model.source.licence}) {model.source.url}"
+                    f"{f' [{pack}]' if pack else ''}")  # fmt: skip
     if not rows:
         out.say("no imported models: everything was made in KILN")
     out.result({"credits": rows})
@@ -774,6 +911,25 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--class", dest="cls", default="prop")
     s.add_argument("--description")
     s.add_argument("--force", action="store_true")
+    s = sub.add_parser("pack", parents=[common], help="CC0 packs: mirror (the only network access), search, import with a licence lock")
+    ps = s.add_subparsers(dest="pack_cmd", required=True)
+    ps.add_parser("list", parents=[common], help="shipped packs and what is mirrored")
+    x = ps.add_parser("add", parents=[common], help="download a pack into the cache (~/.cache/kiln/packs)")
+    x.add_argument("recipe", help="a shipped pack (kiln pack list) or a recipe file (my-pack.toml)")
+    x.add_argument("--force", action="store_true", help="download again even if mirrored")
+    x = ps.add_parser("search", parents=[common], help="search mirrored packs by file name and tags")
+    x.add_argument("terms", nargs="*")
+    x.add_argument("--pack", help="only this pack (name or name@version)")
+    x.add_argument("--limit", type=int, default=30)
+    x.add_argument("--lineup", action="store_true", help="a line-up sheet of the first hits")
+    x = ps.add_parser("import", parents=[common], help="copy a pack model into imports/<pack>/, write its model and kiln.lock")
+    x.add_argument("pack", help="name or name@version")
+    x.add_argument("model", help="its path in the pack (as search shows it) or its file name")
+    x.add_argument("--name")
+    x.add_argument("--height", type=float, help="scale so it is this tall (metres)")
+    x.add_argument("--class", dest="cls", default="prop")
+    x.add_argument("--description")
+    x.add_argument("--force", action="store_true", help="replace an existing model and imported files")
     sub.add_parser("credits", parents=[common], help="authors and licences of imported models")
     sub.add_parser("doctor", parents=[common], help="versions, Godot, display")
     s = sub.add_parser("skill", parents=[common], help="install the Claude skill")
@@ -787,7 +943,7 @@ def parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_build, "preview": cmd_preview, "lineup": cmd_lineup,
             "gallery": cmd_gallery, "status": cmd_status, "mark": cmd_mark, "style": cmd_style, "config": cmd_config,
-            "import": cmd_import, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "mcp": cmd_mcp, "library": cmd_library}  # fmt: skip
+            "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "mcp": cmd_mcp, "library": cmd_library}  # fmt: skip
 
 
 def main(argv: Sequence[str] | None = None) -> int:

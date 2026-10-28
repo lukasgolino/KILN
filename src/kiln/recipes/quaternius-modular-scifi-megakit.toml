@@ -1,0 +1,16 @@
+# Quaternius' own upload to OpenGameArt (quaternius.com links to a Google Drive folder). The free "Standard" edition;
+# its glTF files name textures that live in Textures/, so those are copied next to them.
+name = "quaternius-modular-scifi-megakit"
+version = "standard-2025-04-16"
+title = "Quaternius Modular SciFi MegaKit (Standard)"
+source = "quaternius"
+author = "Quaternius"
+homepage = "https://quaternius.com/packs/modularscifimegakit.html"
+url = "https://opengameart.org/sites/default/files/modular_scifi_megakitstandard.zip"
+sha256 = "4ca9acbc7a13e7baa48e24c4853b779889b7ab21587004c36668826e705c8a10"
+licence = "CC0-1.0"
+strip = 1
+licence_file = "License_Standard.txt"
+models = "glTF"
+textures = "Textures"
+tags = ["scifi", "sci-fi", "space", "modular"]

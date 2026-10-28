@@ -1,0 +1,14 @@
+# KayKit's GitHub repository, as a zip of one pinned commit.
+name = "kaykit-dungeon-remastered"
+version = "1.0"
+title = "KayKit Dungeon Remastered"
+source = "kaykit"
+author = "Kay Lousberg"
+homepage = "https://kaylousberg.itch.io/kaykit-dungeon-remastered"
+url = "https://codeload.github.com/KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0/zip/b0ca9bd96a8072ab36a3a5464f00ed1e06a16d07"
+sha256 = "e96a65ce4040b6b630f04470a60fd523d621c124cfbad062809cf7b94ccf714b"
+licence = "CC0-1.0"
+strip = 1
+licence_file = "addons/kaykit_dungeon_remastered/Assets/LICENSE.txt"
+models = "addons/kaykit_dungeon_remastered/Assets/gltf"
+tags = ["dungeon", "fantasy", "medieval"]

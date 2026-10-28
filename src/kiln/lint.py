@@ -20,6 +20,7 @@ from kiln.builder import build_cached, cached, field_of, hard_parts, kept_parts
 from kiln.export import Built
 from kiln.mesher import crack_groups, open_edges, pinches
 from kiln.notation import Model
+from kiln.packs import lock_findings
 from kiln.project import Project
 from kiln.sdf import Array, part_thickness
 from kiln.style import Style
@@ -39,6 +40,7 @@ WARNING_RULES = {
     "W112": "a LOD came out well above its triangle target",
     "W113": "a part pokes through another part's shell (eyes through a visor, a head through a helmet)",
     "W114": "a model's joints sit elsewhere than in its animation_library (from kiln build)",
+    "W115": "kiln.lock lists a file that isn't in the project any more",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -296,6 +298,9 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
             result.models[model.name] = (model, style)
         disabled = set(project.config.lint_disable) | set(model.lint_disable if model else ())
         result.findings += [f for f in keep if not (f.severity == "warning" and f.rule in disabled)]
+    # kiln.lock (pack imports): checked whole, whichever models are linted; no lock, no findings
+    sources = [(p, m.source.file, m.source.licence) for p, m, _, _, _ in loaded if m is not None and m.source is not None]
+    result.findings += [f for f in lock_findings(project.root, sources) if not (f.severity == "warning" and f.rule in project.config.lint_disable)]
     return result
 
 

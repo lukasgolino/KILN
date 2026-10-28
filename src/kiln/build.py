@@ -21,6 +21,7 @@ from kiln.export import Built, attr_names, gltf_name, to_glb, uv_channel
 from kiln.godot import bone_map_tres, find_godot_project, look_scene, model_scene, res_path, with_bone_map
 from kiln.lint import LintResult, lint_paths, lint_project
 from kiln.notation import MODEL_SUFFIX, Model
+from kiln.packs import LOCK_NAME, locked_pack
 from kiln.rig import animation_poses
 from kiln.project import Project
 from kiln.style import Style
@@ -313,6 +314,8 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             if top == "models" and stem in kept:
                 produced.add((out / rel).resolve())
 
+    has_lock = (project.root / LOCK_NAME).is_file()
+
     def write(path: Path, data: bytes) -> None:
         _write(path, data, result)
         produced.add(path.resolve())
@@ -352,6 +355,10 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         write(glb, glb_data)
         merged = project.config.merge_rigid and built.skin == "rigid"
         entry = model_entry(built, out, glb, merged)
+        if model.source is not None and has_lock:
+            pack = locked_pack(project.root, model.source.file)
+            if pack is not None:  # imported with `kiln pack import`: the manifest and CREDITS name the pack
+                entry["source"]["pack"] = pack
         if model.fit_to is not None:
             result.attachments[name] = model.fit_to[0]
         gibs: dict[str, Any] = {}
@@ -464,7 +471,8 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         for c in sorted(credits, key=lambda c: c["model"]):
             who = f" by {c['author']}" if c["author"] else ""
             url = f" ({c['url']})" if c["url"] else ""
-            lines.append(f"- **{c['model']}**: {c['file']}{who}{url}, licence {c['licence']}")
+            pack = f", from pack {c['pack']}" if c.get("pack") else ""  # `kiln pack import` (kiln.lock)
+            lines.append(f"- **{c['model']}**: {c['file']}{who}{url}, licence {c['licence']}{pack}")
         write(out / CREDITS, ("\n".join(lines) + "\n").encode())
     manifest: dict[str, Any] = {"generator": generator, "units": "metres", "up": "+Y", "front": "+Z", "models": models}
     if looks:

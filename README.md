@@ -133,6 +133,11 @@ and applies your style, so they match; `CREDITS.md` lists authors. With Blender 
 or `BLENDER=/path/to/blender`), `kiln import` also takes .fbx, .blend and .obj and turns them into a glb; KILN itself
 never needs Blender.
 
+KILN ships recipes for some CC0 packs (Kenney, KayKit, Quaternius): `kiln pack add kaykit-adventurers` mirrors one
+into a per-user cache (the only command that downloads), `kiln pack search knight --lineup` finds models by name and
+tags, and `kiln pack import kaykit-adventurers knight --height 1.8` brings one in and records its files (pack,
+version, URL, sha256, licence) in `kiln.lock`, which `kiln build` checks.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

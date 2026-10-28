@@ -26,7 +26,9 @@ def call(project: Project, tool: str, args: dict[str, Any] | None = None, allow_
 
 def test_tools_are_listed(project: Project) -> None:
     tools = {t.name for t in asyncio.run(create_server(project.root).list_tools())}
-    assert {"status", "write_model", "preview", "lint", "build", "lineup", "gallery", "style_write", "import_model"} <= tools
+    assert {"status", "write_model", "preview", "lint", "build", "lineup", "gallery", "style_write", "import_model", "pack_list", "pack_search",
+            "pack_import"} <= tools
+    assert "pack_add" not in tools  # downloading stays an explicit CLI command
 
 
 def test_write_model_lints_and_returns_a_turntable(project: Project) -> None:
