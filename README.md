@@ -94,6 +94,12 @@ pilot.get_node("AnimationPlayer").play("walk")
 parents, gameplay metadata), animations, variants, LODs and licences. `examples/godot` is a runnable Godot 4.7
 project showing the demo models.
 
+## Other engines
+
+The `.glb` files are plain glTF 2.0: Unity, Unreal, Bevy, three.js and Defold import them. Set `export = ["glb"]`.
+[docs/engines.md](docs/engines.md) has per-engine notes (axes, scale, vertex colours, palette textures, animations,
+LODs) and what's Godot-only (look kits, toon, outlines, rim light) with how to approximate it.
+
 ## Using KILN with Claude
 
 ```sh

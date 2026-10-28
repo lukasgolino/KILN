@@ -140,3 +140,6 @@ anything that changes output.
   locking areas and re-running (locked full-detail patches ate low budgets and cracked thin shells). Crossings are
   found on the surface (false position), not interpolated, and best-fit points may leave their cell by a step where
   they lie on the surface (sharp rims).
+- 2026-10-28: #18: other engines get import notes only (`docs/engines.md`: Unity, Unreal, Bevy, three.js, Defold), no
+  generated materials or prefabs: no game targets another engine yet, and generated setup would need that engine
+  installed for a headless verify like `--verify-godot`. Outside Godot `atlas = true` is the recommended colour mode.

@@ -556,6 +556,10 @@ AnimationLibrary (no `.tscn`); add it to each model's AnimationPlayer.
 imported or touched). Attachments (`fit_to`) are hung on their bone of a copy of the character through a
 BoneAttachment3D and must land where they were made.
 
+Other engines: everything but the `.tscn` files, `.import` sidecars and `<name>.rim.png` is plain glTF + JSON. Notes per
+engine (axes, scale, vertex colours, palette texture filtering, skins, clips, LODs, approximating the look):
+https://github.com/lukasgolino/KILN/blob/main/docs/engines.md
+
 In Godot:
 
 ```gdscript
