@@ -273,6 +273,28 @@ def test_bevel_on_a_thin_outline_stays_closed(project: Project, edge: str) -> No
     assert min(square) > 0.3  # ordinary shapes never clamp a normal bevel
 
 
+@pytest.mark.parametrize("bevel", [0.02, 0.03, 0.04])
+def test_bevel_wider_than_a_bar_stays_closed(project: Project, bevel: float) -> None:
+    """#66: an H whose 50 mm bar takes a bevel of half its width or more: the bar's two sides met (each vertex's own
+    limit only looks along its bisector, into the stems), the cap couldn't be triangulated (E013)."""
+    from kiln.hard import _folds, _offset_outline, _unfolded, inset_limits
+
+    outline: list[list[float]] = [[0, 0], [0.1, 0], [0.1, 0.3], [0.4, 0.3], [0.4, 0], [0.5, 0], [0.5, 0.7], [0.4, 0.7], [0.4, 0.35], [0.1, 0.35], [0.1, 0.7], [0, 0.7]]
+    text = f"name: thing\nclass: prop\nparts:\n  - extrude: {{ points: {outline}, height: 0.2 }}\n    color: \"#aa3322\"\n    bevel: {bevel}\n"
+    built = built_of(project, text)
+    assert len(open_edges(built.painted.vertices, built.painted.faces)) == 0 and built.pieces == 1
+    uv = [(float(z), float(x)) for x, z in outline]
+    uv = uv[::-1] if sum(uv[i - 1][0] * uv[i][1] - uv[i][0] * uv[i - 1][1] for i in range(len(uv))) < 0 else uv
+    wanted = [min(bevel, lim) for lim in inset_limits(uv)]
+    each = _unfolded(uv, wanted)
+    assert not _folds(uv, _offset_outline(uv, each))
+    lowered = {(x, z) for (z, x), w, e in zip(uv, wanted, each, strict=True) if e < w}
+    assert bool(lowered) == (bevel > 0.025)  # only a bevel past half the bar folds
+    assert all(0.1 <= x <= 0.4 for x, _ in lowered)  # the bar and the stems' sides facing it, not the outside
+    square = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+    assert _unfolded(square, [0.1] * 4) == [0.1] * 4  # outlines that don't fold keep their insets
+
+
 # Cinzel Black's L (OFL; overlaps removed), as the outline: the shape whose union with crossing straps cracked in 0.7.1
 SERIF_L = [[0.46715, -0.33144], [0.41287, 0.0], [-0.42287, 0.0], [-0.42287, -0.01429], [-0.40429, -0.01429], [-0.36983, -0.02089], [-0.34072, -0.04072], [-0.32054, -0.06982], [-0.31286, -0.10429], [-0.31286, -0.89573], [-0.32054, -0.9302], [-0.34072, -0.9593], [-0.36983, -0.97913], [-0.40429, -0.98573], [-0.42287, -0.98573], [-0.42287, -1.00002], [0.09, -1.00002], [0.09, -0.98573], [0.07143, -0.98573], [0.03697, -0.97913], [0.00786, -0.9593], [-0.01232, -0.9302], [-0.02, -0.89573], [-0.02, -0.07286], [0.15572, -0.07286], [0.2004, -0.07627], [0.24302, -0.08651], [0.28358, -0.10357], [0.33911, -0.14107], [0.38715, -0.19215], [0.41414, -0.23334], [0.43604, -0.27977], [0.45287, -0.33144]]
 
