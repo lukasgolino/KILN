@@ -11,7 +11,7 @@ from conftest import built_of, closed_faces, errors_of, ok_model, signed_volume
 from kiln.builder import build_model, hard_parts
 from kiln.export import to_glb
 from kiln.hard import HardSpec, bevelled, intersect, solid, subtract, to_mesh, union
-from kiln.hard import _planes_box, _simple_loops
+from kiln.hard import _planes_box, _retriangulate, _simple_loops
 from kiln.lint import geometry_warnings
 from kiln.mesher import open_edges, pinches
 from kiln.project import Project, load_project
@@ -415,3 +415,84 @@ def test_outlines_split_where_they_visit_a_point_twice() -> None:
     assert _simple_loops([5, 6, 5, 7]) == []  # a sliver folded onto one edge: no area
     assert _simple_loops([1, 2, 3, 1, 4, 5]) == [[1, 2, 3], [1, 4, 5]]
     assert _simple_loops([1, 2]) == []
+
+
+# #70: faces back to back (as #67's folded slivers left them) make a flat patch with no outline; re-triangulating it
+# took the max of nothing (E009) instead of keeping the patch as it is
+def test_a_patch_without_an_outline_is_kept_as_it_is() -> None:
+    v = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+    assert _retriangulate([[0, 1, 2], [0, 2, 1]], v, np.array([0.0, 0.0, 1.0]), set()) is None
+
+
+LOOSE_LINKS = """\
+name: thing
+class: prop
+lint: { disable: [W106, W108] }
+parts:
+  - box: { at: [2.2017, 1.9716, 0.0], size: [0.12, 0.03, 0.25] }
+    color: '#808080'
+    chamfer: 0.006
+  - torus: { at: [2.2017, 2.0895, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, -2.07, 90], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.2017, 2.1474, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, -3.25, 0], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.2017, 2.2054, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, 3.72, 90], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.2017, 2.2633, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, -3.36, 0], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.2017, 2.3212, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, 2.67, 90], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.2017, 2.3791, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, 2.03, 0], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.2017, 2.4371, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, -0.16, 90], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.8297, 2.093, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, 2.39, 90], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.8297, 2.1505, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, -0.48, 0], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.8297, 2.2079, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, 3.54, 90], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.8297, 2.2653, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, -2.11, 0], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.8297, 2.3227, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, 0.56, 90], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.8297, 2.3802, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, -0.52, 0], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+  - torus: { at: [2.8297, 2.4376, 0.0], radius: 0.052, thickness: 0.015, rotate: [90, -1.98, 90], sides: 12 }
+    color: '#808080'
+    hard: true
+    loose: true
+"""
+
+
+def test_a_box_beside_loose_hard_links_builds(project: Project) -> None:
+    built = built_of(project, LOOSE_LINKS)
+    p = built.painted
+    assert len(open_edges(p.vertices, p.faces)) == 0
+    assert not [f for f in geometry_warnings(built, {}, project) if f.rule in ("E009", "E013")]

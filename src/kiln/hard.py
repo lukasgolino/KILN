@@ -1178,7 +1178,7 @@ def _retriangulate(tris: list[list[int]], v: list[list[float]], normal: Array, k
     """A flat patch's triangles made again from its outline (and holes, bridged into it): ear clipping. Points in
     a straight line go unless some other patch needs them (`keep_point`)."""
     boundary = _boundary(tris)
-    if boundary is None:
+    if not boundary:  # None: no clean outline; empty: a closed patch (faces back to back, #70)
         return None
     pts2 = _project2(normal, v, set(boundary))
 
