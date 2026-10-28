@@ -1,0 +1,7 @@
+# A terrain example (not part of the demo): `kiln build` writes into godot/assets/kiln (not committed).
+default_style = "soft_toy"
+default_palette = "land"
+output_dir = "godot/assets/kiln"
+preview_dir = "previews"
+export = ["glb", "godot"]
+style_version = 1

@@ -231,11 +231,39 @@ def _built(project: Project, name: str) -> Any:
     errors = [f for f in findings if f.severity == "error"]
     if model is None or style is None or errors:
         raise PaganError(errors or findings)
+    if model.terrain is not None:
+        raise _usage(f"{model.name} is a terrain: `kiln preview {model.name}` shows it (it has no parts, poses or line-up mesh)")
     palette, _ = project.palette(model.palette)
     try:
         return build_cached(model, style, palette, project.root / ".kiln-cache")
     except ValueError as exc:
         raise PaganError([Finding("E009", str(exc), path)]) from None
+
+
+def _terrain_preview(project: Project, args: argparse.Namespace, out: Output) -> int | None:
+    """`kiln preview <terrain>`: the terrain sheet (from above and from four sides); None when it isn't a terrain."""
+    from kiln import preview as pv
+    from kiln.terrain import heightfield_cached
+
+    path = _model_path(project, args.model)
+    model, style, findings = project.load(path)
+    if model is None or model.terrain is None:
+        return None
+    errors = [f for f in findings if f.severity == "error"]
+    if style is None or errors:
+        raise PaganError(errors or findings)
+    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at") if getattr(args, flag, None)]
+    if others:
+        raise _usage(f"{model.name} is a terrain: its preview is one sheet (from above and four sides); --{others[0]} doesn't apply")
+    palette, _ = project.palette(model.palette)
+    field_ = heightfield_cached(model.name, model.terrain, model.text, palette, project.root / ".kiln-cache")
+    folder = project.preview_dir / model.name
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / "terrain.png"
+    pv.terrain_sheet(model, style, field_).save(target)
+    out.say(f"{model.name} terrain: {display_path(target)}")
+    out.result({"model": model.name, "outputs": {"terrain": display_path(target)}, "terrain": True})
+    return 0
 
 
 def _times(text: str) -> list[float]:
@@ -253,6 +281,9 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     from kiln import preview as pv
 
     project = load_project(start=Path(args.model) if Path(args.model).suffix == ".yaml" else None)
+    terrain = _terrain_preview(project, args, out)
+    if terrain is not None:
+        return terrain
     built = _built(project, args.model)
     name = built.model.name
     folder = project.preview_dir / name
@@ -398,11 +429,18 @@ def _is_template(path: Path) -> bool:
         return False
 
 
+def _is_terrain(path: Path) -> bool:
+    try:
+        return any(line.split("#")[0].rstrip() == "terrain:" for line in path.read_text(encoding="utf-8").splitlines())
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 def cmd_lineup(args: argparse.Namespace, out: Output) -> int:
     from kiln import preview as pv
 
     project = _require_project()
-    names = args.models or [p.name[: -len(MODEL_SUFFIX)] for p in project.model_paths() if not _is_template(p)]
+    names = args.models or [p.name[: -len(MODEL_SUFFIX)] for p in project.model_paths() if not _is_template(p) and not _is_terrain(p)]
     builts = [_built(project, n) for n in names]
     project.preview_dir.mkdir(parents=True, exist_ok=True)
     path = project.preview_dir / "lineup.png"

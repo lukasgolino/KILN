@@ -106,6 +106,11 @@ Write the answers into BRIEF.md and STYLE.md.
   call per mesh (2 with a decal), and team colours become a texture swap on one shared mesh. `atlas_ao = true` adds
   baked ambient occlusion (a number 0..1 sets its strength). Use it instead of `vertex_colors`.
 - Warnings W111 (a part lost to the triangle budget) and W112 (a LOD well over its target) mean: raise the budget.
+- Ground for a level: a model with `terrain:` instead of `parts:` (hills, ridges, plateaus, noise and paths combined in
+  order; up to 4 splat layers of palette colours by slope, height, nearness to paths and noise; see reference.md,
+  Terrains). It builds chunked LOD glbs, a splat map and a Godot scene with a HeightMapShape3D; `kiln preview <name>`
+  shows it from above and four sides. Place things on it from Python with `kiln.terrain.load(project, name)`
+  (`height`, `normal`, `slope`, `splat` at any x, z).
 - `kiln preview <name> --engine` renders through Godot itself (needs a display): use it to confirm the look.
 - `manifest.json` lists every model: glb, scene, size and bounds in metres, triangles, parts (pivot, parent, meta),
   animations (Godot names, loop, fps), variants, LODs, licences. That's the contract with game code.

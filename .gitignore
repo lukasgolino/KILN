@@ -11,3 +11,5 @@ examples/godot/.godot/
 .pytest_cache/
 .mypy_cache/
 build/
+examples/terrain/godot/assets/
+examples/terrain/godot/.godot/

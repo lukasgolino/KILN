@@ -109,12 +109,14 @@ def render(
     background: tuple[int, int, int, int] = (0, 0, 0, 0),
     hide: frozenset[str] = frozenset(),
     fade: Array | None = None,
+    colors: Array | None = None,
 ) -> Image.Image:
     """One view. `fit` = (centre, half-extent in metres) to frame several renders the same way; default: the
     model's own bounding sphere. `hide`: bones (part ids) left out, e.g. a detached helmet. `revealed` parts (stump caps)
     are left out too, as in the exported scenes, unless a part that reveals them is hidden. `fade`: an opacity per face
     (0..1), drawn as ordered (Bayer 4x4) dithering at the output's pixel scale: what's behind shows through the holes,
-    and outlines leave them alone."""
+    and outlines leave them alone. `colors`: a linear albedo per face corner (F, 3, 3) instead of the paint groups'
+    colours (terrains: blended splat layers)."""
     hide = with_unrevealed(built, hide)
     look: Look = built.style.look
     swap = swap or {}
@@ -201,7 +203,7 @@ def render(
         groups = p.groups
         g = p.face_group[T]
         albedo_table = np.array([srgb_to_linear(swap.get(gr.color, gr.color)) for gr in groups])
-        albedo = albedo_table[g]
+        albedo = albedo_table[g] if colors is None else (colors[T] * bary[:, :, None]).sum(axis=1)
         dec = p.face_decal[T]
         if (dec >= 0).any():
             world = (corners[T] * bary[:, :, None]).sum(axis=1)
@@ -271,13 +273,13 @@ def render(
     image = rgba.reshape(res, res, 4)
     if look.outline > 0:
         width = look.outline * SUPERSAMPLE / 2 if look.outline_space == "pixels" else look.outline * scale  # edges mark both sides
-        colors: Array | None = None
+        edge_colors: Array | None = None
         if look.outline_color == "darken":  # each part's own colour, darkened (linear, as the Godot outline shader)
             dark = np.zeros((res * res, 3))
             if hit.any():
                 dark[hit] = albedo_table[built.painted.face_group[best_tri[hit]]] * TOON_DARKEN
-            colors = _to_srgb(dark).reshape(res, res, 3)
-        image = _outline(image, best_depth.reshape(res, res), max(1, int(round(width))), look.outline_color, (dropped < best_depth).reshape(res, res), colors)
+            edge_colors = _to_srgb(dark).reshape(res, res, 3)
+        image = _outline(image, best_depth.reshape(res, res), max(1, int(round(width))), look.outline_color, (dropped < best_depth).reshape(res, res), edge_colors)
     if glow.any():
         image = _bloom(image, glow.reshape(res, res, 3), max(1, int(res * 0.025)))
     out = Image.fromarray((image * 255 + 0.5).astype(np.uint8), "RGBA")

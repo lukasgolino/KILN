@@ -298,6 +298,58 @@ def gallery(builts: list[Built], size: int = 200) -> Image.Image:
     return sheet("gallery", f"{len(builts)} models", rows)
 
 
+TERRAIN_GRID = 192  # previews mesh terrains with at most this many cells a side (every n-th grid point)
+
+
+def terrain_built(model: Any, style: Any, field: Any) -> tuple[Built, Array]:
+    """A terrain as a `Built` the software renderer draws (every n-th grid point, no chunks or skirts) and its colours
+    per face corner (linear)."""
+    from kiln.paint import PaintGroup, Painted
+    from kiln.rig import Skeleton
+    from kiln.terrain import _normals, grid_gradient
+
+    t = field.terrain
+    step = max(1, int(math.ceil(max(t.cells) / TERRAIN_GRID)))
+    h = field.heights[::step, ::step]
+    nz, nx = h.shape
+    xs = field.x0 + t.cell * step * np.arange(nx)
+    zs = field.z0 + t.cell * step * np.arange(nz)
+    gx, gz = np.meshgrid(xs, zs)
+    vertices = np.stack([gx, h, gz], axis=-1).reshape(-1, 3)
+    normals = _normals(grid_gradient(field.heights, t.cell)[::step, ::step]).reshape(-1, 3)
+    colors = field.colors()[::step, ::step].reshape(-1, 3).astype(float)
+    q = np.arange(nx * nz).reshape(nz, nx)
+    a, b, c, d = q[:-1, :-1].ravel(), q[:-1, 1:].ravel(), q[1:, :-1].ravel(), q[1:, 1:].ravel()
+    faces = np.concatenate([np.stack([a, c, b], axis=1), np.stack([b, c, d], axis=1)])
+    painted = Painted(vertices, faces, np.zeros(len(faces), dtype=int), [PaintGroup("root", "#ffffff", "terrain", "default")],
+                      np.full(len(faces), -1), [])  # fmt: skip
+    built = Built(model, style, painted, normals[faces], Skeleton([]), "none", None, None, [], t.cell * step, 1)
+    return built, colors[faces]
+
+
+def terrain_sheet(model: Any, style: Any, field: Any, size: int = 300) -> Image.Image:
+    """A terrain from above (its splat colours flat, then lit) and from four sides at 35 degrees."""
+    from PIL import Image as PILImage
+
+    from kiln.render import _to_srgb
+
+    t = field.terrain
+    built, colors = terrain_built(model, style, field)
+    lo, hi = built.bounds()
+    fit = ((lo + hi) / 2, max(max(t.size) / 2 * 0.8, float(hi[1] - lo[1])))  # the map fills the side views
+    flat = (_to_srgb(field.colors()) * 255 + 0.5).astype(np.uint8)
+    top_flat = PILImage.fromarray(flat, "RGB").resize((size, size), PILImage.Resampling.BOX).convert("RGBA")
+    top_fit = ((lo + hi) / 2, max(t.size) / 2)
+    rows = [("from above (north = -Z at the top): splat colours, then lit", [("splat", top_flat), ("lit", render(built, View(0.0, 90.0), size, fit=top_fit, background=TILE_BG, colors=colors))])]
+    rows.append(("from the sides (35 degrees up)", [(n, render(built, View(yaw, 35.0), size, fit=fit, background=TILE_BG, colors=colors))
+                                                    for n, yaw in (("south", 0.0), ("east", 90.0), ("north", 180.0), ("west", 270.0))]))  # fmt: skip
+    cover = field.weights.reshape(-1, len(t.layers)).mean(axis=0)
+    layers = ", ".join(f"{layer.name} {c * 100:.0f}%" for layer, c in zip(t.layers, cover, strict=True))
+    sub = (f"{t.size[0]:g} x {t.size[1]:g} m · cell {t.cell:g} m · heights {lo[1]:.1f} to {hi[1]:.1f} m · {t.chunks[0] * t.chunks[1]} chunks of "
+           f"{t.chunk:g} m, LODs at {', '.join(f'{d:g}' for d in t.lod) or 'none'} m · layers {layers} · style {style.name}")  # fmt: skip
+    return sheet(f"{model.name} terrain", sub, rows)
+
+
 def inspiration_images(styles_dir: Path, style: str) -> list[Path]:
     folder = styles_dir / style / "inspiration"
     return sorted(p for p in folder.glob("*") if p.suffix.lower() in INSPIRATION_SUFFIXES) if folder.is_dir() else []

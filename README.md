@@ -37,8 +37,8 @@ animations:
 ```
 
 > **Status:** 0.9, pre-1.0: notation, smooth and hard-surface meshing, painting (patterns, decals, palette atlas),
-> rigs, soft and rigid skins, clip retargeting (humanoids, or any skeleton with a joint map), animations, effects, five styles, previews, Godot export,
-> lint, CC0 imports, a template library, a Claude skill and an MCP server.
+> rigs, soft and rigid skins, clip retargeting (humanoids, or any skeleton with a joint map), animations, effects, terrains (heightfields with splat layers), five styles,
+> previews, Godot export, lint, CC0 imports, a template library, a Claude skill and an MCP server.
 > Bugs and requests: [GitHub issues](https://github.com/lukasgolino/KILN/issues).
 
 ## One model, any style
@@ -48,6 +48,14 @@ the look kit (lighting, tonemapping, outlines). The same model text below is sof
 low poly and toon. Make your own from inspiration images.
 
 ![The same models in soft_toy, low_poly and toon](docs/styles.png)
+
+## Terrains
+
+A model with `terrain:` is ground for a level: hills, ridges, plateaus, noise and paths combined in order, painted
+with up to four palette colours by slope, height, nearness to paths and noise. It builds into chunked LOD meshes, a
+splat map and a Godot scene with collision (`examples/terrain`).
+
+![A 256 m terrain from above and from four sides](docs/terrain.png)
 
 ## Install
 
