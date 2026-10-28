@@ -99,32 +99,39 @@ def head(name: str, description: str, skin: str, hair: str, style: str, nose: fl
                          radius=0.012 if style != "bald" else 0.016), "mirror": "x"})  # fmt: skip
     if beard != "full":
         parts.append(part("capsule", mouth, "default", "head", **{"from": [-0.04, 1.525, 0.168], "to": [0.04, 1.525, 0.168]}, radius=0.012))
+    # the hair is its own id: on a head alone it folds back into `head` (the same mesh as before it had one); under a
+    # helmet it's its own piece, hidden until the helmet comes off, and the helmet fits the skull (as KayKit's do)
     h = {"color": hair, "material": "default"}
     if style in ("short", "tuft", "bun", "long"):
-        parts.append(part("ellipsoid", id="head", **h, at=[0, 1.67, -0.03], radii=[0.2, 0.185, 0.2], blend=0.01))
+        parts.append(part("ellipsoid", id="hair", **h, at=[0, 1.67, -0.03], radii=[0.2, 0.185, 0.2], blend=0.01))
     if style == "short":
-        parts.append(part("ellipsoid", id="head", **h, at=[0.04, 1.77, 0.12], radii=[0.12, 0.06, 0.08], blend=0.02))
+        parts.append(part("ellipsoid", id="hair", **h, at=[0.04, 1.77, 0.12], radii=[0.12, 0.06, 0.08], blend=0.02))
     if style == "tuft":
-        parts.append(part("cone", id="head", **h, at=[0.0, 1.87, 0.02], radius=0.07, radius_top=0.0, height=0.12, rotate=[0, 0, 15], blend=0.03))
-        parts.append(part("cone", id="head", **h, at=[0.06, 1.85, 0.06], radius=0.05, radius_top=0.0, height=0.1, rotate=[0, 0, -25], blend=0.03))
+        parts.append(part("cone", id="hair", **h, at=[0.0, 1.87, 0.02], radius=0.07, radius_top=0.0, height=0.12, rotate=[0, 0, 15], blend=0.03))
+        parts.append(part("cone", id="hair", **h, at=[0.06, 1.85, 0.06], radius=0.05, radius_top=0.0, height=0.1, rotate=[0, 0, -25], blend=0.03))
     if style == "bun":
-        parts.append(part("sphere", id="head", **h, at=[0, 1.8, -0.15], radius=0.075, blend=0.03))
+        parts.append(part("sphere", id="hair", **h, at=[0, 1.8, -0.15], radius=0.075, blend=0.03))
     if style == "long":
-        parts.append(part("ellipsoid", id="head", **h, at=[0, 1.5, -0.08], radii=[0.21, 0.24, 0.13], blend=0.05))
+        parts.append(part("ellipsoid", id="hair", **h, at=[0, 1.5, -0.08], radii=[0.21, 0.24, 0.13], blend=0.05))
     if style == "bald":  # a fringe of hair round the back
-        parts.append(part("torus", id="head", **h, at=[0, 1.6, -0.03], radius=0.17, thickness=0.045, rotate=[-12, 0, 0], blend=0.02))
+        parts.append(part("torus", id="hair", **h, at=[0, 1.6, -0.03], radius=0.17, thickness=0.045, rotate=[-12, 0, 0], blend=0.02))
     if beard == "full":
         parts.append(part("ellipsoid", hair, "default", "head", at=[0, 1.48, 0.09], radii=[0.15, 0.12, 0.11], blend=0.04))
         parts.append(part("ellipsoid", hair, "default", "head", at=[0, 1.555, 0.18], radii=[0.08, 0.025, 0.03], blend=0.02))
     if beard == "moustache":
         parts.append({**part("capsule", hair, "default", "head", **{"from": [0.0, 1.56, 0.19], "to": [0.07, 1.54, 0.17]}, radius=0.018), "mirror": "x"})
-    return template(name, description, parts)
+    return template(name, description, parts, rig={"hair": HAIR})
 
+
+HAIR = {"parent": "head", "revealed": ["helmet"], "fold": True}
 
 # --- helmets (separate, fitted to whatever head they go on) -----------------------------------------------------------------
 
-def helmet(name: str, description: str, parts: list[Part]) -> dict[str, Any]:
-    return template(name, description, parts, rig={"helmet": {"parent": "head", "separate": True, "meta": {"detachable": True}}})
+def helmet(name: str, description: str, parts: list[Part], hides_hair: bool = True) -> dict[str, Any]:
+    rig: dict[str, Any] = {"helmet": {"parent": "head", "separate": True, "meta": {"detachable": True}}}
+    if not hides_hair:  # worn over the hair: it stays part of the head
+        rig["hair"] = {"parent": "head", "fold": True}
+    return template(name, description, parts, rig=rig)
 
 
 def dome(at: list[float], radius: float, thickness: float = 0.03, color: str = "steel") -> Part:
@@ -170,7 +177,7 @@ HELMETS = [
          "array": {"count": 8, "around": "y", "center": [0, 0, 0]}},  # fmt: skip
         {**part("sphere", "cloth_red", "glass", "helmet", at=[0, 1.74, 0.235], radius=0.02, sides=6), "hard": True,
          "array": {"count": 4, "around": "y", "center": [0, 0, 0]}},  # fmt: skip
-    ]),
+    ], hides_hair=False),
 ]
 
 

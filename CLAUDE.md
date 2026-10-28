@@ -181,3 +181,8 @@ anything that changes output.
   own import LODs off: they would crack chunk seams). Splats are palette colours (no tiling textures in v1) in an RGB
   map, layer 1 implicit (no alpha: Godot's fix_alpha_border would rewrite colour under alpha 0). Collision is an inline
   HeightMapShape3D scaled uniformly (heights stored / spacing). Noise hashes integer lattice points (no random streams).
+- 2026-10-28: #23: the library heads' hair is its own id `hair` rigged `{ parent: head, revealed: [helmet], fold: true }`:
+  `fold` puts a part back into its parent while none of its revealers is in the model, so helmetless heads build
+  byte-identically (checked over 44 library combos) and under a helmet the hair is hidden until it comes off and the
+  helmet fits the skull (KayKit's helmets replace the hair). `helmet_crown` is worn over the hair (its entry folds
+  always): crown combos are unchanged too. Only head + helmet combos change.

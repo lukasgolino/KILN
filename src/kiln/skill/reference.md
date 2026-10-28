@@ -253,6 +253,12 @@ skin: soft
   extras and `revealed_by` in the manifest's part: the game shows it when it removes the arm. Mirrored twins
   are revealed by the twins (`arm_r`). Previews (and `--vs`) leave it out like the game does; `--detach` shows it
   under the part taken off.
+- `fold: true` (with `parent`): while none of its `revealed` parts is in the model, the part folds into its parent:
+  its parts take the parent's id (and blend with it) and the entry goes, as if it had no id of its own; with one
+  there, it's an ordinary revealed part. For templates: the library heads rig their hair
+  `hair: { parent: head, revealed: [helmet], fold: true }`, so a head alone builds as one `head`, and under a helmet
+  the hair is hidden until the helmet comes off. Without `revealed` it always folds (a template worn over the hair
+  overrides the entry so: `hair: { parent: head, fold: true }`).
 - `gib: true` (or `gib: [upperarm_l, lowerarm_l, hand_l]`): the part comes off as a piece of its own. Besides the model,
   `kiln build` writes `models/<name>.gib.<id>.glb`: that part (and, with `true`, every part hanging from it) meshed on
   its own, so it's closed where it met the body; static, at rest, in the model's frame (same origin as the model's glb),
@@ -286,6 +292,11 @@ or `kiln new model sergeant --extends body_stocky,head_bearded,helmet_nasal,armo
 library palette `people` (found without copying; copy it into palettes/ to change it). `extends` takes a list (bases
 combine in order); `cut: <id>` cuts only that id (a helmet's face opening, not the face); `fit: { to: [ids] }` wraps
 several parts. Fitted shells are their own meshes.
+
+The heads' hair is the id `hair` (`fold: true`, see Rig and skin): on a head without a helmet it's part of `head`; under a
+helmet (the id `helmet`) it's its own piece, hidden until the helmet comes off, and the helmet fits the skull (`to:
+head`), as KayKit's helmets replace the hair. `helmet_crown` is worn over the hair. Your own helmet template hides it
+too if its id is `helmet`.
 
 ## Humanoids and clip libraries
 

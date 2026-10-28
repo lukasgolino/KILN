@@ -215,8 +215,9 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
     for i in shells:
         gi = m.parts[i].geometry
         for j in adding:
-            if j == i or m.parts[j].id == m.parts[i].id or m.parts[j].geometry.shell or (gi.fit is not None and any(m.parts[j].geometry is t for t in gi.fit[0])):
-                continue  # its own details, other shells, and what it's fitted around (kept a gap away by construction)
+            if j == i or m.parts[j].id == m.parts[i].id or m.parts[j].geometry.shell or (gi.fit is not None and any(m.parts[j].geometry is t for t in gi.fit[0])) \
+                    or (m.parts[j].id in m.rig and m.parts[i].id in m.rig[m.parts[j].id].revealed):
+                continue  # its own details, other shells, what it's fitted around (kept a gap away by construction), what it hides (hair)
             lo = np.maximum(field.boxes[i][0], field.boxes[j][0])
             hi = np.minimum(field.boxes[i][1], field.boxes[j][1])
             if (hi <= lo).any():
