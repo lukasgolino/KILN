@@ -4,7 +4,6 @@ template: true
 palette: people
 rig:
   helmet: {parent: head, separate: true, meta: {detachable: true}}
-  hair: {parent: head, fold: true}
 parts:
   - cylinder: {at: [0, 1.75, 0], radius: 0.23, height: 0.12, sides: 16}
     id: helmet

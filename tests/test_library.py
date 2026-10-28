@@ -105,10 +105,23 @@ def test_a_body_and_head_with_a_hood_build_as_before(tmp_path: Path) -> None:
     assert new == _built_as(tmp_path / "old", "body_slim, old_head, armour_hood", "head_female")
 
 
-def test_a_helmet_hides_the_hair_and_fits_the_skull(project: Project) -> None:
-    """#23: under a helmet the hair is its own piece, hidden until the helmet comes off (as KayKit's helmets replace
-    hair); the helmet wraps the head without it, so it no longer follows hair lumps."""
-    model, _ = ok_model(project, "name: squire\nclass: character\nextends: [body_slim, head_goofy, helmet_kettle]\n", "squire")
+@pytest.mark.parametrize("helmet", ["helmet_kettle", "helmet_crown"])
+def test_a_helmet_on_a_head_builds_as_before(tmp_path: Path, helmet: str) -> None:
+    """#23: without the opt-in the hair stays part of the head under a helmet too: byte-identical output."""
+    new = _built_as(tmp_path / "new", f"body_stocky, head_young, {helmet}")
+    assert new == _built_as(tmp_path / "old", f"body_stocky, old_head, {helmet}", "head_young")
+
+
+HIDE_HAIR = "rig:\n  hair: { parent: head, revealed: [helmet], fold: true }\n"
+
+
+def test_a_helmet_hides_the_hair_and_fits_the_skull_when_asked(project: Project) -> None:
+    """#23 (opt-in): under a helmet the hair is its own piece, hidden until the helmet comes off (as KayKit's helmets
+    replace hair); the helmet wraps the head without it, so it no longer follows hair lumps."""
+    text = "name: squire\nclass: character\nextends: [body_slim, head_goofy, helmet_kettle]\n"
+    plain, _ = ok_model(project, text, "squire")
+    assert "hair" not in plain.rig and not any(p.id == "hair" for p in plain.parts)
+    model, _ = ok_model(project, text + HIDE_HAIR, "squire")
     hair = model.rig["hair"]
     assert hair.parent == "head" and hair.revealed == ("helmet",) and hair.separate
     dome = next(p for p in model.parts if p.id == "helmet" and p.geometry.fit is not None)
@@ -116,11 +129,8 @@ def test_a_helmet_hides_the_hair_and_fits_the_skull(project: Project) -> None:
     wrapped = {q.id for q in model.parts if any(q.geometry is t for t in dome.geometry.fit[0])}
     assert wrapped == {"head"}
     assert any(p.id == "hair" for p in model.parts)
-
-
-def test_a_crown_is_worn_over_the_hair(project: Project) -> None:
-    model, _ = ok_model(project, "name: queen\nclass: character\nextends: [body_slim, head_female, helmet_crown]\n", "queen")
-    assert "hair" not in model.rig and not any(p.id == "hair" for p in model.parts)
+    bare, _ = ok_model(project, "name: squire\nclass: character\nextends: [body_slim, head_goofy]\n" + HIDE_HAIR, "squire")
+    assert "hair" not in bare.rig  # the same opt-in on a head without a helmet: folded, nothing to hide
 
 
 FOLD = """name: thing

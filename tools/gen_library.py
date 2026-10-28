@@ -99,8 +99,9 @@ def head(name: str, description: str, skin: str, hair: str, style: str, nose: fl
                          radius=0.012 if style != "bald" else 0.016), "mirror": "x"})  # fmt: skip
     if beard != "full":
         parts.append(part("capsule", mouth, "default", "head", **{"from": [-0.04, 1.525, 0.168], "to": [0.04, 1.525, 0.168]}, radius=0.012))
-    # the hair is its own id: on a head alone it folds back into `head` (the same mesh as before it had one); under a
-    # helmet it's its own piece, hidden until the helmet comes off, and the helmet fits the skull (as KayKit's do)
+    # the hair is its own id, folded back into `head` (the same mesh as before it had one) unless a model opts in with
+    # `rig: { hair: { parent: head, revealed: [helmet] } }`: then under a helmet it's its own piece, hidden until the
+    # helmet comes off, and the helmet fits the skull (as KayKit's do)
     h = {"color": hair, "material": "default"}
     if style in ("short", "tuft", "bun", "long"):
         parts.append(part("ellipsoid", id="hair", **h, at=[0, 1.67, -0.03], radii=[0.2, 0.185, 0.2], blend=0.01))
@@ -123,15 +124,12 @@ def head(name: str, description: str, skin: str, hair: str, style: str, nose: fl
     return template(name, description, parts, rig={"hair": HAIR})
 
 
-HAIR = {"parent": "head", "revealed": ["helmet"], "fold": True}
+HAIR = {"parent": "head", "fold": True}
 
 # --- helmets (separate, fitted to whatever head they go on) -----------------------------------------------------------------
 
-def helmet(name: str, description: str, parts: list[Part], hides_hair: bool = True) -> dict[str, Any]:
-    rig: dict[str, Any] = {"helmet": {"parent": "head", "separate": True, "meta": {"detachable": True}}}
-    if not hides_hair:  # worn over the hair: it stays part of the head
-        rig["hair"] = {"parent": "head", "fold": True}
-    return template(name, description, parts, rig=rig)
+def helmet(name: str, description: str, parts: list[Part]) -> dict[str, Any]:
+    return template(name, description, parts, rig={"helmet": {"parent": "head", "separate": True, "meta": {"detachable": True}}})
 
 
 def dome(at: list[float], radius: float, thickness: float = 0.03, color: str = "steel") -> Part:
@@ -177,7 +175,7 @@ HELMETS = [
          "array": {"count": 8, "around": "y", "center": [0, 0, 0]}},  # fmt: skip
         {**part("sphere", "cloth_red", "glass", "helmet", at=[0, 1.74, 0.235], radius=0.02, sides=6), "hard": True,
          "array": {"count": 4, "around": "y", "center": [0, 0, 0]}},  # fmt: skip
-    ], hides_hair=False),
+    ]),
 ]
 
 

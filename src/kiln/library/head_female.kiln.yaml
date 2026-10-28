@@ -3,7 +3,7 @@ description: a woman's face with long black hair and a bun
 template: true
 palette: people
 rig:
-  hair: {parent: head, revealed: [helmet], fold: true}
+  hair: {parent: head, fold: true}
 parts:
   - ellipsoid: {at: [0, 1.63, 0], radii: [0.19, 0.21, 0.19]}
     id: head
