@@ -95,6 +95,9 @@ def compare_glb(a: bytes, b: bytes) -> GlbDiff:
         layout = ("count", "type", "componentType")
         if any(x.get(k) != y.get(k) for k in layout):
             shape = ", ".join(f"{k} {x.get(k)} vs {y.get(k)}" for k in layout if x.get(k) != y.get(k))
+            if all(k in x and k in y for k in ("min", "max")):  # e.g. POSITION: how far the bounds moved
+                bounds = np.abs(np.array(x["min"] + x["max"], float) - np.array(y["min"] + y["max"], float))
+                shape += f"; bounds max abs diff {float(bounds.max()):.3g}"
             out.accessors.append(AccessorDiff(label, note=shape))
             continue
         va = accessor(doc_a, bin_a, i).astype(np.float64)

@@ -52,7 +52,7 @@ def test_float_differences_are_labelled_and_measured() -> None:
 def test_count_mismatch_is_noted_not_compared() -> None:
     d = cb.compare_glb(glb(POS, IDX), glb(np.vstack([POS, POS]), np.array([0, 1, 2, 3, 4, 5])))
     assert {x.label: x.note for x in d.accessors} == {
-        "mesh 'body' p0 POSITION": "count 3 vs 6",
+        "mesh 'body' p0 POSITION": "count 3 vs 6; bounds max abs diff 0",
         "mesh 'body' p0 indices": "count 3 vs 6",
     }
 
