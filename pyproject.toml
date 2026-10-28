@@ -30,7 +30,7 @@ kiln = "kiln.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-kiln = ["py.typed", "styles/*", "templates/*", "skill/*", "library/*"]
+kiln = ["py.typed", "styles/*", "templates/*", "skill/*", "library/*", "recipes/*"]
 
 [tool.mypy]
 strict = true

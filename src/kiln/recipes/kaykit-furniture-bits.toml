@@ -1,0 +1,14 @@
+# KayKit's GitHub repository, as a zip of one pinned commit.
+name = "kaykit-furniture-bits"
+version = "1.0"
+title = "KayKit Furniture Bits"
+source = "kaykit"
+author = "Kay Lousberg"
+homepage = "https://kaylousberg.itch.io/furniture-bits"
+url = "https://codeload.github.com/KayKit-Game-Assets/KayKit-Furniture-Bits-1.0/zip/96d5930a8dbdb363409bbc2d3341718b00e17c9c"
+sha256 = "84be044ad8aa6d7b2e5e6e01ce6f2cc97133c07c04f9de7d98dc2677a0234242"
+licence = "CC0-1.0"
+strip = 1
+licence_file = "addons/kaykit_furniture_bits/Assets/LICENSE.txt"
+models = "addons/kaykit_furniture_bits/Assets/gltf"
+tags = ["furniture", "interior", "house"]

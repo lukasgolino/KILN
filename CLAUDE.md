@@ -32,6 +32,7 @@ anything that changes output.
   - `rig.py` skeleton from part ids, soft weights from the field, poses and procedural cycles, skinning maths;
   - `export.py` glTF writer (via `kiln.vendor.gltf.Document`); `vendor/` PAGAN pieces (palette, findings, YAML, colour, glTF); `gltf_check.py` reading/validation (incl. skins);
   - `builder.py` model -> `Built` with a pickle cache in `.kiln-cache/`; `importer.py` CC0 .glb/.gltf imports; `blender.py` optional .fbx/.blend/.obj -> glb via the `blender` binary;
+  - `packs.py` CC0 pack recipes (`recipes/*.toml`), the per-user mirror cache, index/search, `kiln.lock`;
   - `lint.py` E/W rules; `build.py` `kiln build` (glb, variants, LODs, Godot, manifest, credits, stale cleanup);
   - `render.py` vectorised software renderer; `preview.py` sheets (turntable, closeup, filmstrip, lineup, gallery, vs);
   - `godot.py` model scenes, look kits, headless verify, engine renders; `templates/` Godot scripts, init files;
@@ -164,3 +165,11 @@ anything that changes output.
   missing (light() can't tint Godot's ambient); the specular blob goes through DIFFUSE_LIGHT divided by the albedo so
   `specular_disabled` keeps the plain toon's ambient. Headless Godot parses shaders (SHADER ERROR now fails a verify);
   nothing here renders them on a GPU, so the look needs a visual check with `--engine` on a machine with a display.
+- 2026-10-28: #19: CC0 packs come from recipes shipped in `kiln/recipes` (URL + sha256 + licence file that must say CC0),
+  mirrored only by an explicit `kiln pack add` into a per-user cache (`~/.cache/kiln/packs/<pack>@<version>`, shared
+  between games); search, import, lint and build never touch the network. Kenney and Quaternius come from their own
+  OpenGameArt uploads (kenney.nl hands out signed, expiring links; quaternius.com links to Google Drive), KayKit from
+  its GitHub repositories as a zip of a pinned commit; Poly Pizza is left out (its API needs a key). `kiln pack import`
+  records every copied file in `kiln.lock` (JSON); with a lock, lint/build check it (E014 changed hash, non-CC0;
+  W115 a listed file gone). Files without an entry (local `kiln import`) aren't checked, so existing projects build
+  as before. No pack_add MCP tool: downloads stay an explicit command.

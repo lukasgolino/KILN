@@ -490,6 +490,34 @@ No Blender, or one older than 4: E010 (E008 for an animation `import:`) saying h
 shows the end of Blender's output. FBX clip names carry Blender's armature prefixes (a `Wave` action came out as
 `Rig|Rig|Wave`); a wrong `clip:` lists the real names.
 
+### CC0 packs (`kiln pack`)
+
+KILN ships recipes for CC0 packs (`kiln pack list`): Kenney (`kenney-mini-dungeon`), KayKit (`kaykit-adventurers`,
+`kaykit-furniture-bits`, `kaykit-city-builder-bits`, `kaykit-dungeon-remastered`) and Quaternius
+(`quaternius-modular-scifi-megakit`). A recipe pins the archive's URL and sha256; mirroring checks both and that the
+pack's licence file says CC0.
+
+```sh
+kiln pack add kaykit-adventurers          # the only command that downloads: into ~/.cache/kiln/packs/<pack>@<version>/
+kiln pack search knight --json            # file name and tags (the pack's own + its folders); triangles, size, bytes
+kiln pack search chair --pack kaykit-furniture-bits --lineup   # + previews/pack-search.png: the hits at one scale
+kiln pack import kaykit-adventurers knight --height 1.8 --class character
+```
+
+Mirrors are per user, shared between games (`$XDG_CACHE_HOME/kiln/packs`; `KILN_PACK_CACHE` overrides). Search terms
+must all match, ranked whole name > a word of the name > part of it > a tag. `kiln pack import <pack>[@version]
+<path|name>` copies the model and the files it refers to into `imports/<pack>/`, writes the model (as `kiln import`:
+`source:` with CC0-1.0, the pack's author and page) and records every copied file in `kiln.lock` (JSON: path ->
+pack, version, url, sha256, licence, file in the pack). Commit `kiln.lock` and `imports/`; the cache stays out of the
+repo. A recipe file works too: `kiln pack add my-pack.toml` (fields `name`, `version`, `url`, `sha256`, `licence` =
+CC0-1.0 only, `author`, `homepage`, `strip` leading folders, `models` folder, `licence_file`, `textures` shared folder,
+`tags`).
+
+With a `kiln.lock`, lint and build check it (E014 errors fail the build): a listed file whose sha256 changed, an
+entry whose licence isn't CC0-1.0, a model whose `source.licence` differs from its file's entry; a listed file that's
+gone is W115. Files without an entry (local `kiln import`) aren't checked; no `kiln.lock`, no checks. CREDITS.md and
+the manifest's `source` name the pack (`pack: kaykit-adventurers@1.0`) for locked files.
+
 ## Styles
 
 ```toml
@@ -554,7 +582,7 @@ Errors: E000 usage/config, E001 file/YAML, E002 unknown field, E003 bad value, E
 material, E006 style problem, E007 rig problem, E008 animation problem, E009 nothing to mesh, E010 import file
 problem, E011 decal image missing, E012 extends problem (no such model, not a template, a loop, unknown remove id),
 E013 the built mesh has open edges (cracks), edges with more than two faces or sheets touching at a vertex (a KILN
-bug; report it).
+bug; report it), E014 `kiln.lock` problem (a pack-imported file changed, a licence that isn't CC0-1.0).
 
 Warnings: W101 part has no visible surface, W102 part thinner than the mesh resolution, W103 separate pieces,
 W104 colour not in the palette, W106 not standing on y = 0, W107 made under an older style_version, W108 size
@@ -562,7 +590,8 @@ unusual for the class, W109 animated part without a pivot, W110 well over the tr
 triangles: every stripe border is cut into the mesh; prefer few, large patterns, or model details as parts), W111 a
 part lost when reducing to the triangle budget (raise `budget:`), W112 a LOD well above its target (from `kiln build`),
 W113 a part pokes through a shell (eyes bigger than a visor slot, a head through a helmet: keep it inside or outside).
-W114 (from `kiln build`) joints sit elsewhere than in the model's `animation_library`.
+W114 (from `kiln build`) joints sit elsewhere than in the model's `animation_library`. W115 `kiln.lock` lists a file
+that isn't in the project.
 Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`. Lint meshes models in parallel
 (`KILN_JOBS` processes, default: every core) and caches them for build and previews.
 
@@ -572,7 +601,7 @@ Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`.
 `kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--detach] [--fit] [--effect [--at T,T,...]] [--engine] [--variant V]` ·
 `kiln lineup [models]` · `kiln gallery` · `kiln build [models] [--verify-godot]` (named models only: the others keep their last output) · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
-`kiln config show|get|set` · `kiln import <file> --licence L` (.glb/.gltf; .fbx/.blend/.obj with Blender 4.x) · `kiln credits` · `kiln doctor` ·
+`kiln config show|get|set` · `kiln import <file> --licence L` (.glb/.gltf; .fbx/.blend/.obj with Blender 4.x) · `kiln pack list|add|search|import` · `kiln credits` · `kiln doctor` ·
 `kiln skill install` · `kiln mcp`. Every command takes `--json` (before or after the command). `--closeup` takes a part
 id (`root` = parts without one) or a part's number in the file (`--closeup 3`).
 `kiln preview <model> --vs <ref.glb|ref.gltf> [--ref-height METRES]`: the model against a reference mesh (a CC0

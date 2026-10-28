@@ -2,7 +2,8 @@
 
 One server serves one KILN project. Tools return the same JSON as the matching CLI command with `--json` (they
 run the CLI handlers with stdout captured), so the CLI, the skill and MCP share one contract. Errors are results
-(`ok: false` + `findings`). Nothing reads or writes outside the project, its output dir and its preview dir.
+(`ok: false` + `findings`). Nothing reads or writes outside the project, its output dir and its preview dir (the pack
+tools also read the user's pack cache; no tool downloads).
 Previews come back as images the model can look at.
 
 Needs the optional extra: `pip install "kiln[mcp]"`.
@@ -364,6 +365,35 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
         for flag, value in (("--name", name), ("--author", author), ("--url", url)):
             if value:
                 argv += [flag, value]
+        if height:
+            argv += ["--height", str(height)]
+        return kiln.cli(*argv)
+
+    @server.tool(annotations=READ)
+    def pack_list() -> dict[str, Any]:
+        """CC0 packs KILN ships recipes for, and which are mirrored in the local cache (`kiln pack add <pack>` mirrors one;
+        it downloads, so it isn't a tool: ask the owner to run it)."""
+        return kiln.cli("pack", "list")
+
+    @server.tool(annotations=READ, structured_output=False)
+    def pack_search(terms: list[str] | None = None, pack: str | None = None, limit: int = 30, lineup: bool = False) -> list[Any]:
+        """Search the mirrored CC0 packs (local cache, no network) by file name and tags: path, triangles, size per hit.
+        `lineup`: a sheet of the first hits side by side at one scale."""
+        argv = ["pack", "search", *(terms or []), "--limit", str(limit)]
+        if pack:
+            argv += ["--pack", pack]
+        if lineup:
+            argv.append("--lineup")
+        result = kiln.cli(*argv)
+        return _with_images(result, [kiln.root / result["lineup"]] if result.get("lineup") else [])
+
+    @server.tool(annotations=WRITE)
+    def pack_import(pack: str, model: str, name: str | None = None, height: float | None = None, model_class: str = "prop") -> dict[str, Any]:
+        """Import a model from a mirrored pack: copies it into imports/<pack>/, writes the model and records the files in
+        kiln.lock (pack, version, URL, sha256, licence)."""
+        argv = ["pack", "import", pack, model, "--class", model_class]
+        if name:
+            argv += ["--name", name]
         if height:
             argv += ["--height", str(height)]
         return kiln.cli(*argv)

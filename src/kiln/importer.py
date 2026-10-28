@@ -315,6 +315,24 @@ def gltf_counts(source: Path | bytes) -> dict[str, int]:
     return {"surfaces": len(prims), "materials": len({p.get("material", -1) for p, _ in prims})}
 
 
+def mesh_summary(path: Path) -> tuple[int, Array]:
+    """(triangles, size of the scene's box in file units (3,)) of a .glb/.gltf, without reading its textures: the
+    pack index's numbers."""
+    doc, buffers = _load(path)
+    triangles = 0
+    lo, hi = np.full(3, np.inf), np.full(3, -np.inf)
+    for prim, world in _scene_primitives(doc):
+        pos = _accessor(doc, buffers, prim["attributes"]["POSITION"])
+        if not len(pos):
+            continue
+        triangles += (doc["accessors"][prim["indices"]]["count"] if "indices" in prim else len(pos)) // 3
+        w = (np.concatenate([pos, np.ones((len(pos), 1))], axis=1) @ world.T)[:, :3]
+        lo, hi = np.minimum(lo, w.min(axis=0)), np.maximum(hi, w.max(axis=0))
+    if not triangles:
+        raise ImportError_(f"{path.name} has no triangle meshes")
+    return int(triangles), hi - lo
+
+
 def read_normals(path: Path) -> Array:
     """Per-corner normals (F, 3, 3) of `read_mesh(path)`'s faces: the file's own (NORMAL), flat where it has none."""
     doc, buffers = _load(path)
@@ -361,5 +379,6 @@ def load_reference(path: Path, style: Style, height: float | None = None, centre
     return Built(Model(path.stem, path), style, painted, read_normals(path), skeleton, "none", None, None, [], max(size / 200, 0.002), 1)
 
 
-__all__ = ["ImportError_", "build_imported", "external_files", "gltf_counts", "joint_heights", "load_reference", "mesh_normals", "missing_files", "nearest_palette",
+__all__ = ["ImportError_", "build_imported", "external_files", "gltf_counts", "joint_heights", "load_reference", "mesh_normals", "mesh_summary", "missing_files",
+           "nearest_palette",
            "read_mesh", "read_normals"]

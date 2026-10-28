@@ -148,6 +148,11 @@ authors. Never use assets whose licence forbids it (NC, ND, SA, Synty, anything 
 imports the same way when Blender 4.x is installed (`BLENDER=/path/to/blender`): `kiln import` turns it into
 `imports/<name>.glb` once, so prefer that over naming the .fbx in `source:` (every build would need Blender).
 
+Shipped CC0 packs: `kiln pack list`; the owner mirrors one with `kiln pack add <pack>` (it downloads; ask first).
+`kiln pack search knight --json` (MCP `pack_search`, `lineup: true` for a sheet of the hits) finds models by name and
+tags with triangles and size; `kiln pack import <pack> <name> --height 1.8` (MCP `pack_import`) copies it into
+`imports/<pack>/` and records it in `kiln.lock`, which the build checks (E014: a changed file, a non-CC0 licence).
+
 **Match a reference** (make a KILN model that holds its own next to a CC0 asset, e.g. a KayKit barrel):
 1. Put the reference in `imports/` and ask the owner for thresholds, with defaults: silhouette `iou` >= 0.9 (and
    `iou_min` >= 0.85), `triangle_ratio` <= 1.5, `surfaces` <= the reference's + 1, `colors` within +-2,

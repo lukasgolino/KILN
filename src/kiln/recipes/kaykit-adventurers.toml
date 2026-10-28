@@ -1,0 +1,15 @@
+# KayKit's GitHub repository, as a zip of one pinned commit. Characters are rigged; `kiln pack import` brings in their
+# static mesh (as `kiln import` does).
+name = "kaykit-adventurers"
+version = "1.0"
+title = "KayKit Character Pack: Adventurers"
+source = "kaykit"
+author = "Kay Lousberg"
+homepage = "https://kaylousberg.itch.io/kaykit-adventurers"
+url = "https://codeload.github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0/zip/672074b73ba276876a19e8816ecdc5241817ab47"
+sha256 = "00777a7b9811a7c7f8dd3fda4e56604f6a93b33673d64557153f354d677b47af"
+licence = "CC0-1.0"
+strip = 1
+licence_file = "addons/kaykit_character_pack_adventures/LICENSE.txt"
+models = "addons/kaykit_character_pack_adventures"
+tags = ["fantasy", "medieval", "adventurer"]

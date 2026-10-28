@@ -1,0 +1,14 @@
+# KayKit's GitHub repository, as a zip of one pinned commit.
+name = "kaykit-city-builder-bits"
+version = "1.0"
+title = "KayKit City Builder Bits"
+source = "kaykit"
+author = "Kay Lousberg"
+homepage = "https://kaylousberg.itch.io/city-builder-bits"
+url = "https://codeload.github.com/KayKit-Game-Assets/KayKit-City-Builder-Bits-1.0/zip/63976910ca04d16f0fc531b9c614244be8128713"
+sha256 = "dc101668e104968509740fcad1ed2a12f6123e1a75185f050abeef76dbefd151"
+licence = "CC0-1.0"
+strip = 1
+licence_file = "addons/kaykit_city_builder_bits/Assets/LICENSE.txt"
+models = "addons/kaykit_city_builder_bits/Assets/gltf"
+tags = ["city", "town", "building", "road"]
