@@ -31,7 +31,7 @@ anything that changes output.
   - `paint.py` part ownership with clean borders (triangle splitting), patterns (refined first), decals, normals;
   - `rig.py` skeleton from part ids, soft weights from the field, poses and procedural cycles, skinning maths;
   - `export.py` glTF writer (via `kiln.vendor.gltf.Document`); `vendor/` PAGAN pieces (palette, findings, YAML, colour, glTF); `gltf_check.py` reading/validation (incl. skins);
-  - `builder.py` model -> `Built` with a pickle cache in `.kiln-cache/`; `importer.py` CC0 .glb/.gltf imports;
+  - `builder.py` model -> `Built` with a pickle cache in `.kiln-cache/`; `importer.py` CC0 .glb/.gltf imports; `blender.py` optional .fbx/.blend/.obj -> glb via the `blender` binary;
   - `lint.py` E/W rules; `build.py` `kiln build` (glb, variants, LODs, Godot, manifest, credits, stale cleanup);
   - `render.py` vectorised software renderer; `preview.py` sheets (turntable, closeup, filmstrip, lineup, gallery, vs);
   - `godot.py` model scenes, look kits, headless verify, engine renders; `templates/` Godot scripts, init files;
@@ -153,3 +153,8 @@ anything that changes output.
   import setting like the palette textures', no mesh change) because Godot then renames the imported bones and the
   skeleton node, breaking paths games already use. KILN edits only that key in `_subresources` (other settings and
   Godot's uid stay) and takes it out again when the flag goes off.
+- 2026-10-28: #20: .fbx/.blend/.obj import through the `blender` binary as a subprocess (PATH or `BLENDER=`, any 4.x),
+  not the `bpy` wheel (~300 MB, one Python per Blender release); imports only. Blender exports a glb that takes the
+  normal glb path. `kiln import` writes it to `imports/<stem>.glb` so projects build without Blender; files named
+  directly in a model convert into `.kiln-cache/blender/` keyed on source sha256 + Blender version + script version
+  (4.2.3's glTF export is byte-stable run to run). Blender tests skip without it (CI).

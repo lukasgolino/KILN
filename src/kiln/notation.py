@@ -138,6 +138,7 @@ class Source:
     scale: float = 1.0
     recolor: str = "auto"  # auto (nearest palette colour) | keep
     rotate: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    original: Path | None = None  # the .fbx/.blend/.obj `file` was converted from (credits name it)
 
 
 @dataclass
@@ -892,6 +893,20 @@ def _pose(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, where: str) -> d
     return out
 
 
+def _as_glb(ctx: _Ctx, file: Path, rule: str, line: int | None, where: str) -> Path | None:
+    """`file`, or for .fbx/.blend/.obj the glb Blender exports of it (cached in .kiln-cache/blender/)."""
+    from kiln.blender import BlenderError, converted, needs_blender
+
+    if not needs_blender(file):
+        return file
+    base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+    try:
+        return converted(file, base / ".kiln-cache")
+    except BlenderError as exc:
+        ctx.error(rule, str(exc), line, where)
+        return None
+
+
 def _parse_import(ctx: _Ctx, name: str, spec: dict[str, Any], line: int | None, where: str, humanoid: bool,
                   joint_map: JointMap | None = None) -> Animation | None:  # fmt: skip
     """An animation retargeted from a clip library: { import: imports/Rig_Medium_General.glb, clip: Idle_A }."""
@@ -914,6 +929,10 @@ def _parse_import(ctx: _Ctx, name: str, spec: dict[str, Any], line: int | None, 
     if not file.is_file():
         ctx.error("E008", f"animation file {spec['import']} not found (paths are relative to the project)", line, f"{where}.import")
         return None
+    glb = _as_glb(ctx, file, "E008", line, f"{where}.import")
+    if glb is None:
+        return None
+    file = glb
     from kiln.retarget import clip_names
 
     try:
@@ -1328,6 +1347,10 @@ def _parse_fit_to(ctx: _Ctx, raw: Any, line: int | None) -> tuple[Path, str, tup
     if not file.is_file():
         ctx.error("E010", f"fit_to file {raw['file']} not found (paths are relative to the project)", line, "fit_to.file")
         return None
+    glb = _as_glb(ctx, file, "E010", line, "fit_to.file")
+    if glb is None:
+        return None
+    file = glb
     from kiln.fitting import bones, meshes
 
     known_bones, known_meshes = bones(file), meshes(file)
@@ -1351,14 +1374,18 @@ def _parse_source(ctx: _Ctx, raw: Any, process: Any, line: int | None) -> Source
         ctx.error("E002", f"unknown source field(s) {', '.join(map(str, bad))}; allowed: file, licence, author, url", line, "source")
     base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
     file = (base / raw["file"]).resolve()
-    if not file.is_file() or file.suffix.lower() not in (".glb", ".gltf"):
-        ctx.error("E010", f"source file {raw['file']} not found or not .glb/.gltf (paths are relative to the project)", line, "source.file")
+    if not file.is_file() or file.suffix.lower() not in (".glb", ".gltf", ".fbx", ".blend", ".obj"):
+        ctx.error("E010", f"source file {raw['file']} not found or not .glb/.gltf (.fbx/.blend/.obj with Blender 4.x; paths are relative to "
+                  "the project)", line, "source.file")  # fmt: skip
         return None
     licence = raw.get("licence")
     if not isinstance(licence, str) or not licence:
         ctx.error("E010", "source needs licence (an SPDX id: CC0-1.0, CC-BY-4.0, ...) so credits and checks work", line, "source.licence")
         return None
-    src = Source(file, licence, str(raw.get("author", "")), str(raw.get("url", "")))
+    glb = _as_glb(ctx, file, "E010", line, "source.file")
+    if glb is None:
+        return None
+    src = Source(glb, licence, str(raw.get("author", "")), str(raw.get("url", "")), original=None if glb == file else file)
     if process is not None:
         if not isinstance(process, dict) or any(k not in ("height", "scale", "recolor", "rotate") for k in process):
             ctx.error("E003", "process is { height: metres | scale: factor, recolor: auto|keep, rotate: [x, y, z] }", line, "process")

@@ -129,7 +129,9 @@ renders.
 
 For things text does badly (dense foliage, realistic rocks), bring in CC0 models (Kenney, KayKit, Quaternius):
 `kiln import tree.glb --licence CC0-1.0 --author Kenney --height 4`. The build snaps their colours to your palette
-and applies your style, so they match; `CREDITS.md` lists authors.
+and applies your style, so they match; `CREDITS.md` lists authors. With Blender 4.x installed (`blender` on PATH
+or `BLENDER=/path/to/blender`), `kiln import` also takes .fbx, .blend and .obj and turns them into a glb; KILN itself
+never needs Blender.
 
 ## License
 

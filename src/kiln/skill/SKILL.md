@@ -143,7 +143,9 @@ For things text does badly (dense foliage, realistic rocks, detailed props), use
 Quaternius (CC0), Poly Pizza (CC0/CC-BY). `kiln import <file.glb> --licence CC0-1.0 --author ... --url ...
 --height 2.5` copies it into `imports/`, writes a model with `source:`; the build scales it, stands it on the
 ground, snaps its colours to the palette and applies the style's materials. `kiln credits` and `CREDITS.md` list
-authors. Never use assets whose licence forbids it (NC, ND, SA, Synty, anything "no AI").
+authors. Never use assets whose licence forbids it (NC, ND, SA, Synty, anything "no AI"). An .fbx/.blend/.obj
+imports the same way when Blender 4.x is installed (`BLENDER=/path/to/blender`): `kiln import` turns it into
+`imports/<name>.glb` once, so prefer that over naming the .fbx in `source:` (every build would need Blender).
 
 **Match a reference** (make a KILN model that holds its own next to a CC0 asset, e.g. a KayKit barrel):
 1. Put the reference in `imports/` and ask the owner for thresholds, with defaults: silhouette `iou` >= 0.9 (and

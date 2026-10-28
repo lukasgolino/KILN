@@ -475,6 +475,21 @@ Static meshes only. Colours snap to the palette (OKLab nearest), the style's mat
 stands on y = 0, and the build writes CREDITS.md. Files the model refers to (`Textures/colormap.png` in Kenney kits)
 are copied with it by `kiln import`, keeping their folders; a missing one is an error, not a white model.
 
+**.fbx, .blend, .obj** (optional, needs Blender 4.x: `blender` on PATH or `BLENDER=/path/to/blender`; `kiln doctor`
+shows which). Blender exports the file as a glb (+Y up, modifiers applied, skins, animations, the active vertex
+colours, textures as they come), which then imports like any glb. Two ways in:
+
+- `kiln import Knight.fbx --licence CC0-1.0 ...` converts once and writes `imports/Knight.glb` (the original isn't
+  copied); the model names the glb, so the project builds anywhere without Blender. Preferred.
+- `source.file`, an animation's `import:` and `fit_to.file` may name the .fbx/.blend/.obj directly: every load then
+  needs Blender, and the glb is cached in `.kiln-cache/blender/<key>/<name>.glb` (key: the file's sha256, an .obj's
+  .mtl and texture maps, the Blender version, the export script version), so only the first build runs it. Credits
+  name the original file.
+
+No Blender, or one older than 4: E010 (E008 for an animation `import:`) saying how to fix it; a failed conversion
+shows the end of Blender's output. FBX clip names carry Blender's armature prefixes (a `Wave` action came out as
+`Rig|Rig|Wave`); a wrong `clip:` lists the real names.
+
 ## Styles
 
 ```toml
@@ -546,7 +561,7 @@ Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`.
 `kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM] [--vs] [--detach] [--fit] [--effect [--at T,T,...]] [--engine] [--variant V]` ·
 `kiln lineup [models]` · `kiln gallery` · `kiln build [models] [--verify-godot]` (named models only: the others keep their last output) · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
-`kiln config show|get|set` · `kiln import <file> --licence L` · `kiln credits` · `kiln doctor` ·
+`kiln config show|get|set` · `kiln import <file> --licence L` (.glb/.gltf; .fbx/.blend/.obj with Blender 4.x) · `kiln credits` · `kiln doctor` ·
 `kiln skill install` · `kiln mcp`. Every command takes `--json` (before or after the command). `--closeup` takes a part
 id (`root` = parts without one) or a part's number in the file (`--closeup 3`).
 `kiln preview <model> --vs <ref.glb|ref.gltf> [--ref-height METRES]`: the model against a reference mesh (a CC0
