@@ -148,3 +148,9 @@ anything that changes output.
   they take no map. Without `root_motion` clips play in place (rotations only, the conservative default); an unmapped
   `root_motion` joint moves the bone mapped to its nearest mapped descendant. Mapped joints missing from a clip file
   are errors (a typo would leave a bone still), unlike humanoids' optional toes.
+- 2026-10-28: #26: richer toon kit as opt-in `[look]` keys (softness, shadow colour, specular, banded received
+  shadows, pixel outlines, darkened per-part outlines; no hard rim: no style asks for one). The shaders are generated
+  per look and are the plain ones, byte for byte, with every key off. Shadow colour is light added where the sun's is
+  missing (light() can't tint Godot's ambient); the specular blob goes through DIFFUSE_LIGHT divided by the albedo so
+  `specular_disabled` keeps the plain toon's ambient. Headless Godot parses shaders (SHADER ERROR now fails a verify);
+  nothing here renders them on a GPU, so the look needs a visual check with `--engine` on a machine with a display.

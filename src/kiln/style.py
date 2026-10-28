@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -21,6 +21,9 @@ STYLE_SUFFIX = ".style.toml"
 SHADERS = ("standard", "toon")
 HARD_MODES = ("auto", "always", "never")
 TONEMAPPERS = ("linear", "filmic", "aces", "agx")
+OUTLINE_SPACES = ("metres", "pixels")
+TOON_SHADOWS = ("soft", "band")
+TOON_DARKEN = 0.15  # outline_color = "darken": the part's linear colour times this (~0.42 in sRGB)
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -36,8 +39,13 @@ class MaterialPreset:
 class Look:
     shader: str = "standard"
     toon_bands: int = 3
-    outline: float = 0.0  # metres; 0 = no outline
-    outline_color: str = "#1a1420"
+    toon_softness: float = 0.0  # 0 = hard band steps; up to 1 = each edge blends over a whole band
+    toon_shadow_color: str = ""  # "" = shadow bands only darken; "#rrggbb" or a palette colour: light of that colour fills them
+    toon_specular: float = 0.0  # strength of one hard highlight blob (size from roughness); 0 = none
+    toon_shadows: str = "soft"  # soft: Godot's received shadows; band: received shadows drop into the darkest band
+    outline: float = 0.0  # metres (outline_space = "pixels": pixels); 0 = no outline
+    outline_color: str = "#1a1420"  # or "darken": each part's own colour, darkened
+    outline_space: str = "metres"  # metres: a shell that thins with distance; pixels: constant thickness on screen
     tonemapper: str = "filmic"
     exposure: float = 1.0
     saturation: float = 1.0
@@ -190,7 +198,13 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
         if not isinstance(value, expected) or (expected is int and isinstance(value, bool)):
             bad(f"[look] {key} must be a {expected.__name__}", f"look.{key}")
             continue
-        if isinstance(value, str) and key.endswith(("color", "top", "horizon", "ground")) and not HEX.match(value):
+        if key == "toon_shadow_color" and isinstance(value, str) and not (HEX.match(value) or re.fullmatch(r"[A-Za-z0-9_.-]+", value)):
+            bad("[look] toon_shadow_color is \"#rrggbb\" or a palette colour name", f"look.{key}")
+            continue
+        if key == "outline_color" and value == "darken":
+            look_values[key] = value
+            continue
+        if isinstance(value, str) and key.endswith(("color", "top", "horizon", "ground")) and key != "toon_shadow_color" and not HEX.match(value):
             bad(f"[look] {key} must be \"#rrggbb\"", f"look.{key}")
             continue
         look_values[key] = value
@@ -199,11 +213,34 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
         bad(f"[look] shader is {' or '.join(SHADERS)}", "look.shader")
     if look.tonemapper not in TONEMAPPERS:
         bad(f"[look] tonemapper is one of {', '.join(TONEMAPPERS)}", "look.tonemapper")
+    if not 0.0 <= look.toon_softness <= 1.0:
+        bad("[look] toon_softness is 0 (hard band steps) to 1 (each edge blends over a whole band), e.g. 0.3", "look.toon_softness")
+    if not 0.0 <= look.toon_specular <= 1.0:
+        bad("[look] toon_specular is the highlight's strength, 0 (none) to 1, e.g. 0.6", "look.toon_specular")
+    if look.toon_shadows not in TOON_SHADOWS:
+        bad(f"[look] toon_shadows is {' or '.join(TOON_SHADOWS)} (received shadows as the darkest band)", "look.toon_shadows")
+    if look.outline_space not in OUTLINE_SPACES:
+        bad(f"[look] outline_space is {' or '.join(OUTLINE_SPACES)}", "look.outline_space")
+    elif look.outline_space == "pixels" and 0 < look.outline < 0.5:
+        bad(f"[look] outline is pixels with outline_space = \"pixels\" ({look.outline:g} px won't show), e.g. 2", "look.outline")
     if any(f.severity == "error" for f in findings):
         return None, findings
     style = Style(name, str(data.get("description", "")), bool(smooth), float(sharp), float(resolution), dict(budgets), materials, look,
                   str(data.get("notes", "")), path, text, str(hard_surface), int(hard_sides))  # fmt: skip
     return style, findings
+
+
+def resolve_look(style: Style, palette: dict[str, str]) -> tuple[Style, list[Finding]]:
+    """The style with a palette colour name in [look] toon_shadow_color replaced by its hex (palettes are per model)."""
+    name = style.look.toon_shadow_color
+    if not name or HEX.match(name):
+        return style, []
+    hex_color = palette.get(name)
+    if hex_color is None:
+        known = ", ".join(sorted(palette)) or "the model has no palette"
+        return style, [Finding("E004", f"[look] toon_shadow_color {name!r} isn't in the palette ({known}); use a palette colour or \"#rrggbb\"",
+                               style.path, None, "look.toon_shadow_color")]  # fmt: skip
+    return replace(style, look=replace(style.look, toon_shadow_color=hex_color)), []
 
 
 def style_summary(style: Style) -> dict[str, Any]:
@@ -222,4 +259,4 @@ def style_summary(style: Style) -> dict[str, Any]:
     }
 
 
-__all__ = ["Look", "MaterialPreset", "Style", "builtin_names", "load_style", "style_summary"]
+__all__ = ["Look", "MaterialPreset", "Style", "builtin_names", "load_style", "resolve_look", "style_summary"]

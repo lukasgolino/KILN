@@ -21,7 +21,7 @@ from kiln.export import Built, srgb_to_linear
 from kiln.paint import decal_uv
 from kiln.rig import skin_matrices
 from kiln.sdf import Array, rotation_matrix
-from kiln.style import Look
+from kiln.style import TOON_DARKEN, Look
 
 SUPERSAMPLE = 2
 BAYER = (np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]) + 0.5) / 16  # ordered-dither thresholds
@@ -233,8 +233,16 @@ def render(
         ambient = sky * look.ambient * 0.55
         if look.shader == "toon":
             bands = max(2, look.toon_bands)
-            lit = np.floor(np.clip((ndl + 0.15) / 1.15, 0, 0.999) * bands) / (bands - 1)
+            lit = toon_lit(ndl, bands, look.toon_softness)
             diffuse = albedo * (ambient + sun_col * lit[:, None] * 0.9)
+            if look.toon_shadow_color:  # the sun's missing light, in the shadow colour (no cast shadows here)
+                diffuse = diffuse + albedo * np.array(srgb_to_linear(look.toon_shadow_color)) * (1 - lit)[:, None]
+            if look.toon_specular > 0:
+                half_v = to_light - forward
+                half_v /= np.linalg.norm(half_v)
+                blob = ((n @ half_v) >= 1 - 0.08 * rough**2) & (ndl >= 0)
+                strength = look.toon_specular * (1 - rough) * blob
+                diffuse = diffuse + sun_col * strength[:, None] * np.minimum(albedo / 0.05, 1.0)  # Godot: / max(albedo, 0.05) * albedo
             color = diffuse
         else:
             diffuse = albedo * (1 - metal[:, None] * 0.6) * (ambient + sun_col * np.clip(ndl, 0, None)[:, None])
@@ -262,11 +270,30 @@ def render(
         rgba[hit, 3] = 1.0
     image = rgba.reshape(res, res, 4)
     if look.outline > 0:
-        image = _outline(image, best_depth.reshape(res, res), max(1, int(round(look.outline * scale))), look.outline_color, (dropped < best_depth).reshape(res, res))
+        width = look.outline * SUPERSAMPLE / 2 if look.outline_space == "pixels" else look.outline * scale  # edges mark both sides
+        colors: Array | None = None
+        if look.outline_color == "darken":  # each part's own colour, darkened (linear, as the Godot outline shader)
+            dark = np.zeros((res * res, 3))
+            if hit.any():
+                dark[hit] = albedo_table[built.painted.face_group[best_tri[hit]]] * TOON_DARKEN
+            colors = _to_srgb(dark).reshape(res, res, 3)
+        image = _outline(image, best_depth.reshape(res, res), max(1, int(round(width))), look.outline_color, (dropped < best_depth).reshape(res, res), colors)
     if glow.any():
         image = _bloom(image, glow.reshape(res, res, 3), max(1, int(res * 0.025)))
     out = Image.fromarray((image * 255 + 0.5).astype(np.uint8), "RGBA")
     return out.resize((size, size), Image.Resampling.BOX)
+
+
+def toon_lit(ndl: Array, bands: int, softness: float = 0.0) -> Array:
+    """The toon shader's light amount (0..1) from n.l: `bands` hard steps, or with `softness` each step blended over
+    that fraction of a band around its edge (the Godot shader's maths)."""
+    n = np.clip((ndl + 0.15) / 1.15, 0, 0.999)
+    if softness <= 0:
+        return np.floor(n * bands) / (bands - 1)
+    x = n * bands
+    edge = np.floor(x + 0.5)
+    t = np.clip((x - edge + 0.5 * softness) / softness, 0.0, 1.0)
+    return np.clip(edge - 1 + t * t * (3 - 2 * t), 0, bands - 1) / (bands - 1)
 
 
 def _blur(x: Array, radius: int) -> Array:
@@ -296,9 +323,10 @@ def _bloom(image: Array, glow: Array, radius: int) -> Array:
     return out
 
 
-def _outline(image: Array, depth: Array, width: int, hex_color: str, dropped: Array | None = None) -> Array:
+def _outline(image: Array, depth: Array, width: int, hex_color: str, dropped: Array | None = None, colors: Array | None = None) -> Array:
     """Silhouette and depth-step edges, `width` pixels. None at or next to `dropped` pixels (dither holes): a faded
-    piece would otherwise be outlined around every hole."""
+    piece would otherwise be outlined around every hole. `colors` (sRGB per pixel): outline colours instead of
+    `hex_color`, each outline pixel taking the nearest surface's within `width` (as an inverted hull in front)."""
     solid = np.isfinite(depth)
     d = np.where(solid, depth, 1e9)
     edge = np.zeros_like(solid)
@@ -314,8 +342,16 @@ def _outline(image: Array, depth: Array, width: int, hex_color: str, dropped: Ar
         grown = grown | np.roll(grown, 1, 0) | np.roll(grown, -1, 0) | np.roll(grown, 1, 1) | np.roll(grown, -1, 1)
     grown &= ~holes
     out = image.copy()
-    col = np.array([int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5)])
-    out[grown, :3] = col
+    if colors is not None:
+        near, col_map = d.copy(), colors.copy()
+        for _ in range(width):
+            for axis, step in ((0, 1), (0, -1), (1, 1), (1, -1)):
+                nd, nc = np.roll(near, step, axis), np.roll(col_map, step, axis)
+                closer = nd < near
+                near, col_map = np.where(closer, nd, near), np.where(closer[..., None], nc, col_map)
+        out[grown, :3] = col_map[grown]
+    else:
+        out[grown, :3] = np.array([int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5)])
     out[grown, 3] = 1.0
     return out
 

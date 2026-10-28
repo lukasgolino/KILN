@@ -483,8 +483,14 @@ plastic = { roughness = 0.42 }
 [look]                         # the Godot look kit and preview lighting
 shader = "standard"            # standard | toon
 toon_bands = 3
-outline = 0.0                  # metres (toon outlines), 0 = none
-outline_color = "#1a1420"
+toon_softness = 0.0            # toon: 0 = hard band steps; up to 1 = each edge blends over a whole band (0.2-0.4: soft cel)
+toon_shadow_color = ""         # toon: "" = shadows only darken; "#rrggbb" or a palette colour = the sun's missing light in
+                               # that colour (warm/cool shading; a light colour tints more; per model with its palette)
+toon_specular = 0.0            # toon: one hard highlight blob, strength 0..1 (size grows and strength fades with roughness)
+toon_shadows = "soft"          # toon: soft = Godot's received shadows; band = they drop into the darkest band (Godot only)
+outline = 0.0                  # metres (toon outlines), 0 = none; pixels with outline_space = "pixels" (e.g. 2)
+outline_color = "#1a1420"      # or "darken": each part's own colour, darkened
+outline_space = "metres"       # metres: a shell that thins with distance; pixels: constant thickness on screen
 tonemapper = "filmic"          # linear | filmic | aces | agx
 exposure = 1.0
 saturation = 1.15
@@ -506,6 +512,11 @@ rim_light = 0.0                # an added fresnel rim on every surface (Godot: a
 rim_light_color = "#ffffff"
 rim_light_power = 3.0          # higher: thinner rim
 ```
+
+Every toon key is off by default (today's plain cel look). Wind Waker / Sable-style: `toon_softness = 0.2`,
+`toon_shadow_color` a cool mid tone, `toon_specular = 0.6` on glossy materials, `toon_shadows = "band"`,
+`outline_space = "pixels"` with `outline = 2` and `outline_color = "darken"`. Previews follow every key except
+`toon_shadows` (the software renderer has no cast shadows; `kiln preview --engine` shows them).
 
 ## Lint
 

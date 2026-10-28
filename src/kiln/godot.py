@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
-from kiln.style import Look, Style
+from kiln.style import TOON_DARKEN, Look, Style
 
 TOON_SHADER = """shader_type spatial;
 render_mode specular_disabled;
@@ -160,6 +160,101 @@ ATLAS_SCRIPT = _swap_lines(APPLY_SCRIPT, [
 ])  # fmt: skip
 
 
+def _toon_light(look: Look) -> str:
+    """light() for a toon look with any of the richer keys on (softness, shadow colour, specular, banded shadows)."""
+    lines = ["void light() {", "\tfloat n = clamp((dot(NORMAL, LIGHT) + 0.15) / 1.15, 0.0, 0.999);"]
+    if look.toon_softness > 0:
+        lines += ["\tfloat x = n * float(bands);",
+                  "\tfloat edge = floor(x + 0.5);  // the nearest band edge; blend across it over `softness` of a band",
+                  "\tfloat lit = clamp(edge - 1.0 + smoothstep(-0.5 * softness, 0.5 * softness, x - edge), 0.0, float(bands - 1)) / float(bands - 1);"]
+    else:
+        lines.append("\tfloat lit = floor(n * float(bands)) / float(bands - 1);")
+    if look.toon_shadows == "band":
+        lines.append("\tfloat shadow = LIGHT_IS_DIRECTIONAL ? step(0.5, ATTENUATION) : ATTENUATION;  // received shadows: the darkest band")
+    else:
+        lines.append("\tfloat shadow = ATTENUATION;")
+    lines += ["\tfloat shade = lit * shadow;", "\tDIFFUSE_LIGHT += vec3(shade) * LIGHT_COLOR * 0.9;"]
+    if look.toon_shadow_color:
+        lines += ["\tif (LIGHT_IS_DIRECTIONAL) {",
+                  "\t\tDIFFUSE_LIGHT += shadow_color.rgb * (1.0 - shade);  // the sun's missing light, in the shadow colour",
+                  "\t}"]
+    if look.toon_specular > 0:
+        lines += ["\tvec3 halfway = normalize(LIGHT + VIEW);",
+                  "\tfloat blob = step(1.0 - 0.08 * ROUGHNESS * ROUGHNESS, dot(NORMAL, halfway)) * step(0.0, dot(NORMAL, LIGHT));",
+                  "\t// a white blob: diffuse light is multiplied by the albedo afterwards (specular_disabled keeps the plain toon's ambient)",
+                  "\tDIFFUSE_LIGHT += LIGHT_COLOR * specular * (1.0 - ROUGHNESS) * blob * shadow / max(ALBEDO, vec3(0.05));"]
+    return "\n".join(lines) + "\n}\n"
+
+
+def rich_toon(look: Look) -> bool:
+    """Whether the toon shader differs from the plain one (any richer key on)."""
+    return look.toon_softness > 0 or bool(look.toon_shadow_color) or look.toon_specular > 0 or look.toon_shadows != "soft"
+
+
+def toon_shader(look: Look, atlas: bool) -> str:
+    """The toon shader for a look: the plain one unless a richer key is on (so existing output doesn't change)."""
+    base = ATLAS_TOON_SHADER if atlas else TOON_SHADER
+    if not rich_toon(look):
+        return base
+    head, _ = base.split("void light() {\n", 1)
+    uniforms = ""
+    if look.toon_softness > 0:
+        uniforms += f"uniform float softness = {look.toon_softness:.6g};\n"
+    if look.toon_shadow_color:
+        uniforms += f"uniform vec4 shadow_color : source_color = {_vec4(look.toon_shadow_color)};\n"
+    if look.toon_specular > 0:
+        uniforms += f"uniform float specular = {look.toon_specular:.6g};\nuniform float roughness = 0.5;\n"
+        if atlas:
+            uniforms += "uniform sampler2D roughness_texture : filter_nearest, hint_default_white;\n"
+            head = head.replace("\tEMISSION = emission * texture(emission_texture, UV).rgb;\n",
+                                "\tEMISSION = emission * texture(emission_texture, UV).rgb;\n\tROUGHNESS = roughness * texture(roughness_texture, UV).g;\n")
+        else:
+            head = head.replace("\tEMISSION = emission;\n", "\tEMISSION = emission;\n\tROUGHNESS = roughness;\n")
+    head = head.replace("uniform int bands = 3;\n", "uniform int bands = 3;\n" + uniforms)
+    return head + _toon_light(look)
+
+
+def outline_shader(look: Look, atlas: bool) -> str:
+    """The outline shader: the plain one unless outline_space = "pixels" or outline_color = "darken"."""
+    text = OUTLINE_SHADER
+    if look.outline_space == "pixels":
+        text = _swap_lines(text, [
+            ("uniform float width = 0.012;\n", "uniform float width = 2.0;  // pixels\n"),
+            ("\tVERTEX += NORMAL * width;\n",
+             "\tvec4 clip = PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0);\n"
+             "\tvec2 away = (PROJECTION_MATRIX * vec4(MODELVIEW_NORMAL_MATRIX * NORMAL, 0.0)).xy * VIEWPORT_SIZE;  // in pixels\n"
+             "\tif (length(away) > 1e-6) {\n"
+             "\t\tclip.xy += normalize(away) * width * 2.0 / VIEWPORT_SIZE * clip.w;  // constant thickness on screen\n"
+             "\t}\n"
+             "\tPOSITION = clip;\n"),
+        ])  # fmt: skip
+    if look.outline_color == "darken":
+        texture = "uniform sampler2D albedo_texture : source_color, filter_nearest, hint_default_white;\n" if atlas else ""
+        sample = " * texture(albedo_texture, UV).rgb" if atlas else ""
+        text = _swap_lines(text, [
+            ("uniform vec4 color : source_color = vec4(0.1, 0.08, 0.12, 1.0);\n",
+             f"uniform vec4 color : source_color = vec4(1.0);  // the part's own colour, darkened\n{texture}"),
+            ("\tALBEDO = color.rgb;\n", f"\tALBEDO = color.rgb{sample} * COLOR.rgb * {TOON_DARKEN:g};\n"),
+        ])  # fmt: skip
+    return text
+
+
+def _apply_script(script: str, look: Look, atlas: bool) -> str:
+    """The apply script, also feeding the richer toon keys their per-material values (only when they're on)."""
+    pairs: list[tuple[str, str]] = []
+    if look.shader == "toon" and look.toon_specular > 0:
+        line = "\t\t\t\ttoon.set_shader_parameter(\"roughness\", source.roughness)\n"
+        if atlas:
+            line += "\t\t\t\ttoon.set_shader_parameter(\"roughness_texture\", source.roughness_texture)\n"
+        pairs.append(('\t\t\t\ttoon.set_shader_parameter("bands", bands)\n', '\t\t\t\ttoon.set_shader_parameter("bands", bands)\n' + line))
+    if look.outline_color == "darken":
+        line = '\t\t\t\tedge.set_shader_parameter("color", albedo)  # outline_color = "darken": the part\'s colour\n'
+        if atlas:
+            line += '\t\t\t\tedge.set_shader_parameter("albedo_texture", albedo_texture)\n'
+        pairs.append(('\t\t\t\tedge.set_shader_parameter("color", outline_color)\n', line))
+    return _swap_lines(script, pairs) if pairs else script
+
+
 def res_path(path: Path, godot_root: Path) -> str:
     return "res://" + path.resolve().relative_to(godot_root.resolve()).as_posix()
 
@@ -179,6 +274,11 @@ def _quote(text: str) -> str:
 def _color(hex_color: str) -> str:
     r, g, b = (int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5))
     return f"Color({r:.6g}, {g:.6g}, {b:.6g}, 1)"
+
+
+def _vec4(hex_color: str) -> str:
+    r, g, b = (int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    return f"vec4({r:.6g}, {g:.6g}, {b:.6g}, 1.0)"
 
 
 RIM_SHADER = """shader_type spatial;
@@ -239,7 +339,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
     look = style.look
     rims = ", ".join(f"{_quote(k)}: {v.rim:.6g}" for k, v in sorted(style.materials.items()) if v.rim > 0)
     atlas = textures is not None
-    script = ATLAS_SCRIPT if atlas else APPLY_SCRIPT
+    script = _apply_script(ATLAS_SCRIPT if atlas else APPLY_SCRIPT, look, atlas)
     rim = look.rim_light > 0
     keys = sorted(textures or {})
     ext = [f'[ext_resource type="Texture2D" path={_quote((textures or {})[k])} id="{i}_{k}"]' for i, k in enumerate(keys, 2)]
@@ -250,10 +350,10 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         *ext,
         "",
         '[sub_resource type="Shader" id="Shader_toon"]',
-        f"code = {_quote(ATLAS_TOON_SHADER if atlas else TOON_SHADER)}",
+        f"code = {_quote(toon_shader(look, atlas))}",
         "",
         '[sub_resource type="Shader" id="Shader_outline"]',
-        f"code = {_quote(OUTLINE_SHADER)}",
+        f"code = {_quote(outline_shader(look, atlas))}",
         "",
         *(['[sub_resource type="Shader" id="Shader_rim"]', f"code = {_quote(RIM_SHADER)}", ""] if rim else []),
         '[sub_resource type="GDScript" id="GDScript_apply"]',
@@ -266,7 +366,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         'outline_shader = SubResource("Shader_outline")',
         f"bands = {look.toon_bands}",
         f"outline = {look.outline:.6g}",
-        f"outline_color = {_color(look.outline_color)}",
+        *([] if look.outline_color == "darken" else [f"outline_color = {_color(look.outline_color)}"]),
         f"rims = {{{rims}}}",
         *([f"revealed = [{', '.join(_quote(n) for n in revealed)}]"] if revealed else []),
         *(['rim_shader = SubResource("Shader_rim")', f"rim_light = {look.rim_light:.6g}", f"rim_light_color = {_color(look.rim_light_color)}",
@@ -417,7 +517,7 @@ def verify(godot: str, godot_root: Path, manifest_res: str, attachments: dict[st
             return GodotCheck(False, f"couldn't run Godot: {exc}")
     output = (run.stdout + run.stderr).strip()
     match = re.search(r"KILN_VERIFY_OK (\d+)", run.stdout)
-    ok = run.returncode == 0 and match is not None and "SCRIPT ERROR" not in output
+    ok = run.returncode == 0 and match is not None and "SCRIPT ERROR" not in output and "SHADER ERROR" not in output
     return GodotCheck(ok, output, int(match.group(1)) if match else 0)
 
 
@@ -444,4 +544,4 @@ def render_engine(godot: str, godot_root: Path, scene_res: str, look_res: str, v
     return images, output
 
 
-__all__ = ["ATLAS_SCRIPT", "ATLAS_TOON_SHADER", "GodotCheck", "find_godot_binary", "find_godot_project", "look_scene", "model_scene", "render_engine", "res_path", "verify"]
+__all__ = ["ATLAS_SCRIPT", "ATLAS_TOON_SHADER", "outline_shader", "rich_toon", "toon_shader", "GodotCheck", "find_godot_binary", "find_godot_project", "look_scene", "model_scene", "render_engine", "res_path", "verify"]
