@@ -1,0 +1,8 @@
+name: boulder
+description: A rounded boulder.
+class: nature
+budget: 300
+parts:
+  - ellipsoid: { at: [0, 0.45, 0], radii: [0.8, 0.45, 0.6] }
+    color: rock
+    noise: { amount: 0.06, scale: 0.3 }

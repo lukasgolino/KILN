@@ -37,7 +37,7 @@ animations:
 ```
 
 > **Status:** 0.9, pre-1.0: notation, smooth and hard-surface meshing, painting (patterns, decals, palette atlas),
-> rigs, soft and rigid skins, clip retargeting (humanoids, or any skeleton with a joint map), animations, effects, terrains (heightfields with splat layers), five styles,
+> rigs, soft and rigid skins, clip retargeting (humanoids, or any skeleton with a joint map), animations, effects, terrains (heightfields with splat layers), foliage scattering, five styles,
 > previews, Godot export, lint, CC0 imports, a template library, a Claude skill and an MCP server.
 > Bugs and requests: [GitHub issues](https://github.com/lukasgolino/KILN/issues).
 
@@ -56,6 +56,14 @@ with up to four palette colours by slope, height, nearness to paths and noise. I
 splat map and a Godot scene with collision (`examples/terrain`).
 
 ![A 256 m terrain from above and from four sides](docs/terrain.png)
+
+## Foliage
+
+A model with `scatter:` places other models many times over a terrain, another model's top or a flat area: density,
+spacing, slope / height / noise / splat-layer / path rules, random turn, scale, lean and tint. KILN rolls every
+instance at build time into a JSON file and a Godot scene of MultiMeshes with LODs (`examples/terrain`: `meadow`, `moss`).
+
+![Trees, bushes, boulders, flowers and grass over the valley, and grass on a boulder](docs/foliage.png)
 
 ## Install
 

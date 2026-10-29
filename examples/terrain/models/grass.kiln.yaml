@@ -1,0 +1,13 @@
+name: grass
+description: A tuft of three grass blades, for scattering.
+class: nature
+budget: 120
+parts:
+  - capsule: { from: [0, 0.03, 0], to: [0, 0.38, 0.02], radius: 0.03, radius_to: 0.009 }
+    color: blade
+  - capsule: { from: [0.02, 0.03, 0], to: [0.14, 0.28, 0.03], radius: 0.026, radius_to: 0.009 }
+    blend: 0.02
+    color: blade
+  - capsule: { from: [-0.02, 0.03, 0], to: [-0.1, 0.3, -0.09], radius: 0.026, radius_to: 0.009 }
+    blend: 0.02
+    color: blade

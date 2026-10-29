@@ -27,11 +27,22 @@ func _init() -> void:
 		return
 	_manifest = parsed
 	var base := path.get_base_dir()
+	_manifest["_base"] = base
 	var characters: Dictionary = {}
 	if args.size() > 1:
 		characters = JSON.parse_string(FileAccess.get_file_as_string(args[1]))
 	for name in _manifest["models"]:
 		var entry: Dictionary = _manifest["models"][name]
+		if entry.has("scatter"):  # instances of other models: no glb of its own
+			if entry.has("godot_scene"):
+				var packed = load(entry["godot_scene"])
+				if not (packed is PackedScene):
+					fail("%s can't load %s" % [name, entry["godot_scene"]])
+					continue
+				var holder: Node = packed.instantiate()
+				root.add_child(holder)
+				_scenes.append([name, holder])
+			continue
 		if entry.get("animations_only", false):  # a clip carrier: imported as an AnimationLibrary
 			check_library(name, base.path_join(entry["glb"]), entry.get("animations", {}))
 			continue
@@ -145,6 +156,9 @@ func check_library(name: String, glb: String, animations: Dictionary) -> void:
 
 func check_model(name: String, node: Node) -> void:
 	var entry: Dictionary = _manifest["models"][name]
+	if entry.has("scatter"):
+		check_scatter(name, node, entry)
+		return
 	var skeleton: Skeleton3D = null
 	for s in node.find_children("*", "Skeleton3D", true, false):
 		skeleton = s
@@ -217,3 +231,107 @@ func check_terrain(name: String, node: Node, terrain: Dictionary) -> void:
 		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(at + Vector3.UP * 100.0, at + Vector3.DOWN * 100.0))
 		if hit.is_empty() or absf(hit["position"].y - at.y) > 0.02:
 			fail("%s collision at (%s, %s) is %s, not %s" % [name, probe[0], probe[1], hit.get("position", "no hit"), probe[2]])
+
+
+# The transform of `node` relative to `top` (outside the tree: its parents' transforms multiplied).
+func relative(node: Node, top: Node) -> Transform3D:
+	var t := Transform3D()
+	var at := node
+	while at != null and at != top:
+		if at is Node3D:
+			t = (at as Node3D).transform * t
+		at = at.get_parent()
+	return t
+
+
+func near(a: Transform3D, b: Transform3D) -> bool:
+	return a.origin.distance_to(b.origin) < 0.002 and (a.basis.x - b.basis.x).length() < 0.002 and (a.basis.y - b.basis.y).length() < 0.002 \
+		and (a.basis.z - b.basis.z).length() < 0.002
+
+
+# A scatter: every group's chunks (and the LODs the script adds) are MultiMeshes with their model's mesh and materials
+# and exactly the instances of the scatter JSON (count, transform times the mesh's place in the model, tint colour).
+func check_scatter(name: String, node: Node, entry: Dictionary) -> void:
+	var base: String = _manifest.get("_base", "")
+	var data = JSON.parse_string(FileAccess.get_file_as_string(base.path_join(entry["scatter"])))
+	if typeof(data) != TYPE_DICTIONARY:
+		fail("%s can't read %s" % [name, entry["scatter"]])
+		return
+	var checked := 0
+	for group in data["groups"]:
+		var holder := node.get_node_or_null(NodePath(group["node"]))
+		if holder == null:
+			fail("%s has no group %s" % [name, group["node"]])
+			continue
+		var source: Dictionary = _manifest["models"].get(group["model"], {})
+		var origin := Vector3.ZERO
+		if source.has("origin"):
+			origin = Vector3(source["origin"][0], source["origin"][1], source["origin"][2])
+		var model = load(group["godot_scene"])
+		if not (model is PackedScene):
+			fail("%s can't load %s" % [name, group["godot_scene"]])
+			continue
+		var made: Node = model.instantiate()
+		var mesh_node: Node = null
+		for found in made.find_children("*", "MeshInstance3D", true, false):
+			if found.mesh != null and mesh_node == null:
+				mesh_node = found
+		if mesh_node == null:
+			fail("%s: %s has no mesh" % [name, group["model"]])
+			made.free()
+			continue
+		var frame := Transform3D(Basis(), origin) * relative(mesh_node, made)
+		made.free()
+		var lods: int = group["lod_distances"].size() + 1
+		var tinted: bool = group.has("colors")
+		for chunk in group["chunks"]:
+			for lod in lods:
+				var path: String = chunk["node"] if lod == 0 else "%s_lod%d" % [chunk["node"], lod]
+				var mmi := holder.get_node_or_null(NodePath(path)) as MultiMeshInstance3D
+				if mmi == null or mmi.multimesh == null:
+					fail("%s %s has no MultiMeshInstance3D %s" % [name, group["node"], path])
+					continue
+				var mm := mmi.multimesh
+				if mm.mesh == null or mm.mesh.get_surface_count() == 0:
+					fail("%s %s/%s has no mesh" % [name, group["node"], path])
+					continue
+				for i in mm.mesh.get_surface_count():
+					var material := mm.mesh.surface_get_material(i)
+					if material == null:
+						fail("%s %s/%s surface %d has no material" % [name, group["node"], path, i])
+					elif tinted and material is BaseMaterial3D and not (material as BaseMaterial3D).vertex_color_use_as_albedo:
+						fail("%s %s/%s surface %d ignores instance colours" % [name, group["node"], path, i])
+				var far: float = group["visible"] if lod + 1 == lods else group["lod_distances"][lod]
+				var near_end: float = 0.0 if lod == 0 else group["lod_distances"][lod - 1]
+				if absf(mmi.visibility_range_end - far) > 0.001 or absf(mmi.visibility_range_begin - near_end) > 0.001:
+					fail("%s %s/%s shows from %s to %s m, not %s to %s" % [name, group["node"], path, mmi.visibility_range_begin, mmi.visibility_range_end, near_end, far])
+				if mm.instance_count != int(chunk["count"]):
+					fail("%s %s/%s has %d instances, not %d" % [name, group["node"], path, mm.instance_count, chunk["count"]])
+					continue
+				if mm.use_colors != tinted:
+					fail("%s %s/%s use_colors is %s" % [name, group["node"], path, mm.use_colors])
+				# the buffer Godot holds (the dummy renderer keeps it, though get_instance_transform reads identity there):
+				# per instance the 3 x 4 transform row by row, then RGBA with use_colors
+				var buffer := mm.buffer
+				var stride := 16 if tinted else 12
+				if buffer.size() != stride * mm.instance_count:
+					fail("%s %s/%s buffer holds %d floats, not %d" % [name, group["node"], path, buffer.size(), stride * mm.instance_count])
+					continue
+				for i in mm.instance_count:
+					var t: Array = group["instances"][int(chunk["first"]) + i]
+					var placed := Transform3D(Basis(Vector3(t[3], t[4], t[5]), Vector3(t[6], t[7], t[8]), Vector3(t[9], t[10], t[11])), Vector3(t[0], t[1], t[2]))
+					var o := i * stride
+					var got_t := Transform3D(Basis(Vector3(buffer[o], buffer[o + 4], buffer[o + 8]), Vector3(buffer[o + 1], buffer[o + 5], buffer[o + 9]),
+						Vector3(buffer[o + 2], buffer[o + 6], buffer[o + 10])), Vector3(buffer[o + 3], buffer[o + 7], buffer[o + 11]))
+					if not near(got_t, placed * frame):
+						fail("%s %s/%s instance %d is at %s, not %s" % [name, group["node"], path, i, got_t, placed * frame])
+						break
+					if tinted:
+						var c: Array = group["colors"][int(chunk["first"]) + i]
+						var got := Color(buffer[o + 12], buffer[o + 13], buffer[o + 14], buffer[o + 15])
+						if absf(got.r - c[0]) > 0.002 or absf(got.g - c[1]) > 0.002 or absf(got.b - c[2]) > 0.002:
+							fail("%s %s/%s instance %d colour is %s, not %s" % [name, group["node"], path, i, got, c])
+							break
+					checked += 1
+	if checked == 0 and data["groups"].size() > 0:
+		fail("%s: no instances checked" % name)

@@ -43,6 +43,8 @@ WARNING_RULES = {
     "W115": "kiln.lock lists a file that isn't in the project any more",
     "W116": "a terrain's splat layer barely shows anywhere (its rules hardly ever hold)",
     "W117": "a terrain's height shape lies off the map (it changes nothing)",
+    "W118": "a scatter entry places very many instances (big scene and JSON files)",
+    "W119": "a scatter entry places no instances (its rules never hold, or nothing is under it)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -198,6 +200,36 @@ def terrain_warnings(model: Model, palette: dict[str, str], cache: Path) -> list
     return out
 
 
+def scatter_findings(project: Project, model: Model, cache: Path, geometry: bool) -> list[Finding]:
+    """A scatter's problems (E015: what it places or stands on) and, with geometry, its placement's warnings: very many
+    instances (W118), none (W119), more than the scene holds (E015)."""
+    from kiln import scatter as sc
+
+    s = model.scatter
+    assert s is not None
+    surface, found = sc.surface_of(project, s, cache)
+    found += sc.problems(project, s, surface)
+    out = [Finding("E015", message, model.path, line, where) for message, where, line in found]
+    if out or surface is None or not geometry:
+        return out
+    placed = sc.place(s, surface)
+    for k, (p, n) in enumerate(zip(s.places, placed.counts, strict=True)):
+        if n > sc.MANY_INSTANCES:
+            out.append(Finding("W118", f"{n} instances of {', '.join(p.models)}: lower the density, add spacing or scatter a smaller size "
+                               f"(more than {sc.MANY_INSTANCES} make big scenes and JSON)", model.path, p.line, f"scatter.place[{k}]"))  # fmt: skip
+        elif n == 0:
+            out.append(Finding("W119", f"no instances of {', '.join(p.models)} (from {placed.candidates[k]} candidates): raise the density or loosen "
+                               "its rules (slope, height, noise cover, splat, path)", model.path, p.line, f"scatter.place[{k}]"))  # fmt: skip
+    if placed.total > sc.MAX_INSTANCES:
+        out.append(Finding("E015", f"{placed.total} instances (at most {sc.MAX_INSTANCES}): lower densities, add spacing or scatter a smaller size",
+                           model.path, _line_of(model), "scatter.place"))  # fmt: skip
+    return out
+
+
+def _line_of(model: Model) -> int | None:
+    return model.scatter.places[0].line if model.scatter is not None and model.scatter.places else None
+
+
 def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
     """(shell part, part poking through it, overlap volume in m3, where) for every part whose solid crosses a shell's
     wall and shows outside it next to the wall. Parts sharing the shell's id are its own details (a crest)."""
@@ -314,7 +346,7 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
             keep.append(Finding("E011", f"effect emits {', '.join(missing)}: no models/<name>.kiln.yaml for it", path, None, "effect"))
     # templates are bases, not models: checked as text only
     meshed = [k for k, (_, m, st, _, keep) in enumerate(loaded)
-              if geometry and m and st and not m.template and m.terrain is None and not any(f.severity == "error" for f in keep)]  # fmt: skip
+              if geometry and m and st and not m.template and m.terrain is None and m.scatter is None and not any(f.severity == "error" for f in keep)]  # fmt: skip
     builds = dict(zip(meshed, build_all([(loaded[k][1], loaded[k][2], loaded[k][3], cache) for k in meshed]), strict=True))  # type: ignore[misc]
     for k, (path, model, style, palette, keep) in enumerate(loaded):
         if k in builds:
@@ -327,6 +359,8 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                 keep += geometry_warnings(built, palette, project)
         if geometry and model is not None and model.terrain is not None and not any(f.severity == "error" for f in keep):
             keep += terrain_warnings(model, palette, cache)
+        if model is not None and model.scatter is not None and not any(f.severity == "error" for f in keep):
+            keep += scatter_findings(project, model, cache, geometry)
         if model is not None and style is not None and not any(f.severity == "error" for f in keep) and not model.template:
             result.models[model.name] = (model, style)
         disabled = set(project.config.lint_disable) | set(model.lint_disable if model else ())

@@ -233,6 +233,8 @@ def _built(project: Project, name: str) -> Any:
         raise PaganError(errors or findings)
     if model.terrain is not None:
         raise _usage(f"{model.name} is a terrain: `kiln preview {model.name}` shows it (it has no parts, poses or line-up mesh)")
+    if model.scatter is not None:
+        raise _usage(f"{model.name} is a scatter: `kiln preview {model.name}` shows it (it has no parts, poses or line-up mesh)")
     palette, _ = project.palette(model.palette)
     try:
         return build_cached(model, style, palette, project.root / ".kiln-cache")
@@ -266,6 +268,49 @@ def _terrain_preview(project: Project, args: argparse.Namespace, out: Output) ->
     return 0
 
 
+def _scatter_preview(project: Project, args: argparse.Namespace, out: Output) -> int | None:
+    """`kiln preview <scatter>`: its instances over the surface (from above, two sides, close up); None when it isn't
+    a scatter."""
+    from kiln import preview as pv
+    from kiln import scatter as sc
+
+    path = _model_path(project, args.model)
+    model, style, findings = project.load(path)
+    if model is None or model.scatter is None:
+        return None
+    errors = [f for f in findings if f.severity == "error"]
+    if style is None or errors:
+        raise PaganError(errors or findings)
+    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at") if getattr(args, flag, None)]
+    if others:
+        raise _usage(f"{model.name} is a scatter: its preview is one sheet (from above, two sides, close up); --{others[0]} doesn't apply")
+    cache = project.root / ".kiln-cache"
+    surface, problems = sc.surface_of(project, model.scatter, cache)
+    problems += sc.problems(project, model.scatter, surface)
+    if surface is None or problems:
+        raise PaganError([Finding("E015", message, path, line, where) for message, where, line in problems])
+    placed = sc.place(model.scatter, surface)
+    sources = {}
+    for source in model.scatter.sources:
+        name, _, variant = source.partition(".")
+        built = _built(project, name)
+        sources[source] = (built, built.model.variants.get(variant, {}) if variant else {})
+    ground = None  # (vertices, faces, corner normals, corner colours); flat: a plain quad
+    if surface.kind == "terrain":
+        land, colors = pv.terrain_built(model, style, surface.field)
+        ground = (land.painted.vertices, land.painted.faces, land.normals, colors)
+    elif surface.kind == "model":
+        target = _built(project, model.scatter.onto)
+        ground = (target.painted.vertices - target.origin(), target.painted.faces, target.normals, pv.corner_colors(target))
+    folder = project.preview_dir / model.name
+    folder.mkdir(parents=True, exist_ok=True)
+    target_png = folder / "scatter.png"
+    pv.scatter_sheet(model, style, placed, ground, sources).save(target_png)
+    out.say(f"{model.name} scatter: {display_path(target_png)} ({placed.total} instances)")
+    out.result({"model": model.name, "outputs": {"scatter": display_path(target_png)}, "scatter": True, "instances": placed.total})
+    return 0
+
+
 def _times(text: str) -> list[float]:
     """`--at 0,0.1,0.25`: effect times in seconds."""
     try:
@@ -284,6 +329,9 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     terrain = _terrain_preview(project, args, out)
     if terrain is not None:
         return terrain
+    scattered = _scatter_preview(project, args, out)
+    if scattered is not None:
+        return scattered
     built = _built(project, args.model)
     name = built.model.name
     folder = project.preview_dir / name
@@ -436,11 +484,18 @@ def _is_terrain(path: Path) -> bool:
         return False
 
 
+def _is_scatter(path: Path) -> bool:
+    try:
+        return any(line.split("#")[0].rstrip() == "scatter:" for line in path.read_text(encoding="utf-8").splitlines())
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 def cmd_lineup(args: argparse.Namespace, out: Output) -> int:
     from kiln import preview as pv
 
     project = _require_project()
-    names = args.models or [p.name[: -len(MODEL_SUFFIX)] for p in project.model_paths() if not _is_template(p) and not _is_terrain(p)]
+    names = args.models or [p.name[: -len(MODEL_SUFFIX)] for p in project.model_paths() if not _is_template(p) and not _is_terrain(p) and not _is_scatter(p)]
     builts = [_built(project, n) for n in names]
     project.preview_dir.mkdir(parents=True, exist_ok=True)
     path = project.preview_dir / "lineup.png"

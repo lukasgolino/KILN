@@ -263,6 +263,78 @@ def terrain_files(model: Model, style: Style, palette: dict[str, str], cache: Pa
     return entry
 
 
+def scatter_files(project: Project, model: Model, style: Style, models: dict[str, Any], cache: Path, out: Path, write: Callable[[Path, bytes], None],
+                  godot_root: Path | None, result: BuildResult) -> dict[str, Any] | None:  # fmt: skip
+    """A scatter's files (`<name>.scatter.json`, Godot's `<name>.tscn`) and its manifest entry; None (with findings)
+    when it can't be placed."""
+    from kiln import scatter as sc
+
+    s = model.scatter
+    assert s is not None
+
+    def fail(message: str, where: str, line: int | None = None) -> None:
+        result.findings.append(Finding("E015", message, model.path, line, where))
+
+    surface, found = sc.surface_of(project, s, cache)
+    found += sc.problems(project, s, surface)
+    for message, where, line in found:
+        fail(message, where, line)
+    if surface is None or found:
+        return None
+    files: dict[str, dict[str, Any]] = {}
+    frames: dict[str, Any] = {}
+    for source in s.sources:
+        name, _, variant = source.partition(".")
+        entry = models.get(name)
+        if entry is None or "glb" not in entry:
+            fail(f"model {name} didn't build", "scatter.place")
+            return None
+        glb = out / entry["glb"]
+        frame, why = sc.mesh_frame(glb.read_bytes(), entry.get("origin"))
+        if frame is None:
+            fail(f"model {name} can't be scattered: {why}", "scatter.place")
+            return None
+        frames[source] = frame
+        info: dict[str, Any] = {"glb": entry["glb"], **({"lods": [lod["glb"] for lod in entry["lods"]]} if "lods" in entry else {})}
+        scene = entry.get("godot_scene")
+        if variant:
+            v = entry.get("variants", {}).get(variant, {})
+            if "glb" in v:
+                info["glb"] = v["glb"]
+            scene = v.get("godot_scene")
+            if godot_root is not None and scene is None:
+                fail(f"variant {source} has no Godot scene (vertex_colors = true without variant_glbs): set variant_glbs = true to scatter it",
+                     "scatter.place")  # fmt: skip
+                return None
+        if scene is not None:
+            info["godot_scene"] = scene
+        files[source] = info
+    placed = sc.place(s, surface)
+    if placed.total > sc.MAX_INSTANCES:
+        fail(f"{placed.total} instances (at most {sc.MAX_INSTANCES}): lower densities, add spacing or scatter a smaller size", "scatter.place")
+        return None
+    path = out / "models" / f"{model.name}.scatter.json"
+    write(path, (json.dumps(sc.to_json(placed, files), separators=(",", ":")) + "\n").encode())
+    entry_out: dict[str, Any] = {
+        "description": model.description,
+        "tags": list(model.tags),
+        "status": model.status,
+        "style_version": model.style_version,
+        "class": model.cls,
+        "style": style.name,
+        "scatter": path.relative_to(out).as_posix(),
+        "onto": surface.kind if surface.kind == "flat" else s.onto,
+        "instances": {g.node: len(g.transforms) for g in placed.groups},
+    }
+    if godot_root is not None:
+        sources = {src: (files[src]["godot_scene"], [res_path(out / lod, godot_root) for lod in files[src].get("lods", [])][: max((len(p.lod) for p in s.places if src in p.models), default=0)],
+                         frames[src]) for src in s.sources}  # fmt: skip
+        scene_path = out / "models" / f"{model.name}.tscn"
+        write(scene_path, sc.godot_scene(model.name, placed, sources).encode())
+        entry_out["godot_scene"] = res_path(scene_path, godot_root)
+    return entry_out
+
+
 @dataclass(frozen=True)
 class ImportSettings:
     importer: str
@@ -380,6 +452,8 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         produced.add(path.resolve())
 
     for name, (model, style) in sorted(lint.models.items()):
+        if model.scatter is not None:  # placed after every model (it instances them)
+            continue
         if progress:
             progress(f"building {name}")
         palette, _ = project.palette(model.palette)
@@ -517,6 +591,15 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         path = out / "models" / f"{name}.effect.json"
         write(path, (json.dumps(to_json(model.effect, emitted), indent=1) + "\n").encode())
         models[name]["effect"] = path.relative_to(out).as_posix()
+    for name, (model, style) in sorted(lint.models.items()):  # scatters: after every model, so they can place any of them
+        if model.scatter is None:
+            continue
+        if progress:
+            progress(f"building {name}")
+        scattered = scatter_files(project, model, style, models, cache, out, write, godot_root, result)
+        if scattered is not None:
+            models[name] = scattered
+            result.models.append(name)
     looks: dict[str, str] = {}
     if godot_root is not None and paths is not None:  # the kept models' looks
         kept_styles = {str(e.get("style")) for k, e in models.items() if k not in result.models}

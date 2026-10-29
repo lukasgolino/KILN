@@ -1,0 +1,53 @@
+name: meadow
+description: Trees, bushes, boulders, flowers and grass scattered over the valley.
+scatter:
+  onto: valley
+  seed: 7
+  chunk: 32
+  place:
+    - model: tree                    # first: the others keep their distance from trees
+      density: 0.003
+      spacing: 9
+      scale: [0.8, 1.3]
+      sink: 0.15
+      tint: 0.15
+      slope: { below: 22 }
+      splat: grass
+      path: { beyond: 7 }
+      lod: [70]
+    - model: boulder
+      density: 0.004
+      spacing: 3
+      scale: [0.6, 1.6]
+      align: 1
+      sink: 0.15
+      slope: { above: 12 }
+    - model: bush
+      density: 0.01
+      spacing: 2.5
+      scale: [0.7, 1.2]
+      sink: 0.05
+      tint: { color: grass, amount: 0.3, shade: 0.1 }
+      slope: { below: 28 }
+      noise: { scale: 30, cover: 0.5 }
+      path: { beyond: 4 }
+    - model: [flower, flower.pink]
+      density: 0.15
+      spacing: 0.3
+      scale: [0.8, 1.3]
+      tilt: 10
+      splat: grass
+      noise: { scale: 12, cover: 0.35 }
+      path: { beyond: 3 }
+      visible: 70
+    - model: grass
+      density: 1
+      spacing: 0.25
+      scale: [0.7, 1.4]
+      align: 0.6
+      tilt: 8
+      tint: { color: sand, amount: 0.4, shade: 0.15 }
+      splat: grass
+      noise: { scale: 20, cover: 0.7 }
+      path: { beyond: 3 }
+      visible: 60

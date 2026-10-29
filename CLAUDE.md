@@ -36,6 +36,7 @@ anything that changes output.
   - `lint.py` E/W rules; `build.py` `kiln build` (glb, variants, LODs, Godot, manifest, credits, stale cleanup);
   - `render.py` vectorised software renderer; `preview.py` sheets (turntable, closeup, filmstrip, lineup, gallery, vs);
   - `terrain.py` `terrain:` models: height shapes -> `Heightfield` (height/normal/slope/splat queries), chunked LOD meshes, splat map, Godot scene;
+  - `scatter.py` `scatter:` models: instances of other models over a terrain / model / flat area -> scatter JSON, Godot MultiMesh scene;
   - `godot.py` model scenes, look kits, headless verify, engine renders; `templates/` Godot scripts, init files;
   - `fonttext.py` font glyphs as SVG path data; `fillrule.py` nonzero fill (overlapping glyph contours joined);
   - `cli.py`, `mcp_server.py`, `api.py` (generator scripts), `skill/` (SKILL.md + reference.md).
@@ -187,3 +188,13 @@ anything that changes output.
   a helmet is opt-in per model (`rig: { hair: { parent: head, revealed: [helmet], fold: true } }`): the hair is then
   hidden until the helmet comes off and the helmet fits the skull (KayKit's helmets replace the hair). A model line
   rather than duplicate `helmet_*` templates: no second set of names, and it works with project helmets too.
+- 2026-10-29: #16: foliage scattering is a model kind (`scatter:` instead of `parts:`), not a block on a terrain: it
+  places other models over a terrain, any model's top surface (rays from above onto its built mesh) or a flat area,
+  and a terrain's output stays as it was. Placement is rolled at build time with `random.Random` (one string-seeded
+  stream per entry, so editing one keeps the others) into `<name>.scatter.json` and a .tscn of MultiMeshInstance3Ds
+  per entry, model and chunk (transforms and instance colours inline). MultiMeshes can't name a glb's mesh, so the
+  scene's inline script takes the mesh and the style's materials from each model's own scene at load and adds LOD copies
+  (LOD glb surfaces get LOD 0's material by source material name, else by surface index). Tint is the MultiMesh instance
+  colour (documented to multiply vertex colours with `vertex_color_use_as_albedo`; the toon shader uses COLOR). Godot's
+  dummy renderer keeps a MultiMesh's `buffer` but `get_instance_transform` reads identity there, so the headless
+  verify decodes the buffer. Only single-mesh, unrigged models scatter.

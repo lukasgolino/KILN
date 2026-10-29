@@ -1,0 +1,11 @@
+name: flower
+description: A small flower on a stem, yellow or pink.
+class: nature
+budget: 160
+parts:
+  - capsule: { from: [0, 0.012, 0], to: [0, 0.3, 0], radius: 0.012 }
+    color: blade
+  - ellipsoid: { at: [0, 0.31, 0], radii: [0.06, 0.025, 0.06] }
+    color: petal
+variants:
+  pink: { swap: { petal: pink } }

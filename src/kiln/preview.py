@@ -350,6 +350,123 @@ def terrain_sheet(model: Any, style: Any, field: Any, size: int = 300) -> Image.
     return sheet(f"{model.name} terrain", sub, rows)
 
 
+SCATTER_TRIANGLES = 200_000  # previews draw at most this many instance triangles (every n-th instance of the costliest groups)
+FLAT_GROUND = "#c9c4b4"
+
+
+def _merged(parts: list[tuple[Array, Array, Array, Array]], model: Any, style: Any, step: float) -> tuple[Built, Array]:
+    """Meshes (vertices, faces, corner normals, corner colours) as one `Built` the software renderer draws, and its
+    colours per face corner (linear)."""
+    from kiln.paint import PaintGroup, Painted
+    from kiln.rig import Skeleton
+
+    vertices, faces, normals, colors = [], [], [], []
+    base = 0
+    for v, f, n, c in parts:
+        vertices.append(v)
+        faces.append(f + base)
+        normals.append(n)
+        colors.append(c)
+        base += len(v)
+    fs = np.concatenate(faces)
+    painted = Painted(np.concatenate(vertices), fs, np.zeros(len(fs), dtype=int), [PaintGroup("root", "#ffffff", "scatter", "default")],
+                      np.full(len(fs), -1), [])  # fmt: skip
+    return Built(model, style, painted, np.concatenate(normals), Skeleton([]), "none", None, None, [], step, 1), np.concatenate(colors)
+
+
+def _thinning(groups: list[tuple[int, int]], budget: int) -> list[int]:
+    """Per group (instances, triangles each): draw every n-th instance so all together stay within `budget` triangles;
+    cheap groups are drawn whole, what they leave goes to the others."""
+    steps = [1] * len(groups)
+    left, todo = float(budget), sorted(range(len(groups)), key=lambda k: groups[k][0] * groups[k][1])
+    for i, k in enumerate(todo):
+        share = left / (len(todo) - i)
+        n, tris = groups[k]
+        steps[k] = max(1, math.ceil(n * tris / max(share, 1.0)))
+        left -= math.ceil(n / steps[k]) * tris
+    return steps
+
+
+def _near(group: Any, centre: Array, reach: float) -> Any:
+    """A group with only its instances within `reach` of `centre` (x, z)."""
+    from dataclasses import replace
+
+    keep = np.max(np.abs(group.transforms[:, [0, 2]] - centre[[0, 2]]), axis=1) <= reach
+    return replace(group, transforms=group.transforms[keep], colors=None if group.colors is None else group.colors[keep])
+
+
+def _instances(groups: list[Any], sources: dict[str, tuple[Built, dict[str, str]]], every: list[int]) -> tuple[list[tuple[Array, Array, Array, Array]], int]:
+    """Every n-th instance of each group as a mesh in the scatter's frame (vertices, faces, corner normals, corner
+    colours with the instance's tint), and how many."""
+    out = []
+    for g, step in zip(groups, every, strict=True):
+        built, swap = sources[g.source]
+        v, f, n, c = built.painted.vertices, built.painted.faces, built.normals, corner_colors(built, swap)
+        for i in range(0, len(g.transforms), step):
+            t = g.transforms[i]
+            basis = np.stack([t[3:6], t[6:9], t[9:12]], axis=1)  # columns: the model's axes
+            rot = basis / np.linalg.norm(basis[:, 0])
+            tint = g.colors[i] if g.colors is not None else np.ones(3)
+            out.append((v @ basis.T + t[:3], f, n @ rot.T, c * tint))
+    return out, len(out)
+
+
+def corner_colors(built: Built, swap: dict[str, str] | None = None) -> Array:
+    """A built model's paint colours per face corner (linear), with a variant's swap."""
+    from kiln.export import srgb_to_linear
+
+    swap = swap or {}
+    table = np.array([srgb_to_linear(swap.get(g.color, g.color)) for g in built.painted.groups])
+    return np.repeat(table[built.painted.face_group][:, None, :], 3, axis=1)
+
+
+def scatter_sheet(model: Any, style: Any, placed: Any, ground: tuple[Array, Array, Array, Array] | None, sources: dict[str, tuple[Built, dict[str, str]]],
+                  size: int = 300) -> Image.Image:  # fmt: skip
+    """A scatter over its surface: from above and from two sides at 35 degrees (the whole area), and close up where the
+    most instances are. `ground`: (vertices, faces, corner normals, corner colours), None for a flat area's plain quad;
+    `sources`: model or model.variant -> (its built mesh, the variant's colour swap)."""
+    from kiln.export import srgb_to_linear
+
+    surface = placed.surface
+    (x0, z0), (x1, z1) = surface.lo, surface.hi
+    if ground is None:
+        v = np.array([[x0, 0.0, z0], [x1, 0.0, z0], [x0, 0.0, z1], [x1, 0.0, z1]])
+        ground = (v, np.array([[0, 2, 1], [1, 2, 3]]), np.tile([0.0, 1.0, 0.0], (2, 3, 1)), np.tile(srgb_to_linear(FLAT_GROUND), (2, 3, 1)))
+    every = _thinning([(len(g.transforms), sources[g.source][0].triangles) for g in placed.groups], SCATTER_TRIANGLES)
+    instances, shown = _instances(placed.groups, sources, every)
+    merged, colors = _merged([ground, *instances], model, style, 0.05)
+    del instances
+    lo, hi = merged.bounds()
+    half = max(x1 - x0, z1 - z0) / 2
+    mid = np.array([(x0 + x1) / 2, (lo[1] + hi[1]) / 2, (z0 + z1) / 2])
+    fit = (mid, max(half * 0.8, float(hi[1] - lo[1])))
+    whole = [("above", render(merged, View(0.0, 90.0), size, fit=(mid, half), background=TILE_BG, colors=colors))]
+    whole += [(name, render(merged, View(yaw, 35.0), size, fit=fit, background=TILE_BG, colors=colors)) for name, yaw in (("south", 0.0), ("east", 90.0))]
+    del merged, colors
+    close_half = min(half, 6.0)
+    centre = mid
+    xz = np.concatenate([g.transforms[:, [0, 2]] for g in placed.groups]) if placed.groups else np.zeros((0, 2))
+    if len(xz):  # the busiest spot: the cell (of the close-up's size) with the most instances
+        cells = np.floor((xz - [x0, z0]) / (2 * close_half)).astype(int)
+        keys, counts = np.unique(cells, axis=0, return_counts=True)
+        best = keys[int(np.argmax(counts))]
+        cx, cz = x0 + (best[0] + 0.5) * 2 * close_half, z0 + (best[1] + 0.5) * 2 * close_half
+        found, y, _ = surface.hit(np.array([cx]), np.array([cz]))
+        centre = np.array([cx, float(y[0]) if found[0] else mid[1], cz])
+    near = [_near(g, centre, close_half * 1.5) for g in placed.groups]  # the close-up draws every instance near its middle
+    close_every = _thinning([(len(g.transforms), sources[g.source][0].triangles) for g in near], SCATTER_TRIANGLES)
+    instances, _ = _instances(near, sources, close_every)
+    merged, colors = _merged([ground, *instances], model, style, 0.05)
+    close = render(merged, View(30.0, 35.0), size, fit=(centre, close_half), background=TILE_BG, colors=colors)
+    rows = [("from above (north = -Z at the top) and close up where the most instances are", [whole[0], (f"close ({2 * close_half:.3g} m across)", close)]),
+            ("from the sides (35 degrees up)", whole[1:])]
+    counts_text = ", ".join(f"{g.source} {len(g.transforms)}" for g in placed.groups) or "nothing placed"
+    note = f" · the preview draws {shown} of them (every n-th of the costliest)" if shown < placed.total else ""
+    sub = (f"onto {placed.scatter.onto} · {x1 - x0:.3g} x {z1 - z0:.3g} m · {placed.total} instances: {counts_text}{note} · seed {placed.scatter.seed} · "
+           f"style {style.name}")  # fmt: skip
+    return sheet(f"{model.name} scatter", sub, rows)
+
+
 def inspiration_images(styles_dir: Path, style: str) -> list[Path]:
     folder = styles_dir / style / "inspiration"
     return sorted(p for p in folder.glob("*") if p.suffix.lower() in INSPIRATION_SUFFIXES) if folder.is_dir() else []

@@ -5,3 +5,8 @@ colors:
   "1": { hex: "#9c7a4f", name: dirt }
   "2": { hex: "#8d877c", name: rock }
   "3": { hex: "#e3d29a", name: sand }
+  "4": { hex: "#4d8a3c", name: leaf }
+  "5": { hex: "#6b4a2e", name: bark }
+  "6": { hex: "#f2c94c", name: petal }
+  "7": { hex: "#e58fb0", name: pink }
+  "8": { hex: "#a3cf5f", name: blade }
