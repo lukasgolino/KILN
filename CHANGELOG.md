@@ -6,6 +6,51 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-29
+
+Issues #15, #16, #18, #19, #20, #21, #23, #26, #27 and #64: terrains, foliage scattering, CC0 pack mirroring,
+Blender imports, clips on any skeleton, an opt-in Godot BoneMap, a richer toon look kit, hair under helmets, engine
+import notes and a cross-machine measurement. Everything new is opt-in: existing models build unchanged.
+
+### Added
+
+- Terrains (#15): a `terrain:` model of height shapes (hill, ridge, plateau, noise, path) blended in order, with up to
+  4 palette-colour splat layers driven by slope, height, path distance and noise rules. `kiln build` writes chunked
+  glbs (32 m chunks) with LODs and skirts, a splat map PNG and a Godot scene with a splat shader and an inline
+  `HeightMapShape3D`. Design point 256 x 256 m at 0.5 m cells. `kiln.terrain.load` gives height, normal, slope and
+  splat queries. Lint W116/W117, `kiln preview`, `--verify-godot` checks.
+- Foliage scattering (#16): a `scatter:` model kind places models (and variants) over a terrain, a model's top
+  surface or a flat area at build time (density, spacing, scale/yaw/tilt jitter, slope/height/noise/splat/path rules,
+  tint jitter), pre-rolled with `random.Random(seed)` into `<name>.scatter.json` and a Godot scene of
+  `MultiMeshInstance3D`s per entry, model and chunk. Lint E015/W118/W119, `kiln preview`, `--verify-godot` checks.
+- CC0 packs (#19): `kiln pack list/add/search/import`. Recipes for Kenney, KayKit and Quaternius packs (archive sha256
+  pinned, CC0 checked) mirror into a per-user cache (`~/.cache/kiln/packs`, `KILN_PACK_CACHE`); `search` uses names,
+  tags and an index of triangles and size, with `--json` and a `--lineup` sheet. `pack import` records every copied
+  file in `kiln.lock`; a changed hash or a non-CC0 entry fails the build (E014), a missing file warns (W115), and
+  credits name the pack. Only `kiln pack add` uses the network. MCP: `pack_list`, `pack_search`, `pack_import`.
+- Blender imports (#20): `.fbx`, `.blend` and `.obj` import through the `blender` binary (Blender 4.x on PATH or
+  `BLENDER=`) as a subprocess, then take the glb path. `kiln import` writes `imports/<stem>.glb`; files named directly
+  in a model convert into `.kiln-cache/blender/`. `kiln doctor` reports Blender.
+- `godot_bonemap = true` in kiln.toml (#21, default false): humanoids get `models/<name>.bonemap.tres` (a `BoneMap` on
+  `SkeletonProfileHumanoid`) set in their glb's `.import`, so Godot retargets humanoid clips onto them. Godot then
+  renames the skeleton's bones and node, so game code naming them must change; turning it off restores the files.
+- Toon look keys (#26): `toon_softness`, `toon_shadow_color`, `toon_specular`, `toon_shadows = "band"`,
+  `outline_space = "pixels"` and `outline_color = "darken"`. Previews follow them (except banded cast shadows: the
+  software renderer has none). Defaults are today's look. `--verify-godot` also fails on shader errors.
+- Hair under helmets (#23): `rig: { hair: { parent: head, revealed: [helmet], fold: true } }` on a model makes the
+  library heads' scalp hair its own piece, hidden until the helmet comes off, and fits the helmet to the skull. New rig
+  key `fold`. Without it every library combo builds as before.
+- Clips on any skeleton (#64): `skeleton: { map: {...}, root_motion: <joint> }` retargets imported clips onto
+  non-humanoid skeletons (bone -> clip joint, optional `child` to aim). Unmapped bones follow their parent; unmapped
+  joints are ignored; no `root_motion` means no root translation.
+- `docs/engines.md`: notes for importing KILN output into Unity, Unreal, Bevy, three.js and Defold (#18).
+- A non-failing CI workflow builds the demo on x86-64 Linux, arm64 Linux and arm64 macOS and reports the differences
+  (#27; `tools/compare_builds.py`).
+
+### Changed
+
+- W113 skips a part hidden by the shell it pokes through (#23).
+
 ## [0.12.0] - 2026-10-28
 
 Issues #66, #67, #70, #71 and #72: hard-surface and text fixes (E013 cracks and crowded edges, an E009 crash, a hang).
