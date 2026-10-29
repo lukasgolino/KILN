@@ -1,0 +1,13 @@
+name: moss
+description: Grass tufts growing on the boulder's top (scattered over a model's surface).
+scatter:
+  onto: boulder
+  seed: 2
+  place:
+    - model: grass
+      density: 60
+      spacing: 0.06
+      scale: [0.25, 0.45]
+      align: 1
+      tint: { color: leaf, amount: 0.5, shade: 0.2 }
+      slope: { below: 40 }

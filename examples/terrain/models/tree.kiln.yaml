@@ -1,0 +1,19 @@
+name: tree
+description: A round toy tree with a lighter LOD.
+class: nature
+budget: 1500
+parts:
+  - capsule: { from: [0, 0.3, 0], to: [0, 2.6, 0], radius: 0.3, radius_to: 0.16 }
+    color: bark
+    noise: { amount: 0.02, scale: 0.2 }
+  - sphere: { at: [0, 3.3, 0], radius: 1.2 }
+    blend: 0.2
+    color: leaf
+    noise: { amount: 0.05, scale: 0.5 }
+  - sphere: { at: [0.85, 2.8, 0.2], radius: 0.85 }
+    blend: 0.3
+    color: leaf
+  - sphere: { at: [-0.75, 2.9, -0.2], radius: 0.9 }
+    blend: 0.3
+    color: leaf
+lod: [400]

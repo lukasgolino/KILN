@@ -16,6 +16,8 @@ import numpy as np
 
 from kiln.effect import Effect
 from kiln.effect import parse as parse_effect
+from kiln.scatter import Scatter
+from kiln.scatter import parse as parse_scatter
 from kiln.terrain import Terrain
 from kiln.terrain import parse as parse_terrain
 from kiln.hardware import HARDWARE, expand
@@ -46,8 +48,9 @@ OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
               "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
-              "animation_library", "animations_only", "union", "terrain"}  # fmt: skip
+              "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
+SCATTER_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "scatter"}  # a scatter's model fields
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
@@ -178,6 +181,7 @@ class Model:
     library_text: str = ""  # the carrier's source (cache key)
     effect: Effect | None = None  # a burst of other models' meshes (models/<name>.effect.json)
     terrain: Terrain | None = None  # a heightfield with splat layers instead of parts (kiln.terrain)
+    scatter: Scatter | None = None  # other models placed many times over a surface instead of parts (kiln.scatter)
 
     @property
     def ids(self) -> list[str]:
@@ -1307,6 +1311,17 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                                       lambda raw, line, where: _color(ctx, raw, line, where))  # fmt: skip
         if model.terrain is None and not any(f.severity == "error" for f in ctx.findings):
             ctx.error("E003", "terrain: see the problems above", _line(data, "terrain"), "terrain")
+        return model, ctx.findings
+    if "scatter" in data:  # other models placed over a surface, not parts: only identity, style and palette go with it
+        others = [str(k) for k in data if k not in SCATTER_TOP]
+        if others:
+            ctx.error("E003", f"a scatter has no {', '.join(others)}: only {', '.join(sorted(SCATTER_TOP))}", _line(data, others[0]), others[0])
+        if "class" not in data:
+            model.cls = "scatter"
+        model.scatter = parse_scatter(data["scatter"], _line(data, "scatter"), lambda message, line, where: ctx.error("E003", message, line, where),
+                                      lambda raw, line, where: _color(ctx, raw, line, where))  # fmt: skip
+        if model.scatter is None and not any(f.severity == "error" for f in ctx.findings):
+            ctx.error("E003", "scatter: see the problems above", _line(data, "scatter"), "scatter")
         return model, ctx.findings
     if "source" in data:
         if "parts" in data:

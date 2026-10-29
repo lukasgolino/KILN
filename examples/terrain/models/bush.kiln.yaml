@@ -1,0 +1,14 @@
+name: bush
+description: A round bush.
+class: nature
+budget: 500
+parts:
+  - sphere: { at: [0, 0.45, 0], radius: 0.45 }
+    color: leaf
+    noise: { amount: 0.04, scale: 0.2 }
+  - sphere: { at: [0.35, 0.32, 0.1], radius: 0.3 }
+    blend: 0.12
+    color: leaf
+  - sphere: { at: [-0.3, 0.34, -0.1], radius: 0.32 }
+    blend: 0.12
+    color: leaf

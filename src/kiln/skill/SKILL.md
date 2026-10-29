@@ -112,6 +112,11 @@ Write the answers into BRIEF.md and STYLE.md.
   Terrains). It builds chunked LOD glbs, a splat map and a Godot scene with a HeightMapShape3D; `kiln preview <name>`
   shows it from above and four sides. Place things on it from Python with `kiln.terrain.load(project, name)`
   (`height`, `normal`, `slope`, `splat` at any x, z).
+- Foliage and props over ground: a model with `scatter:` (see reference.md, Scatters) places other models (grass,
+  flowers, rocks, trees; one mesh each, small budgets) over a terrain, another model's top or a flat area by density,
+  spacing and rules (slope, height, noise patches, splat layers, paths), with random turn, scale, lean and tint. It
+  builds `<name>.scatter.json` and a Godot scene of MultiMeshes (with LODs and a fade-out distance); `kiln preview
+  <name>` shows it. Lint W118/W119: too many / no instances.
 - `kiln preview <name> --engine` renders through Godot itself (needs a display): use it to confirm the look.
 - `manifest.json` lists every model: glb, scene, size and bounds in metres, triangles, parts (pivot, parent, meta),
   animations (Godot names, loop, fps), variants, LODs, licences. That's the contract with game code.
