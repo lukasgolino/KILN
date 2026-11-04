@@ -16,14 +16,14 @@ from kiln import __version__
 from kiln.atlas import CELL, Atlas, AtlasUse, layout
 from kiln.builder import build_cached
 from kiln.effect import to_json
-from kiln.retarget import HUMANOID, OPTIONAL
 from kiln.export import Built, attr_names, gltf_name, to_glb, uv_channel
 from kiln.godot import bone_map_tres, find_godot_project, look_scene, model_scene, res_path, with_bone_map
 from kiln.lint import LintResult, lint_paths, lint_project
 from kiln.notation import MODEL_SUFFIX, Model
 from kiln.packs import LOCK_NAME, locked_pack
-from kiln.rig import animation_poses
 from kiln.project import Project
+from kiln.retarget import HUMANOID, OPTIONAL
+from kiln.rig import animation_poses
 from kiln.style import Style
 from kiln.vendor.findings import Finding
 from kiln.vendor.gltf import read_glb

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from conftest import arms_text, errors_of, load, ok_model, parse, sphere_text
+
 from kiln.notation import ROOT_ID
 from kiln.project import Project
 from kiln.vendor.findings import Finding

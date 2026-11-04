@@ -8,14 +8,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from conftest import arms_text, errors_of, make_project, sphere_text, write_model
+
 from kiln.build import MANIFEST, build
 from kiln.gltf_check import accessor, check_glb
-from kiln.vendor.gltf import read_glb
 from kiln.godot import find_godot_binary, look_scene, model_scene, verify
 from kiln.project import Project, load_project
 from kiln.style import load_style
+from kiln.vendor.gltf import read_glb
 
 CONFIG_MERGE = 'default_style = "fast"\ndefault_palette = "main"\noutput_dir = "out"\nmerge_rigid = true\n'
 GODOT_CONFIG = 'default_style = "fast"\ndefault_palette = "main"\noutput_dir = "game/assets/kiln"\nexport = ["glb", "godot"]\n'
@@ -582,6 +582,7 @@ def test_gib_pieces_for_parts_that_come_off(project: Project) -> None:
 def test_previews_hide_revealed_parts_until_their_part_is_off(project: Project) -> None:
     """#37: stump caps start hidden in previews, as in the scenes; taking the arm off (detach) shows its cap."""
     from conftest import built_of
+
     from kiln.preview import _corners
     from kiln.render import View, render, with_unrevealed
 

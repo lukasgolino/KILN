@@ -8,12 +8,12 @@ from importlib.resources import files
 from pathlib import Path
 
 import pytest
-
 from conftest import arms_text, make_project, run_json, sphere_text, write_model
+from test_importer import box_glb
+
 from kiln import __version__
 from kiln.cli import main
 from kiln.project import Project, load_project
-from test_importer import box_glb
 
 
 @pytest.fixture

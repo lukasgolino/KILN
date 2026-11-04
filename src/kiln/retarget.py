@@ -298,7 +298,7 @@ def retarget(clip: Clip, bones: list[tuple[str, int, Array]], fps: float, speed:
         wp, wr = clip.world(*clip.local(min(f / fps * speed, clip.duration)))
         world = [ident.copy() for _ in range(n)]  # as the clip turns it
         placed = [ident.copy() for _ in range(n)]  # after keep/offset (children follow their adjusted parents)
-        for b, (name, parent, _) in enumerate(bones):
+        for b, (_, parent, _) in enumerate(bones):
             parent_world = world[parent] if parent >= 0 else ident
             parent_placed = placed[parent] if parent >= 0 else ident
             if b in joint:

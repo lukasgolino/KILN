@@ -12,13 +12,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from conftest import arms_text, make_project, write_model
+from test_build import GODOT_CONFIG, PROJECT_GODOT
+from test_retarget import HERO, KAYKIT
+
 from kiln.build import build
 from kiln.godot import find_godot_binary, verify, with_bone_map
 from kiln.project import Project, load_project, parse_config
-from test_build import GODOT_CONFIG, PROJECT_GODOT
-from test_retarget import HERO, KAYKIT
 
 RES = "res://assets/kiln/models/thing.bonemap.tres"
 GODOT_WROTE = """\

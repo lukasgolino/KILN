@@ -6,9 +6,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from conftest import arms_text, built_of, sphere_text
 from PIL import Image
 
-from conftest import arms_text, built_of, sphere_text
 from kiln import preview as pv
 from kiln.export import Built
 from kiln.project import Project

@@ -90,7 +90,7 @@ def compare_glb(a: bytes, b: bytes) -> GlbDiff:
         out.note = f"{len(acc_a)} vs {len(acc_b)} accessors"
         return out
     labels = accessor_labels(doc_a)
-    for i, (x, y) in enumerate(zip(acc_a, acc_b)):
+    for i, (x, y) in enumerate(zip(acc_a, acc_b, strict=True)):
         label = labels[i]
         layout = ("count", "type", "componentType")
         if any(x.get(k) != y.get(k) for k in layout):

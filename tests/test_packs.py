@@ -11,13 +11,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from conftest import run_json, sphere_text, write_model
+from test_importer import box_glb
+
 from kiln import packs
 from kiln.packs import PackError, Recipe
 from kiln.project import Project
 from kiln.vendor.gltf import read_glb
-from test_importer import box_glb
 
 LICENCE = "Some Pack (1.0)\n\nLicense: (Creative Commons Zero, CC0)\nhttp://creativecommons.org/publicdomain/zero/1.0/\n"
 

@@ -13,7 +13,6 @@ from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 import numpy as np
 
 from kiln.builder import build_cached, cached, field_of, hard_parts, kept_parts

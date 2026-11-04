@@ -20,7 +20,7 @@ from PIL import Image
 
 from kiln.export import Built
 from kiln.notation import ROOT_ID, Model
-from kiln.paint import PaintGroup, Painted
+from kiln.paint import Painted, PaintGroup
 from kiln.rig import Bone, Skeleton
 from kiln.sdf import Array, rotation_matrix
 from kiln.style import Style
@@ -236,7 +236,7 @@ def build_imported(model: Model, style: Style, palette: dict[str, str] | None = 
     if src.recolor == "auto" and hexes:
         face_hex = nearest_palette(cols, hexes)
     else:
-        face_hex = ["#%02x%02x%02x" % tuple(int(round(c * 255)) for c in col) for col in cols]
+        face_hex = ["#{:02x}{:02x}{:02x}".format(*(int(round(c * 255)) for c in col)) for col in cols]
     names = {h: n for n, h in (palette or {}).items() if len(n) > 1}
     keys = sorted({(h, k) for h, k in zip(face_hex, kinds, strict=True)})
     groups = [PaintGroup(ROOT_ID, h, names.get(h, h), k) for h, k in keys]
@@ -368,7 +368,7 @@ def load_reference(path: Path, style: Style, height: float | None = None, centre
     if centre_xz is not None:
         shift[[0, 2]] = np.array(centre_xz) - (lo[[0, 2]] + hi[[0, 2]]) / 2
     v = v + shift
-    face_hex = ["#%02x%02x%02x" % tuple(int(round(c * 255)) for c in col) for col in np.clip(cols, 0, 1)]
+    face_hex = ["#{:02x}{:02x}{:02x}".format(*(int(round(c * 255)) for c in col)) for col in np.clip(cols, 0, 1)]
     keys = sorted(set(zip(face_hex, kinds, strict=True)))
     lookup = {k: i for i, k in enumerate(keys)}
     groups = [PaintGroup(ROOT_ID, h, h, k) for h, k in keys]

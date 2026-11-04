@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from conftest import load, make_project, sphere_text
+
 from kiln.project import Config, find_project_root, load_project, parse_config
 from kiln.style import builtin_names, load_style, style_summary
 from kiln.vendor.findings import PaganError

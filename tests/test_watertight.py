@@ -7,8 +7,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from conftest import built_of, errors_of, make_project, run_json, write_model
+
 from kiln.builder import build_model
 from kiln.lint import geometry_warnings
 from kiln.mesher import open_edges, pinches

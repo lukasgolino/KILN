@@ -8,8 +8,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from conftest import CONFIG, built_of, errors_of, make_project, write_model
+
 from kiln.build import build
 from kiln.fitting import MeshDistance, bone_matrix, read_surface
 from kiln.godot import find_godot_binary, verify

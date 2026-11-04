@@ -306,7 +306,7 @@ class _Writer:
                 extras["kiln_revealed_by"] = list(rig.revealed)
             node["extras"] = extras
             nodes.append(node)
-        for i, bone in enumerate(sk.bones):
+        for i in range(len(sk.bones)):
             kids = [j for j, other in enumerate(sk.bones) if other.parent == i]
             if kids:
                 nodes[i]["children"] = kids

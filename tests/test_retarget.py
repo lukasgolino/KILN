@@ -9,8 +9,8 @@ from typing import Any
 
 import numpy as np
 import pytest
+from conftest import built_of, errors_of, write_model
 
-from conftest import built_of, errors_of, ok_model, write_model
 from kiln.build import build
 from kiln.project import Project
 from kiln.retarget import JOINTS, load_clip, q_rotate

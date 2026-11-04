@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from conftest import built_of, closed_faces, errors_of, ok_model
+
 from kiln.fillrule import _area, _inside, needs_union, nonzero, untangle
 from kiln.project import Project
 
