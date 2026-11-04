@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from conftest import make_project, sphere_text, write_model
+
 from kiln.lint import WARNING_RULES, lint_paths, lint_project
 from kiln.project import Project
 from kiln.vendor.findings import Finding

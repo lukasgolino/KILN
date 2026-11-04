@@ -109,9 +109,9 @@ def parse_palette(
         error("E001", "palette must be a mapping with a 'colors' section", _line(data))
         return None, findings
 
-    for field in data:
-        if field not in _FIELDS:
-            error("E001", f"unknown field {field!r}; allowed fields: {', '.join(_FIELDS)}", _line(data, field))
+    for key in data:
+        if key not in _FIELDS:
+            error("E001", f"unknown field {key!r}; allowed fields: {', '.join(_FIELDS)}", _line(data, key))
 
     name = data.get("name")
     if name is None and not inline:

@@ -16,13 +16,13 @@ import numpy as np
 
 from kiln.effect import Effect
 from kiln.effect import parse as parse_effect
-from kiln.scatter import Scatter
-from kiln.scatter import parse as parse_scatter
-from kiln.terrain import Terrain
-from kiln.terrain import parse as parse_terrain
 from kiln.hardware import HARDWARE, expand
 from kiln.retarget import REQUIRED, JointMap
+from kiln.scatter import Scatter
+from kiln.scatter import parse as parse_scatter
 from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
+from kiln.terrain import Terrain
+from kiln.terrain import parse as parse_terrain
 from kiln.uv import AXES as UV_AXES
 from kiln.uv import PROJECTIONS, UVSpec
 from kiln.vendor.findings import Finding

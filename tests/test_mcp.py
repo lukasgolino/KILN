@@ -6,9 +6,9 @@ import asyncio
 import json
 from typing import Any
 
+from conftest import SPHERE
 from mcp.types import CallToolResult, ImageContent, TextContent
 
-from conftest import SPHERE
 from kiln.mcp_server import create_server
 from kiln.project import Project
 

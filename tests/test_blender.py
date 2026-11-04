@@ -12,8 +12,8 @@ from typing import Any
 
 import numpy as np
 import pytest
-
 from conftest import ok_model, run_json
+
 from kiln import blender
 from kiln.build import build
 from kiln.importer import read_mesh

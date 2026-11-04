@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from conftest import built_of, closed_faces, sphere_text
 from PIL import Image
 
-from conftest import built_of, closed_faces, sphere_text
 from kiln.builder import field_of
 from kiln.mesher import dual_contour
 from kiln.paint import decal_uv, refine, split

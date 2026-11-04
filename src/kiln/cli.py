@@ -445,7 +445,7 @@ def _compare(project: Project, built: Any, ref_path: Path, ref_height: float | N
 def _engine_preview(project: Project, built: Any, folder: Path) -> str:
     from PIL import Image
 
-    from kiln.godot import find_godot_binary, find_godot_project, render_engine, res_path
+    from kiln.godot import find_godot_binary, find_godot_project, render_engine
 
     godot = find_godot_binary()
     root = find_godot_project(project.output_dir)
@@ -594,7 +594,7 @@ def cmd_style(args: argparse.Namespace, out: Output) -> int:
             raise PaganError(findings)
         summary = style_summary(style)
         if not out.as_json:
-            print((style.path.read_text(encoding="utf-8") if style.path else json.dumps(summary, indent=2)))
+            print(style.path.read_text(encoding="utf-8") if style.path else json.dumps(summary, indent=2))
         out.result({"style": summary})
         return 0
     if args.style_cmd == "new":

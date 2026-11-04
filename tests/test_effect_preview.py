@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from PIL import Image
-
 from conftest import built_of, run_json, sphere_text, write_model
+from PIL import Image
+from test_mcp import call
+
 from kiln import preview as pv
 from kiln.project import Project
 from kiln.render import View, render
-from test_mcp import call
 
 BURST = """effect:
   seed: 3

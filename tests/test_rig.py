@@ -6,8 +6,8 @@ import math
 
 import numpy as np
 import pytest
-
 from conftest import arms_text, built_of, ok_model
+
 from kiln.builder import field_of
 from kiln.notation import CYCLES, Animation
 from kiln.project import Project

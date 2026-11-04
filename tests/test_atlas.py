@@ -9,14 +9,13 @@ from typing import Any
 
 import numpy as np
 import pytest
+from conftest import CONFIG, arms_text, make_project, sphere_text, write_model
 from PIL import Image
 
-from conftest import CONFIG, arms_text, make_project, sphere_text, write_model
 from kiln.atlas import AO_STRENGTH, CELL, ambient_occlusion
 from kiln.build import BuildResult, build
-from kiln.export import to_glb
 from kiln.gltf_check import accessor, check_glb
-from kiln.godot import ATLAS_SCRIPT, APPLY_SCRIPT, find_godot_binary, verify
+from kiln.godot import APPLY_SCRIPT, ATLAS_SCRIPT, find_godot_binary, verify
 from kiln.project import Project, load_project, parse_config
 from kiln.vendor.gltf import NEAREST, read_glb
 
@@ -77,7 +76,7 @@ def test_uvs_sit_on_cell_centres_of_the_right_colour(demo: tuple[Project, BuildR
     centres = {tuple(c["uv"]): c for c in entry["cells"]}
     for c in entry["cells"]:  # the palette holds each cell's colour, the material texture its roughness and metal
         x, y = c["pixel"]
-        assert "#%02x%02x%02x" % tuple(image[y + CELL // 2, x + CELL // 2]) == c["color"]
+        assert "#{:02x}{:02x}{:02x}".format(*image[y + CELL // 2, x + CELL // 2]) == c["color"]
     doc, binary = glb(project, "knight")
     material = png(project, "knight.material.png")
     for p in prims(doc):
@@ -113,8 +112,8 @@ def test_variant_is_a_texture_swap(demo: tuple[Project, BuildResult]) -> None:
     swap = variant["swap"]
     for c in result.manifest["models"]["pilot"]["atlas"]["cells"]:
         x, y = c["pixel"]
-        assert "#%02x%02x%02x" % tuple(a[y, x]) == c["color"]
-        assert "#%02x%02x%02x" % tuple(b[y, x]) == swap.get(c["color"], c["color"])
+        assert "#{:02x}{:02x}{:02x}".format(*a[y, x]) == c["color"]
+        assert "#{:02x}{:02x}{:02x}".format(*b[y, x]) == swap.get(c["color"], c["color"])
     assert not np.array_equal(a, b)
 
 

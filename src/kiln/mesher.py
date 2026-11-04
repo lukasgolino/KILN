@@ -434,7 +434,7 @@ def simplify_borders(mesh: Mesh, region: Array, tolerance: float) -> tuple[Mesh,
         first = np.searchsorted(corners[by_vertex], np.arange(len(v) + 1))
 
         def faces_of(x: int) -> list[int]:
-            return [int(i) for i in live[by_vertex[first[x] : first[x + 1]] // 3]]
+            return [int(i) for i in live[by_vertex[first[x] : first[x + 1]] // 3]]  # noqa: B023 (used in this pass)
 
         locked: set[int] = set()
         removed = 0

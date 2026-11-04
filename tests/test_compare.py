@@ -7,16 +7,16 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
-
 from conftest import CONFIG, built_of, make_project, run_json, sphere_text, write_model
+from PIL import Image
+from test_importer import BOX_FACES, box_glb
+from test_mcp import call
+from test_retarget import HERO, KAYKIT
+
 from kiln.export import Built, to_glb
 from kiln.importer import gltf_counts, joint_heights, load_reference
 from kiln.preview import TILE_BG, body_bands, compare, distance_row, facet_regularity, screen_ppm, versus_reference, visual_mass
 from kiln.project import Project
-from test_importer import BOX_FACES, box_glb
-from test_mcp import call
-from test_retarget import HERO, KAYKIT
 
 
 def _against(built: Built, path: Path, height: float | None = None) -> dict[str, object]:
@@ -182,6 +182,7 @@ def test_mcp_preview_reference(project: Project) -> None:
 def test_cli_vs_counts_what_the_build_writes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """#36: `--vs` surfaces/materials follow atlas and merge_rigid, as the built glb does."""
     from conftest import arms_text
+
     from kiln.build import build
 
     project = make_project(tmp_path, CONFIG + "atlas = true\nmerge_rigid = true\n")

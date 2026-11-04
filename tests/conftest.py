@@ -134,9 +134,8 @@ def parse(text: str, palette: dict[str, str] | None = None, materials: set[str] 
     pal = palette if palette is not None else {"red": "#e8413c", "blue": "#2f6fd0", "white": "#f4f4f0", "2": "#e8413c"}
     mats = materials if materials is not None else {"default", "plastic", "metal"}
     if path is None:
-        from kiln.vendor.yamlio import parse_yaml
-
         from kiln.notation import parse_model
+        from kiln.vendor.yamlio import parse_yaml
 
         return parse_model(parse_yaml(text), None, pal, mats, text)
     path.write_text(text)

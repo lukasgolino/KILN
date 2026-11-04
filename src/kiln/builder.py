@@ -7,8 +7,8 @@ the style, the palette, decal images, imported files and KILN's version.
 from __future__ import annotations
 
 import hashlib
-import math
 import json
+import math
 import pickle
 from pathlib import Path
 
@@ -16,12 +16,11 @@ import numpy as np
 
 from kiln import __version__
 from kiln.export import Built
-from kiln.hard import HARD_SHAPES, SHELL_SHAPES, HardMesh, HardSpec, Solid, solid, subtract, to_mesh, union
+from kiln.hard import HARD_SHAPES, SHELL_SHAPES, HardMesh, HardSpec, Solid, intersect, solid, subtract, to_mesh, union
 from kiln.hard import corner_normals as hard_corner_normals
-from kiln.hard import intersect
 from kiln.mesher import Mesh, component_labels, components, decimate, decimate_regions, dual_contour, model_step, simplify_borders
 from kiln.notation import ROOT_ID, Decal, Model, Part
-from kiln.paint import PaintGroup, Painted, Regions, corner_normals, hard_regions, paint, regions
+from kiln.paint import Painted, PaintGroup, Regions, corner_normals, hard_regions, paint, regions
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
 from kiln.sdf import Array, Field, part_thickness
 from kiln.style import Style

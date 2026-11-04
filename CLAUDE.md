@@ -12,6 +12,7 @@ until requested), never in markdown files in the repo.
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 kiln --version
+ruff check .  # lint (long lines allowed)
 mypy          # strict
 pytest        # GODOT=/path/to/godot for the Godot tests; a display (or xvfb) for engine renders
 ```

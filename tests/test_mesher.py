@@ -6,8 +6,8 @@ from typing import Any
 
 import numpy as np
 import pytest
-
 from conftest import closed, signed_volume
+
 from kiln.mesher import MAX_CELLS, Mesh, components, decimate, dual_contour, grid_step, model_step, pinches, remove_unused, unpinch
 from kiln.sdf import SHAPES, Field, Geometry
 

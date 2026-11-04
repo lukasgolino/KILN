@@ -7,8 +7,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from conftest import built_of, ok_model
+
 from kiln.build import build
 from kiln.builder import build_model
 from kiln.export import to_glb

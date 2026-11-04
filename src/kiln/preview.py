@@ -304,7 +304,7 @@ TERRAIN_GRID = 192  # previews mesh terrains with at most this many cells a side
 def terrain_built(model: Any, style: Any, field: Any) -> tuple[Built, Array]:
     """A terrain as a `Built` the software renderer draws (every n-th grid point, no chunks or skirts) and its colours
     per face corner (linear)."""
-    from kiln.paint import PaintGroup, Painted
+    from kiln.paint import Painted, PaintGroup
     from kiln.rig import Skeleton
     from kiln.terrain import _normals, grid_gradient
 
@@ -357,7 +357,7 @@ FLAT_GROUND = "#c9c4b4"
 def _merged(parts: list[tuple[Array, Array, Array, Array]], model: Any, style: Any, step: float) -> tuple[Built, Array]:
     """Meshes (vertices, faces, corner normals, corner colours) as one `Built` the software renderer draws, and its
     colours per face corner (linear)."""
-    from kiln.paint import PaintGroup, Painted
+    from kiln.paint import Painted, PaintGroup
     from kiln.rig import Skeleton
 
     vertices, faces, normals, colors = [], [], [], []

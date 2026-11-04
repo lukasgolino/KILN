@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from conftest import built_of, make_project, ok_model, run_json, write_model
+
 from kiln.lint import lint_project
 from kiln.mesher import open_edges
 from kiln.notation import MODEL_SUFFIX, library_dir

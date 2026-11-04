@@ -13,8 +13,9 @@ from typing import Any
 
 import numpy as np
 import pytest
-
 from conftest import arms_text, built_of, closed_faces, errors_of, make_project, ok_model, sphere_text, write_model
+from test_importer import box_glb
+
 from kiln.build import build
 from kiln.builder import build_model, cache_key
 from kiln.export import to_glb
@@ -23,7 +24,6 @@ from kiln.mesher import Mesh
 from kiln.project import Project
 from kiln.rig import animation_poses
 from kiln.vendor.gltf import read_accessor, read_glb
-from test_importer import box_glb
 
 
 def rules(project: Project) -> list[str]:

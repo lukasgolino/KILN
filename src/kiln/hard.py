@@ -1043,7 +1043,7 @@ def to_mesh(polys: Solid) -> HardMesh:
         loop = [v for k, v in enumerate(loop) if v != loop[k - 1]]
         loops.append(loop)
     # T-junctions: a vertex lying on another polygon's edge splits that edge (or the mesh has cracks)
-    edges = sorted({(min(l[k], l[(k + 1) % len(l)]), max(l[k], l[(k + 1) % len(l)])) for l in loops for k in range(len(l))})
+    edges = sorted({(min(l[k], l[(k + 1) % len(l)]), max(l[k], l[(k + 1) % len(l)])) for l in loops for k in range(len(l))})  # noqa: E741
     on_edge = _on_edges(vertices, edges)
     faces: list[tuple[int, int, int]] = []
     face_poly: list[int] = []

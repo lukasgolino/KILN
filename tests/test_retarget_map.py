@@ -8,8 +8,8 @@ from typing import Any
 
 import numpy as np
 import pytest
-
 from conftest import built_of, errors_of, ok_model, run_json, write_model
+
 from kiln.export import Built
 from kiln.project import Project
 from kiln.retarget import load_clip, q_mul, q_rotate

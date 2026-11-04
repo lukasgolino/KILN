@@ -9,12 +9,23 @@ from typing import Any
 
 import numpy as np
 import pytest
+from conftest import CONFIG, built_of, make_project, sphere_text, write_model
 
-from conftest import CONFIG, make_project, sphere_text, write_model, built_of
 from kiln import godot as kg
 from kiln.build import build
 from kiln.export import Built
-from kiln.godot import APPLY_SCRIPT, ATLAS_TOON_SHADER, OUTLINE_SHADER, TOON_SHADER, find_godot_binary, look_scene, model_scene, outline_shader, toon_shader, verify
+from kiln.godot import (
+    APPLY_SCRIPT,
+    ATLAS_TOON_SHADER,
+    OUTLINE_SHADER,
+    TOON_SHADER,
+    find_godot_binary,
+    look_scene,
+    model_scene,
+    outline_shader,
+    toon_shader,
+    verify,
+)
 from kiln.project import Project
 from kiln.render import View, render, toon_lit
 from kiln.style import Look, load_style

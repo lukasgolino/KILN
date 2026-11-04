@@ -3,6 +3,7 @@ hit so an engine-side player matches the preview."""
 
 from __future__ import annotations
 
+import itertools
 from typing import Any
 
 import pytest
@@ -29,7 +30,7 @@ def test_debris_bounces_and_settles_on_the_floor() -> None:
         late = state(effect, p, p.delay + (rest_age + p.life) / 2)
         assert late is not None and late.position.tolist() == pytest.approx(list(rest_at))
         assert late.rotation.tolist() == state(effect, p, p.delay + p.life).rotation.tolist()  # type: ignore[union-attr]  # no more spin
-        for (age, _, before), (_, _, after) in zip(p.hits, p.hits[1:], strict=False):
+        for (_, _, before), (_, _, after) in itertools.pairwise(p.hits):
             assert abs(after[1]) <= abs(before[1]) + 1e-9 or after == (0.0, 0.0, 0.0)  # each bounce is lower
     data = to_json(effect, {})
     assert data["floor"] == 0 and "floor hits" in data["motion"] and data["emitters"][0]["bounce"] == 0.3
@@ -43,7 +44,7 @@ def test_no_floor_no_hits_and_bad_fields() -> None:
     assert "hits" not in to_json(plain, {})["particles"][0] and "floor" not in to_json(plain, {})
     for bad in ({"bounce": 2}, {"friction": -1}, {"settle": "yes"}):
         errors = []
-        assert parse({"floor": 0, "emit": [{"model": "chip", **bad}]}, lambda m, w: errors.append(m)) is None and errors
+        assert parse({"floor": 0, "emit": [{"model": "chip", **bad}]}, lambda m, w: errors.append(m)) is None and errors  # noqa: B023
     errors = []
     assert parse({"floor": "ground", "emit": [{"model": "chip"}]}, lambda m, w: errors.append(m)) is None and errors
 

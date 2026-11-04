@@ -6,9 +6,9 @@ from typing import Any
 
 import numpy as np
 import pytest
+from conftest import arms_text, built_of, sphere_text
 from PIL import Image
 
-from conftest import arms_text, built_of, sphere_text
 from kiln.export import Built, gltf_name, srgb_to_linear, to_glb
 from kiln.gltf_check import accessor, check_glb, read_glb, validate
 from kiln.project import Project

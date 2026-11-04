@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-
 from conftest import built_of, errors_of, ok_model
+
 from kiln.builder import field_of
 from kiln.lint import geometry_warnings, penetrations
 from kiln.project import Project

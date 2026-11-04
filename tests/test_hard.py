@@ -6,12 +6,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from conftest import built_of, closed_faces, errors_of, ok_model, signed_volume
+
 from kiln.builder import build_model, hard_parts
 from kiln.export import to_glb
-from kiln.hard import HardSpec, bevelled, intersect, solid, subtract, to_mesh, union
-from kiln.hard import _planes_box, _retriangulate, _simple_loops
+from kiln.hard import HardSpec, _planes_box, _retriangulate, _simple_loops, bevelled, intersect, solid, subtract, to_mesh, union
 from kiln.lint import geometry_warnings
 from kiln.mesher import open_edges, pinches
 from kiln.project import Project, load_project
@@ -20,7 +19,7 @@ from kiln.sdf import Geometry, cylinder
 DEMO = Path(__file__).resolve().parent.parent / "examples" / "demo"
 
 
-def mesh_of(shape: str, params: dict[str, object], spec: HardSpec = HardSpec(), at: tuple[float, float, float] = (0, 0, 0)) -> tuple:  # type: ignore[type-arg]
+def mesh_of(shape: str, params: dict[str, object], spec: HardSpec = HardSpec(), at: tuple[float, float, float] = (0, 0, 0)) -> tuple:  # type: ignore[type-arg]  # noqa: B008 (frozen)
     m = to_mesh(solid(Geometry(shape, dict(params), at=np.array(at, float)), spec, 0))
     return m, len(set(m.face_polygon.tolist()))
 
