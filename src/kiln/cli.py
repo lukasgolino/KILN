@@ -49,11 +49,11 @@ class Output:
 
     def result(self, data: dict[str, Any]) -> None:
         if self.as_json:
-            print(json.dumps({"ok": True, **data}, indent=2))
+            print(json.dumps({"ok": True, **data}, separators=(",", ":")))
 
     def failure(self, findings: list[Finding], data: dict[str, Any] | None = None) -> None:
         if self.as_json:
-            print(json.dumps({"ok": False, **(data or {}), "findings": [f.to_dict() for f in findings]}, indent=2))
+            print(json.dumps({"ok": False, **(data or {}), "findings": [f.to_dict() for f in findings]}, separators=(",", ":")))
         else:
             for f in findings:
                 print(f.format())
@@ -540,11 +540,23 @@ def cmd_status(args: argparse.Namespace, out: Output) -> int:
         rows.append({"name": path.name[: -len(MODEL_SUFFIX)], "class": model.cls if model else "?", "status": model.status if model else "?",
                      "style": style_name, "style_version": model.style_version if model else None, "needs_review": stale,
                      "errors": len(errors), "description": model.description if model else ""})  # fmt: skip
-    for r in rows:
-        flag = " REVIEW (older style)" if r["needs_review"] else ""
-        err = f" {r['errors']} errors" if r["errors"] else ""
-        out.say(f"{r['name']:<24} {r['class']:<10} {r['status']:<9} {r['style'] or '':<10}{flag}{err}  {r['description']}")
+    if args.verbose:
+        for r in rows:
+            flag = " REVIEW (older style)" if r["needs_review"] else ""
+            err = f" {r['errors']} errors" if r["errors"] else ""
+            out.say(f"{r['name']:<24} {r['class']:<10} {r['status']:<9} {r['style'] or '':<10}{flag}{err}  {r['description']}")
+    else:  # one line per state: what needs doing, and to which models
+        groups: dict[str, list[str]] = {}
+        for r in rows:
+            state = ", ".join([*(["errors"] if r["errors"] else []), *(["review (older style)"] if r["needs_review"] else []), str(r["status"])])
+            groups.setdefault(state, []).append(str(r["name"]))
+        for state, names in sorted(groups.items(), key=lambda g: (g[0] == "approved", -len(g[1]))):
+            out.say(f"  [{state}] ({len(names)}): {', '.join(names)}")
+        if rows:
+            out.say("  (`kiln status -v`: one line per model with class, style and description)")
     out.say(f"{len(rows)} models; project style_version {project.config.style_version}")
+    if not args.verbose:
+        rows = [{k: v for k, v in r.items() if k != "description"} for r in rows]
     out.result({"models": rows, "style_version": project.config.style_version})
     return 0
 
@@ -903,15 +915,58 @@ def cmd_doctor(args: argparse.Namespace, out: Output) -> int:
     return 0
 
 
+def _skill_files() -> list[str]:
+    """The skill's files, relative to the skill folder: SKILL.md and every topic."""
+    folder = files("kiln").joinpath("skill", "topics")
+    return ["SKILL.md", *sorted(f"topics/{e.name}" for e in folder.iterdir() if e.name.endswith(".md"))]
+
+
+STALE_SKILL_FILES = ("reference.md",)  # written by KILN < 0.14, replaced by topics/
+
+
+def cmd_docs(args: argparse.Namespace, out: Output) -> int:
+    from kiln import topics as docs
+
+    if args.search:
+        hits = docs.search(" ".join([*(args.topic or []), *args.search]), limit=args.limit)
+        for hit in hits:
+            out.say(f"--- {hit.topic} > {hit.heading}\n{hit.text}")
+        if not hits:
+            out.say("no matches; `kiln docs` lists the topics")
+        out.result({"hits": [{"topic": h.topic, "heading": h.heading, "text": h.text} for h in hits]})
+        return 0
+    if not args.topic:
+        listed = docs.topics()
+        width = max(len(t.name) for t in listed)
+        for t in listed:
+            out.say(f"{t.name:<{width}}  ~{t.tokens / 1000:.1f}k tokens  {t.summary}")
+        out.say("`kiln docs <topic>` prints one; `kiln docs --search <words>` finds paragraphs.")
+        out.result({"topics": [{"name": t.name, "summary": t.summary, "tokens": t.tokens} for t in listed]})
+        return 0
+    texts = []
+    for name in args.topic:
+        topic = docs.find(name)
+        if topic is None:
+            near = docs.close_matches(name)
+            hint = f" (did you mean {', '.join(near)}?)" if near else ""
+            raise _usage(f"no docs topic {name!r}{hint}; `kiln docs` lists them, `kiln docs --search {name}` searches")
+        texts.append(topic.text)
+        out.say(topic.text)
+    out.result({"topics": [{"name": n.lower(), "text": t} for n, t in zip(args.topic, texts, strict=True)]})
+    return 0
+
+
 def cmd_skill(args: argparse.Namespace, out: Output) -> int:
     target = Path(args.target).resolve() if args.target else (find_project_root(Path.cwd()) or Path.cwd()) / ".claude" / "skills" / "kiln"
     target.mkdir(parents=True, exist_ok=True)
-    source = files("kiln").joinpath("skill")
-    names = []
-    for item in source.iterdir():
-        if item.name.endswith(".md"):
-            (target / item.name).write_text(item.read_text(encoding="utf-8"), encoding="utf-8")
-            names.append(item.name)
+    names = _skill_files()
+    for name in names:
+        path = target / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(files("kiln").joinpath("skill", *name.split("/")).read_text(encoding="utf-8"), encoding="utf-8")
+    for name in STALE_SKILL_FILES:
+        if (target / name).is_file():
+            (target / name).unlink()
     out.say(f"KILN skill installed in {display_path(target)}")
     out.result({"skill": display_path(target), "files": sorted(names)})
     return 0
@@ -968,7 +1023,8 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")
     s.add_argument("models", nargs="*")
     sub.add_parser("gallery", parents=[common], help="every model in one sheet")
-    sub.add_parser("status", parents=[common], help="every model: class, status, style, review flags")
+    s = sub.add_parser("status", parents=[common], help="every model: class, status, style, review flags")
+    s.add_argument("-v", "--verbose", action="store_true", help="one line per model (class, status, style) with its description")
     s = sub.add_parser("mark", parents=[common], help="set status or style_version")
     s.add_argument("models", nargs="+")
     g = s.add_mutually_exclusive_group()
@@ -1025,6 +1081,10 @@ def parser() -> argparse.ArgumentParser:
     x.add_argument("--force", action="store_true", help="replace an existing model and imported files")
     sub.add_parser("credits", parents=[common], help="authors and licences of imported models")
     sub.add_parser("doctor", parents=[common], help="versions, Godot, display")
+    s = sub.add_parser("docs", parents=[common], help="the documentation, one topic at a time (list, print, search)")
+    s.add_argument("topic", nargs="*", help="topic name(s); none = list the topics")
+    s.add_argument("--search", "-s", nargs="+", metavar="WORD", help="print the paragraphs that match these words")
+    s.add_argument("--limit", type=int, default=5, help="most paragraphs --search prints (default 5)")
     s = sub.add_parser("skill", parents=[common], help="install the Claude skill")
     s.add_argument("action", choices=["install"])
     s.add_argument("--target")
@@ -1036,7 +1096,7 @@ def parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_build, "preview": cmd_preview, "lineup": cmd_lineup,
             "gallery": cmd_gallery, "status": cmd_status, "mark": cmd_mark, "style": cmd_style, "config": cmd_config,
-            "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "mcp": cmd_mcp, "library": cmd_library}  # fmt: skip
+            "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "docs": cmd_docs, "mcp": cmd_mcp, "library": cmd_library}  # fmt: skip
 
 
 def main(argv: Sequence[str] | None = None) -> int:

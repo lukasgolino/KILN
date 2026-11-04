@@ -169,6 +169,8 @@ def test_status_and_mark(in_project: Project, capsys: pytest.CaptureFixture[str]
     write_model(in_project, sphere_text("bad").replace("color: red", "color: mauve"), "bad")
     (in_project.root / "kiln.toml").write_text((in_project.root / "kiln.toml").read_text() + "style_version = 2\n")
     code, result = run_json(["status"], capsys)
+    assert code == 0 and "description" not in result["models"][0]  # only with --verbose
+    code, result = run_json(["status", "--verbose"], capsys)
     assert code == 0 and result["style_version"] == 2
     rows = {r["name"]: r for r in result["models"]}
     assert rows["ball"] == {"name": "ball", "class": "prop", "status": "draft", "style": "fast", "style_version": 1,
@@ -298,13 +300,18 @@ def test_doctor(in_tmp: Path, capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_skill_install(in_project: Project, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    shipped = sorted(item.name for item in files("kiln").joinpath("skill").iterdir() if item.name.endswith(".md"))
+    from kiln.cli import _skill_files
+
+    shipped = _skill_files()
+    stale = in_project.root / ".claude" / "skills" / "kiln" / "reference.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("the pre-0.14 reference")
     code, result = run_json(["skill", "install"], capsys)
     assert code == 0 and result["skill"] == ".claude/skills/kiln" and result["files"] == shipped
     target = in_project.root / ".claude" / "skills" / "kiln"
-    assert target.is_dir()
+    assert target.is_dir() and not stale.exists() and "topics/parts.md" in shipped
     for name in shipped:
-        assert (target / name).read_text() == files("kiln").joinpath("skill", name).read_text()
+        assert (target / name).read_text() == files("kiln").joinpath("skill", *name.split("/")).read_text()
     code, result = run_json(["skill", "install", "--target", str(tmp_path / "elsewhere")], capsys)
     assert code == 0 and (tmp_path / "elsewhere").is_dir()
 
