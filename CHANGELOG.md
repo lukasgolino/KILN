@@ -6,6 +6,22 @@ before 1.0).
 
 ## [Unreleased]
 
+### Changed
+
+- **The skill is split for agents that pay per token** (#85). `SKILL.md` is a 6 KB core (was 17 KB) that is loaded
+  whenever the skill triggers; the rest of the old SKILL.md and all of `reference.md` (60 KB) moved, unchanged, into
+  17 topic files (`skill/topics/*.md`). `kiln skill install` writes them and removes an installed `reference.md`.
+  The MCP resource `kiln://reference` became `kiln://docs/{topic}`.
+- **`--json` prints compact JSON** (one line, no indentation). Pipe through `python -m json.tool` to read it by eye.
+- `kiln status` lists models grouped by state (one line per group); `-v` / `--verbose` (MCP: `verbose`) gives the
+  old per-model listing with descriptions. `--json` leaves out descriptions unless `--verbose`.
+
+### Added
+
+- `kiln docs [topic...] [--search words]` (MCP tool `docs`): lists the topics with their size, prints one, or
+  prints the few paragraphs that match. Budget tests keep `SKILL.md`, its description and each topic under a size.
+- `ruff check` in CI (#91).
+
 ## [0.13.0] - 2026-10-29
 
 Issues #15, #16, #18, #19, #20, #21, #23, #26, #27 and #64: terrains, foliage scattering, CC0 pack mirroring,

@@ -162,9 +162,19 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
     server = MCPServer(name="kiln", title="KILN", version=__version__, instructions=INSTRUCTIONS)
 
     @server.tool(annotations=READ)
-    def status() -> dict[str, Any]:
-        """Every model (class, status, style, needs-review flags, errors) and the project's style version. Call first."""
-        return kiln.cli("status")
+    def status(verbose: bool = False) -> dict[str, Any]:
+        """Every model (class, status, style, needs-review flags, errors) and the project's style version. Call first.
+        `verbose` adds each model's description."""
+        return kiln.cli("status", *(["--verbose"] if verbose else []))
+
+    @server.tool(annotations=READ)
+    def docs(topic: str = "", search: str = "") -> dict[str, Any]:
+        """KILN's documentation, one topic at a time: no arguments = the topic list (name, summary, size);
+        `topic` = that topic's text (e.g. "parts", "rigs", "lint"); `search` = the few paragraphs matching those
+        words across all topics. Read only what the task needs."""
+        if search:
+            return kiln.cli("docs", "--search", *search.split())
+        return kiln.cli("docs", *topic.split())
 
     @server.tool(annotations=READ)
     def read_docs() -> dict[str, Any]:
@@ -402,9 +412,9 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
     def workflow() -> str:
         return files("kiln").joinpath("skill", "SKILL.md").read_text(encoding="utf-8")
 
-    @server.resource("kiln://reference", mime_type="text/markdown", description="The KILN notation, every field")
-    def reference() -> str:
-        return files("kiln").joinpath("skill", "reference.md").read_text(encoding="utf-8")
+    @server.resource("kiln://docs/{topic}", mime_type="text/markdown", description="One documentation topic (the `docs` tool lists them)")
+    def docs_topic(topic: str) -> str:
+        return files("kiln").joinpath("skill", "topics", f"{topic}.md").read_text(encoding="utf-8")
 
     @server.prompt(description="Make a new 3D model")
     def make_model(request: str) -> str:

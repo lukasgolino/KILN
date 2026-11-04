@@ -4,7 +4,7 @@ KILN (Keyed Implicit Language & Notation) is a standalone Python CLI/library tha
 (`.kiln.yaml`: signed-distance-field parts that blend like clay) into smooth stylised 3D game assets: meshes,
 paint, rigs, animations, glTF and Godot scenes. It is PAGAN's 3D sibling (PAGAN = pixel art as text) and copies
 PAGAN's workflow and conventions. The design is in the decisions log below and the notation in
-`src/kiln/skill/reference.md`. Bugs and feature requests live in GitHub issues (label `later`: tracked, not planned
+`src/kiln/skill/topics/` (served by `kiln docs`). Bugs and feature requests live in GitHub issues (label `later`: tracked, not planned
 until requested), never in markdown files in the repo.
 
 ## Setup and commands
@@ -40,7 +40,7 @@ anything that changes output.
   - `scatter.py` `scatter:` models: instances of other models over a terrain / model / flat area -> scatter JSON, Godot MultiMesh scene;
   - `godot.py` model scenes, look kits, headless verify, engine renders; `templates/` Godot scripts, init files;
   - `fonttext.py` font glyphs as SVG path data; `fillrule.py` nonzero fill (overlapping glyph contours joined);
-  - `cli.py`, `mcp_server.py`, `api.py` (generator scripts), `skill/` (SKILL.md + reference.md).
+  - `cli.py`, `mcp_server.py`, `api.py` (generator scripts), `skill/` (SKILL.md core + `topics/*.md`); `topics.py` `kiln docs` (same code as PAGAN's `topics.py`).
 - `examples/demo/` the demo project; `examples/godot/` the Godot project it builds into (showcase scene + CI check).
 - `spike/` the throwaway spikes that justified the design (kept for reference; not part of the package).
 
