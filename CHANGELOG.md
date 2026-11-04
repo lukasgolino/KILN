@@ -6,6 +6,8 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-04
+
 ### Changed
 
 - **The skill is split for agents that pay per token** (#85). `SKILL.md` is a 6 KB core (was 17 KB) that is loaded
@@ -472,7 +474,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/lukasgolino/KILN/compare/v0.13.0...v0.14.0
 [0.12.0]: https://github.com/lukasgolino/KILN/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/lukasgolino/KILN/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/lukasgolino/KILN/compare/v0.10.0...v0.10.1
