@@ -24,6 +24,7 @@ from kiln.paint import Painted, PaintGroup, Regions, corner_normals, hard_region
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
 from kiln.sdf import Array, Field, part_thickness
 from kiln.style import Style
+from kiln.usage import Phases
 
 BUILDER_VERSION = 15  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
@@ -129,8 +130,7 @@ def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[
         if foreign.any():
             centres = mesh.vertices[mesh.faces[foreign]].mean(axis=1)
             own = sorted(include)
-            d = np.stack([field.part_distance(i, centres) for i in own])
-            part[foreign] = np.asarray(own)[d.argmin(axis=0)]
+            part[foreign] = np.asarray(own)[field.nearest(own, centres, absolute=False)[0]]
         out.append(hard_regions(Mesh(mesh.vertices, mesh.faces), part, model, rigged))
     return out, meshes
 
@@ -147,6 +147,7 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
         if not (np.isfinite(lo).all() and np.isfinite(hi).all() and np.isfinite(part.geometry.distance(probe)).all()):
             raise ValueError(f"{part.where} ({part.geometry.shape}) has no valid surface (its numbers give NaN); check its points")
     step, asked = mesh_steps(field, model, style)
+    phase = Phases(model.name)
     field = field_of(model, step)
     target = budget or model.budget or style.budget(model.cls)
     rigged = model.skin != "none"
@@ -177,6 +178,7 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     groups_of = [[i for i in inc if i not in hard and i not in kept] for inc in all_pieces]
     pieces = [(include, field.only(include)) for include in groups_of if include]
     meshes = [dual_contour(f, step) for _, f in pieces]
+    phase(f"meshed at {step * 1000:.3g} mm: {sum(m.triangles for m in meshes)} triangles")
     kept_cut, kept_hidden = _kept(model, style, field, sorted(kept), step, target, meshes, rigged)
     kept_triangles = sum(len(p.faces) for p, _ in kept_cut)
     if sum(m.triangles for m in meshes) + hard_triangles + kept_triangles == 0:
@@ -199,8 +201,10 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
         # borders into that and keep them through the rest (seams stay clean)
         total = sum(mesh.triangles for _, _, mesh in live)
         live = [(include, f, decimate(f, mesh, max(200, round(PRESHAPE * soft_target * mesh.triangles / total)), step)) for include, f, mesh in live]
+        phase(f"painting {len(adding)} parts")
         cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect) for include, f, mesh in live])
         fields = [f for _, f, _ in live]
+        phase(f"reducing to {soft_target} triangles")
         painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, soft_target, [inc for inc, _, _ in live], full_areas)
     floating = 1
     if groups_of[0] and painted is not None and not per_bone:  # separate parts may float
@@ -227,6 +231,7 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     skeleton = build_skeleton(model, field) if rigged else Skeleton([Bone(ROOT_ID, -1, np.zeros(3), {}, False)])
     joints = weights = None
     if model.skin == "soft":
+        phase("skinning")
         joints, weights = soft_weights(painted.vertices, model, field, skeleton, step)
         if len(painted.vertices) > n_soft:  # hard parts don't bend: each vertex follows its own part's bone
             names = [b.name for b in skeleton.bones]
@@ -327,10 +332,16 @@ def _touching_pieces(model: Model, field: Field, painted: Painted, ids: set[str]
     labels = component_labels(Mesh(painted.vertices, faces))
     used = np.unique(faces)
     adding = [i for i, p in enumerate(model.parts) if p.geometry.op == "add" and p.id in ids]
-    d = np.stack([field.part_distance(i, painted.vertices[used]) for i in adding])  # parts x used vertices
     comps = sorted(set(labels[used].tolist()))
-    on = [{adding[k] for k in np.flatnonzero((np.abs(d[:, labels[used] == c]) < step).any(axis=1))} for c in comps]
-    near: list[Array] = [np.asarray((d[:, labels[used] == c] < step * 1.5).any(axis=1)) for c in comps]  # per piece: the parts it touches
+    comp_of = np.searchsorted(comps, labels[used])
+    on: list[set[int]] = [set() for _ in comps]
+    near: list[Array] = [np.zeros(len(adding), dtype=bool) for _ in comps]  # per piece: the parts it touches
+    for k, i in enumerate(adding):  # one part at a time: parts x vertices would not fit for many-part models
+        d = field.part_distance(i, painted.vertices[used])
+        for c in np.unique(comp_of[np.abs(d) < step]).tolist():
+            on[c].add(i)
+        for c in np.unique(comp_of[d < step * 1.5]).tolist():
+            near[c][k] = True
     keep = [k for k, parts in enumerate(on) if parts and not all(model.parts[i].loose for i in parts)]
     group = {k: k for k in keep}
 
@@ -370,9 +381,8 @@ def _areas(field: Field, vertices: Array, faces: Array, include: list[int], step
         return np.zeros(len(include))
     p = vertices[faces]
     area = np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=1) / 2
-    d = np.abs(np.stack([field.part_distance(i, p.mean(axis=1)) for i in include]))
-    owner = d.argmin(axis=0)
-    on = d.min(axis=0) < step
+    owner, best = field.nearest(include, p.mean(axis=1))
+    on = best < step
     return np.bincount(owner[on], weights=area[on], minlength=len(include))
 
 

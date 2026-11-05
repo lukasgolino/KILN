@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import sys
+import time
 from collections.abc import Sequence
 from datetime import date
 from importlib.resources import files
@@ -23,6 +24,7 @@ from kiln.importer import external_files, missing_files
 from kiln.notation import MODEL_SUFFIX, NAME_RE
 from kiln.project import CONFIG_NAME, Project, find_project_root, load_project, parse_config
 from kiln.style import STYLE_SUFFIX, builtin_names, load_style, style_summary
+from kiln.usage import PROGRESS_ENV, cost_line, peak_gb
 from kiln.vendor.findings import Finding, PaganError, display_path
 
 SETTINGS = {
@@ -164,17 +166,26 @@ def cmd_new(args: argparse.Namespace, out: Output) -> int:
 # --- lint / build ----------------------------------------------------------------------------------------------
 
 
+def _progress_on(out: Output) -> float:
+    """Long model builds print their phases (human output only; lint's workers inherit the setting). The start time."""
+    if not out.as_json:
+        os.environ[PROGRESS_ENV] = "1"
+    return time.monotonic()
+
+
 def cmd_lint(args: argparse.Namespace, out: Output) -> int:
     from kiln.lint import lint_paths
 
     project = load_project(start=Path(args.paths[0]) if args.paths else None)
     paths = [_model_path(project, p) for p in args.paths] if args.paths else project.model_paths()
+    start = _progress_on(out)
     result = lint_paths(project, paths, geometry=not args.fast)
     for f in result.findings:
         out.say(f.format())
-    out.say(f"{len(paths)} models: {len(result.errors)} errors, {len(result.warnings)} warnings")
+    seconds = time.monotonic() - start
+    out.say(f"{len(paths)} models: {len(result.errors)} errors, {len(result.warnings)} warnings ({cost_line(seconds)})")
     data = {"models": len(paths), "errors": len(result.errors), "warnings": len(result.warnings),
-            "findings": [f.to_dict() for f in result.findings]}  # fmt: skip
+            "findings": [f.to_dict() for f in result.findings], "seconds": round(seconds, 1), "peak_memory_gb": peak_gb()}  # fmt: skip
     if result.errors:
         if out.as_json:  # human output: the findings are printed above already
             out.failure(result.findings, data)
@@ -193,7 +204,9 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
     project = _require_project()
     progress = (lambda s: print(f"kiln: {s}", file=sys.stderr)) if not out.as_json else None
     paths = [_model_path(project, m) for m in args.models] if args.models else None
+    start = _progress_on(out)
     result = build(project, progress=progress, paths=paths)
+    seconds = time.monotonic() - start
     for f in result.findings:
         out.say(f.format())
     data: dict[str, Any] = {"output_dir": display_path(result.output_dir), "models": result.models,
@@ -205,7 +218,8 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
             out.failure(result.findings, data)
         return 1
     out.say(f"built {len(result.models)} models into {display_path(result.output_dir)}: {len(result.written)} written, "
-            f"{result.unchanged} unchanged, {len(result.removed)} removed")  # fmt: skip
+            f"{result.unchanged} unchanged, {len(result.removed)} removed ({cost_line(seconds)})")  # fmt: skip
+    data.update(seconds=round(seconds, 1), peak_memory_gb=peak_gb())
     entries = result.manifest.get("models", {})
     meshed = {n: entries[n] for n in result.models if "step" in entries.get(n, {})}
     if meshed and len(meshed) <= MESH_LINES:

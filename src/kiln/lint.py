@@ -249,7 +249,7 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
     adding = [i for i, p in enumerate(m.parts) if p.geometry.op == "add"]
     pv = built.painted
     centres = pv.vertices[pv.faces].mean(axis=1)
-    owner = np.asarray(adding)[np.stack([np.abs(field.part_distance(i, centres)) for i in adding]).argmin(axis=0)]
+    owner = np.asarray(adding)[field.nearest(adding, centres)[0]]
     step = built.step
     out = []
     for i in shells:

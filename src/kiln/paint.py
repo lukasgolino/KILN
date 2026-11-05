@@ -242,13 +242,15 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
             return np.zeros((len(groups), 0))
         # a part's surface counts only where the cuts after it left it (a door in a cut archway isn't the wall's)
         removers = {j: field.part_distance(j, points) for j in sorted({j for js in later.values() for j in js})}
-        per_part = {}
-        for i in adding:
-            d = field.part_distance(i, points)
-            for j in later[i]:
-                d = np.maximum(d, -removers[j] if model.parts[j].geometry.op == "cut" else removers[j])
-            per_part[i] = d
-        return np.array([np.min([per_part[i] for i in m], axis=0) for m in members])
+        # a running minimum per group (parts x points would not fit for many-part models)
+        out = np.full((len(groups), len(points)), np.inf)
+        for g, m in enumerate(members):
+            for i in m:
+                d = field.part_distance(i, points)
+                for j in later[i]:
+                    d = np.maximum(d, -removers[j] if model.parts[j].geometry.op == "cut" else removers[j])
+                np.minimum(out[g], d, out=out[g])
+        return out
 
     dist = group_distances(vertices)
     owner = np.full(len(faces), -1)
