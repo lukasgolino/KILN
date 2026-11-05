@@ -1401,10 +1401,14 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
             for k, part in enumerate(model.parts):
                 if part.blend_to is not None:
                     names = set(part.blend_to)
+                    if part.twin_of is not None:  # a mirrored copy melts into the mirrored parts (the right side's, not the left's)
+                        names = {next((q.id for q in model.parts if q.twin_of == n), n) for n in names}
+                    before = {q.id for q in model.parts[:k] if q.geometry.op == "add"}
+                    missing = sorted(n for n in names if n not in before)
+                    if missing:
+                        ctx.error("E003", f"blend_to {', '.join(missing)}: no earlier part has that id (blend into parts listed before this one)",
+                                  part.line, f"{part.where}.blend_to")  # fmt: skip
                     part.geometry.blend_to = frozenset(j for j, q in enumerate(model.parts[:k]) if q.id in names and q.geometry.op == "add")
-                    if not part.geometry.blend_to:
-                        ctx.error("E003", f"blend_to {', '.join(part.blend_to)}: no earlier part has that id (blend into parts listed before "
-                                  "this one)", part.line, f"{part.where}.blend_to")  # fmt: skip
             for part in model.parts:
                 if part.cut_only is not None:
                     part.geometry.cut_only = frozenset(i for i, q in enumerate(model.parts) if q.id == part.cut_only and q.geometry.op == "add")

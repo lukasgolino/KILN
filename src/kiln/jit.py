@@ -496,7 +496,7 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                         if not blended:
                             continue
                         tt = target_distance(target_set[i], n, x, y, z, t, lo, hi, pad, pre, slot, set_off, set_idx, cache)
-                        if smin(tt, gap, k) >= f:  # min(f, smin(tt, d, k)) with d >= gap: f stays (smin grows with d)
+                        if smin(max(tt, f), gap, k) >= f:  # d >= gap, smin grows with d: f stays (targets as cut so far)
                             continue
                 if slot[i] >= 0:
                     d = pre[slot[i], n]
@@ -512,7 +512,7 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                     if blended:
                         if tt == math.inf:
                             tt = target_distance(target_set[i], n, x, y, z, t, lo, hi, pad, pre, slot, set_off, set_idx, cache)
-                        f = min(f, smin(tt, d, k))
+                        f = min(f, smin(max(tt, f), d, k))
                     else:
                         f = min(f, d)
                 else:
