@@ -43,7 +43,7 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "scale", "blend_to", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
+               "shell", "twist", "scale", "blend_to", "noise", "pattern", "gradient", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -531,6 +531,14 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             patterns = tuple(q for q in parsed if q is not None)
             pattern = patterns[0] if patterns else None
             ok = ok and len(patterns) == len(listed)
+        if "gradient" in raw:
+            steps = _parse_gradient(ctx, raw["gradient"], kind, params, color, line, f"{where}.gradient")
+            if steps is None:
+                ok = False
+            else:
+                color, bands = steps
+                patterns = bands + patterns  # patterns paint over the gradient
+                pattern = patterns[0]
         if "decal" in raw:
             decal = _parse_decal(ctx, raw["decal"], line, f"{where}.decal")
             ok = ok and decal is not None
@@ -768,6 +776,52 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
     unit = [0.0, 0.0, 0.0]
     unit[AXES[axis]] = 1.0
     return Pattern(str(raw["type"]), c[0], c[1], float(size), (unit[0], unit[1], unit[2]), float(width), float(at), str(frame))
+
+
+PATH_SHAPES = ("tube", "capsule", "lock")  # gradient along: path (from the first point to the last)
+
+
+def _mix(a: str, b: str, t: float) -> str:
+    """Two hex colours mixed in OKLab (t = 0: a, 1: b)."""
+    from kiln.vendor.color import hex_to_rgb, oklab_to_rgb, rgb_to_hex, rgb_to_oklab
+
+    la, lb = rgb_to_oklab(hex_to_rgb(a)), rgb_to_oklab(hex_to_rgb(b))
+    return rgb_to_hex(oklab_to_rgb((la[0] + (lb[0] - la[0]) * t, la[1] + (lb[1] - la[1]) * t, la[2] + (lb[2] - la[2]) * t)))
+
+
+def _parse_gradient(ctx: _Ctx, raw: Any, kind: str, params: dict[str, Any], color: tuple[str, str], line: int | None,
+                    where: str) -> tuple[tuple[str, str], tuple[Pattern, ...]] | None:  # fmt: skip
+    """A gradient as `steps` bands: the part's colour (or `from`) at the start, `to` at the end, mixed in OKLab between,
+    along the shape's path or one of its axes (its own frame)."""
+    usage = ("gradient is { to: colour, from: colour (default: the part's), steps: 2-16 (default 3), along: path|x|y|z } "
+             "(path: tube, capsule and lock, from their first point to the last; default path for those, else y)")
+    if not isinstance(raw, dict) or "to" not in raw or any(k not in ("to", "from", "steps", "along") for k in raw):
+        ctx.error("E003", usage, line, where)
+        return None
+    to = _color(ctx, raw["to"], line, f"{where}.to")
+    start = _color(ctx, raw["from"], line, f"{where}.from") if "from" in raw else color
+    steps = raw.get("steps", 3)
+    along = raw.get("along", "path" if kind in PATH_SHAPES else "y")
+    if not isinstance(steps, int) or isinstance(steps, bool) or not 2 <= steps <= 16 or along not in ("path", "x", "y", "z") \
+            or (along == "path" and kind not in PATH_SHAPES):
+        ctx.error("E003", usage, line, where)
+        return None
+    if to is None or start is None:
+        return None
+    if along == "path":
+        pts = np.asarray(params["points"] if kind != "capsule" else [params["from"], params["to"]], float)
+        length = float(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum())
+        axis = (0.0, 0.0, 0.0)
+    else:
+        lo, hi = SHAPES[kind].bounds(params)
+        a = AXES[along]
+        length = float(hi[a] - lo[a])
+        unit = [0.0, 0.0, 0.0]
+        unit[a] = 1.0
+        axis = (unit[0], unit[1], unit[2])
+    bands = tuple(Pattern("along", _mix(start[0], to[0], k / (steps - 1)), f"{start[1]}_to_{to[1]}_{k}" if k < steps - 1 else to[1],
+                          max(length / steps, 1e-3), axis, 0.5, k / steps, "part") for k in range(1, steps))  # fmt: skip
+    return start, bands
 
 
 def _parse_decal(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal | None:
