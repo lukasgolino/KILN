@@ -43,7 +43,7 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "scale", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
+               "shell", "twist", "scale", "blend_to", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -96,6 +96,7 @@ class Part:
     segments: int = 2
     fit: tuple[tuple[str, ...], float] | None = None  # a shell wrapping the parts with these ids, this far from them
     cut_only: str | None = None  # a cut that only cuts the parts with this id
+    blend_to: tuple[str, ...] | None = None  # blends only into the earlier parts with these ids (crisp against the rest)
     keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
     uv: UVSpec | None = None  # texture coordinates projected from its shape (kiln.uv)
     patterns: tuple[Pattern, ...] = ()  # painted in order (a later one paints over earlier ones)
@@ -434,6 +435,18 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if not _num(blend) or blend < 0 or blend > 1:
         ctx.error("E003", "blend is the smooth-join radius in metres (0 = a crisp seam), e.g. 0.04, or none (a hard part: exact polygons)", line, f"{where}.blend")
         ok = False
+    blend_to = None
+    if "blend_to" in raw:
+        b_raw = raw["blend_to"]
+        b_ids = [b_raw] if isinstance(b_raw, str) else b_raw
+        if not isinstance(b_ids, list) or not b_ids or not all(isinstance(x, str) and NAME_RE.match(x) for x in b_ids) or op != "add" \
+                or crisp or not _num(blend) or not blend:
+            ctx.error("E003", "blend_to names the earlier parts this one melts into (by id), e.g. blend_to: torso or [torso, back], with "
+                      "blend: its radius; it meets every other part crisply (fur locks that melt into the body, grooves between them)",
+                      line, f"{where}.blend_to")  # fmt: skip
+            ok = False
+        else:
+            blend_to = tuple(str(x) for x in b_ids)
     shell, shell_side, open_side = raw.get("shell", 0.0), "both", None
     if isinstance(shell, dict):
         sh = shell
@@ -608,7 +621,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
-                   "keep": keep, "cut_only": cut_only, "uv": uv, "patterns": patterns, "attr": attr}  # fmt: skip
+                   "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "uv": uv, "patterns": patterns, "attr": attr}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
@@ -724,7 +737,7 @@ def _reflect(g: Geometry, axis: int) -> Geometry:
     rotation = flip @ (g.rotation if g.rotation is not None else np.eye(3))
     copies = tuple(c if c is IDENTITY else Copy(flip @ c.rotation @ flip, c.pivot @ flip, c.offset @ flip) for c in g.copies)
     return Geometry(g.shape, g.params, g.at @ flip, rotation, (), copies, g.op, g.blend, g.shell, g.twist, g.noise, g.shell_side, g.open,
-                    scale=g.scale)
+                    scale=g.scale, blend_to=g.blend_to)
 
 
 def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern | None:
@@ -1385,6 +1398,13 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 ctx.error("E009", "the model has no adding parts (only cut/intersect)", _line(data, "parts"), "parts")
             if "fit_to" in data:
                 model.fit_to = _parse_fit_to(ctx, data["fit_to"], _line(data, "fit_to"))
+            for k, part in enumerate(model.parts):
+                if part.blend_to is not None:
+                    names = set(part.blend_to)
+                    part.geometry.blend_to = frozenset(j for j, q in enumerate(model.parts[:k]) if q.id in names and q.geometry.op == "add")
+                    if not part.geometry.blend_to:
+                        ctx.error("E003", f"blend_to {', '.join(part.blend_to)}: no earlier part has that id (blend into parts listed before "
+                                  "this one)", part.line, f"{part.where}.blend_to")  # fmt: skip
             for part in model.parts:
                 if part.cut_only is not None:
                     part.geometry.cut_only = frozenset(i for i, q in enumerate(model.parts) if q.id == part.cut_only and q.geometry.op == "add")

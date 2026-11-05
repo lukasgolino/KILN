@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- **`blend_to: <id>`** (or a list of ids) (#107): with `blend`, a part melts only into the earlier parts with those ids
+  and meets every other part crisply. Fur locks melt into the body and keep a groove between each other (one blend
+  radius either melted neighbours into lumps or left each lock looking stuck on). Compiled kernel too.
 - **`lock` shape** (#105): a flat blade along a path with an elliptical section, `width` x `thickness` tapering to
   `width_to` / `thickness_to` (`width_to: 0`: a pointed V tip), its flat sides looking along `facing`. For carved fur
   and hair locks, feathers, leaves and petals, which round tubes made look like candle drips.
