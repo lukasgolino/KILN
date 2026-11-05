@@ -259,7 +259,12 @@ def _built(project: Project, name: str) -> Any:
         raise _usage(f"{model.name} is a scatter: `kiln preview {model.name}` shows it (it has no parts, poses or line-up mesh)")
     palette, _ = project.palette(model.palette)
     try:
-        return build_cached(model, style, palette, project.root / ".kiln-cache")
+        built = build_cached(model, style, palette, project.root / ".kiln-cache")
+        if project.config.atlas_ao > 0 and built.ao is None:  # previews show the occlusion the build bakes in
+            from kiln.atlas import ambient_occlusion
+
+            built.ao = ambient_occlusion(built, project.config.atlas_ao)
+        return built
     except ValueError as exc:
         raise PaganError([Finding("E009", str(exc), path)]) from None
 

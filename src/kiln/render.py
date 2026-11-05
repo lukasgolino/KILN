@@ -204,6 +204,8 @@ def render(
         g = p.face_group[T]
         albedo_table = np.array([srgb_to_linear(swap.get(gr.color, gr.color)) for gr in groups])
         albedo = albedo_table[g] if colors is None else (colors[T] * bary[:, :, None]).sum(axis=1)
+        if built.ao is not None:  # baked occlusion (atlas_ao): a multiplier per vertex, as COLOR_0 in the engine
+            albedo = albedo * (built.ao[p.faces[T]] * bary).sum(axis=1)[:, None]
         dec = p.face_decal[T]
         if (dec >= 0).any():
             world = (corners[T] * bary[:, :, None]).sum(axis=1)
