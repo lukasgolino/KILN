@@ -6,6 +6,17 @@ before 1.0).
 
 ## [Unreleased]
 
+### Changed
+
+- **Many-part models need far less memory** (#110). Painting, part areas, nearest-part lookups and lint's shell check
+  kept every part's distance over every vertex (parts x vertices: ~3.4 GB for 422 parts on a 1M-vertex mesh). They now
+  keep a running minimum per paint group or point. Output is unchanged.
+
+### Added
+
+- `kiln build` and `kiln lint` end with the run's time and peak memory (`--json`: `seconds`, `peak_memory_gb`), and a
+  model build that has run over 10 s says what it is doing on stderr (meshing, painting, reducing, skinning) (#108).
+
 ## [0.15.0] - 2026-11-05
 
 ### Added

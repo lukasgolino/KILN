@@ -649,11 +649,26 @@ class Field:
     def part_distance(self, i: int, p: Array) -> Array:
         g, (lo, hi) = self.parts[i], self.boxes[i]
         pad = self.margin + g.blend
-        near = np.all((p >= lo - pad) & (p <= hi + pad), axis=1)
-        d = box_distance(p, lo, hi) + pad
+        q = np.maximum(lo - p, p - hi)  # per axis: how far outside the box (one pass for the test and the stand-in)
+        near = np.all(q <= pad, axis=1)
+        d = np.linalg.norm(np.maximum(q, 0.0), axis=1) + pad
         if near.any():
             d[near] = g.distance(p[near])
         return d
+
+    def nearest(self, parts: list[int], p: Array, absolute: bool = True) -> tuple[Array, Array]:
+        """(position in `parts`, distance) of the part nearest each point, one part at a time: memory stays O(points),
+        not parts x points. Ties go to the earlier part (as argmin)."""
+        best = np.full(len(p), np.inf)
+        which = np.zeros(len(p), dtype=np.int64)
+        for k, i in enumerate(parts):
+            d = self.part_distance(i, p)
+            if absolute:
+                d = np.abs(d)
+            better = d < best
+            best[better] = d[better]
+            which[better] = k
+        return which, best
 
     def evaluate(self, p: Array, with_parts: bool = True) -> tuple[Array, list[Array]]:
         f = np.full(len(p), 1e9)

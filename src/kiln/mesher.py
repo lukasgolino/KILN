@@ -510,8 +510,7 @@ def nearest_part(field: Field, points: Array) -> Array:
     adding = [i for i, g in enumerate(field.parts) if g.op == "add"]
     if not adding:
         return np.zeros(len(points), dtype=np.int64)
-    d = np.stack([np.abs(field.part_distance(i, points)) for i in adding])
-    return np.asarray(adding)[d.argmin(axis=0)]
+    return np.asarray(adding)[field.nearest(adding, points)[0]]
 
 
 def relax(field: Field, mesh: Mesh, fixed: Array, step: float, iterations: int = 8, rate: float = 0.5) -> Mesh:
