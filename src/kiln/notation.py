@@ -43,11 +43,11 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "scale", "blend_to", "noise", "pattern", "gradient", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
+               "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "parts",
+TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "parts",
               "rig", "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
@@ -98,6 +98,7 @@ class Part:
     fit: tuple[tuple[str, ...], float] | None = None  # a shell wrapping the parts with these ids, this far from them
     cut_only: str | None = None  # a cut that only cuts the parts with this id
     blend_to: tuple[str, ...] | None = None  # blends only into the earlier parts with these ids (crisp against the rest)
+    detail: bool = False  # only in the baked normal map (grooves, wrinkles, strands), never in the mesh
     keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
     uv: UVSpec | None = None  # texture coordinates projected from its shape (kiln.uv)
     patterns: tuple[Pattern, ...] = ()  # painted in order (a later one paints over earlier ones)
@@ -164,6 +165,11 @@ class Model:
     budget: int | None = None
     resolution: float | None = None  # metres per mesh cell for this model, as is (not scaled by size); overrides the style
     max_cells: int | None = None  # mesh grid cells per axis at most; overrides the style
+    normal_map: int = 0  # texels across the baked normal map (0: none)
+    bake_parts: list[Geometry] | None = None  # every part's geometry in order, `detail` ones too (the normal map's field)
+    detail: list[Geometry] = field(default_factory=list)  # the `detail` parts (only in bake_parts)
+    bake_index: list[int] = field(default_factory=list)  # part i is bake_parts[bake_index[i]]
+    detail_ids: dict[int, str] = field(default_factory=dict)  # bake_parts index of each detail part -> its id
     parts: list[Part] = field(default_factory=list)
     rig: dict[str, RigEntry] = field(default_factory=dict)
     skin: str = "none"
@@ -436,6 +442,11 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if not _num(blend) or blend < 0 or blend > 1:
         ctx.error("E003", "blend is the smooth-join radius in metres (0 = a crisp seam), e.g. 0.04, or none (a hard part: exact polygons)", line, f"{where}.blend")
         ok = False
+    detail = raw.get("detail", False)
+    if not isinstance(detail, bool):
+        ctx.error("E003", "detail is true (the part only shapes the baked normal map: model normal_map) or false", line, f"{where}.detail")
+        ok = False
+        detail = False
     blend_to = None
     if "blend_to" in raw:
         b_raw = raw["blend_to"]
@@ -630,7 +641,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
-                   "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "uv": uv, "patterns": patterns, "attr": attr}  # fmt: skip
+                   "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
@@ -736,6 +747,36 @@ def _parse_aim(raw: Any) -> tuple[tuple[float, ...], np.ndarray, float, float] |
         turn = axis_rotation(d, float(roll)) @ turn
     mid = tuple(float(v) for v in (np.add(a, b) / 2))
     return mid, np.round(turn, 12), float(roll), length
+
+
+def _split_detail(ctx: _Ctx, model: Model) -> None:
+    """`detail` parts leave the mesh: the model keeps them only in bake_parts (all parts in order, for the normal map),
+    and the other parts' part numbers (cut_only, blend_to) are renumbered without them."""
+    from dataclasses import replace
+
+    model.bake_parts = [p.geometry for p in model.parts]
+    model.detail = [p.geometry for p in model.parts if p.detail]
+    model.detail_ids = {k: p.id for k, p in enumerate(model.parts) if p.detail}
+    keep = [k for k, p in enumerate(model.parts) if not p.detail]
+    model.bake_index = keep
+    new = {old: n for n, old in enumerate(keep)}
+
+    def renumber(s: frozenset[int] | None) -> frozenset[int] | None:
+        return None if s is None else frozenset(new[j] for j in s if j in new)
+
+    parts = []
+    for k in keep:
+        part = model.parts[k]
+        g = part.geometry
+        if g.cut_only is not None or g.blend_to is not None:  # a copy: bake_parts keeps the original numbering
+            part.geometry = replace(g, cut_only=renumber(g.cut_only), blend_to=renumber(g.blend_to))
+        parts.append(part)
+    for p in model.parts:
+        if p.detail and p.hard:
+            ctx.error("E003", "a detail part is only in the normal map: it can't be hard", p.line, f"{p.where}.detail")
+    if not any(p.geometry.op == "add" for p in parts):
+        ctx.error("E009", "every adding part is a detail part: the mesh needs at least one", None, "parts")
+    model.parts = parts
 
 
 def _reflect(g: Geometry, axis: int) -> Geometry:
@@ -1375,6 +1416,12 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                   _line(data, "max_cells"), "max_cells")  # fmt: skip
     else:
         model.max_cells = max_cells
+    normal_map = data.get("normal_map", 0)
+    if normal_map not in (0, 256, 512, 1024, 2048, 4096):
+        ctx.error("E003", "normal_map is the baked normal map's size in texels: 256, 512, 1024, 2048 or 4096 (0: none); detail then comes from "
+                  "the shapes, not triangles (needs kiln[bake])", _line(data, "normal_map"), "normal_map")  # fmt: skip
+    else:
+        model.normal_map = int(normal_map)
     prefix = data.get("node_prefix")
     if prefix is not None:
         if isinstance(prefix, str) and PREFIX_RE.match(prefix):
@@ -1432,6 +1479,8 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         if "parts" in data:
             ctx.error("E003", "a model has parts (made in KILN) or source (an imported mesh), not both", _line(data, "source"), "source")
         model.source = _parse_source(ctx, data["source"], data.get("process"), _line(data, "source"))
+        if model.normal_map:
+            ctx.error("E003", "normal_map bakes from a KILN model's shapes: an imported mesh (source) has none", _line(data, "normal_map"), "normal_map")
     else:
         raw_parts = data.get("parts")
         if not isinstance(raw_parts, list) or not raw_parts:
@@ -1462,12 +1511,13 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                     names = set(part.blend_to)
                     if part.twin_of is not None:  # a mirrored copy melts into the mirrored parts (the right side's, not the left's)
                         names = {next((q.id for q in model.parts if q.twin_of == n), n) for n in names}
-                    before = {q.id for q in model.parts[:k] if q.geometry.op == "add"}
+                    before = {q.id for q in model.parts[:k] if q.geometry.op == "add" and not q.detail}  # (detail parts aren't in the mesh)
                     missing = sorted(n for n in names if n not in before)
                     if missing:
                         ctx.error("E003", f"blend_to {', '.join(missing)}: no earlier part has that id (blend into parts listed before this one)",
                                   part.line, f"{part.where}.blend_to")  # fmt: skip
-                    part.geometry.blend_to = frozenset(j for j, q in enumerate(model.parts[:k]) if q.id in names and q.geometry.op == "add")
+                    part.geometry.blend_to = frozenset(j for j, q in enumerate(model.parts[:k]) if q.id in names and q.geometry.op == "add"
+                                                       and not q.detail)  # fmt: skip
             for part in model.parts:
                 if part.cut_only is not None:
                     part.geometry.cut_only = frozenset(i for i, q in enumerate(model.parts) if q.id == part.cut_only and q.geometry.op == "add")
@@ -1486,13 +1536,16 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 wanted = set(part.fit[0])
                 if part.twin_of is not None:  # a mirrored copy wraps the mirrored parts (the right arm, not the left)
                     wanted = {next((q.id for q in model.parts if q.twin_of == to), to) for to in wanted}
-                targets = tuple(q.geometry for q in model.parts if q.id in wanted and q.id != part.id and q.geometry.op == "add" and q.fit is None)
+                targets = tuple(q.geometry for q in model.parts if q.id in wanted and q.id != part.id and q.geometry.op == "add" and q.fit is None
+                                and not q.detail)  # fmt: skip
                 if not targets:
                     if not model.template:  # a template (a helmet) may fit parts another template brings (a head)
                         ctx.error("E003", f"fit: no other part has id {', '.join(part.fit[0])} (it wraps the parts with those ids)", part.line,
                                   f"{part.where}.fit")  # fmt: skip
                     continue
                 part.geometry.fit = (targets, part.fit[1])
+            if any(p.detail for p in model.parts):
+                _split_detail(ctx, model)
     ids = set(model.ids) if model.parts else {ROOT_ID}
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig"), model.template), model.parts)
     skeleton = data.get("skeleton")

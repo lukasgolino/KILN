@@ -42,6 +42,7 @@ class Built:
     lost: tuple[int, ...] = ()  # adding parts visible at full resolution that decimation removed (lint W111)
     asked_step: float = 0.0  # the mesh step the style or model asked for; above it, the grid cap decided `step` (lint W120)
     ao: Array | None = None  # per vertex: baked occlusion (atlas_ao) the previews multiply in, as the engine does
+    bake: Any = None  # kiln.bake.Bake: the normal map with its UVs and tangents (model normal_map)
 
     @property
     def triangles(self) -> int:
@@ -112,13 +113,14 @@ def face_attrs(built: Built) -> dict[str, Array]:
 
 
 def uv_channel(built: Built, atlas: AtlasUse | None) -> int:
-    """Projected UVs go in TEXCOORD_0 (Godot UV), or TEXCOORD_1 (UV2) when a palette atlas or decal uses the first."""
-    return 1 if atlas is not None or bool((built.painted.face_decal >= 0).any()) else 0
+    """Projected UVs go in TEXCOORD_0 (Godot UV), or TEXCOORD_1 (UV2) when a palette atlas, a decal or the normal map
+    uses the first."""
+    return 1 if atlas is not None or built.bake is not None or bool((built.painted.face_decal >= 0).any()) else 0
 
 
 class _Writer:
     def __init__(self, built: Built, swap: dict[str, str], generator: str, vertex_colors: bool = False, atlas: AtlasUse | None = None,
-                 origin: Array | None = None) -> None:
+                 origin: Array | None = None, normal_uri: str | None = None) -> None:
         self.origin = np.zeros(3) if origin is None else origin
         self.b = built
         self.face_uv = face_uvs(built)
@@ -129,6 +131,10 @@ class _Writer:
         self.atlas = atlas
         self.atlas_material: int | None = None
         self.ao: Array | None = ambient_occlusion(built, atlas.ao) if atlas is not None and atlas.ao > 0 else None
+        if built.bake is not None and atlas is not None:
+            raise ValueError("normal_map and atlas = true both need the first UV set: turn one off")
+        self.normal_texture: int | None = None
+        self.normal_uri = normal_uri  # the normal map as a file next to the glb (shared by variants), else embedded
         self.doc = Document(generator)
         self.materials: dict[tuple[str, str, int], int] = {}
         self.textures: dict[tuple[int, str], int] = {}
@@ -152,6 +158,8 @@ class _Writer:
             pbr["baseColorTexture"] = {"index": self.texture(decal, color)}
             mat["name"] += f"_decal{decal}"
         mat["name"] += color
+        if self.b.bake is not None and decal < 0:
+            mat["normalTexture"] = {"index": self.normal_map()}
         if preset.emission > 0:
             strength = preset.emission
             mat["emissiveFactor"] = rgb
@@ -211,6 +219,17 @@ class _Writer:
         self.textures[key] = self.doc.add("textures", {"sampler": self.sampler[pixel_art], "source": img})
         return self.textures[key]
 
+    def normal_map(self) -> int:
+        """The baked normal map as a glTF texture (one per model, shared by its materials)."""
+        if self.normal_texture is None:
+            sampler = self.doc.add("samplers", {"magFilter": LINEAR, "minFilter": LINEAR_MIPMAP_LINEAR, "wrapS": CLAMP_TO_EDGE, "wrapT": CLAMP_TO_EDGE})
+            if self.normal_uri is not None:
+                img = self.doc.add("images", {"uri": self.normal_uri, "mimeType": "image/png", "name": "normal_map"})
+            else:
+                img = self.doc.image_png(self.b.bake.png, "normal_map")
+            self.normal_texture = self.doc.add("textures", {"sampler": sampler, "source": img})
+        return self.normal_texture
+
     def primitives(self, faces_idx: Array, origin: Array, skinned: bool) -> list[dict[str, Any]]:
         """Primitives for a subset of faces (one per material), positions relative to `origin`."""
         p = self.b.painted
@@ -248,6 +267,10 @@ class _Writer:
             rows = np.concatenate([corners[:, None].astype(float), np.round(normals, 5), colors], axis=1)
             if self.face_uv is not None:  # projected UVs split vertices along their seams
                 rows = np.concatenate([rows, np.round(self.face_uv[sel].reshape(-1, 2), 6)], axis=1)
+            bake_col = rows.shape[1]
+            if self.b.bake is not None:  # the normal map's UVs and tangents split vertices along its chart seams
+                rows = np.concatenate([rows, np.round(self.b.bake.uv[sel].reshape(-1, 2), 7), np.round(self.b.bake.tangent[sel].reshape(-1, 4), 5)],
+                                      axis=1)  # fmt: skip
             attr_col = rows.shape[1]
             for name in self.face_attr:  # and attributes along part borders
                 rows = np.concatenate([rows, np.repeat(self.face_attr[name][sel], 3)[:, None]], axis=1)
@@ -273,9 +296,14 @@ class _Writer:
                 color = np.repeat(self.ao[vidx][:, None], 3, axis=1).astype(np.float32)
                 if not self.face_attr:
                     attributes["COLOR_0"] = self.doc.accessor(color, target=ARRAY_BUFFER)
+            if self.b.bake is not None:
+                attributes["TEXCOORD_0"] = self.doc.accessor(unique[:, bake_col : bake_col + 2].astype(np.float32), target=ARRAY_BUFFER)
+                tangent = unique[:, bake_col + 2 : bake_col + 6].copy()
+                tangent[:, :3] /= np.maximum(np.linalg.norm(tangent[:, :3], axis=1, keepdims=True), 1e-12)
+                attributes["TANGENT"] = self.doc.accessor(tangent.astype(np.float32), target=ARRAY_BUFFER)
             if key[3] >= 0:
                 uv = decal_uv(p.decals[key[3]], p.vertices[vidx])
-                attributes["TEXCOORD_0"] = self.doc.accessor(uv.astype(np.float32), target=ARRAY_BUFFER)
+                attributes["TEXCOORD_0"] = self.doc.accessor(uv.astype(np.float32), target=ARRAY_BUFFER)  # decals: no normal map
             if self.face_uv is not None:
                 attributes[f"TEXCOORD_{self.uv_set}"] = self.doc.accessor(unique[:, 5:7].astype(np.float32), target=ARRAY_BUFFER)
             for k, name in enumerate(self.face_attr):
@@ -393,7 +421,7 @@ class _Writer:
 
 
 def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, vertex_colors: bool = False, atlas: AtlasUse | None = None,
-           origin: Array | None = None, merge_rigid: bool = False) -> bytes:
+           origin: Array | None = None, merge_rigid: bool = False, normal_uri: str | None = None) -> bytes:
     """`atlas`: one material from the palette textures it names (kiln.toml atlas = true); `swap` then only recolours
     decals (the palette texture carries the variant's colours). `origin`: the model-space point at the glb's origin
     (default `built.origin()`; LODs pass the full model's so every level lines up). `merge_rigid`: a rigid skin is
@@ -401,7 +429,7 @@ def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, ver
     origin = built.origin() if origin is None else origin
     if merge_rigid and built.skin == "rigid":
         built = rigid_as_one(built)
-    return _Writer(built, swap or {}, generator, vertex_colors, atlas, origin).write()
+    return _Writer(built, swap or {}, generator, vertex_colors, atlas, origin, normal_uri).write()
 
 
 def rigid_as_one(built: Built) -> Built:

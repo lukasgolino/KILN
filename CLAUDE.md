@@ -204,3 +204,10 @@ anything that changes output.
   part where its box distance shows it can't change the result (exact: smooth_min(f, d, k) is f once d >= f + k), so no
   N x 3 temporaries and no per-batch Python loop. Extrudes and fitted shells stay numpy (their distances are passed in).
   Agreement with numpy is to rounding (~1e-15), not bit for bit, so a game's glbs match only on the same install.
+- 2026-11-05: #111: normal maps are baked from the field, not from a high-poly mesh: per texel, the mesh point moved
+  onto the field (Newton steps, at most two cells) and the gradient there, in a per-corner tangent frame KILN writes into
+  the glb (TANGENT) so the engine decodes with the same basis (glTF: tangent +u, bitangent = cross(n, t) * w up the
+  image, green up). UVs come from xatlas (optional extra `bake`; deterministic; faces stay in order). `detail` parts
+  leave model.parts at parse time (model.bake_parts keeps all, in order; cut_only/blend_to renumbered on copies).
+  Godot toon scenes get a normal-mapped shader only for models with a map (other output unchanged). Atlas + normal map
+  is refused for now: Godot's StandardMaterial3D samples both on UV1.

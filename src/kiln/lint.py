@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
+from kiln.bake import texel_size
 from kiln.builder import build_cached, cached, field_of, hard_parts, kept_parts
 from kiln.export import Built
 from kiln.jit import set_threads
@@ -47,6 +48,7 @@ WARNING_RULES = {
     "W118": "a scatter entry places very many instances (big scene and JSON files)",
     "W119": "a scatter entry places no instances (its rules never hold, or nothing is under it)",
     "W120": "the mesh grid cap (max_cells), not the resolution asked for, set the mesh step (details come out coarser)",
+    "W121": "a detail part shows nowhere: the model has no normal_map, or it is thinner than two of the map's texels",
     "W122": "a blend_to part can't melt into a target: it is hard, kept, separate or another bone's piece (they join crisply)",
 }
 
@@ -136,6 +138,18 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             if t is not None and t < 2 * built.step:
                 warn("W102", f"this {part.geometry.shape} is {t:.3g} m thick but the mesh resolution here is {built.step:.3g} m: it may break "
                      f"into bits; make it at least {2 * built.step:.3g} m thick", part.line, part.where)  # fmt: skip
+        if m.detail:
+            details = m.detail
+            lo, hi = built.bounds()
+            texel = texel_size(float((hi - lo).max()), m.normal_map) if m.normal_map else 0.0
+            for g in details:
+                t = part_thickness(g)
+                if not m.normal_map:
+                    warn("W121", f"{len(details)} detail part(s) but no normal_map: they show nowhere; add normal_map: 1024")
+                    break
+                if t is not None and t < 2 * texel:
+                    warn("W121", f"a detail {g.shape} is {t:.3g} m thick, under two texels of the {m.normal_map} map ({2 * texel:.3g} m): it "
+                         "won't show; make it thicker or the map bigger")  # fmt: skip
         if built.asked_step and built.step > built.asked_step * CAPPED:
             cells = m.max_cells or built.style.max_cells
             need = math.ceil(built.step * (cells - 6) / built.asked_step) + 6  # the step is the model's size / (cells - 6)
@@ -372,7 +386,10 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
         model, style, findings = project.load(path)
         keep = list(findings)
         palette: dict[str, str] = {}
-        if model is not None and style is not None and not any(f.severity == "error" for f in findings):
+        if model is not None and model.normal_map and project.config.atlas:
+            keep.append(Finding("E003", "normal_map and kiln.toml atlas = true both need the first UV set (Godot samples both on UV1): "
+                                "turn one off", path, None, "normal_map"))  # fmt: skip
+        if model is not None and style is not None and not any(f.severity == "error" for f in keep):
             if model.style_version is not None and model.style_version < project.config.style_version:
                 keep.append(Finding("W107", f"made under style_version {model.style_version}; the project is at {project.config.style_version}: "
                                     "check it still fits, then `kiln mark <model> --current`", path, None, "style_version"))  # fmt: skip

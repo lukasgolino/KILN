@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kiln"
-version = "0.15.0"
+version = "0.16.0"
 description = "KILN (Keyed Implicit Language & Notation): write smooth stylised 3D models as text, build them into game-ready glTF."
 readme = "README.md"
 license = "MIT"
@@ -20,8 +20,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "mypy>=1.10", "ruff>=0.15", "types-PyYAML", "mcp>=2.3,<3", "numba>=0.60"]
+dev = ["pytest>=8", "mypy>=1.10", "ruff>=0.15", "types-PyYAML", "mcp>=2.3,<3", "numba>=0.60", "xatlas>=0.0.9"]
 mcp = ["mcp>=2.3,<3"]
+bake = ["xatlas>=0.0.9"]
 fast = ["numba>=0.60"]
 
 [project.scripts]
@@ -38,12 +39,12 @@ strict = true
 files = ["src/kiln", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["fast_simplification", "fontTools.*", "numba"]
+module = ["fast_simplification", "fontTools.*", "numba", "xatlas"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # numpy expressions on parameter dicts are Any to mypy; the shape functions return arrays by construction
-module = ["kiln.sdf", "kiln.mesher", "kiln.paint", "kiln.render", "kiln.rig", "kiln.importer", "kiln.jit"]
+module = ["kiln.sdf", "kiln.mesher", "kiln.paint", "kiln.render", "kiln.rig", "kiln.importer", "kiln.jit", "kiln.bake"]
 warn_return_any = false
 
 [tool.pytest.ini_options]

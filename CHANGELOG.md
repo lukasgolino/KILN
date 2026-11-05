@@ -6,7 +6,17 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-05
+
 ### Added
+
+- **Normal maps baked from the distance field** (#111, `kiln[bake]`: xatlas). A model with `normal_map: 1024` gets
+  unique UVs (TEXCOORD_0; projected UVs move to TEXCOORD_1), tangents (TANGENT, so engines decode the map with the
+  basis it was baked in) and a tangent-space normal map: each texel's normal is the field's gradient at the surface
+  point under it. Fine shape detail then shows on a coarse, light mesh. Godot scenes read it (standard and toon looks),
+  and `kiln preview` shades with it. Not with `atlas = true` yet (both need the first UV set).
+- **`detail: true` parts**: only in the baked normal map, never in the mesh (fur strand grooves, wrinkles, creases).
+  Lint W121: a detail part with no map, or thinner than two texels.
 
 - **`gradient: { to: fur_light, steps: 3 }`** (#106): a part's colour (or `from`) going to `to` in `steps` bands mixed
   in OKLab, along the path of a tube, capsule or lock (root to tip), or `along: x|y|z` of other shapes. Patterns paint
@@ -530,7 +540,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/lukasgolino/KILN/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/lukasgolino/KILN/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/lukasgolino/KILN/compare/v0.13.0...v0.14.0
 [0.12.0]: https://github.com/lukasgolino/KILN/compare/v0.11.0...v0.12.0
