@@ -201,6 +201,7 @@
       ],
       "skin": "rigid",
       "status": "approved",
+      "step": 0.00937,
       "style": "soft_toy",
       "style_version": 1,
       "tags": [
@@ -264,6 +265,7 @@
       ],
       "skin": "none",
       "status": "approved",
+      "step": 0.008,
       "style": "soft_toy",
       "style_version": 1,
       "tags": [
@@ -473,6 +475,7 @@
       ],
       "skin": "soft",
       "status": "approved",
+      "step": 0.00947,
       "style": "soft_toy",
       "style_version": 1,
       "tags": [
@@ -674,6 +677,7 @@
       ],
       "skin": "soft",
       "status": "approved",
+      "step": 0.00919,
       "style": "soft_toy",
       "style_version": 1,
       "tags": [
@@ -896,6 +900,7 @@
       ],
       "skin": "soft",
       "status": "approved",
+      "step": 0.0086,
       "style": "soft_toy",
       "style_version": 1,
       "tags": [
@@ -968,6 +973,7 @@
       ],
       "skin": "none",
       "status": "approved",
+      "step": 0.00824,
       "style": "soft_toy",
       "style_version": 1,
       "tags": [
@@ -1066,6 +1072,7 @@
       ],
       "skin": "rigid",
       "status": "approved",
+      "step": 0.01448,
       "style": "soft_toy",
       "style_version": 1,
       "tags": [
@@ -1134,6 +1141,7 @@
       ],
       "skin": "none",
       "status": "approved",
+      "step": 0.01257,
       "style": "soft_toy",
       "style_version": 1,
       "tags": [
@@ -1197,6 +1205,7 @@
       ],
       "skin": "none",
       "status": "approved",
+      "step": 0.0169,
       "style": "soft_toy",
       "style_version": 1,
       "tags": [

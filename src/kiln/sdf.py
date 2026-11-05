@@ -611,7 +611,8 @@ def smooth_max(a: Array, b: Array, k: float) -> Array:
     return -smooth_min(-a, -b, k)
 
 
-BATCH = 262_144  # points per field evaluation
+BATCH = 262_144  # points per field evaluation, at most
+LEAF = 8192  # big point sets are split into batches this small (tight boxes: most parts are skipped)
 
 
 class Field:
@@ -674,18 +675,27 @@ class Field:
         return f, per_part
 
     def distance(self, p: Array) -> Array:
-        """The surface distance. Big point sets go in batches (memory) split into octants, and in each octant a part
-        whose box is out of reach (beyond the surface so far by more than its blend) is skipped."""
-        if len(p) < 4096:
+        """The surface distance. Big point sets are split (kd-style, halving the longest side) into small, tight
+        batches; in each batch a part whose box is out of reach (beyond the surface so far by more than its blend)
+        is skipped, so the cost follows the parts near each point, not every part."""
+        if len(p) <= LEAF:
             return self._distance(p)
         out = np.empty(len(p))
-        mid = (p.min(axis=0) + p.max(axis=0)) / 2
-        octant = ((p > mid) * np.array([1, 2, 4])).sum(axis=1)
-        for k in range(8):
-            idx = np.flatnonzero(octant == k)
-            for i in range(0, len(idx), BATCH):
-                part = idx[i : i + BATCH]
-                out[part] = self._distance(p[part])
+        stack = [np.arange(len(p))]
+        while stack:
+            idx = stack.pop()
+            if len(idx) <= LEAF:
+                out[idx] = self._distance(p[idx])
+                continue
+            q = p[idx]
+            lo, hi = q.min(axis=0), q.max(axis=0)
+            axis = int(np.argmax(hi - lo))
+            left = q[:, axis] <= (lo[axis] + hi[axis]) / 2
+            if left.all() or not left.any():  # all at one point
+                for i in range(0, len(idx), BATCH):
+                    out[idx[i : i + BATCH]] = self._distance(p[idx[i : i + BATCH]])
+                continue
+            stack += [idx[left], idx[~left]]
         return out
 
     def _distance(self, p: Array) -> Array:
@@ -711,7 +721,9 @@ class Field:
         return f
 
     def gradient(self, p: Array, eps: float) -> Array:
-        """Unit surface normals at p (central differences)."""
+        """Unit surface normals at p (central differences), in chunks (memory)."""
+        if len(p) > BATCH:
+            return np.concatenate([self.gradient(p[i : i + BATCH], eps) for i in range(0, len(p), BATCH)])
         offsets = np.eye(3) * eps
         stacked = np.concatenate([p + o for o in offsets] + [p - o for o in offsets])
         d = self.distance(stacked).reshape(6, len(p))

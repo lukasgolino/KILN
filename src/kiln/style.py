@@ -15,6 +15,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+from kiln.mesher import CELL_LIMIT, MAX_CELLS
 from kiln.vendor.findings import Finding
 
 STYLE_SUFFIX = ".style.toml"
@@ -83,12 +84,15 @@ class Style:
     text: str = ""  # for cache keys
     hard_surface: str = "auto"  # auto: parts asking for it (sides, bevel, blend: none); always: every part that can; never
     hard_sides: int = 12  # sides of round hard shapes that don't say
+    max_cells: int = MAX_CELLS  # mesh grid cells per axis at most: big models get coarser cells past this
+    scale_with_size: bool = True  # models over 1 m get coarser cells (resolution x sqrt(size)); off: resolution as is
 
     def budget(self, cls: str) -> int:
         return self.budgets.get(cls, self.budgets.get("default", 4000))
 
 
-SHAPE_KEYS = {"smooth": bool, "sharp_angle": float, "resolution": float, "hard_surface": str, "hard_sides": int}
+SHAPE_KEYS = {"smooth": bool, "sharp_angle": float, "resolution": float, "hard_surface": str, "hard_sides": int, "max_cells": int,
+              "scale_with_size": bool}
 LOOK_TYPES: dict[str, type] = {k: type(v) for k, v in Look().__dict__.items()}
 
 
@@ -169,6 +173,12 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
         bad("sharp_angle is degrees (0-180)", "shape.sharp_angle")
     if not isinstance(resolution, int | float) or not 0.001 <= resolution <= 0.2:
         bad("resolution is metres per grid cell (0.001-0.2), e.g. 0.008", "shape.resolution")
+    max_cells = shape.get("max_cells", MAX_CELLS)
+    scale_with_size = shape.get("scale_with_size", True)
+    if not isinstance(max_cells, int) or isinstance(max_cells, bool) or not 64 <= max_cells <= CELL_LIMIT:
+        bad(f"max_cells is mesh grid cells per axis at most (64-{CELL_LIMIT}), e.g. 512; more is finer on big models, slower", "shape.max_cells")
+    if not isinstance(scale_with_size, bool):
+        bad("scale_with_size is true (models over 1 m get coarser cells) or false (resolution as is, e.g. for a hero)", "shape.scale_with_size")
     hard_surface = shape.get("hard_surface", "auto")
     hard_sides = shape.get("hard_sides", 12)
     if hard_surface not in HARD_MODES:
@@ -226,7 +236,7 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
     if any(f.severity == "error" for f in findings):
         return None, findings
     style = Style(name, str(data.get("description", "")), bool(smooth), float(sharp), float(resolution), dict(budgets), materials, look,
-                  str(data.get("notes", "")), path, text, str(hard_surface), int(hard_sides))  # fmt: skip
+                  str(data.get("notes", "")), path, text, str(hard_surface), int(hard_sides), int(max_cells), bool(scale_with_size))  # fmt: skip
     return style, findings
 
 
@@ -249,6 +259,8 @@ def style_summary(style: Style) -> dict[str, Any]:
         "description": style.description,
         "smooth": style.smooth,
         "resolution": style.resolution,
+        "max_cells": style.max_cells,
+        "scale_with_size": style.scale_with_size,
         "hard_surface": style.hard_surface,
         "budgets": style.budgets,
         "materials": sorted(style.materials),

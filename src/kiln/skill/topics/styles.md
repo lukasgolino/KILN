@@ -33,6 +33,8 @@ notes = """Shapes, proportions, colours, materials, lighting in words (agents fo
 smooth = true                  # false = faceted (flat normals)
 sharp_angle = 50               # smooth styles: edges sharper than this stay crisp
 resolution = 0.008             # metres per mesh cell for a ~1 m model (finer = rounder, slower)
+max_cells = 256                # mesh cells across a model at most (64-1024): bigger models get coarser cells past it
+scale_with_size = true         # models over 1 m get resolution x sqrt(size); false: resolution as is
 
 [budgets]                      # triangles per class
 character = 8000

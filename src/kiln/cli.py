@@ -183,6 +183,9 @@ def cmd_lint(args: argparse.Namespace, out: Output) -> int:
     return 0
 
 
+MESH_LINES = 8  # kiln build names each model's triangles and mesh cell size up to this many models
+
+
 def cmd_build(args: argparse.Namespace, out: Output) -> int:
     from kiln.build import build
     from kiln.godot import find_godot_binary, res_path, verify
@@ -203,6 +206,11 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
         return 1
     out.say(f"built {len(result.models)} models into {display_path(result.output_dir)}: {len(result.written)} written, "
             f"{result.unchanged} unchanged, {len(result.removed)} removed")  # fmt: skip
+    entries = result.manifest.get("models", {})
+    meshed = {n: entries[n] for n in result.models if "step" in entries.get(n, {})}
+    if meshed and len(meshed) <= MESH_LINES:
+        for n, e in meshed.items():
+            out.say(f"{n}: {e['triangles']} triangles, {e['step'] * 1000:.3g} mm mesh cells")
     if args.verify_godot:
         godot = find_godot_binary()
         if godot is None or result.godot_root is None:
