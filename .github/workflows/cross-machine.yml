@@ -4,9 +4,8 @@ name: Cross-machine
 # from the x86-64 build (per file; per accessor for .glb files). It never fails the workflow and isn't a required
 # check: it tells us how far apart float libraries put the builds before we decide whether identity must be enforced.
 
+# Started by hand only (`gh workflow run cross-machine.yml`): the macOS runner costs ten times the Linux minutes.
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 jobs:
