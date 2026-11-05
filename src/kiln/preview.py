@@ -127,6 +127,13 @@ def detach(built: Built, size: int = 220) -> Image.Image:
     return sheet(f"{built.model.name} detached", "each separate part off in turn: no holes, and the surface under it is what the game shows", rows)
 
 
+def _merged_ao(builts: list[Built]) -> Array | None:
+    """The occlusion of meshes merged in this order (builder._merge: vertices concatenated); None if none has any."""
+    if all(b.ao is None for b in builts):
+        return None
+    return np.concatenate([b.ao if b.ao is not None else np.ones(len(b.painted.vertices)) for b in builts])
+
+
 def fitted(built: Built, size: int = 240) -> Image.Image:
     """An attachment (`fit_to`) on the character it was made for, and the character without it."""
     from dataclasses import replace
@@ -139,7 +146,7 @@ def fitted(built: Built, size: int = 240) -> Image.Image:
         raise KeyError("no fit_to")
     target = load_reference(fit[0], built.style, ground=False)
     painted, normals = _merge([built.painted, target.painted], [built.normals, target.normals], [], [])
-    both = replace(built, painted=painted, normals=normals, skin="none", tracks=[], joints=None, weights=None)
+    both = replace(built, painted=painted, normals=normals, skin="none", tracks=[], joints=None, weights=None, ao=_merged_ao([built, target]))
     lo, hi = built.bounds()
     near = ((lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2 * 1.5)
     rows = [(f"on {fit[0].stem} ({fit[1]})", [(n, render(both, View(yaw, 15.0), size, fit=near, background=TILE_BG)) for n, yaw in HEADINGS[::2]]),
@@ -182,12 +189,13 @@ def effect_strip(built: Built, pieces: dict[str, Built], frames: int = 8, size: 
         times = [effect.duration * i / max(frames - 1, 1) for i in range(frames)]
     scenes: list[tuple[Built, Array] | None] = []
     for t in times:
-        paints, normals, fades = [], [], []
+        paints, normals, fades, used = [], [], [], []
         for p in rolled:
             s = state(effect, p, t)
             if s is None or s.fade < 0.01 or s.scale <= 0:
                 continue
             b = pieces[effect.emitters[p.emitter].model]
+            used.append(b)
             v = ((b.painted.vertices - b.origin()) @ s.rotation.T) * s.scale + s.position
             paints.append(replace(b.painted, vertices=v))
             normals.append(b.normals @ s.rotation.T)
@@ -196,7 +204,8 @@ def effect_strip(built: Built, pieces: dict[str, Built], frames: int = 8, size: 
             scenes.append(None)
             continue
         painted, merged = _merge(paints, normals, [], [])
-        scene = replace(built, painted=painted, normals=merged, skin="none", tracks=[], joints=None, weights=None)
+        scene = replace(built, painted=painted, normals=merged, skin="none", tracks=[], joints=None, weights=None,
+                        ao=_merged_ao(used))  # fmt: skip
         scenes.append((scene, np.concatenate(fades)))
     boxes = [s.bounds() for s, _ in filter(None, scenes)]
     if not boxes:
@@ -417,7 +426,10 @@ def corner_colors(built: Built, swap: dict[str, str] | None = None) -> Array:
 
     swap = swap or {}
     table = np.array([srgb_to_linear(swap.get(g.color, g.color)) for g in built.painted.groups])
-    return np.repeat(table[built.painted.face_group][:, None, :], 3, axis=1)
+    out = np.repeat(table[built.painted.face_group][:, None, :], 3, axis=1)
+    if built.ao is not None:  # baked occlusion (atlas_ao), as the engine shows it
+        out = out * built.ao[built.painted.faces][:, :, None]
+    return out
 
 
 def scatter_sheet(model: Any, style: Any, placed: Any, ground: tuple[Array, Array, Array, Array] | None, sources: dict[str, tuple[Built, dict[str, str]]],

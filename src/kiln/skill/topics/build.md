@@ -63,7 +63,7 @@ variant's textures (variant glbs are still written unless `variant_glbs = false`
 also `palette` (+ `glow`): to recolour at runtime, write other colours into a copy of the palette at the cells'
 pixels. `atlas_ao = true` bakes ambient occlusion from the model's distance field (imported models: from the mesh's
 dents) into COLOR_0 (a number sets its strength: the darkest corner is x (1 - strength); true = 0.65), a grey multiplier glTF viewers apply; in Godot only KILN's .tscn scenes use it
-(`vertex_color_use_as_albedo`). `kiln preview` shows it too. When the output is inside a Godot project (with "godot" or
+(`vertex_color_use_as_albedo`). Previews (`kiln preview`, `kiln gallery`, scatters) show it too. When the output is inside a Godot project (with "godot" or
 not), KILN writes the palette textures' `.import` settings (lossless, no mipmaps, no VRAM compression on first 3D use: 4x4 cells stay exact); settings Godot adds
 later (uid, imported files) are kept.
 

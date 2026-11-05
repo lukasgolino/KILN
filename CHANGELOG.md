@@ -27,7 +27,8 @@ before 1.0).
 
 ### Changed
 
-- `kiln preview` shows the occlusion `atlas_ao` bakes in (#109), as Godot does; they under-represented the built look.
+- Previews (`kiln preview`, its sheets, `kiln gallery`, scatters) show the occlusion `atlas_ao` bakes in (#109), as
+  Godot does; before, they under-represented the built look.
 - Pattern refinement looks split edges up with sorted integer keys instead of a Python dict over every edge: patterned
   and gradient parts build several times faster (a 70-lock model: 46 s -> 30 s). Output is unchanged.
 - **Many-part models need far less memory** (#110). Painting, part areas, nearest-part lookups and lint's shell check

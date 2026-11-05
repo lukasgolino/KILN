@@ -245,6 +245,15 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
 # --- previews ----------------------------------------------------------------------------------------------------
 
 
+def _with_occlusion(project: Project, built: Any) -> Any:
+    """Previews show the occlusion the build bakes in (kiln.toml atlas_ao), as the engine does."""
+    if project.config.atlas_ao > 0 and built.ao is None:
+        from kiln.atlas import ambient_occlusion
+
+        built.ao = ambient_occlusion(built, project.config.atlas_ao)
+    return built
+
+
 def _built(project: Project, name: str) -> Any:
     from kiln.builder import build_cached
 
@@ -259,12 +268,7 @@ def _built(project: Project, name: str) -> Any:
         raise _usage(f"{model.name} is a scatter: `kiln preview {model.name}` shows it (it has no parts, poses or line-up mesh)")
     palette, _ = project.palette(model.palette)
     try:
-        built = build_cached(model, style, palette, project.root / ".kiln-cache")
-        if project.config.atlas_ao > 0 and built.ao is None:  # previews show the occlusion the build bakes in
-            from kiln.atlas import ambient_occlusion
-
-            built.ao = ambient_occlusion(built, project.config.atlas_ao)
-        return built
+        return _with_occlusion(project, build_cached(model, style, palette, project.root / ".kiln-cache"))
     except ValueError as exc:
         raise PaganError([Finding("E009", str(exc), path)]) from None
 
@@ -538,7 +542,7 @@ def cmd_gallery(args: argparse.Namespace, out: Output) -> int:
 
     project = _require_project()
     result = lint_project(project)
-    builts = [result.built[n] for n in sorted(result.built)]
+    builts = [_with_occlusion(project, result.built[n]) for n in sorted(result.built)]
     project.preview_dir.mkdir(parents=True, exist_ok=True)
     path = project.preview_dir / "gallery.png"
     pv.gallery(builts).save(path)
