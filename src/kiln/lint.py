@@ -18,6 +18,7 @@ import numpy as np
 
 from kiln.builder import build_cached, cached, field_of, hard_parts, kept_parts
 from kiln.export import Built
+from kiln.jit import set_threads
 from kiln.mesher import CELL_LIMIT, crack_groups, mesh_steps, open_edges, pinches
 from kiln.notation import Model
 from kiln.packs import lock_findings
@@ -341,7 +342,8 @@ def build_all(jobs: list[tuple[Model, Style, dict[str, str], Path]]) -> list[Bui
     if workers > 1:
         method = "forkserver" if sys.platform.startswith("linux") else "spawn"
         try:
-            with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context(method)) as pool:
+            threads = max(1, (os.cpu_count() or 1) // workers)  # compiled kernels (kiln[fast]): the cores shared out
+            with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context(method), initializer=set_threads, initargs=(threads,)) as pool:
                 for k, built in zip(todo, pool.map(_build_job, [jobs[k] for k in todo]), strict=True):
                     out[k] = built
         except BrokenProcessPool:  # a worker died (out of memory): build the rest one at a time

@@ -20,8 +20,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "mypy>=1.10", "ruff>=0.15", "types-PyYAML", "mcp>=2.3,<3"]
+dev = ["pytest>=8", "mypy>=1.10", "ruff>=0.15", "types-PyYAML", "mcp>=2.3,<3", "numba>=0.60"]
 mcp = ["mcp>=2.3,<3"]
+fast = ["numba>=0.60"]
 
 [project.scripts]
 kiln = "kiln.cli:main"
@@ -37,12 +38,12 @@ strict = true
 files = ["src/kiln", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["fast_simplification", "fontTools.*"]
+module = ["fast_simplification", "fontTools.*", "numba"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # numpy expressions on parameter dicts are Any to mypy; the shape functions return arrays by construction
-module = ["kiln.sdf", "kiln.mesher", "kiln.paint", "kiln.render", "kiln.rig", "kiln.importer"]
+module = ["kiln.sdf", "kiln.mesher", "kiln.paint", "kiln.render", "kiln.rig", "kiln.importer", "kiln.jit"]
 warn_return_any = false
 
 [tool.pytest.ini_options]
