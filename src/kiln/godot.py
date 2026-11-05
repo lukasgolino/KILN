@@ -491,8 +491,25 @@ def _with_rim(script: str) -> str:
     ])  # fmt: skip
 
 
+def with_normal_map(shader: str) -> str:
+    """A toon shader that also reads the glb's baked normal map (model normal_map)."""
+    return _swap_lines(shader, [
+        ("void fragment() {\n", "uniform sampler2D normal_texture : hint_normal, filter_linear_mipmap_anisotropic;\nvoid fragment() {\n"
+         "\tNORMAL_MAP = texture(normal_texture, UV).rgb;  // baked from the distance field (model normal_map)\n"),
+    ])  # fmt: skip
+
+
+def _script_normal_map(script: str) -> str:
+    return _swap_lines(script, [
+        ('\t\t\t\ttoon.set_shader_parameter("bands", bands)\n',
+         '\t\t\t\ttoon.set_shader_parameter("bands", bands)\n'
+         "\t\t\t\tif source.normal_enabled and source.normal_texture != null:\n"
+         '\t\t\t\t\ttoon.set_shader_parameter("normal_texture", source.normal_texture)\n'),
+    ])  # fmt: skip
+
+
 def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | None = None, textures: dict[str, str] | None = None,
-                revealed: list[str] | None = None) -> str:
+                revealed: list[str] | None = None, normal_map: bool = False) -> str:
     """`<name>.tscn`: the .glb with the style's materials applied by a small built-in tool script. With `swap`
     (a variant, when variant_glbs is false) the script also recolours: the base glb, other colours. `textures`
     (atlas = true): res:// paths by script property (`palette` and `glow` for a variant, `rim_texture`). `revealed`:
@@ -501,6 +518,9 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
     rims = ", ".join(f"{_quote(k)}: {v.rim:.6g}" for k, v in sorted(style.materials.items()) if v.rim > 0)
     atlas = textures is not None
     script = _apply_script(ATLAS_SCRIPT if atlas else APPLY_SCRIPT, look, atlas)
+    toon = toon_shader(look, atlas)
+    if normal_map:
+        script, toon = _script_normal_map(script), with_normal_map(toon)
     rim = look.rim_light > 0
     keys = sorted(textures or {})
     ext = [f'[ext_resource type="Texture2D" path={_quote((textures or {})[k])} id="{i}_{k}"]' for i, k in enumerate(keys, 2)]
@@ -511,7 +531,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         *ext,
         "",
         '[sub_resource type="Shader" id="Shader_toon"]',
-        f"code = {_quote(toon_shader(look, atlas))}",
+        f"code = {_quote(toon)}",
         "",
         '[sub_resource type="Shader" id="Shader_outline"]',
         f"code = {_quote(outline_shader(look, atlas))}",

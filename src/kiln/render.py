@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -199,6 +200,8 @@ def render(
         bary = best_bary[hit]
         n = (normals[T] * bary[:, :, None]).sum(axis=1)
         n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+        if built.bake is not None and track is None:  # the baked normal map (rest pose only: posed tangents aren't tracked)
+            n = _mapped_normals(built.bake, T, bary, n)
         p = built.painted
         groups = p.groups
         g = p.face_group[T]
@@ -326,6 +329,27 @@ def _bloom(image: Array, glow: Array, radius: int) -> Array:
     out[..., :3] = _to_srgb(premult / np.maximum(out_alpha, 1e-6))
     out[..., 3:4] = out_alpha
     return out
+
+
+def _mapped_normals(bake: Any, faces: Array, bary: Array, n: Array) -> Array:
+    """Per pixel: the normal map's normal (sampled at the interpolated UV, nearest texel) in the interpolated frame."""
+    from io import BytesIO
+
+    image = getattr(bake, "_decoded", None)
+    if image is None:
+        image = np.asarray(Image.open(BytesIO(bake.png)).convert("RGB"), dtype=np.float64) / 255.0 * 2.0 - 1.0
+        bake._decoded = image
+    uv = (bake.uv[faces] * bary[:, :, None]).sum(axis=1)
+    size = image.shape[0]
+    px = np.clip((uv * size).astype(np.int64), 0, size - 1)
+    local = image[px[:, 1], px[:, 0]]
+    t = (bake.tangent[faces, :, :3] * bary[:, :, None]).sum(axis=1)
+    w = np.where((bake.tangent[faces, :, 3] * bary).sum(axis=1) < 0, -1.0, 1.0)
+    t = t - n * (n * t).sum(axis=1, keepdims=True)
+    t /= np.maximum(np.linalg.norm(t, axis=1, keepdims=True), 1e-12)
+    up = np.cross(n, t) * w[:, None]
+    out = local[:, :1] * t + local[:, 1:2] * up + local[:, 2:3] * n
+    return np.asarray(out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-12))
 
 
 def _outline(image: Array, depth: Array, width: int, hex_color: str, dropped: Array | None = None, colors: Array | None = None) -> Array:

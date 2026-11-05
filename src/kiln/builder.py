@@ -11,6 +11,7 @@ import json
 import math
 import pickle
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -243,8 +244,22 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
             weights[n_soft:] = 0.0
             joints[n_soft:, 0] = bone[n_soft:]
             weights[n_soft:, 0] = 1.0
-    return Built(model, style, painted, normals, skeleton, model.skin, joints, weights, tracks(model, skeleton) if rigged else [], step,
-                 floating, hidden, lost, asked)  # fmt: skip
+    built = Built(model, style, painted, normals, skeleton, model.skin, joints, weights, tracks(model, skeleton) if rigged else [], step,
+                  floating, hidden, lost, asked)  # fmt: skip
+    if model.normal_map:
+        built.bake = bake_normals(model, built, step)
+    return built
+
+
+def bake_normals(model: Model, built: Built, step: float) -> Any:
+    """The model's normal map: the full field (detail parts too) baked onto the finished mesh."""
+    from kiln import bake
+
+    if not bake.available():
+        raise ValueError("normal_map needs xatlas for the UVs: pip install \"kiln[bake]\"")
+    parts = model.bake_parts if model.bake_parts is not None else [p.geometry for p in model.parts]
+    p = built.painted
+    return bake.bake(Field(parts, margin=step * 3), p.vertices, p.faces, built.normals, model.normal_map, step)
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],
