@@ -247,19 +247,38 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     built = Built(model, style, painted, normals, skeleton, model.skin, joints, weights, tracks(model, skeleton) if rigged else [], step,
                   floating, hidden, lost, asked)  # fmt: skip
     if model.normal_map:
-        built.bake = bake_normals(model, built, step)
+        size = model.normal_map if budget is None else max(256, model.normal_map // 2)  # a LOD: its own, smaller map
+        built.bake = bake_normals(model, built, step, [inc for inc in groups_of if inc], kept, size)
     return built
 
 
-def bake_normals(model: Model, built: Built, step: float) -> Any:
-    """The model's normal map: the full field (detail parts too) baked onto the finished mesh."""
+def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int], size: int) -> Any:
+    """The model's normal map. Each face is baked with its own piece's field, as it was meshed (a separate helmet's
+    opening, a bone's own surface), plus the detail parts: those with the id of one of the piece's parts, and every
+    detail cut. Kept parts get their own field; hard parts (exact polygons) keep their mesh normals."""
     from kiln import bake
 
     if not bake.available():
         raise ValueError("normal_map needs xatlas for the UVs: pip install \"kiln[bake]\"")
-    parts = model.bake_parts if model.bake_parts is not None else [p.geometry for p in model.parts]
+    geoms = model.bake_parts if model.bake_parts is not None else [p.geometry for p in model.parts]
+    to_bake = model.bake_index if model.bake_parts is not None else list(range(len(model.parts)))  # model.parts -> geoms
+    full = Field(geoms, margin=step * 3)
+    pieces = [*soft_pieces, *([i] for i in sorted(kept))]
+    piece_ids = [{model.parts[i].id for i in inc} for inc in pieces]
+    homes: dict[int, list[int]] = {k: [] for k in range(len(pieces))}
+    for i, pid in sorted(model.detail_ids.items()):  # an adding detail part: in the pieces with its id, else the first
+        if geoms[i].op != "add":
+            continue  # detail cuts apply everywhere (as cuts do), unless they name what they cut
+        for k in [k for k, ids in enumerate(piece_ids) if pid in ids] or [0]:
+            homes[k].append(i)
+    fields = [full.only([to_bake[i] for i in inc] + homes[k]) for k, inc in enumerate(pieces)]
     p = built.painted
-    return bake.bake(Field(parts, margin=step * 3), p.vertices, p.faces, built.normals, model.normal_map, step)
+    centres = p.vertices[p.faces].mean(axis=1)
+    adding = [i for i, q in enumerate(model.parts) if q.geometry.op == "add"]
+    owner = np.asarray(adding)[field_of(model, step).nearest(adding, centres)[0]] if adding else np.zeros(len(p.faces), np.int64)
+    piece_of = {i: k for k, inc in enumerate(pieces) for i in inc}
+    face_field = np.array([piece_of.get(int(i), -1) for i in owner], dtype=np.int64)  # hard parts: -1
+    return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step)
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],

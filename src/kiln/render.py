@@ -336,13 +336,13 @@ def _mapped_normals(bake: Any, faces: Array, bary: Array, n: Array) -> Array:
     from io import BytesIO
 
     image = getattr(bake, "_decoded", None)
-    if image is None:
-        image = np.asarray(Image.open(BytesIO(bake.png)).convert("RGB"), dtype=np.float64) / 255.0 * 2.0 - 1.0
+    if image is None:  # kept as bytes (a 4096 map: 50 MB), decoded per pixel sampled
+        image = np.asarray(Image.open(BytesIO(bake.png)).convert("RGB"), dtype=np.uint8)
         bake._decoded = image
     uv = (bake.uv[faces] * bary[:, :, None]).sum(axis=1)
-    size = image.shape[0]
-    px = np.clip((uv * size).astype(np.int64), 0, size - 1)
-    local = image[px[:, 1], px[:, 0]]
+    h, w = image.shape[:2]
+    px = np.clip((uv * [w, h]).astype(np.int64), 0, [w - 1, h - 1])
+    local = image[px[:, 1], px[:, 0]].astype(np.float64) / 255.0 * 2.0 - 1.0
     t = (bake.tangent[faces, :, :3] * bary[:, :, None]).sum(axis=1)
     w = np.where((bake.tangent[faces, :, 3] * bary).sum(axis=1) < 0, -1.0, 1.0)
     t = t - n * (n * t).sum(axis=1, keepdims=True)

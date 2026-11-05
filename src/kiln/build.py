@@ -123,7 +123,8 @@ def model_entry(built: Built, out: Path, glb: Path, merged: bool = False) -> dic
         "style": built.style.name,
         "triangles": built.triangles,
         "step": _f(built.step),
-        **({"normal_map": built.bake.size} if built.bake is not None else {}),
+        **({"normal_map": {"png": f"models/{glb.stem}.normal.png", "size": [built.bake.width, built.bake.height]}}
+           if built.bake is not None else {}),
         "bounds": {"min": [_f(v) for v in lo], "max": [_f(v) for v in hi]},
         "size": [_f(v) for v in hi - lo],
         "skin": built.skin,
@@ -176,6 +177,7 @@ def gib_models(model: Model) -> list[tuple[str, Model]]:
         parts = [p for p in model.parts if p.id in ids and (p.fit is None or set(p.fit[0]) <= ids)]
         sub = replace(model, name=f"{model.name}.gib.{part_id}", parts=parts, rig={}, skin="none", animations={}, variants={}, lod=(),
                       effect=None, animation_library=None, animations_only=False, node_prefix="", source=None,
+                      normal_map=0, bake_parts=None, detail=[], bake_index=[], detail_ids={},  # debris: no map of its own
                       text=f"{model.text}\n# gib {part_id}: {' '.join(sorted(ids))}")  # fmt: skip
         out.append((part_id, sub))
     return out
@@ -491,7 +493,11 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 write(out / "models" / f"{name}.rim.png", cells.rim_png(built))
             atlas = AtlasUse(cells, atlas_files[""]["palette"], atlas_files[""]["material"], atlas_files[""].get("glow"),
                              project.config.atlas_ao, glow)  # fmt: skip
-        glb_data = to_glb(built, generator, None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid)
+        normal_png = f"{name}.normal.png" if built.bake is not None else None  # one file for the glb and its variants
+        if normal_png is not None:
+            write(out / "models" / normal_png, built.bake.png)
+        glb_data = to_glb(built, generator, None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid,
+                          normal_uri=normal_png)  # fmt: skip
         write(glb, glb_data)
         merged = project.config.merge_rigid and built.skin == "rigid"
         entry = model_entry(built, out, glb, merged)
@@ -528,7 +534,8 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 variants[vname].update({k: f"models/{v}" for k, v in sorted(atlas_files[vname].items())})
             if project.config.variant_glbs:
                 vpath = out / "models" / f"{name}.{vname}.glb"
-                write(vpath, to_glb(built, generator, swap, project.config.vertex_colors, vatlas, merge_rigid=project.config.merge_rigid))
+                write(vpath, to_glb(built, generator, swap, project.config.vertex_colors, vatlas, merge_rigid=project.config.merge_rigid,
+                                    normal_uri=normal_png))  # fmt: skip
                 variants[vname]["glb"] = vpath.relative_to(out).as_posix()
         if variants:
             entry["variants"] = variants
@@ -543,7 +550,11 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 result.findings.append(Finding("W111", f"lod {k} ({budget} triangles) loses part {part.index} ({part.geometry.shape}, "
                                                f"{part.color_name})", model.path, part.line, part.where))  # fmt: skip
             lpath = out / "models" / f"{name}.lod{k}.glb"
-            write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors, atlas, built.origin(), project.config.merge_rigid))
+            lod_png = f"{name}.lod{k}.normal.png" if lod_built.bake is not None else None  # its own UVs: its own (smaller) map
+            if lod_png is not None:
+                write(out / "models" / lod_png, lod_built.bake.png)
+            write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors, atlas, built.origin(), project.config.merge_rigid,
+                                normal_uri=lod_png))  # fmt: skip
             lods.append({"glb": lpath.relative_to(out).as_posix(), "triangles": lod_built.triangles})
         if lods:
             entry["lods"] = lods

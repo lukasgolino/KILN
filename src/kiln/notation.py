@@ -168,6 +168,8 @@ class Model:
     normal_map: int = 0  # texels across the baked normal map (0: none)
     bake_parts: list[Geometry] | None = None  # every part's geometry in order, `detail` ones too (the normal map's field)
     detail: list[Geometry] = field(default_factory=list)  # the `detail` parts (only in bake_parts)
+    bake_index: list[int] = field(default_factory=list)  # part i is bake_parts[bake_index[i]]
+    detail_ids: dict[int, str] = field(default_factory=dict)  # bake_parts index of each detail part -> its id
     parts: list[Part] = field(default_factory=list)
     rig: dict[str, RigEntry] = field(default_factory=dict)
     skin: str = "none"
@@ -754,7 +756,9 @@ def _split_detail(ctx: _Ctx, model: Model) -> None:
 
     model.bake_parts = [p.geometry for p in model.parts]
     model.detail = [p.geometry for p in model.parts if p.detail]
+    model.detail_ids = {k: p.id for k, p in enumerate(model.parts) if p.detail}
     keep = [k for k, p in enumerate(model.parts) if not p.detail]
+    model.bake_index = keep
     new = {old: n for n, old in enumerate(keep)}
 
     def renumber(s: frozenset[int] | None) -> frozenset[int] | None:
@@ -1414,7 +1418,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         model.max_cells = max_cells
     normal_map = data.get("normal_map", 0)
     if normal_map not in (0, 256, 512, 1024, 2048, 4096):
-        ctx.error("E003", "normal_map is the baked normal map's size in texels: 512, 1024, 2048 or 4096 (0: none); detail then comes from "
+        ctx.error("E003", "normal_map is the baked normal map's size in texels: 256, 512, 1024, 2048 or 4096 (0: none); detail then comes from "
                   "the shapes, not triangles (needs kiln[bake])", _line(data, "normal_map"), "normal_map")  # fmt: skip
     else:
         model.normal_map = int(normal_map)
@@ -1475,6 +1479,8 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         if "parts" in data:
             ctx.error("E003", "a model has parts (made in KILN) or source (an imported mesh), not both", _line(data, "source"), "source")
         model.source = _parse_source(ctx, data["source"], data.get("process"), _line(data, "source"))
+        if model.normal_map:
+            ctx.error("E003", "normal_map bakes from a KILN model's shapes: an imported mesh (source) has none", _line(data, "normal_map"), "normal_map")
     else:
         raw_parts = data.get("parts")
         if not isinstance(raw_parts, list) or not raw_parts:
@@ -1505,12 +1511,13 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                     names = set(part.blend_to)
                     if part.twin_of is not None:  # a mirrored copy melts into the mirrored parts (the right side's, not the left's)
                         names = {next((q.id for q in model.parts if q.twin_of == n), n) for n in names}
-                    before = {q.id for q in model.parts[:k] if q.geometry.op == "add"}
+                    before = {q.id for q in model.parts[:k] if q.geometry.op == "add" and not q.detail}  # (detail parts aren't in the mesh)
                     missing = sorted(n for n in names if n not in before)
                     if missing:
                         ctx.error("E003", f"blend_to {', '.join(missing)}: no earlier part has that id (blend into parts listed before this one)",
                                   part.line, f"{part.where}.blend_to")  # fmt: skip
-                    part.geometry.blend_to = frozenset(j for j, q in enumerate(model.parts[:k]) if q.id in names and q.geometry.op == "add")
+                    part.geometry.blend_to = frozenset(j for j, q in enumerate(model.parts[:k]) if q.id in names and q.geometry.op == "add"
+                                                       and not q.detail)  # fmt: skip
             for part in model.parts:
                 if part.cut_only is not None:
                     part.geometry.cut_only = frozenset(i for i, q in enumerate(model.parts) if q.id == part.cut_only and q.geometry.op == "add")
@@ -1529,7 +1536,8 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 wanted = set(part.fit[0])
                 if part.twin_of is not None:  # a mirrored copy wraps the mirrored parts (the right arm, not the left)
                     wanted = {next((q.id for q in model.parts if q.twin_of == to), to) for to in wanted}
-                targets = tuple(q.geometry for q in model.parts if q.id in wanted and q.id != part.id and q.geometry.op == "add" and q.fit is None)
+                targets = tuple(q.geometry for q in model.parts if q.id in wanted and q.id != part.id and q.geometry.op == "add" and q.fit is None
+                                and not q.detail)  # fmt: skip
                 if not targets:
                     if not model.template:  # a template (a helmet) may fit parts another template brings (a head)
                         ctx.error("E003", f"fit: no other part has id {', '.join(part.fit[0])} (it wraps the parts with those ids)", part.line,

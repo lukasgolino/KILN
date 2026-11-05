@@ -120,7 +120,7 @@ def uv_channel(built: Built, atlas: AtlasUse | None) -> int:
 
 class _Writer:
     def __init__(self, built: Built, swap: dict[str, str], generator: str, vertex_colors: bool = False, atlas: AtlasUse | None = None,
-                 origin: Array | None = None) -> None:
+                 origin: Array | None = None, normal_uri: str | None = None) -> None:
         self.origin = np.zeros(3) if origin is None else origin
         self.b = built
         self.face_uv = face_uvs(built)
@@ -134,6 +134,7 @@ class _Writer:
         if built.bake is not None and atlas is not None:
             raise ValueError("normal_map and atlas = true both need the first UV set: turn one off")
         self.normal_texture: int | None = None
+        self.normal_uri = normal_uri  # the normal map as a file next to the glb (shared by variants), else embedded
         self.doc = Document(generator)
         self.materials: dict[tuple[str, str, int], int] = {}
         self.textures: dict[tuple[int, str], int] = {}
@@ -222,7 +223,10 @@ class _Writer:
         """The baked normal map as a glTF texture (one per model, shared by its materials)."""
         if self.normal_texture is None:
             sampler = self.doc.add("samplers", {"magFilter": LINEAR, "minFilter": LINEAR_MIPMAP_LINEAR, "wrapS": CLAMP_TO_EDGE, "wrapT": CLAMP_TO_EDGE})
-            img = self.doc.image_png(self.b.bake.png, "normal_map")
+            if self.normal_uri is not None:
+                img = self.doc.add("images", {"uri": self.normal_uri, "mimeType": "image/png", "name": "normal_map"})
+            else:
+                img = self.doc.image_png(self.b.bake.png, "normal_map")
             self.normal_texture = self.doc.add("textures", {"sampler": sampler, "source": img})
         return self.normal_texture
 
@@ -417,7 +421,7 @@ class _Writer:
 
 
 def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, vertex_colors: bool = False, atlas: AtlasUse | None = None,
-           origin: Array | None = None, merge_rigid: bool = False) -> bytes:
+           origin: Array | None = None, merge_rigid: bool = False, normal_uri: str | None = None) -> bytes:
     """`atlas`: one material from the palette textures it names (kiln.toml atlas = true); `swap` then only recolours
     decals (the palette texture carries the variant's colours). `origin`: the model-space point at the glb's origin
     (default `built.origin()`; LODs pass the full model's so every level lines up). `merge_rigid`: a rigid skin is
@@ -425,7 +429,7 @@ def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, ver
     origin = built.origin() if origin is None else origin
     if merge_rigid and built.skin == "rigid":
         built = rigid_as_one(built)
-    return _Writer(built, swap or {}, generator, vertex_colors, atlas, origin).write()
+    return _Writer(built, swap or {}, generator, vertex_colors, atlas, origin, normal_uri).write()
 
 
 def rigid_as_one(built: Built) -> Built:
