@@ -62,3 +62,16 @@ def test_compiled_is_deterministic() -> None:
     g = Geometry("tube", SHAPES["tube"][1], noise=Noise(0.02, 0.2, 3), twist=30.0)
     p = np.random.default_rng(1).uniform(-1, 1, (50_000, 3))
     np.testing.assert_array_equal(g.distance(p), g.distance(p))
+
+
+def test_compiled_blend_to_matches_numpy() -> None:
+    body = Geometry("sphere", {"radius": 0.3})
+    lock = {"from": [-0.05, 0.25, 0], "to": [-0.05, 0.5, 0], "radius": 0.04, "radius_to": 0.04}
+    parts = [body, Geometry("capsule", lock, blend=0.04, blend_to=frozenset({0})),
+             Geometry("capsule", {**lock, "from": [0.05, 0.25, 0], "to": [0.05, 0.5, 0]}, blend=0.04, blend_to=frozenset({0})),
+             Geometry("box", {"size": [0.2, 0.2, 0.2], "round": 0.0}, at=np.array([0.0, -0.3, 0.0]), op="cut"),
+             Geometry("capsule", {**lock, "from": [0, -0.25, 0.1], "to": [0, -0.5, 0.1]}, blend=0.03, blend_to=frozenset({0}))]
+    field = Field(parts, margin=0.01)
+    p = np.random.default_rng(2).uniform(-0.6, 0.6, (50_000, 3))
+    np.testing.assert_allclose(field.distance(p), numpy_path(lambda: field.distance(p)), atol=1e-12)
+

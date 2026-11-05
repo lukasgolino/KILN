@@ -553,6 +553,7 @@ class Geometry:
     open: tuple[int, float] | None = None  # (axis, sign): the shell's open side (local frame), showing its rim
     fit: tuple[tuple[Any, ...], float] | None = None  # (parts or a mesh's distance, gap): the shell wraps their surface
     cut_only: frozenset[int] | None = None  # cuts: only these adding parts (indices); None = everything before it
+    blend_to: frozenset[int] | None = None  # adding parts (earlier) it blends into; the rest it meets crisply
     scale: Array | None = None  # (3,) stretch in the part's own frame (after rotate and twist): an approximate distance
 
     def open_plane(self) -> float:
@@ -744,21 +745,47 @@ class Field:
             which[better] = k
         return which, best
 
+    def _targets(self, i: int) -> list[int]:
+        """The parts a blend_to part blends into, in this surface (none: it joins crisply)."""
+        g = self.parts[i]
+        return [j for j in sorted(g.blend_to) if self._counts(j)] if g.blend_to else []
+
+    def _target_field(self, i: int, p: Array, f: Array, cache: dict[tuple[int, ...], Array] | None = None) -> Array | None:
+        """What a blend_to part melts into: its targets' union, as cut so far (max with f: a cut between them and it
+        stays cut). None: no targets here (a crisp join). `cache`: target unions per set, for one batch of points."""
+        targets = tuple(self._targets(i))
+        if not targets:
+            return None
+        t = cache.get(targets) if cache is not None else None
+        if t is None:
+            t = np.min([self.part_distance(j, p) for j in targets], axis=0)
+            if cache is not None:
+                cache[targets] = t
+        return np.maximum(t, f)
+
+    def _join(self, i: int, f: Array, d: Array, p: Array, cache: dict[tuple[int, ...], Array] | None = None) -> Array:
+        """f with part i (its distance d) combined in: blend_to parts melt only into their targets (f stays the union,
+        so neighbours keep a crisp groove), the others as usual."""
+        g = self.parts[i]
+        if g.op == "cut":
+            return smooth_max(f, -d, g.blend)
+        if g.op == "intersect":
+            return smooth_max(f, d, g.blend)
+        if g.blend_to is not None:
+            t = self._target_field(i, p, f, cache)
+            return np.minimum(f, d) if t is None else np.minimum(f, smooth_min(t, d, g.blend))
+        return smooth_min(f, d, g.blend)
+
     def evaluate(self, p: Array, with_parts: bool = True) -> tuple[Array, list[Array]]:
         f = np.full(len(p), 1e9)
         per_part: list[Array] = []
-        for i, g in enumerate(self.parts):
+        for i in range(len(self.parts)):
             if not self._counts(i):
                 if with_parts:
                     per_part.append(self.part_distance(i, p))
                 continue
             d = self.part_distance(i, p)
-            if g.op == "cut":
-                f = smooth_max(f, -d, g.blend)
-            elif g.op == "intersect":
-                f = smooth_max(f, d, g.blend)
-            else:
-                f = smooth_min(f, d, g.blend)
+            f = self._join(i, f, d, p)
             if with_parts:
                 per_part.append(d)
         return f, per_part
@@ -794,6 +821,7 @@ class Field:
         if not len(p):
             return f
         lo_p, hi_p = p.min(axis=0), p.max(axis=0)
+        cache: dict[tuple[int, ...], Array] = {}  # blend_to target unions, once per batch
         for i, g in enumerate(self.parts):
             if not self._counts(i):
                 continue
@@ -801,14 +829,11 @@ class Field:
                 lo, hi = self.boxes[i]
                 gap = float(np.linalg.norm(np.maximum(np.maximum(lo - hi_p, lo_p - hi), 0.0))) - 1e-6  # <= its distance
                 if gap > 0 and gap >= (float(f.max()) if g.op == "add" else float((-f).max())) + g.blend:
-                    continue
-            d = self.part_distance(i, p)
-            if g.op == "cut":
-                f = smooth_max(f, -d, g.blend)
-            elif g.op == "intersect":
-                f = smooth_max(f, d, g.blend)
-            else:
-                f = smooth_min(f, d, g.blend)
+                    # a blend_to part changes f only within its blend of its targets: out of reach of those too?
+                    t = self._target_field(i, p, f, cache) if g.blend_to is not None else None
+                    if t is None or (smooth_min(t, np.full(len(p), gap), g.blend) >= f).all():  # d >= gap, smin grows with d
+                        continue
+            f = self._join(i, f, self.part_distance(i, p), p, cache)
         return f
 
     def gradient(self, p: Array, eps: float) -> Array:

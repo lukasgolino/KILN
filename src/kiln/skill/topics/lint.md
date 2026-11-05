@@ -20,7 +20,8 @@ W113 a part pokes through a shell (eyes bigger than a visor slot, a head through
 W114 (from `kiln build`) joints sit elsewhere than in the model's `animation_library`. W115 `kiln.lock` lists a file
 that isn't in the project. W116 a terrain's splat layer covers < 0.5% of the map, W117 a
 terrain's height shape is off the map. W118 a scatter entry places more than 50 000 instances, W119 one places none.
-W120 the grid cap (`max_cells`), not the resolution, set the mesh cell size: raise `max_cells` to what it says.
+W120 the grid cap (`max_cells`), not the resolution, set the mesh cell size: raise `max_cells` to what it says. W122 a
+`blend_to` target is meshed apart from the part (hard, kept, separate, another bone's piece): they join crisply.
 Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`. Lint meshes models in parallel
 (`KILN_JOBS` processes, default: every core) and caches them for build and previews. `pip install "kiln[fast]"`
 (numba) evaluates the shapes compiled, 2-3x faster on big models; the output then differs from the plain install in

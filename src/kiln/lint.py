@@ -47,6 +47,7 @@ WARNING_RULES = {
     "W118": "a scatter entry places very many instances (big scene and JSON files)",
     "W119": "a scatter entry places no instances (its rules never hold, or nothing is under it)",
     "W120": "the mesh grid cap (max_cells), not the resolution asked for, set the mesh step (details come out coarser)",
+    "W122": "a blend_to part can't melt into a target: it is hard, kept, separate or another bone's piece (they join crisply)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -116,6 +117,18 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                  f"({m.budget or built.style.budget(m.cls)}) is too low to keep it: raise budget:, or make it thicker", part.line, part.where)  # fmt: skip
         hard = hard_parts(m, built.style)  # exact polygons: no mesh resolution
         kept = kept_parts(m, hard)  # meshed finer: they don't break up
+        separate = {pid for pid, e in m.rig.items() if e.separate} if m.skin != "none" else set()
+        per_bone = m.union == "per_bone" and m.skin == "rigid"
+        for part in m.parts:
+            g = part.geometry
+            if not g.blend_to:
+                continue
+            apart = sorted({m.parts[j].id for j in g.blend_to if j in hard or j in kept or m.parts[j].id in separate
+                            or (per_bone and m.parts[j].id != part.id)})  # fmt: skip
+            if apart:
+                warn("W122", f"blend_to {', '.join(apart)}: those parts are meshed apart from this one (hard, kept, separate or another "
+                     "bone's piece), so it joins them crisply; make them soft and part of the same piece, or drop blend_to", part.line,
+                     f"{part.where}.blend_to")  # fmt: skip
         for k, part in enumerate(m.parts):
             if part.geometry.op != "add" or k in kept or k in hard:
                 continue

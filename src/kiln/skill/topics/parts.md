@@ -58,6 +58,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `shell: { thickness: 0.02, open: -y }` | a wall inside the surface (the outside stays put), one side cut open at the shape's centre: helmets, bowls, pots, shields with a visible rim (`side: both` centres it) |
 | `fit: head` or `fit: { to: head, gap: 0.01 }` | with `shell`: the wall wraps the parts with that id, `gap` away from them, wherever this part's own shape reaches (its shape is the coverage: a sphere around the head, `open: -y` and placed low enough to cover the cheeks). Helmets that sit on the head instead of perching on it; cut a face opening after it (before the head, so the cut doesn't take the face) |
 | `twist: 90` | degrees per metre about the shape's y axis |
+| `blend_to: torso` (or a list of ids) | with `blend`: melt only into those earlier parts, meet every other part crisply: fur locks that melt into the body but keep a groove between each other |
 | `scale: [1, 1, 0.4]` | stretch the shape in its own frame (or one number); soft parts only |
 | `noise: { amount: 0.01, scale: 0.2, seed: 3 }` | lumpy surface (rocks, bark, clay): amount in metres, scale = bump size |
 | `pattern: {...}` | a second colour painted on the part (below) |

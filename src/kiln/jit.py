@@ -189,6 +189,10 @@ class FieldTable:
     hi: Array
     pad: Array  # margin + blend (part_distance's stand-in)
     numpy_parts: tuple[int, ...]  # parts the kernel can't do (extrude, fit): their distances are passed in
+    target_set: Array  # (P,) blend_to parts: their set of targets (-1: none, or none that count here: a crisp join)
+    set_off: Array  # (S + 1,) set s is the parts set_idx[set_off[s]:set_off[s + 1]]
+    set_idx: Array
+    has_targets: Array  # (P,) bool: blend_to given
 
 
 def field_table(field: Field) -> FieldTable:
@@ -199,11 +203,21 @@ def field_table(field: Field) -> FieldTable:
 
     parts = field.parts
     numpy_parts = tuple(i for i, g in enumerate(parts) if not supported(g))
+    sets: dict[tuple[int, ...], int] = {}
+    target_set = np.full(len(parts), -1, np.int64)
+    for i in range(len(parts)):
+        targets = tuple(field._targets(i))
+        if targets:
+            target_set[i] = sets.setdefault(targets, len(sets))
+    members = sorted(sets, key=lambda k: sets[k])
+    set_off = np.concatenate([[0], np.cumsum([len(m) for m in members])]).astype(np.int64)
+    set_idx = np.array([j for m in members for j in m] or [0], np.int64)
     geoms = [Geometry("sphere", {"radius": 1.0}) if i in numpy_parts else g for i, g in enumerate(parts)]
     out = FieldTable(_table(geoms), np.array([{"add": 0, "cut": 1}.get(g.op, 2) for g in parts], np.int64),
                      np.array([field._counts(i) for i in range(len(parts))], dtype=bool), np.array([g.blend for g in parts], float),
                      np.array([b[0] for b in field.boxes], float).reshape(-1, 3), np.array([b[1] for b in field.boxes], float).reshape(-1, 3),
-                     np.array([field.margin + g.blend for g in parts], float), numpy_parts)  # fmt: skip
+                     np.array([field.margin + g.blend for g in parts], float), numpy_parts, target_set, set_off, set_idx,
+                     np.array([g.blend_to is not None for g in parts], dtype=bool))  # fmt: skip
     object.__setattr__(field, "_jit_table", out)
     return out
 
@@ -220,7 +234,7 @@ def field_distance(field: Field, p: Array) -> Array:
             pre[k] = field.part_distance(i, p)
         slot[i] = k
     out = np.empty(len(p))
-    _field_kernel(p, out, t.table, t.op, t.counts, t.blend, t.lo, t.hi, t.pad, pre, slot)
+    _field_kernel(p, out, t.table, t.op, t.counts, t.blend, t.lo, t.hi, t.pad, pre, slot, t.target_set, t.set_off, t.set_idx, t.has_targets)
     return out
 
 
@@ -436,9 +450,35 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                     continue
             out[n] = part_at(0, x, y, z, filled, t)
 
+    @njit(cache=True, inline="always")
+    def stood_in(i: int, n: int, x: float, y: float, z: float, t: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any) -> float:
+        """Field.part_distance at one point: passed in (numpy parts), the box stand-in far away, else the part."""
+        if slot[i] >= 0:
+            return pre[slot[i], n]
+        qx, qy, qz = max(lo[i, 0] - x, x - hi[i, 0]), max(lo[i, 1] - y, y - hi[i, 1]), max(lo[i, 2] - z, z - hi[i, 2])
+        if qx > pad[i] or qy > pad[i] or qz > pad[i]:
+            ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
+            return math.sqrt(ox * ox + oy * oy + oz * oz) + pad[i]
+        return part_at(i, x, y, z, False, t)
+
+    @njit(cache=True, inline="always")
+    def target_distance(s: int, n: int, x: float, y: float, z: float, t: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any,
+                        set_off: Any, set_idx: Any, cache: Any) -> float:  # fmt: skip
+        """The union of target set s at the point (crisp), worked out once per point."""
+        if cache[s] == cache[s]:  # not NaN: done already
+            return cache[s]
+        best = math.inf
+        for m in range(set_off[s], set_off[s + 1]):
+            best = min(best, stood_in(set_idx[m], n, x, y, z, t, lo, hi, pad, pre, slot))
+        cache[s] = best
+        return best
+
     @njit(cache=True, parallel=True)
-    def field_kernel(p: Any, out: Any, t: Any, op: Any, counts: Any, blend: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any) -> None:
+    def field_kernel(p: Any, out: Any, t: Any, op: Any, counts: Any, blend: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any,
+                     target_set: Any, set_off: Any, set_idx: Any, has_targets: Any) -> None:  # fmt: skip
+        n_sets = len(set_off) - 1
         for n in prange(len(p)):
+            cache = np.full(max(n_sets, 1), np.nan)
             x, y, z = p[n, 0], p[n, 1], p[n, 2]
             f = 1e9
             for i in range(len(op)):
@@ -448,10 +488,16 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                 ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
                 box = math.sqrt(ox * ox + oy * oy + oz * oz)
                 k = blend[i]
+                blended = target_set[i] >= 0
+                tt = math.inf
                 if op[i] != 2:  # out of reach: the part can't change f here (its distance is at least its box's)
                     gap = box - 1e-6
                     if gap > 0 and gap >= (f if op[i] == 0 else -f) + k:
-                        continue
+                        if not blended:
+                            continue
+                        tt = target_distance(target_set[i], n, x, y, z, t, lo, hi, pad, pre, slot, set_off, set_idx, cache)
+                        if smin(max(tt, f), gap, k) >= f:  # d >= gap, smin grows with d: f stays (targets as cut so far)
+                            continue
                 if slot[i] >= 0:
                     d = pre[slot[i], n]
                 elif qx > pad[i] or qy > pad[i] or qz > pad[i]:
@@ -462,6 +508,13 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                     f = -smin(-f, d, k)
                 elif op[i] == 2:
                     f = -smin(-f, -d, k)
+                elif has_targets[i]:  # blend_to: melts into its targets only; a crisp join with the rest
+                    if blended:
+                        if tt == math.inf:
+                            tt = target_distance(target_set[i], n, x, y, z, t, lo, hi, pad, pre, slot, set_off, set_idx, cache)
+                        f = min(f, smin(max(tt, f), d, k))
+                    else:
+                        f = min(f, d)
                 else:
                     f = smin(f, d, k)
             out[n] = f
