@@ -48,7 +48,7 @@ def hard_parts(model: Model, style: Style) -> frozenset[int]:
     out = set()
     for i, p in enumerate(model.parts):
         g = p.geometry
-        if g.op != "add" or g.shape not in HARD_SHAPES or g.twist or g.noise is not None or (g.shell and g.shape not in SHELL_SHAPES) \
+        if g.op != "add" or g.shape not in HARD_SHAPES or g.twist or g.noise is not None or g.scale is not None or (g.shell and g.shape not in SHELL_SHAPES) \
                 or g.fit is not None:
             continue
         if p.hard is not None:
@@ -108,7 +108,7 @@ def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int)
         if g.op == "add":
             if i in include:
                 acc = union(acc, solid(g, hard_spec(p, style, level), i))
-        elif acc and g.shape in HARD_SHAPES and not g.twist and g.noise is None and not (g.shell and g.shape not in SHELL_SHAPES) \
+        elif acc and g.shape in HARD_SHAPES and not g.twist and g.noise is None and g.scale is None and not (g.shell and g.shape not in SHELL_SHAPES) \
                 and (g.cut_only is None or bool(g.cut_only & include)):
             other = solid(g, hard_spec(p, style, level), i)
             acc = subtract(acc, other) if g.op == "cut" else intersect(acc, other)

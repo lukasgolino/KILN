@@ -45,6 +45,8 @@ def local(g: Geometry, p: Array) -> Array:
             angle = np.radians(g.twist) * q[:, 1]
             c, s = np.cos(angle), np.sin(angle)
             q = np.stack([c * q[:, 0] - s * q[:, 2], q[:, 1], s * q[:, 0] + c * q[:, 2]], axis=1)
+        if g.scale is not None:  # the shape's own frame: patterns and UVs stretch with it
+            q = q / g.scale
         d = np.abs(fn(q, g.params)) if len(g.copies) > 1 else np.zeros(len(p))
         closer = d < best_d
         best_d[closer] = d[closer]
@@ -58,7 +60,7 @@ def _around(q: Array, axis: int) -> Array:
 
 
 def _path(g: Geometry) -> Array | None:
-    if g.shape == "tube":
+    if g.shape in ("tube", "lock"):
         return np.array(g.params["points"], dtype=float)
     if g.shape == "capsule":
         return np.array([g.params["from"], g.params["to"]], dtype=float)

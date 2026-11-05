@@ -28,7 +28,7 @@ try:
 except ImportError:  # numpy only
     AVAILABLE = False
 
-SHAPE_IDS = {"sphere": 0, "ellipsoid": 1, "box": 2, "cylinder": 3, "cone": 4, "capsule": 5, "tube": 6, "torus": 7, "wedge": 8, "lathe": 9}
+SHAPE_IDS = {"sphere": 0, "ellipsoid": 1, "box": 2, "cylinder": 3, "cone": 4, "capsule": 5, "tube": 6, "torus": 7, "wedge": 8, "lathe": 9, "lock": 10}
 MIN_POINTS = 64  # fewer points: numpy (the call costs more than it saves)
 
 
@@ -59,6 +59,8 @@ class Packed:
     noise_freq: Array  # (3,)
     noise_weight: Array  # (3,)
     noise_total: float
+    scale: Array  # (3,) stretch in the part's frame (ones: none)
+    has_scale: bool
 
 
 def set_threads(n: int) -> None:
@@ -98,6 +100,13 @@ def _pack_shape(g: Geometry) -> tuple[Array, Array, Array]:
         lengths = np.linalg.norm(np.diff(pts, axis=0), axis=1)
         along = np.concatenate([[0.0], np.cumsum(lengths)]) / max(float(lengths.sum()), 1e-12)
         return np.zeros(1), np.ascontiguousarray(pts), s["radius"] + (s["radius_to"] - s["radius"]) * along
+    if g.shape == "lock":  # prm: facing (unit), then the half thickness at every point; aux: the half widths
+        from kiln.sdf import lock_profile
+
+        pts, _, half_w, half_t = lock_profile(s)
+        facing = np.asarray(s["facing"], float)
+        facing = facing / max(float(np.linalg.norm(facing)), 1e-12)
+        return np.concatenate([facing, half_t]), np.ascontiguousarray(pts), half_w
     # lathe: the even-odd polygon distance over the profile edges (edge i: point i -> point i-1, as sdf.lathe)
     prof = np.asarray(s["profile"], float)
     on_axis = (prof[:, 0] == 0) & (np.roll(prof[:, 0], 1) == 0)
@@ -133,7 +142,8 @@ def pack(g: Geometry) -> Packed:
                     g.rotation is not None, mirror, crot, cpiv, coff, math.radians(g.twist) if g.twist else 0.0,
                     -1 if g.open is None else int(g.open[0]), 0.0 if g.open is None else float(g.open[1]),
                     g.open_plane() if g.open is not None else 0.0, float(g.shell), g.shell_side == "in", float(amount),
-                    dirs, phase, freq, weight, float(total))  # fmt: skip
+                    dirs, phase, freq, weight, float(total), np.ones(3) if g.scale is None else np.asarray(g.scale, float),
+                    g.scale is not None)  # fmt: skip
     object.__setattr__(g, "_packed", packed)
     return packed
 
@@ -153,7 +163,7 @@ def _table(geoms: list[Geometry]) -> tuple[Any, ...]:
             np.array([k.open_sign for k in ks]), np.array([k.open_plane for k in ks]), np.array([k.shell for k in ks]),
             np.array([k.shell_in for k in ks]), np.array([k.noise_amount for k in ks]), np.stack([k.noise_dirs for k in ks]),
             np.stack([k.noise_phase for k in ks]), np.stack([k.noise_freq for k in ks]), np.stack([k.noise_weight for k in ks]),
-            np.array([k.noise_total for k in ks]))  # fmt: skip
+            np.array([k.noise_total for k in ks]), np.stack([k.scale for k in ks]), np.array([k.has_scale for k in ks]))  # fmt: skip
 
 
 def distance(g: Geometry, p: Array, filled: bool = False, box: tuple[Array, Array, float] | None = None) -> Array:
@@ -294,6 +304,35 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
             norm = math.hypot(hh, dd / 2)
             slope = (hh / norm) * abs(z) + (dd / 2 / norm) * (y - hh / 2)
             return max(box3(x, y, z, w, hh, dd, 0.0), slope)
+        if kind == 10:  # lock: an elliptical section along the path (sdf.lock)
+            fx, fy, fz = prm[0], prm[1], prm[2]
+            d = math.inf
+            for i in range(len(pts) - 1):
+                ex, ey, ez = pts[i + 1, 0] - pts[i, 0], pts[i + 1, 1] - pts[i, 1], pts[i + 1, 2] - pts[i, 2]
+                length = math.sqrt(ex * ex + ey * ey + ez * ez)
+                if length < 1e-12:
+                    continue
+                tx, ty, tz = ex / length, ey / length, ez / length
+                fd = fx * tx + fy * ty + fz * tz
+                vx, vy, vz = fx - fd * tx, fy - fd * ty, fz - fd * tz
+                vn = math.sqrt(vx * vx + vy * vy + vz * vz)
+                if vn < 1e-6:  # facing along the segment: as sdf.lock_frame
+                    ax, ay, az = (1.0, 0.0, 0.0) if abs(tx) < 0.9 else (0.0, 1.0, 0.0)
+                    vx, vy, vz = ty * az - tz * ay, tz * ax - tx * az, tx * ay - ty * ax
+                    vn = math.sqrt(vx * vx + vy * vy + vz * vz)
+                vx, vy, vz = vx / vn, vy / vn, vz / vn
+                ux, uy, uz = vy * tz - vz * ty, vz * tx - vx * tz, vx * ty - vy * tx
+                wx, wy, wz = x - pts[i, 0], y - pts[i, 1], z - pts[i, 2]
+                h = min(max((wx * tx + wy * ty + wz * tz) / length, 0.0), 1.0)
+                rx, ry, rz = wx - h * length * tx, wy - h * length * ty, wz - h * length * tz
+                rw = aux[i] + (aux[i + 1] - aux[i]) * h
+                rt = prm[3 + i] + (prm[4 + i] - prm[3 + i]) * h
+                rc = min(rw, rt)
+                a, b, c = rx * ux + ry * uy + rz * uz, rx * vx + ry * vy + rz * vz, rx * tx + ry * ty + rz * tz
+                k0 = math.sqrt((a / rw) ** 2 + (b / rt) ** 2 + (c / rc) ** 2)
+                k1 = math.sqrt((a / (rw * rw)) ** 2 + (b / (rt * rt)) ** 2 + (c / (rc * rc)) ** 2)
+                d = min(d, k0 * (k0 - 1.0) / k1 if k1 > 1e-12 else -rc)
+            return d
         # lathe: even-odd over the profile, edge i from point i to point i-1
         px, py = max(radial(x, z, prm[0]), 1e-9), y
         m = len(pts)
@@ -329,7 +368,7 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
     @njit(cache=True)
     def part_at(i: int, x: float, y: float, z: float, filled: bool, t: Any) -> float:
         (kind, prm_all, prm_off, pts_all, aux_all, pts_off, at, rot, has_rot, mirror, crot, cpiv, coff, cop_off, twist, open_axis, open_sign,
-         open_plane, shell, shell_in, namount, ndirs, nphase, nfreq, nweight, ntotal) = t  # fmt: skip
+         open_plane, shell, shell_in, namount, ndirs, nphase, nfreq, nweight, ntotal, scale, has_scale) = t  # fmt: skip
         prm = prm_all[prm_off[i] : prm_off[i + 1]]
         pts = pts_all[pts_off[i] : pts_off[i + 1]]
         aux = aux_all[pts_off[i] : pts_off[i + 1]]
@@ -340,6 +379,7 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
         if mirror[i, 2] != 0.0:
             z = abs(z)
         sh, s_in, oa = shell[i], shell_in[i], open_axis[i]
+        shrink = min(scale[i, 0], min(scale[i, 1], scale[i, 2])) if has_scale[i] else 1.0
         best = math.inf
         for c in range(cop_off[i], cop_off[i + 1]):
             # Copy.to_local: (p - offset - pivot) @ R + pivot, then - at
@@ -355,12 +395,16 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                 a = twist[i] * ly
                 ca, sa = math.cos(a), math.sin(a)
                 lx, lz = ca * lx - sa * lz, sa * lx + ca * lz
+            if has_scale[i]:
+                lx, ly, lz = lx / scale[i, 0], ly / scale[i, 1], lz / scale[i, 2]
             d = shape(kind[i], lx, ly, lz, prm, pts, aux)
+            if has_scale[i]:
+                d = d * shrink
             if oa >= 0:
                 if not filled:
                     d = shelled(d, sh, s_in)
                 coord = lx if oa == 0 else (ly if oa == 1 else lz)
-                d = max(d, open_sign[i] * (coord - open_plane[i]))
+                d = max(d, open_sign[i] * (coord - open_plane[i]) * shrink)
             best = min(best, d)
         if sh != 0.0 and oa < 0 and not filled:
             best = shelled(best, sh, s_in)
