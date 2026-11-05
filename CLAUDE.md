@@ -56,7 +56,7 @@ anything that changes output.
   attribution. Push only when asked; ask before tags.
 - Versioning as PAGAN: bump `version` in pyproject.toml, CHANGELOG entry (Keep a Changelog), tag `vX.Y.Z` for any
   change to the notation, settings, manifest/exporter output or meshes.
-- Dependencies: numpy, Pillow, PyYAML, fast-simplification, fonttools (font text for extrudes; approved 2026-10-21) (PAGAN is vendored, not a dependency); extra `mcp`. Others only if needed:
+- Dependencies: numpy, Pillow, PyYAML, fast-simplification, fonttools (font text for extrudes; approved 2026-10-21) (PAGAN is vendored, not a dependency); extras `mcp` and `fast` (numba, #112). Others only if needed:
   log why below.
 
 ## Decisions log
@@ -199,3 +199,8 @@ anything that changes output.
   colour (documented to multiply vertex colours with `vertex_color_use_as_albedo`; the toon shader uses COLOR). Godot's
   dummy renderer keeps a MultiMesh's `buffer` but `get_instance_transform` reads identity there, so the headless
   verify decodes the buffer. Only single-mesh, unrigged models scatter.
+- 2026-11-05: #112: compiled distances are an optional extra (`kiln[fast]`, numba), not a dependency: numba wheels lag
+  new Pythons, and the numpy code stays the reference. One fused pass per point walks the parts in order and skips a
+  part where its box distance shows it can't change the result (exact: smooth_min(f, d, k) is f once d >= f + k), so no
+  N x 3 temporaries and no per-batch Python loop. Extrudes and fitted shells stay numpy (their distances are passed in).
+  Agreement with numpy is to rounding (~1e-15), not bit for bit, so a game's glbs match only on the same install.

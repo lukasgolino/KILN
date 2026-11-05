@@ -22,4 +22,6 @@ that isn't in the project. W116 a terrain's splat layer covers < 0.5% of the map
 terrain's height shape is off the map. W118 a scatter entry places more than 50 000 instances, W119 one places none.
 W120 the grid cap (`max_cells`), not the resolution, set the mesh cell size: raise `max_cells` to what it says.
 Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`. Lint meshes models in parallel
-(`KILN_JOBS` processes, default: every core) and caches them for build and previews.
+(`KILN_JOBS` processes, default: every core) and caches them for build and previews. `pip install "kiln[fast]"`
+(numba) evaluates the shapes compiled, 2-3x faster on big models; the output then differs from the plain install in
+the last digits, so a game pins one or the other.

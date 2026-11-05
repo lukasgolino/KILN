@@ -6,6 +6,14 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- **`kiln[fast]`: compiled distance evaluation** (#112, numba, optional). The whole field is evaluated in one compiled,
+  multi-threaded pass per point (every shape but extrudes; mirror, copies, rotation, twist, shells, open sides, noise),
+  with each part skipped per point where its box shows it can't change the result. A 422-part 2.4 m character, lint at
+  12 mm: 154 s -> 67 s; a 48-part one at 4 mm: 114 s -> 72 s. Output agrees with the plain install to ~1e-15 m, not bit
+  for bit: pin one or the other in a game. `KILN_JIT=0` turns it off. Lint's worker processes share the cores.
+
 ### Changed
 
 - **Many-part models need far less memory** (#110). Painting, part areas, nearest-part lookups and lint's shell check

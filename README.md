@@ -74,6 +74,9 @@ pip install "kiln @ git+https://github.com/lukasgolino/KILN@v0.1.0"
 kiln --version
 ```
 
+Faster builds of big models: `kiln[fast]` (numba). Its output differs from the plain install in the last float digits,
+so a game pins one or the other in its requirements.
+
 Development: `python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"`, then `pytest` and `mypy`.
 
 ## Quick start

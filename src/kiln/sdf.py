@@ -16,6 +16,8 @@ from typing import Any
 
 import numpy as np
 
+from kiln import jit
+
 Array = np.ndarray
 Vec3 = tuple[float, float, float]
 ShapeFn = Callable[[Array, dict[str, Any]], Array]
@@ -517,6 +519,8 @@ class Geometry:
         return self._distance(p, filled)
 
     def _distance(self, p: Array, filled: bool) -> Array:
+        if jit.AVAILABLE and self.shape in jit.SHAPE_IDS and len(p) >= jit.MIN_POINTS:
+            return jit.distance(self, p, filled)
         if self.mirror:
             p = p.copy()
             for axis in self.mirror:
@@ -649,6 +653,8 @@ class Field:
     def part_distance(self, i: int, p: Array) -> Array:
         g, (lo, hi) = self.parts[i], self.boxes[i]
         pad = self.margin + g.blend
+        if jit.supported(g) and len(p) >= jit.MIN_POINTS:  # one compiled pass: box test, stand-in and shape
+            return jit.distance(g, p, box=(lo, hi, pad))
         q = np.maximum(lo - p, p - hi)  # per axis: how far outside the box (one pass for the test and the stand-in)
         near = np.all(q <= pad, axis=1)
         d = np.linalg.norm(np.maximum(q, 0.0), axis=1) + pad
@@ -714,6 +720,8 @@ class Field:
         return out
 
     def _distance(self, p: Array) -> Array:
+        if jit.AVAILABLE and len(p) >= jit.MIN_POINTS:  # one compiled pass per point
+            return jit.field_distance(self, p)
         f = np.full(len(p), 1e9)
         if not len(p):
             return f
