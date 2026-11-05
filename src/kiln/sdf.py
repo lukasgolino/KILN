@@ -296,6 +296,52 @@ def tube(p: Array, s: dict[str, Any]) -> Array:
     return d
 
 
+def lock_frame(tangent: Array, facing: Array) -> tuple[Array, Array]:
+    """(width axis, thickness axis) across a lock's segment: the thickness axis is `facing` made square to the segment."""
+    v = facing - (facing @ tangent) * tangent
+    if float(np.linalg.norm(v)) < 1e-6:  # facing along the segment: any square direction
+        v = np.cross(tangent, np.array([1.0, 0.0, 0.0]) if abs(tangent[0]) < 0.9 else np.array([0.0, 1.0, 0.0]))
+    v = v / np.linalg.norm(v)
+    return np.cross(v, tangent), v
+
+
+def lock_profile(s: dict[str, Any]) -> tuple[Array, Array, Array, Array]:
+    """A lock's path points, the fraction of its length at each, and its half widths and half thicknesses there."""
+    pts = np.asarray(s["points"], float)
+    lengths = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    along = np.concatenate([[0.0], np.cumsum(lengths)]) / max(float(lengths.sum()), 1e-12)
+    half_w = np.maximum((s["width"] + (s["width_to"] - s["width"]) * along) / 2, 1e-5)
+    half_t = np.maximum((s["thickness"] + (s["thickness_to"] - s["thickness"]) * along) / 2, 1e-5)
+    return pts, along, half_w, half_t
+
+
+def lock(p: Array, s: dict[str, Any]) -> Array:
+    """A flat lock (a fur clump, a feather, a leaf, a blade): an elliptical section `width` wide and `thickness` thick
+    along a path, both tapering to width_to / thickness_to (width_to: 0 is a pointed tip); its flat sides face `facing`."""
+    pts, _, half_w, half_t = lock_profile(s)
+    facing = np.asarray(s["facing"], float)
+    facing = facing / max(float(np.linalg.norm(facing)), 1e-12)
+    d = np.full(len(p), np.inf)
+    for i in range(len(pts) - 1):
+        e = pts[i + 1] - pts[i]
+        length = float(np.linalg.norm(e))
+        if length < 1e-12:
+            continue
+        t = e / length
+        u, v = lock_frame(t, facing)
+        w = p - pts[i]
+        h = np.clip((w @ t) / length, 0.0, 1.0)
+        r = w - (h * length)[:, None] * t
+        rw = half_w[i] + (half_w[i + 1] - half_w[i]) * h
+        rt = half_t[i] + (half_t[i + 1] - half_t[i]) * h
+        rc = np.minimum(rw, rt)  # the ends are rounded as far as the section's smaller half
+        a, b, c = r @ u, r @ v, r @ t
+        k0 = np.sqrt((a / rw) ** 2 + (b / rt) ** 2 + (c / rc) ** 2)
+        k1 = np.sqrt((a / (rw * rw)) ** 2 + (b / (rt * rt)) ** 2 + (c / (rc * rc)) ** 2)
+        d = np.minimum(d, np.where(k1 > 1e-12, k0 * (k0 - 1.0) / np.maximum(k1, 1e-12), -rc))
+    return d
+
+
 def torus(p: Array, s: dict[str, Any]) -> Array:
     """A ring in the xz plane (rotate it for others)."""
     ring = radial(p, s) - s["radius"]
@@ -371,6 +417,12 @@ def _bounds_tube(s: dict[str, Any]) -> tuple[Array, Array]:
     return pts.min(axis=0) - r, pts.max(axis=0) + r
 
 
+def _bounds_lock(s: dict[str, Any]) -> tuple[Array, Array]:
+    pts = np.asarray(s["points"], float)
+    r = max(s["width"], s["width_to"], s["thickness"], s["thickness_to"]) / 2
+    return pts.min(axis=0) - r, pts.max(axis=0) + r
+
+
 def _bounds_lathe(s: dict[str, Any]) -> tuple[Array, Array]:
     prof = np.asarray(s["profile"], float)
     r = float(np.abs(prof[:, 0]).max())
@@ -400,6 +452,10 @@ SHAPES: dict[str, ShapeDef] = {
                         _bounds_capsule, "from: [x, y, z], to: [x, y, z], radius, radius_to (taper), sides (hard parts)"),
     "tube": ShapeDef(tube, {"points": "points3", "radius": "pos", "radius_to": "pos", "sides": "sides"}, ("points", "radius"), {}, _bounds_tube,
                      "points: [[x, y, z], ...] (2+), radius, radius_to (taper), sides (hard parts)"),
+    "lock": ShapeDef(lock, {"points": "points3", "width": "pos", "thickness": "pos", "width_to": "nonneg", "thickness_to": "nonneg",
+                            "facing": "vec3"}, ("points", "width", "thickness"), {"facing": [0.0, 0.0, 1.0]}, _bounds_lock,
+                     "points: [[x, y, z], ...] (2+), width, thickness, width_to, thickness_to (taper; width_to: 0 = a pointed tip), "
+                     "facing: [x, y, z] (where the flat sides look; default [0, 0, 1])"),
     "torus": ShapeDef(torus, {"radius": "pos", "thickness": "pos", "sides": "sides"}, ("radius", "thickness"), {},
                       lambda s: _sym(np.array([s["radius"] + s["thickness"], s["thickness"], s["radius"] + s["thickness"]])),
                       "radius (ring), thickness (tube radius), sides; ring in the xz plane"),
@@ -497,6 +553,7 @@ class Geometry:
     open: tuple[int, float] | None = None  # (axis, sign): the shell's open side (local frame), showing its rim
     fit: tuple[tuple[Any, ...], float] | None = None  # (parts or a mesh's distance, gap): the shell wraps their surface
     cut_only: frozenset[int] | None = None  # cuts: only these adding parts (indices); None = everything before it
+    scale: Array | None = None  # (3,) stretch in the part's own frame (after rotate and twist): an approximate distance
 
     def open_plane(self) -> float:
         """Where the open side is cut, along its axis in the local frame: the shape's centre (0), except a lathe
@@ -535,10 +592,15 @@ class Geometry:
                 angle = np.radians(self.twist) * q[:, 1]
                 c, s = np.cos(angle), np.sin(angle)
                 q = np.stack([c * q[:, 0] - s * q[:, 2], q[:, 1], s * q[:, 0] + c * q[:, 2]], axis=1)
+            if self.scale is not None:  # a bound, not exact: the shape's distance times the smallest stretch
+                q = q / self.scale
             d = fn(q, self.params)
+            shrink = float(self.scale.min()) if self.scale is not None else 1.0
+            if self.scale is not None:
+                d = d * shrink
             if self.open is not None:  # each copy is shelled and opened in its own frame
                 d = d if filled else self._shelled(d)
-                d = np.maximum(d, self.open[1] * (q[:, self.open[0]] - self.open_plane()))
+                d = np.maximum(d, self.open[1] * (q[:, self.open[0]] - self.open_plane()) * shrink)
             best = np.minimum(best, d)
         if self.shell and self.open is None and not filled:
             best = self._shelled(best)
@@ -554,6 +616,8 @@ class Geometry:
     def bounds(self) -> tuple[Array, Array]:
         """World bounding box (expanded for noise/twist), mirror and copies included."""
         lo, hi = SHAPES[self.shape].bounds(self.params)
+        if self.scale is not None:
+            lo, hi = lo * self.scale, hi * self.scale
         if self.twist:
             r = float(np.linalg.norm(np.maximum(np.abs(lo), np.abs(hi))[[0, 2]]))
             lo, hi = np.array([-r, lo[1], -r]), np.array([r, hi[1], r])
@@ -576,6 +640,8 @@ def thickness(shape: str, p: dict[str, Any]) -> float | None:
         return 2 * float(p["radius"])
     if shape in ("capsule", "tube"):
         return 2 * min(float(p["radius"]), float(p["radius_to"]))
+    if shape == "lock":
+        return float(p["thickness"])  # at the root (the tip thins to its point on purpose)
     if shape == "torus":
         return 2 * float(p["thickness"])
     if shape in ("box", "wedge"):
@@ -592,6 +658,8 @@ def thickness(shape: str, p: dict[str, Any]) -> float | None:
 def part_thickness(g: Geometry) -> float | None:
     """A part's thinnest dimension: its shape's, or its shell's wall (twice the shell when centred on the surface)."""
     t = thickness(g.shape, g.params)
+    if t is not None and g.scale is not None:
+        t *= float(g.scale.min())
     if g.shell:
         wall = g.shell * (2 if g.shell_side == "both" and g.fit is None else 1)
         t = wall if t is None else min(t, wall)

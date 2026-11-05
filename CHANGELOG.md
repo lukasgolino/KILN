@@ -8,6 +8,11 @@ before 1.0).
 
 ### Added
 
+- **`lock` shape** (#105): a flat blade along a path with an elliptical section, `width` x `thickness` tapering to
+  `width_to` / `thickness_to` (`width_to: 0`: a pointed V tip), its flat sides looking along `facing`. For carved fur
+  and hair locks, feathers, leaves and petals, which round tubes made look like candle drips.
+- **`scale: [x, y, z]`** (or one number) on any soft part: a stretch in the part's own frame (the distance is a bound,
+  as usual for stretched fields). Hard parts can't scale (an error, like twist and noise).
 - **`kiln[fast]`: compiled distance evaluation** (#112, numba, optional). The whole field is evaluated in one compiled,
   multi-threaded pass per point (every shape but extrudes; mirror, copies, rotation, twist, shells, open sides, noise),
   with each part skipped per point where its box shows it can't change the result. A 422-part 2.4 m character, lint at

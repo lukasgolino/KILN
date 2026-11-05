@@ -43,7 +43,7 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
+               "shell", "twist", "scale", "noise", "pattern", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -383,6 +383,12 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         params["profile"] = smooth_profile(params["profile"])
     if kind in ("capsule", "tube") and "radius" in params:
         params.setdefault("radius_to", params["radius"])
+    if kind == "lock" and "width" in params and "thickness" in params:
+        params.setdefault("width_to", params["width"])
+        params.setdefault("thickness_to", params["thickness"])
+        if params.get("facing") is not None and max(abs(v) for v in params["facing"]) == 0:
+            ctx.error("E003", "lock facing is a direction [x, y, z], not [0, 0, 0]", line, f"{swhere}.facing")
+            ok = False
     if kind in ("box", "cylinder", "extrude") and ok:
         limit = min(params["size"]) / 2 if kind == "box" else (min(params["radius"], params["height"] / 2) if kind == "cylinder" else params["height"] / 2)
         if params["round"] > limit:
@@ -445,6 +451,16 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if not _num(twist):
         ctx.error("E003", "twist is degrees per metre about the shape's y axis", line, f"{where}.twist")
         ok = False
+    scale = None
+    if "scale" in raw:
+        s_raw = raw["scale"]
+        s_vec = [s_raw] * 3 if _num(s_raw) else _vec(s_raw)
+        if s_vec is None or min(s_vec) <= 0:
+            ctx.error("E003", "scale stretches the part in its own frame: scale: [x, y, z] (each > 0) or one number, e.g. [1, 1, 0.4] "
+                      "to flatten it", line, f"{where}.scale")  # fmt: skip
+            ok = False
+        elif any(v != 1 for v in s_vec):
+            scale = np.array(s_vec, float)
     noise = None
     if "noise" in raw:
         n = raw["noise"]
@@ -540,8 +556,9 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                       line, where)  # fmt: skip
             ok = False
     asks_hard = crisp or bool(bevel or chamfer) or "sides" in spec
-    if ok and (hard is True or (hard is None and asks_hard)) and (twist or noise is not None):
-        ctx.error("E003", "a hard part (sides, bevel, chamfer, blend: none or hard: true) can't twist or have noise: those need the smooth field",
+    if ok and (hard is True or (hard is None and asks_hard)) and (twist or noise is not None or scale is not None):
+        ctx.error("E003", "a hard part (sides, bevel, chamfer, blend: none or hard: true) can't twist, scale or have noise: those need the "
+                  "smooth field",
                   line, where)  # fmt: skip
         ok = False
     keep = raw.get("keep")
@@ -589,7 +606,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if open_side is not None:
         open_axis = (AXES[open_side[-1]], -1.0 if open_side.startswith("-") else 1.0)
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
-                    op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis)  # fmt: skip
+                    op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
                    "keep": keep, "cut_only": cut_only, "uv": uv, "patterns": patterns, "attr": attr}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
@@ -706,7 +723,8 @@ def _reflect(g: Geometry, axis: int) -> Geometry:
     flip[axis, axis] = -1.0
     rotation = flip @ (g.rotation if g.rotation is not None else np.eye(3))
     copies = tuple(c if c is IDENTITY else Copy(flip @ c.rotation @ flip, c.pivot @ flip, c.offset @ flip) for c in g.copies)
-    return Geometry(g.shape, g.params, g.at @ flip, rotation, (), copies, g.op, g.blend, g.shell, g.twist, g.noise, g.shell_side, g.open)
+    return Geometry(g.shape, g.params, g.at @ flip, rotation, (), copies, g.op, g.blend, g.shell, g.twist, g.noise, g.shell_side, g.open,
+                    scale=g.scale)
 
 
 def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern | None:

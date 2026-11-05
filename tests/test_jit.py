@@ -24,13 +24,15 @@ SHAPES: dict[str, tuple[str, dict[str, Any]]] = {
     "tube": ("tube", {"points": [[0, 0, 0], [0.3, 0.2, 0], [0.4, 0.5, 0.3]], "radius": 0.1, "radius_to": 0.03}),
     "torus": ("torus", {"radius": 0.4, "thickness": 0.1}),
     "wedge": ("wedge", {"size": [0.6, 0.4, 0.5]}),
+    "lock": ("lock", {"points": [[0, 0, 0], [0.1, 0.25, 0.05], [0.15, 0.45, 0.2]], "width": 0.08, "thickness": 0.02, "width_to": 0.0,
+                      "thickness_to": 0.006, "facing": [0, 0, 1]}),
     "lathe": ("lathe", {"profile": [[0, -0.4], [0.3, -0.4], [0.2, 0.1], [0.35, 0.3], [0, 0.4]], "smooth": False}),
 }
 
 
 def variants() -> list[dict[str, Any]]:
     turned = {"at": np.array([0.1, -0.05, 0.2]), "rotation": rotation_matrix((20, 35, -10))}
-    busy = {**turned, "mirror": (0,), "twist": 40.0, "shell": 0.03, "noise": Noise(0.02, 0.2, 7)}
+    busy = {**turned, "mirror": (0,), "twist": 40.0, "shell": 0.03, "noise": Noise(0.02, 0.2, 7), "scale": np.array([1.0, 1.4, 0.6])}
     copies = (Copy(np.eye(3), np.zeros(3), np.zeros(3)), Copy(rotation_matrix((0, 90, 0)), np.array([0.1, 0, 0]), np.array([0, 0.2, 0])))
     opened = {**busy, "copies": copies, "open": (1, 1.0), "shell_side": "in"}
     return [{}, turned, busy, opened]

@@ -147,7 +147,7 @@ def test_hard_notation_errors(project: Project) -> None:
         ("box: { size: [1, 1, 1] }", "    bevel: 0.02\n    chamfer: 0.02\n", "not both"),
         ("box: { size: [1, 1, 1] }", "    chamfer: 0.6\n", "less than half"),
         ("cylinder: { radius: 0.3, height: 1, sides: 2 }", "", "sides"),
-        ("box: { size: [1, 1, 1] }", "    hard: true\n    noise: { amount: 0.01 }\n", "can't twist or have noise"),
+        ("box: { size: [1, 1, 1] }", "    hard: true\n    noise: { amount: 0.01 }\n", "can't twist, scale or have noise"),
         ("box: { size: [1, 1, 1] }", "    segments: 9\n", "segments"),
     ]
     for shape, extra, message in cases:
