@@ -114,3 +114,27 @@ def test_hard_part_gradient_is_cut_not_refined(project: Project) -> None:
     with_bands = lint_paths(project, [write_model(project, hard)]).built["thing"].triangles
     without = lint_paths(project, [write_model(project, plain, "other")]).built["other"].triangles
     assert with_bands < without + 120  # three exact cuts round the box, not a refined surface
+
+
+def test_refine_splits_each_long_edge_once_and_uses_every_midpoint() -> None:
+    from kiln.paint import refine
+
+    rng = np.random.default_rng(5)
+    for _ in range(20):
+        v = rng.uniform(-1, 1, (60, 3))
+        f = np.array([rng.choice(60, 3, replace=False) for _ in range(80)])
+        v2, f2, parent = refine(v, f, rng.random(80) < 0.5, 0.4, lambda x: x)
+        mids = v2[len(v):]
+        assert len(np.unique(np.round(mids, 12), axis=0)) == len(mids)  # no edge split twice
+        assert set(range(len(v), len(v2))) <= set(f2.reshape(-1).tolist())  # every midpoint is in the faces
+        assert len(parent) == len(f2) and parent.max() < len(f)
+
+
+def test_gradient_on_a_turned_mirrored_array(project: Project) -> None:
+    text = MODEL.format(gradient="{ to: white, steps: 3 }").replace("    color: red\n    gradient",
+                                                                       "    rotate: [0, 0, 20]\n    mirror: x\n    array: { count: 3, around: y }\n    color: red\n    gradient")
+    result = lint_paths(project, [write_model(project, text)])
+    assert not [f for f in result.findings if f.severity == "error"], result.findings
+    colours = {g.color for g in result.built["thing"].painted.groups}
+    pats = result.built["thing"].model.parts[1].patterns
+    assert {p.color for p in pats} <= colours
