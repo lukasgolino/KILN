@@ -41,6 +41,7 @@ class Built:
     hidden: tuple[int, ...] = ()  # adding parts with no visible surface even at full resolution (lint W101)
     lost: tuple[int, ...] = ()  # adding parts visible at full resolution that decimation removed (lint W111)
     asked_step: float = 0.0  # the mesh step the style or model asked for; above it, the grid cap decided `step` (lint W120)
+    ao: Array | None = None  # per vertex: baked occlusion (atlas_ao) the previews multiply in, as the engine does
 
     @property
     def triangles(self) -> int:

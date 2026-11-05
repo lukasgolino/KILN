@@ -220,6 +220,9 @@ def render(
                 texel = img[ty, tx]
                 lin = np.array([[c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in row] for row in texel[:, :3]])
                 albedo[m] = albedo[m] * (1 - texel[:, 3:4]) + lin * texel[:, 3:4]
+        lit_albedo = albedo  # what glows: Godot's EMISSION doesn't take COLOR, so no occlusion there
+        if built.ao is not None:  # baked occlusion (atlas_ao): a multiplier per vertex, as COLOR_0 (decals too) in the engine
+            albedo = albedo * (built.ao[p.faces[T]] * bary).sum(axis=1)[:, None]
         presets = [built.style.materials.get(gr.material, built.style.materials["default"]) for gr in groups]
         rough = np.array([pr.roughness for pr in presets])[g]
         metal = np.array([pr.metallic for pr in presets])[g]
@@ -257,12 +260,12 @@ def render(
             spec_col = np.where(metal[:, None] > 0.5, albedo, 1.0)
             rim_term = rim[:, None] * np.power(1 - np.clip(n @ view_dir, 0, 1), 3)[:, None] * sky
             color = diffuse + spec[:, None] * spec_col * sun_col + rim_term
-        color = color + albedo * emit[:, None]
+        color = color + lit_albedo * emit[:, None]
         if look.rim_light > 0:  # the style's added fresnel rim (Godot: a next pass on every material)
             fres = np.power(1 - np.clip(n @ -forward, 0, 1), look.rim_light_power)
             color = color + np.array(srgb_to_linear(look.rim_light_color)) * (look.rim_light * fres)[:, None]
         if look.glow and (emit > 0).any():
-            glow[hit] = albedo * emit[:, None] * look.exposure
+            glow[hit] = lit_albedo * emit[:, None] * look.exposure
         color = color * look.exposure
         color = _filmic(color) if look.tonemapper != "linear" else color
         lum = (color * np.array([0.2126, 0.7152, 0.0722])).sum(axis=1, keepdims=True)
