@@ -62,6 +62,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `scale: [1, 1, 0.4]` | stretch the shape in its own frame (or one number); soft parts only |
 | `noise: { amount: 0.01, scale: 0.2, seed: 3 }` | lumpy surface (rocks, bark, clay): amount in metres, scale = bump size |
 | `pattern: {...}` | a second colour painted on the part (below) |
+| `gradient: { to: fur_light, steps: 3 }` | the part's colour going to `to` in `steps` bands (2-16, default 3), mixed in OKLab; `from:` replaces the part's colour at the start. `along: path` (the default for tube, capsule and lock: first point to last) or `x`/`y`/`z` (the default for other shapes: across the shape's own box, low to high). Patterns paint over it; variants recolour the mixed bands from the swapped ends |
 | `decal: {...}` | an image on the part (below) |
 | `loose: true` | this part may float free (flames, bees, sparks, rubble): W103 doesn't count it |
 | `blend: none` | a hard part, joined crisply (below) |

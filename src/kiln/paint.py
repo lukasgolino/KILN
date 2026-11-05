@@ -121,9 +121,11 @@ def refine(vertices: Array, faces: Array, selected: Array, max_edge: float, proj
     split_keys = np.unique(keys[long_edge], axis=0)
     mids = project((vertices[split_keys[:, 0]] + vertices[split_keys[:, 1]]) / 2)
     base = len(vertices)
-    # midpoint index for every face edge (-1 = not split)
-    lookup = {(int(a), int(b)): base + i for i, (a, b) in enumerate(split_keys)}
-    mid = np.array([lookup.get((int(a), int(b)), -1) for a, b in keys]).reshape(-1, 3)
+    # midpoint index for every face edge (-1 = not split): edges as one integer each, looked up in the sorted split ones
+    code = keys[:, 0].astype(np.int64) * base + keys[:, 1]
+    split_code = split_keys[:, 0].astype(np.int64) * base + split_keys[:, 1]  # sorted (np.unique sorts rows)
+    at = np.minimum(np.searchsorted(split_code, code), len(split_code) - 1)
+    mid = np.where(split_code[at] == code, base + at, -1).reshape(-1, 3)
     flags = mid >= 0
     count = flags.sum(axis=1)
     out, parent = [faces[count == 0]], [np.flatnonzero(count == 0)]
@@ -177,6 +179,8 @@ MAX_STRIPES = 64  # flat faces: more stripes than this are cut the general way
 
 def _pattern_fn(p: Pattern, geometry: Geometry | None = None) -> ScalarFn:
     """>= 0 where the pattern's second colour goes; `geometry`: the part, for patterns in its own frame."""
+    if p.type == "along" and geometry is not None:  # a gradient's band: from `at` (a fraction) on along the path or axis
+        return _along_fn(p, geometry)
     if p.frame == "part" and geometry is not None:
         from kiln.uv import local
 
@@ -196,6 +200,20 @@ def _pattern_fn(p: Pattern, geometry: Geometry | None = None) -> ScalarFn:
         return radius - np.linalg.norm((q - np.round(q)) * p.size, axis=1)
 
     return dots
+
+
+def _along_fn(p: Pattern, geometry: Geometry) -> ScalarFn:
+    """0 to 1 from the start of the part's path (or the low end of its axis) to the end, minus the band's start."""
+    from kiln.sdf import SHAPES
+    from kiln.uv import _along, _path, local
+
+    path = _path(geometry)
+    if not any(p.axis) and path is not None:
+        return lambda x: _along(local(geometry, x), path)[1] - p.at
+    a = int(np.argmax(np.abs(p.axis)))
+    lo, hi = SHAPES[geometry.shape].bounds(geometry.params)
+    span = max(float(hi[a] - lo[a]), 1e-12)
+    return lambda x: (local(geometry, x)[:, a] - float(lo[a])) / span - p.at
 
 
 def _decal_frame(d: Decal) -> tuple[Array, Array, Array]:
@@ -358,7 +376,7 @@ def _patterns(
             sel = np.isin(owner, own)
             if not sel.any():
                 break
-            borders = _border_planes(pat, vertices[np.unique(faces[sel])]) if flat else None
+            borders = _border_planes(pat, vertices[np.unique(faces[sel])], part.geometry) if flat else None
             if borders is not None:
                 for value in borders:
                     sel = np.isin(owner, own)
@@ -370,8 +388,10 @@ def _patterns(
                 owner = _paint_alt(owner, own, sel & inside, pat, part, g, groups, group_index, pattern_groups)
                 continue
             # A pattern needs edges shorter than its repeat (or a stripe could fall between vertices), then short edges
-            # along its borders to cut them cleanly; areas between borders stay coarse (the budget).
-            for limit, border_only in ((pat.size / 2 if pat.type != "band" else pat.size, False), (pat.size / 4, True)):
+            # along its borders to cut them cleanly; areas between borders stay coarse (the budget). A gradient's band
+            # runs one way (its coordinate only grows along the part), so its border pass is enough.
+            passes = [(pat.size / 2 if pat.type != "band" else pat.size, False), (pat.size / 4, True)]
+            for limit, border_only in passes[1:] if pat.type == "along" else passes:
                 for _ in range(12):
                     values = fn(vertices)[faces]
                     sel = np.isin(owner, own)
@@ -407,9 +427,13 @@ def _paint_alt(owner: Array, own: list[int], faces: Array, pat: Pattern, part: P
     return owner
 
 
-def _border_planes(pat: Pattern, points: Array) -> list[Callable[[Array], Array]] | None:
+def _border_planes(pat: Pattern, points: Array, geometry: Geometry | None = None) -> list[Callable[[Array], Array]] | None:
     """A model-space band's or stripes' borders across `points` as linear functions (zero on a border), or None for
-    patterns whose borders aren't planes."""
+    patterns whose borders aren't planes. A gradient band along an axis of a plain part (one copy, no mirror or twist)
+    has one plane: its own function."""
+    if pat.type == "along" and any(pat.axis) and geometry is not None and len(geometry.copies) == 1 and not geometry.mirror \
+            and not geometry.twist:  # fmt: skip
+        return [_along_fn(pat, geometry)]
     if pat.frame == "part" or pat.type not in ("band", "stripes"):
         return None
     axis = np.array(pat.axis, float)

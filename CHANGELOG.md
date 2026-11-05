@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- **`gradient: { to: fur_light, steps: 3 }`** (#106): a part's colour (or `from`) going to `to` in `steps` bands mixed
+  in OKLab, along the path of a tube, capsule or lock (root to tip), or `along: x|y|z` of other shapes. Patterns paint
+  over it. Per-part random tones read as camouflage; a root-to-tip change reads as fur.
 - **`blend_to: <id>`** (or a list of ids) (#107): with `blend`, a part melts only into the earlier parts with those ids
   and meets every other part crisply. Fur locks melt into the body and keep a groove between each other (one blend
   radius either melted neighbours into lumps or left each lock looking stuck on). Compiled kernel too.
@@ -24,6 +27,8 @@ before 1.0).
 
 ### Changed
 
+- Pattern refinement looks split edges up with sorted integer keys instead of a Python dict over every edge: patterned
+  and gradient parts build several times faster (a 70-lock model: 46 s -> 30 s). Output is unchanged.
 - **Many-part models need far less memory** (#110). Painting, part areas, nearest-part lookups and lint's shell check
   kept every part's distance over every vertex (parts x vertices: ~3.4 GB for 422 parts on a 1M-vertex mesh). They now
   keep a running minimum per paint group or point. Output is unchanged.
