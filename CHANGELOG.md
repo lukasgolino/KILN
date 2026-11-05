@@ -6,6 +6,8 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-05
+
 ### Added
 
 - **Normal maps baked from the distance field** (#111, `kiln[bake]`: xatlas). A model with `normal_map: 1024` gets
@@ -538,7 +540,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/lukasgolino/KILN/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/lukasgolino/KILN/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/lukasgolino/KILN/compare/v0.13.0...v0.14.0
 [0.12.0]: https://github.com/lukasgolino/KILN/compare/v0.11.0...v0.12.0
