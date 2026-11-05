@@ -27,7 +27,8 @@ def part(shape: str, color: str | None = None, material: str = "default", id: st
     Part-level options (blend, cut, intersect, mirror, mirror_id, array, shell, twist, noise, pattern, decal, loose,
     hard, bevel, chamfer, segments, fit, keep, uv, attr, aim) may be passed with the shape's own parameters; they are sorted into the
     right place."""
-    part_keys = {"blend", "cut", "intersect", "mirror", "mirror_id", "array", "shell", "twist", "noise", "pattern", "decal", "loose",
+    part_keys = {"blend", "blend_to", "cut", "intersect", "mirror", "mirror_id", "array", "shell", "twist", "scale", "noise", "pattern",
+                 "gradient", "decal", "loose",
                  "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "attr", "aim"}  # fmt: skip
     shape_params = {k: v for k, v in params.items() if k not in part_keys}
     out: Part = {shape: shape_params}

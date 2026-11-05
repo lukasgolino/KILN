@@ -65,6 +65,7 @@ class Pattern:
     width: float  # stripes: fraction of each repeat in the second colour; dots: dot diameter as a fraction of size
     at: float = 0.0  # band: where its centre is along the axis (metres); size = its thickness
     frame: str = "model"  # model: axes and positions in model space; part: in the part's own frame (follows rotate/aim)
+    mix: tuple[str, str, float] | None = None  # a gradient band: (from, to, t): its colour is their OKLab mix (variants remix it)
 
 
 @dataclass(frozen=True)
@@ -531,7 +532,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             patterns = tuple(q for q in parsed if q is not None)
             pattern = patterns[0] if patterns else None
             ok = ok and len(patterns) == len(listed)
-        if "gradient" in raw:
+        if "gradient" in raw and ok:  # (needs the shape's numbers: only when they parsed)
             steps = _parse_gradient(ctx, raw["gradient"], kind, params, color, line, f"{where}.gradient")
             if steps is None:
                 ok = False
@@ -543,7 +544,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             decal = _parse_decal(ctx, raw["decal"], line, f"{where}.decal")
             ok = ok and decal is not None
     else:
-        for paint in ("color", "material", "pattern", "decal", "id"):
+        for paint in ("color", "material", "pattern", "gradient", "decal", "id"):
             if paint in raw:
                 ctx.error("E003", f"a {op} part removes material: it has no {paint}", line, f"{where}.{paint}")
                 ok = False
@@ -812,6 +813,9 @@ def _parse_gradient(ctx: _Ctx, raw: Any, kind: str, params: dict[str, Any], colo
         pts = np.asarray(params["points"] if kind != "capsule" else [params["from"], params["to"]], float)
         length = float(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum())
         axis = (0.0, 0.0, 0.0)
+        if length < 1e-6:
+            ctx.error("E003", "gradient along path: the path has no length (its points are all in one place); use along: x|y|z", line, where)
+            return None
     else:
         lo, hi = SHAPES[kind].bounds(params)
         a = AXES[along]
@@ -820,7 +824,8 @@ def _parse_gradient(ctx: _Ctx, raw: Any, kind: str, params: dict[str, Any], colo
         unit[a] = 1.0
         axis = (unit[0], unit[1], unit[2])
     bands = tuple(Pattern("along", _mix(start[0], to[0], k / (steps - 1)), f"{start[1]}_to_{to[1]}_{k}" if k < steps - 1 else to[1],
-                          max(length / steps, 1e-3), axis, 0.5, k / steps, "part") for k in range(1, steps))  # fmt: skip
+                          max(length / steps, 0.005), axis, 0.5, k / steps, "part", (start[0], to[0], k / (steps - 1)))
+                  for k in range(1, steps))  # fmt: skip
     return start, bands
 
 
@@ -1557,6 +1562,13 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 cb = _color(ctx, b, vline, f"variants.{vname}.swap")
                 if ca and cb:
                     swap[ca[0]] = cb[0]
+            for part in model.parts:  # gradient bands: the mix of the swapped ends
+                for pat in part.patterns:
+                    if pat.mix is not None and pat.color not in swap:
+                        a, b, t = pat.mix
+                        mixed = _mix(swap.get(a, a), swap.get(b, b), t)
+                        if mixed != pat.color:
+                            swap[pat.color] = mixed
             model.variants[str(vname)] = swap
     return model, ctx.findings
 

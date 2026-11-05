@@ -376,7 +376,7 @@ def _patterns(
             sel = np.isin(owner, own)
             if not sel.any():
                 break
-            borders = _border_planes(pat, vertices[np.unique(faces[sel])]) if flat else None
+            borders = _border_planes(pat, vertices[np.unique(faces[sel])], part.geometry) if flat else None
             if borders is not None:
                 for value in borders:
                     sel = np.isin(owner, own)
@@ -388,8 +388,10 @@ def _patterns(
                 owner = _paint_alt(owner, own, sel & inside, pat, part, g, groups, group_index, pattern_groups)
                 continue
             # A pattern needs edges shorter than its repeat (or a stripe could fall between vertices), then short edges
-            # along its borders to cut them cleanly; areas between borders stay coarse (the budget).
-            for limit, border_only in ((pat.size / 2 if pat.type != "band" else pat.size, False), (pat.size / 4, True)):
+            # along its borders to cut them cleanly; areas between borders stay coarse (the budget). A gradient's band
+            # runs one way (its coordinate only grows along the part), so its border pass is enough.
+            passes = [(pat.size / 2 if pat.type != "band" else pat.size, False), (pat.size / 4, True)]
+            for limit, border_only in passes[1:] if pat.type == "along" else passes:
                 for _ in range(12):
                     values = fn(vertices)[faces]
                     sel = np.isin(owner, own)
@@ -425,9 +427,13 @@ def _paint_alt(owner: Array, own: list[int], faces: Array, pat: Pattern, part: P
     return owner
 
 
-def _border_planes(pat: Pattern, points: Array) -> list[Callable[[Array], Array]] | None:
+def _border_planes(pat: Pattern, points: Array, geometry: Geometry | None = None) -> list[Callable[[Array], Array]] | None:
     """A model-space band's or stripes' borders across `points` as linear functions (zero on a border), or None for
-    patterns whose borders aren't planes."""
+    patterns whose borders aren't planes. A gradient band along an axis of a plain part (one copy, no mirror or twist)
+    has one plane: its own function."""
+    if pat.type == "along" and any(pat.axis) and geometry is not None and len(geometry.copies) == 1 and not geometry.mirror \
+            and not geometry.twist:  # fmt: skip
+        return [_along_fn(pat, geometry)]
     if pat.frame == "part" or pat.type not in ("band", "stripes"):
         return None
     axis = np.array(pat.axis, float)
