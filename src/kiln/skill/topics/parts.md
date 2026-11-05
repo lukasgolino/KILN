@@ -73,7 +73,10 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 Order matters: details that sit on a surface come **after** it. A part completely inside later parts shows nothing
 (W101). A cut removes material from what came before it, and paint follows: a door placed after the cut that made its
 archway is painted as the door, not as the wall. Parts thinner than about two mesh cells break up (W102): resolution comes from the style (soft_toy: 8 mm
-for a ~1 m model, coarser for bigger models).
+for a ~1 m model, coarser for bigger models: x sqrt(size), and at most 256 cells across). `kiln build` prints the cell
+size each model got (manifest `step`). Finer detail on a hero: `resolution: 0.004` and `max_cells: 640` in the model
+(lint W120 names the max_cells needed). Halving the cell size about triples build time and memory; the budget still
+decides the final triangles.
 
 ### Hard surface
 

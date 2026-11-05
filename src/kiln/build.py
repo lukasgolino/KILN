@@ -122,6 +122,7 @@ def model_entry(built: Built, out: Path, glb: Path, merged: bool = False) -> dic
         "class": m.cls,
         "style": built.style.name,
         "triangles": built.triangles,
+        "step": _f(built.step),
         "bounds": {"min": [_f(v) for v in lo], "max": [_f(v) for v in hi]},
         "size": [_f(v) for v in hi - lo],
         "skin": built.skin,

@@ -17,6 +17,7 @@ import numpy as np
 from kiln.effect import Effect
 from kiln.effect import parse as parse_effect
 from kiln.hardware import HARDWARE, expand
+from kiln.mesher import CELL_LIMIT
 from kiln.retarget import REQUIRED, JointMap
 from kiln.scatter import Scatter
 from kiln.scatter import parse as parse_scatter
@@ -46,8 +47,8 @@ PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror",
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "parts", "rig",
-              "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
+TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "parts",
+              "rig", "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
 SCATTER_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "scatter"}  # a scatter's model fields
@@ -159,6 +160,8 @@ class Model:
     style: str | None = None
     palette: str | None = None
     budget: int | None = None
+    resolution: float | None = None  # metres per mesh cell for this model, as is (not scaled by size); overrides the style
+    max_cells: int | None = None  # mesh grid cells per axis at most; overrides the style
     parts: list[Part] = field(default_factory=list)
     rig: dict[str, RigEntry] = field(default_factory=dict)
     skin: str = "none"
@@ -1270,6 +1273,18 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         ctx.error("E003", "budget is a triangle count (12-500000); it overrides the style's budget for the class", _line(data, "budget"), "budget")
     else:
         model.budget = budget
+    resolution = data.get("resolution")
+    if resolution is not None and (not isinstance(resolution, int | float) or isinstance(resolution, bool) or not 0.001 <= resolution <= 0.2):
+        ctx.error("E003", "resolution is metres per mesh cell for this model (0.001-0.2), used as is: e.g. 0.004 for a 2.4 m hero; "
+                  "overrides the style's", _line(data, "resolution"), "resolution")  # fmt: skip
+    else:
+        model.resolution = None if resolution is None else float(resolution)
+    max_cells = data.get("max_cells")
+    if max_cells is not None and (not isinstance(max_cells, int) or isinstance(max_cells, bool) or not 64 <= max_cells <= CELL_LIMIT):
+        ctx.error("E003", f"max_cells is mesh grid cells per axis at most (64-{CELL_LIMIT}), e.g. 768; overrides the style's",
+                  _line(data, "max_cells"), "max_cells")  # fmt: skip
+    else:
+        model.max_cells = max_cells
     prefix = data.get("node_prefix")
     if prefix is not None:
         if isinstance(prefix, str) and PREFIX_RE.match(prefix):

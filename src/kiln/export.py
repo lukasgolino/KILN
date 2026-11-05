@@ -40,6 +40,7 @@ class Built:
     pieces: int
     hidden: tuple[int, ...] = ()  # adding parts with no visible surface even at full resolution (lint W101)
     lost: tuple[int, ...] = ()  # adding parts visible at full resolution that decimation removed (lint W111)
+    asked_step: float = 0.0  # the mesh step the style or model asked for; above it, the grid cap decided `step` (lint W120)
 
     @property
     def triangles(self) -> int:

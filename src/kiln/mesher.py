@@ -11,14 +11,21 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from itertools import product
+from typing import TYPE_CHECKING
 
 import fast_simplification
 import numpy as np
 
 from kiln.sdf import Array, Field
 
+if TYPE_CHECKING:
+    from kiln.notation import Model
+    from kiln.style import Style
+
+REFINE_POINTS = 1_000_000  # fine grid points sampled at once (memory)
 COARSE = 4  # coarse sampling: one in 4 grid points per axis first; only blocks near the surface are refined
-MAX_CELLS = 256  # per axis
+MAX_CELLS = 256  # per axis, unless the style or model sets max_cells
+CELL_LIMIT = 1024  # the most max_cells may be
 BAD_TILT_COS = math.cos(math.radians(25))  # a face turned further than this from the surface needs repair
 BAD_ASPECT = 8.0  # longest edge squared over twice the area: above this, a sliver
 BORDER_TOLERANCE = 0.15  # grid steps: how far a simplified colour border may stray from the exact one (first try)
@@ -34,10 +41,10 @@ class Mesh:
         return int(len(self.faces))
 
 
-def grid_step(size: float, resolution: float) -> float:
-    """Metres per grid cell: the style's resolution, coarser for big models so a model stays <= MAX_CELLS
+def grid_step(size: float, resolution: float, max_cells: int = MAX_CELLS) -> float:
+    """Metres per grid cell: the resolution asked for, coarser for big models so a model stays <= max_cells
     cells across."""
-    return max(resolution, size / (MAX_CELLS - 6))
+    return max(resolution, size / (max_cells - 6))
 
 
 def sample(field: Field, lo: Array, step: float, dims: tuple[int, int, int]) -> Array:
@@ -55,16 +62,22 @@ def sample(field: Field, lo: Array, step: float, dims: tuple[int, int, int]) -> 
     block |= near[1:, 1:, :-1] | near[1:, :-1, 1:] | near[:-1, 1:, 1:] | near[1:, 1:, 1:]
     # nearest coarse sample for every fine point, then refine the near blocks
     nearest = [np.searchsorted(c, a - COARSE / 2, side="left").clip(0, len(c) - 1) for c, a in zip(coarse_idx, axes, strict=True)]
-    values = cvals[np.ix_(*nearest)].astype(float)
+    values = np.asarray(cvals, dtype=float)[np.ix_(*nearest)]  # one copy of the grid (fancy indexing copies)
     block_of = [np.minimum(a // COARSE, len(c) - 2).clip(0) for c, a in zip(coarse_idx, axes, strict=True)]
     # points on a block's faces belong to the neighbouring blocks too: refine them when any of those is near
     shifted = [np.where((a % COARSE == 0) & (a > 0), np.maximum(b - 1, 0), b) for a, b in zip(axes, block_of, strict=True)]
     refine = np.zeros(dims, dtype=bool)
     for combo in product((False, True), repeat=3):
         refine |= block[np.ix_(*[s if use else b for use, s, b in zip(combo, shifted, block_of, strict=True)])]
-    idx = np.argwhere(refine)
-    if len(idx):
-        values[refine] = field.distance(lo + idx * step)
+    # refined in slabs along x: the points' coordinates for a whole fine grid don't fit in memory
+    per_x = max(1, int(refine.sum()) // max(nx, 1))
+    slab = max(1, REFINE_POINTS // max(per_x, 1))
+    for x0 in range(0, nx, slab):
+        part = refine[x0 : x0 + slab]
+        idx = np.argwhere(part)
+        if len(idx):
+            idx[:, 0] += x0
+            values[x0 : x0 + slab][part] = field.distance(lo + idx * step)
     return values
 
 
@@ -72,12 +85,32 @@ GROW = 8  # cells added to a side of the grid the surface reaches
 GROW_TRIES = 6
 
 
-def model_step(field: Field, resolution: float) -> float:
-    """Grid step for a model: the style's resolution for a ~1 m model, coarser (by the square root of the size)
-    for bigger ones, and never more than MAX_CELLS cells across."""
+def asked_step(field: Field, resolution: float, scale: bool = True) -> float:
+    """The grid step asked for: the resolution, coarser (by the square root of the size) for models over 1 m
+    unless `scale` is off."""
     lo, hi = field.bounds()
     size = float((hi - lo).max())
-    return grid_step(size, resolution * max(size, 1.0) ** 0.5)
+    return resolution * max(size, 1.0) ** 0.5 if scale else resolution
+
+
+def model_step(field: Field, resolution: float, max_cells: int = MAX_CELLS, scale: bool = True) -> float:
+    """Grid step for a model: the step asked for (`asked_step`), never more than max_cells cells across."""
+    lo, hi = field.bounds()
+    size = float((hi - lo).max())
+    return grid_step(size, asked_step(field, resolution, scale), max_cells)
+
+
+def mesh_steps(field: Field, model: Model, style: Style) -> tuple[float, float]:
+    """(step, asked): the grid step a model is meshed at, and the one its model or style asked for. A model's own
+    `resolution` is used as is; the style's is scaled by size unless scale_with_size is off. The cap (max_cells
+    across the model's longest side) wins when it's coarser."""
+    max_cells = model.max_cells or style.max_cells
+    if model.resolution is not None:
+        asked = model.resolution
+    else:
+        asked = asked_step(field, style.resolution, style.scale_with_size)
+    lo, hi = field.bounds()
+    return grid_step(float((hi - lo).max()), asked, max_cells), asked
 
 
 def _grid(field: Field, step: float) -> tuple[Array, tuple[int, int, int], Array]:
@@ -278,16 +311,16 @@ def dual_contour(field: Field, step: float) -> Mesh:
     edges = []
     for (axis, idx, lower_inside), pts, nrm in zip(edges_list, points_list, normals_list, strict=True):
         others = [d for d in range(3) if d != axis]
-        cells = []
-        for da, db in ((0, 0), (1, 0), (1, 1), (0, 1)):  # around the edge, in order
+        # the cells' flat indices, a corner at a time (an (E, 4, 3) index array is the biggest thing in memory here)
+        u, w = idx[:, others[0]], idx[:, others[1]]
+        valid = (u >= 1) & (w >= 1) & (u < cell_dims[others[0]]) & (w < cell_dims[others[1]]) & (idx[:, axis] < cell_dims[axis])
+        idx, pts, nrm, lower_inside = idx[valid], pts[valid], nrm[valid], lower_inside[valid]
+        flat = np.empty((len(idx), 4), dtype=np.int64)
+        for k, (da, db) in enumerate(((0, 0), (1, 0), (1, 1), (0, 1))):  # around the edge, in order
             c = idx.copy()
             c[:, others[0]] -= 1 - da
             c[:, others[1]] -= 1 - db
-            cells.append(c)
-        stacked = np.stack(cells, axis=1)  # (E, 4, 3)
-        valid = np.all((stacked >= 0) & (stacked < np.array(cell_dims)), axis=(1, 2))
-        stacked, pts, nrm, lower_inside = stacked[valid], pts[valid], nrm[valid], lower_inside[valid]
-        flat = np.ravel_multi_index(stacked.reshape(-1, 3).T, cell_dims).reshape(-1, 4)
+            flat[:, k] = np.ravel_multi_index(c.T, cell_dims)
         edges.append((flat, pts, nrm, lower_inside, axis))
     # one vertex per sheet of the surface in a cell (usually one; two where a thin part or gap is under a cell wide)
     occupied, cell_of = np.unique(np.concatenate([e[0].reshape(-1) for e in edges]), return_inverse=True)
@@ -353,15 +386,20 @@ def dual_contour(field: Field, step: float) -> Mesh:
     # Along sharp rims a cell's best-fit point can land where its triangles fold over (facing inwards). Those
     # vertices go back to their cell's crossing centre: a slightly softer edge, but a clean surface (folds also
     # stop decimation: it won't collapse edges that would flip a triangle).
-    for _ in range(4):
-        p = x[f]
+    def facing_in(faces: Array) -> Array:
+        p = x[faces]
         normal = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
-        folded = (normal * field.gradient(p.mean(axis=1), step * 0.1)).sum(axis=1) < 0
+        return np.asarray((normal * field.gradient(p.mean(axis=1), step * 0.1)).sum(axis=1) < 0)
+
+    folded = facing_in(f)
+    for _ in range(4):
         moved = np.unique(f[folded])
         moved = moved[np.any(x[moved] != m[moved], axis=1)]
         if not len(moved):
             break
         x[moved] = m[moved]
+        touched = np.flatnonzero(np.isin(f, moved).any(axis=1))  # only faces at a moved vertex can change
+        folded[touched] = facing_in(f[touched])
     if len(pinches(x, f)[0]):  # sheets one cell apart can still share an edge on coarse grids: split them
         x, f = unpinch(x, f)
         return remove_unused(Mesh(project(field, x, step * 2), f))

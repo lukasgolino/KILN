@@ -18,14 +18,14 @@ from kiln import __version__
 from kiln.export import Built
 from kiln.hard import HARD_SHAPES, SHELL_SHAPES, HardMesh, HardSpec, Solid, intersect, solid, subtract, to_mesh, union
 from kiln.hard import corner_normals as hard_corner_normals
-from kiln.mesher import Mesh, component_labels, components, decimate, decimate_regions, dual_contour, model_step, simplify_borders
+from kiln.mesher import Mesh, component_labels, components, decimate, decimate_regions, dual_contour, mesh_steps, simplify_borders
 from kiln.notation import ROOT_ID, Decal, Model, Part
 from kiln.paint import Painted, PaintGroup, Regions, corner_normals, hard_regions, paint, regions
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
 from kiln.sdf import Array, Field, part_thickness
 from kiln.style import Style
 
-BUILDER_VERSION = 14  # bump when meshing/painting changes output
+BUILDER_VERSION = 15  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -146,7 +146,7 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
         probe = np.array([lo, hi, (lo + hi) / 2])
         if not (np.isfinite(lo).all() and np.isfinite(hi).all() and np.isfinite(part.geometry.distance(probe)).all()):
             raise ValueError(f"{part.where} ({part.geometry.shape}) has no valid surface (its numbers give NaN); check its points")
-    step = model_step(field, style.resolution)
+    step, asked = mesh_steps(field, model, style)
     field = field_of(model, step)
     target = budget or model.budget or style.budget(model.cls)
     rigged = model.skin != "none"
@@ -239,7 +239,7 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
             joints[n_soft:, 0] = bone[n_soft:]
             weights[n_soft:, 0] = 1.0
     return Built(model, style, painted, normals, skeleton, model.skin, joints, weights, tracks(model, skeleton) if rigged else [], step,
-                 floating, hidden, lost)  # fmt: skip
+                 floating, hidden, lost, asked)  # fmt: skip
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],

@@ -6,6 +6,28 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-05
+
+### Added
+
+- **Mesh detail is a setting** (#103). The grid was capped at 256 cells across a model, so a 2.4 m hero could not be
+  meshed finer than ~10 mm whatever the style asked for. Now:
+  - style `[shape] max_cells` (64-1024, default 256) and `scale_with_size` (default true: models over 1 m get
+    resolution x sqrt(size); false: the resolution as is);
+  - model `resolution:` (metres per cell for that model, used as is) and `max_cells:`, overriding the style;
+  - lint **W120**: the cap, not the resolution asked for, set the cell size; it names the `max_cells` needed;
+  - `kiln build` prints each model's triangles and mesh cell size, and the manifest has `step` per model.
+  Defaults are unchanged: existing models build byte-identically.
+
+### Changed
+
+- Faster, leaner meshing at fine resolutions: field evaluations go in small spatially tight batches (most parts are
+  skipped per batch), fine samples and normals are computed in chunks, and the fold repair after dual contouring only
+  rechecks faces it moved. A 2.4 m, 48-part character: 33 s -> 28 s at the default 12.6 mm, 196 s -> 114 s at 4 mm
+  (peak memory ~2.8 GB there, ~0.3 GB at the default). Output is unchanged.
+- Lint and build size their worker pool for the biggest model's mesh grid (~36 bytes per cell), not a fixed 0.7 GB,
+  so several fine-resolution models no longer run the machine out of memory.
+
 ## [0.14.0] - 2026-11-04
 
 ### Changed
@@ -474,7 +496,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/lukasgolino/KILN/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/lukasgolino/KILN/compare/v0.13.0...v0.14.0
 [0.12.0]: https://github.com/lukasgolino/KILN/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/lukasgolino/KILN/compare/v0.10.1...v0.11.0

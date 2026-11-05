@@ -50,6 +50,8 @@ style_version: 1
 style: soft_toy                # optional: else kiln.toml default_style
 palette: main                  # optional: else default_palette
 budget: 6000                   # optional: triangles (overrides the style's budget for the class)
+resolution: 0.004              # optional: metres per mesh cell for this model, as is (not scaled by size): finer detail
+max_cells: 640                 # optional: mesh cells across at most (64-1024, style default 256); W120 says when it decides
 lod: [2500, 800]               # optional: extra lower-detail .glb files
 origin: center                 # optional: the .glb's origin: base (bottom centre of the box) | center (spinning debris) | [x, y, z]
                                #   (default: model space as written; manifest `origin` = that point, other manifest values stay model space)

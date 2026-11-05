@@ -5,6 +5,7 @@ Geometric warnings need the model built (meshing is cached, so a second lint is 
 
 from __future__ import annotations
 
+import math
 import multiprocessing
 import os
 import sys
@@ -17,7 +18,7 @@ import numpy as np
 
 from kiln.builder import build_cached, cached, field_of, hard_parts, kept_parts
 from kiln.export import Built
-from kiln.mesher import crack_groups, open_edges, pinches
+from kiln.mesher import CELL_LIMIT, crack_groups, mesh_steps, open_edges, pinches
 from kiln.notation import Model
 from kiln.packs import lock_findings
 from kiln.project import Project
@@ -44,6 +45,7 @@ WARNING_RULES = {
     "W117": "a terrain's height shape lies off the map (it changes nothing)",
     "W118": "a scatter entry places very many instances (big scene and JSON files)",
     "W119": "a scatter entry places no instances (its rules never hold, or nothing is under it)",
+    "W120": "the mesh grid cap (max_cells), not the resolution asked for, set the mesh step (details come out coarser)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -67,6 +69,7 @@ class LintResult:
         return [f for f in self.findings if f.severity == "warning"]
 
 
+CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than asked
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -119,6 +122,12 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             if t is not None and t < 2 * built.step:
                 warn("W102", f"this {part.geometry.shape} is {t:.3g} m thick but the mesh resolution here is {built.step:.3g} m: it may break "
                      f"into bits; make it at least {2 * built.step:.3g} m thick", part.line, part.where)  # fmt: skip
+        if built.asked_step and built.step > built.asked_step * CAPPED:
+            cells = m.max_cells or built.style.max_cells
+            need = math.ceil(built.step * (cells - 6) / built.asked_step) + 6  # the step is the model's size / (cells - 6)
+            fix = f"set max_cells: {need}" if need <= CELL_LIMIT else f"set max_cells: {CELL_LIMIT} (the most), or a coarser resolution"
+            warn("W120", f"meshed at {built.step * 1000:.3g} mm, not the {built.asked_step * 1000:.3g} mm asked for: {cells} cells across "
+                 f"is the cap; {fix} (slower builds)")  # fmt: skip
         if palette:
             hexes = set(palette.values())
             for part in m.parts:
@@ -287,10 +296,25 @@ def _build_job(job: tuple[Model, Style, dict[str, str], Path]) -> Built | str:
 
 
 WORKER_MEMORY = 0.7  # GB a worker may need for a big model (measured: up to ~0.6); more workers than RAM allows thrash
+CELL_MEMORY = 36e-9  # GB per mesh grid cell (measured: a 2.4 m character at 4 mm, 79M cells, peaks at ~2.8 GB)
 
 
-def _jobs() -> int:
-    """KILN_JOBS, else every core, but no more workers than the free memory carries."""
+def job_memory(model: Model, style: Style) -> float:
+    """GB meshing a model may need: fine grids (max_cells, resolution) take far more than the default."""
+    if model.source is not None or not model.parts:
+        return WORKER_MEMORY
+    try:
+        field = field_of(model, 0.01)
+        step, _ = mesh_steps(field, model, style)
+        lo, hi = field.bounds()
+        cells = float(np.prod((hi - lo) / step + 6))
+    except (ValueError, FloatingPointError):
+        return WORKER_MEMORY
+    return max(WORKER_MEMORY, 0.3 + cells * CELL_MEMORY)
+
+
+def _jobs(memory: float = WORKER_MEMORY) -> int:
+    """KILN_JOBS, else every core, but no more workers than the free memory carries (`memory` GB each)."""
     try:
         asked = int(os.environ.get("KILN_JOBS", "0"))
     except ValueError:
@@ -302,7 +326,7 @@ def _jobs() -> int:
         with open("/proc/meminfo", encoding="ascii") as fh:
             info = dict(line.split(":", 1) for line in fh)
         free_gb = int(info["MemAvailable"].split()[0]) / 1024**2
-        return max(1, min(cores, int(free_gb / WORKER_MEMORY)))
+        return max(1, min(cores, int(free_gb / memory)))
     except (OSError, KeyError, ValueError):
         return cores
 
@@ -311,7 +335,8 @@ def build_all(jobs: list[tuple[Model, Style, dict[str, str], Path]]) -> list[Bui
     """Build (or load from the cache) several models, in parallel processes when there are several to mesh.
     Each model is built exactly as alone, so the output doesn't depend on the number of processes (KILN_JOBS)."""
     todo = [k for k, (m, st, pal, cache) in enumerate(jobs) if not cached(m, st, pal, cache)]
-    workers = min(_jobs(), len(todo))
+    need = max((job_memory(jobs[k][0], jobs[k][1]) for k in todo), default=WORKER_MEMORY)  # sized for the biggest
+    workers = min(_jobs(need), len(todo))
     out: list[Built | str | None] = [None] * len(jobs)
     if workers > 1:
         method = "forkserver" if sys.platform.startswith("linux") else "spawn"
