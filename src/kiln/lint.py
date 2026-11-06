@@ -50,6 +50,7 @@ WARNING_RULES = {
     "W120": "the mesh grid cap (max_cells), not the resolution asked for, set the mesh step (details come out coarser)",
     "W121": "a detail part shows nowhere: the model has no normal_map, or it is thinner than two of the map's texels",
     "W122": "a blend_to part can't melt into a target: it is hard, kept, separate or another bone's piece (they join crisply)",
+    "W123": "the built mesh dips a little below y = 0 (blends and meshing push the feet under the ground)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -73,6 +74,7 @@ class LintResult:
         return [f for f in self.findings if f.severity == "warning"]
 
 
+GROUND_DIP = 0.002  # W123: metres below y = 0 a grounded model's built mesh may reach unremarked (or a tenth of a cell)
 CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than asked
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
@@ -198,6 +200,9 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     if not grounded:
         warn("W106", f"the lowest point is at y = {float(lo[1]):.3g} m: models stand on y = 0 (feet, wheels, base). Move the parts, "
              "or disable W106 for things that hang or float")  # fmt: skip
+    elif m.origin is None and float(lo[1]) < -max(GROUND_DIP, 0.1 * built.step):  # coarse cells round a little anyway
+        warn("W123", f"the built mesh dips to y = {float(lo[1]) * 1000:.3g} mm, below the ground (blends and meshing can push it under the "
+             "shapes' bottom): set origin: ground to lift the exported mesh onto y = 0, or raise the lowest parts a little")  # fmt: skip
     limits = CLASS_SIZES.get(m.cls)
     if limits and not limits[0] <= size <= limits[1]:
         warn("W108", f"a {m.cls} {size:.3g} m across is unusual (expected {limits[0]:g}-{limits[1]:g} m): units are metres")

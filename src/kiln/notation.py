@@ -185,7 +185,7 @@ class Model:
     skeleton: str | None = None  # humanoid: standard joint names, clip retargeting
     joint_map: JointMap | None = None  # skeleton: { map, root_motion }: clips retargeted onto any skeleton
     fit_to: tuple[Path, str, tuple[str, ...]] | None = None  # (glb, bone, meshes): an attachment made around a CC0 character
-    origin: str | tuple[float, float, float] | None = None  # base | center | a model-space point: the exported files' origin
+    origin: str | tuple[float, float, float] | None = None  # base | center | ground | a model-space point: the exported files' origin
     node_prefix: str = ""  # mesh nodes are <prefix><id> children of their parts' nodes (several models in one scene)
     animation_library: str | None = None  # plays this clip carrier's animations (copied in at load); its glb has none
     animations_only: bool = False  # a clip carrier: Godot imports its glb as an AnimationLibrary (no scene)
@@ -1431,13 +1431,14 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                       _line(data, "node_prefix"), "node_prefix")  # fmt: skip
     origin = data.get("origin")
     if origin is not None:
-        if origin in ("base", "center"):
+        if origin in ("base", "center", "ground"):
             model.origin = str(origin)
         elif isinstance(origin, list) and len(origin) == 3 and all(isinstance(v, int | float) and not isinstance(v, bool) for v in origin):
             model.origin = (float(origin[0]), float(origin[1]), float(origin[2]))
         else:
-            ctx.error("E003", "origin is base (bottom centre of the model's box), center (its middle) or a point [x, y, z]: the exported mesh's "
-                      "origin, e.g. center for debris that spins", _line(data, "origin"), "origin")  # fmt: skip
+            ctx.error("E003", "origin is base (bottom centre of the model's box), center (its middle), ground ([0, lowest point, 0]: the built "
+                      "mesh lifted onto y = 0) or a point [x, y, z]: the exported mesh's origin, e.g. center for debris that spins",
+                      _line(data, "origin"), "origin")  # fmt: skip
         if "fit_to" in data:
             ctx.error("E003", "an attachment (fit_to) is exported in its bone's space: drop origin", _line(data, "origin"), "origin")
     if "effect" in data:

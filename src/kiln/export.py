@@ -61,6 +61,8 @@ class Built:
             return np.array(o, dtype=float)
         lo, hi = self.bounds()
         mid = (lo + hi) / 2
+        if o == "ground":  # only lifted (or lowered) onto y = 0: x and z stay the model's (#101)
+            return np.array([0.0, lo[1], 0.0])
         return np.array([mid[0], lo[1], mid[2]]) if o == "base" else mid
 
 
