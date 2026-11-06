@@ -10,26 +10,24 @@ before 1.0).
 
 Fixes the open issues from game use: faster painting, Godot Compatibility colours, filtered normal maps, clean
 colour edges on noisy parts, new lint warnings (W123, W124), preview views and sizes, a smaller MCP tool list.
-Meshes change for models with `noise` next to another colour and for every baked normal map; others are
-byte-identical apart from the generator string.
+Meshes change for models with `noise` next to another colour and for every baked normal map; Godot scenes of
+models with vertex colours (or `atlas_ao`) gain the Compatibility re-encode; the demo's knight and wall use
+`origin: ground`. Everything else is byte-identical apart from the generator string.
 
 ### Added
 
 - `origin: ground` (#101): the exported mesh lifted (or lowered) onto y = 0 by its built lowest point, x and z as
   written; the manifest records the origin as for the other values.
-- W123 (#101): the built mesh of a model standing on y = 0 dips 2 mm or more under it (2 mm, or a tenth of a cell; blends
-  and meshing push feet under the shapes' bottom; W106 only fires past 1 cm). It points at `origin: ground`, which the demo's knight and wall now use (they dipped 4.5 and 7.1 mm).
-
+- W123 (#101): the built mesh of a model standing on y = 0 dips under it by 2 mm (or a tenth of a cell) or more:
+  blends and meshing push feet under the shapes' bottom, and W106 only fires past 1 cm. It points at
+  `origin: ground`, which the demo's knight and wall now use (they dipped 4.5 and 7.1 mm).
 - W124 (#98): a part shows only a sliver (97% or more of its own surface deeper inside other parts than their blend:
   clipped flat or nearly gone), naming the covering parts. W101 also names the parts that cover a hidden one. Hard,
   shell, separate and revealed parts are left out (hard parts are meshed as their tessellation, not their field).
-
 - Long builds and lints are never silent for more than 10 s (#99): the current phase repeats itself every 10 s
   (`kiln: bigfoot: reducing to 15000 triangles (10 s)`), not only when the next one starts. Runs over 20 s without
   `kiln[fast]` installed point at it (a 50-part character: 20 s -> 9 s; cached: 1 s, shared with previews).
-
 - `normal_strength` (#125): scales a baked normal map's tilt (0.5 softer, 0 flat, up to 4).
-
 - `kiln preview --views front,34,side,back --pitch 5,30 --size 500` (#96): one sheet of the views asked for (names
   or degrees, a row per pitch) as `views.png`; `--size` sets the tile size of the turntable, closeups and views, and
   `preview_size` in kiln.toml its default. `--turntable` has a help line.
@@ -38,12 +36,10 @@ byte-identical apart from the generator string.
 
 - Docs (#102): where a ring `array`'s arc starts and which way it runs, that copies turn with the ring, and that a
   `cone`'s (and `cylinder`'s) `at` is its middle, with `aim` to place it by its ends.
-
 - Baked normal maps are filtered per texel (#125): four samples a quarter texel around its centre, each with a
   gradient step of half a texel, so detail finer than a texel blurs out instead of aliasing into streaks and speckle
   (sub-texel noise: tilt std 0.10 -> 0.04). Bakes take about 1.5x as long; every baked map changes. parts.md says
   which groove sizes read at which map size.
-
 - Colour borders between a noisy part and its neighbours follow the parts' smooth shapes (#100): noise roughens the
   surface, not the edge of a blended patch on it (it came out saw-toothed). Meshes of models with `noise` next to
   another colour change.
@@ -69,7 +65,7 @@ byte-identical apart from the generator string.
 - The MCP tool list is a third smaller (#94): 15.1k -> 9.6k characters (~2.7k tokens) for 24 tools. No `title` on
   every schema, no generic output schemas, only annotation hints that differ from the spec's defaults, and one-line
   descriptions for the long ones (`docs` holds the detail). A test keeps it under 10.5k.
-- README links the website at its own domain, https://kiln3d.dev/ ([#128](https://github.com/lukasgolino/KILN/issues/128)).
+- README links the website at its own domain, https://kiln3d.dev/ (#128).
 - CI: lint, types and tests on one Python run on every push. The full Python matrix and the Godot checks run on the
   PR once it leaves draft, and again only if a commit lands after that, as the last gate before merge.
 
