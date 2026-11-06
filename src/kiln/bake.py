@@ -143,29 +143,40 @@ def _texels(uv: Array, width: int, height: int | None = None) -> tuple[Array, Ar
     return np.concatenate(faces_out), np.concatenate(tex_out), np.concatenate(bary_out)
 
 
-def _surface_normals(field: Field, p: Array, step: float) -> tuple[Array, Array]:
-    """(gradient, |distance|) at the surface point near each p: Newton steps along the gradient, at most two cells,
-    each step's distance the mean of the gradient's six samples (one evaluation set per step)."""
+def _surface_point(field: Field, p: Array, step: float) -> tuple[Array, Array]:
+    """(surface point, |distance| left) near each p: two Newton steps along the gradient, at most two cells each, each
+    step's distance the mean of the gradient's six samples (one evaluation set per step)."""
     q = p.copy()
     eps = max(step * 0.05, 1e-4)
     offsets = np.eye(3) * eps
-    for k in range(3):
+    for _ in range(2):
         stacked = np.concatenate([q + o for o in offsets] + [q - o for o in offsets])
         d = field.distance(stacked).reshape(6, len(q))
         g = (d[:3] - d[3:]).T
         g /= np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-12)
         f = d.mean(axis=0)  # the distance at q, to O(eps^2)
-        if k == 2:
-            return g, np.abs(f)
         q = q - np.clip(f, -2 * step, 2 * step)[:, None] * g
-    raise AssertionError("unreachable")
+    return q, np.abs(field.distance(q))
 
 
-def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, normals: Array, size: int, step: float) -> Bake:
+SUPERSAMPLE = ((-0.25, -0.25), (0.25, -0.25), (-0.25, 0.25), (0.25, 0.25))  # texel offsets (tangent, bitangent) averaged
+
+
+def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, normals: Array, size: int, step: float,
+         strength: float = 1.0) -> Bake:  # fmt: skip
     """Unwrap the mesh and bake into its tangent frames the normals of each face's own field (`face_field`: an index
-    into `fields`, -1: the mesh normal as it is, e.g. exact hard parts)."""
+    into `fields`, -1: the mesh normal as it is, e.g. exact hard parts). Each texel is filtered (#125): the normals
+    at four points a quarter texel around its centre, averaged, each with a gradient step of half a texel, so detail
+    finer than a texel blurs out instead of aliasing into streaks and speckles. `strength` scales the map's tilt
+    away from the mesh normal (model normal_strength: 0.5 halves it)."""
     uv, width, height = unwrap(vertices, faces, size)
     tan = tangents(vertices, faces, uv, normals)
+    corners = vertices[faces]
+    area = np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1)
+    duv = uv * np.array([width, height])  # (F, 3, 2): per face corner
+    e1, e2 = duv[:, 1] - duv[:, 0], duv[:, 2] - duv[:, 0]
+    texels = np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0])  # twice the face's area in texels, as `area` is in m^2
+    metres = np.minimum(np.sqrt(area / np.maximum(texels, 1e-12)), 4 * step)  # per face: metres per texel (slivers: capped)
     face, texel, bary = _texels(uv, width, height)
     # one texel, one face: the last face wins where charts' edges share texels (all faces are in order: stable)
     _, last = np.unique(texel[::-1], return_index=True)
@@ -187,8 +198,17 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
             t = t - n * (n * t).sum(axis=1, keepdims=True)
             t = t / np.maximum(np.linalg.norm(t, axis=1, keepdims=True), 1e-12)
             up = np.cross(n, t) * w[:, None]
-            hi, off = _surface_normals(field, p, step)
+            size_m = metres[f]
+            centre, off = _surface_point(field, p, step)
+            h = np.maximum(size_m * 0.5, 1e-4)[:, None]
+            hi = np.zeros_like(p)
+            for a, c in SUPERSAMPLE:  # around the surface point, in the mesh's tangent plane: a quarter texel is close enough
+                q = centre + (t * a + up * c) * size_m[:, None]
+                g = np.stack([field.distance(q + e * h) - field.distance(q - e * h) for e in np.eye(3)], axis=1)
+                hi += g / np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-12)
+            hi /= np.maximum(np.linalg.norm(hi, axis=1, keepdims=True), 1e-12)
             local = np.stack([(hi * t).sum(axis=1), (hi * up).sum(axis=1), (hi * n).sum(axis=1)], axis=1)
+            local[:, :2] *= strength
             local[off > step] = (0.0, 0.0, 1.0)  # no surface near: the mesh normal
             local[:, 2] = np.maximum(local[:, 2], 0.05)  # never facing away from the surface
             local /= np.linalg.norm(local, axis=1, keepdims=True)

@@ -47,7 +47,7 @@ PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror",
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "parts",
+TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "parts",
               "rig", "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
@@ -166,6 +166,7 @@ class Model:
     resolution: float | None = None  # metres per mesh cell for this model, as is (not scaled by size); overrides the style
     max_cells: int | None = None  # mesh grid cells per axis at most; overrides the style
     normal_map: int = 0  # texels across the baked normal map (0: none)
+    normal_strength: float = 1.0  # the map's tilt away from the mesh normal, scaled
     bake_parts: list[Geometry] | None = None  # every part's geometry in order, `detail` ones too (the normal map's field)
     detail: list[Geometry] = field(default_factory=list)  # the `detail` parts (only in bake_parts)
     bake_index: list[int] = field(default_factory=list)  # part i is bake_parts[bake_index[i]]
@@ -1422,6 +1423,14 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                   "the shapes, not triangles (needs kiln[bake])", _line(data, "normal_map"), "normal_map")  # fmt: skip
     else:
         model.normal_map = int(normal_map)
+    strength = data.get("normal_strength", 1.0)
+    if not _num(strength) or not 0 <= float(strength) <= 4:
+        ctx.error("E003", "normal_strength scales the baked normal map's tilt: 0 (flat) to 4, 1 as baked (0.5: softer grooves)",
+                  _line(data, "normal_strength"), "normal_strength")  # fmt: skip
+    elif "normal_strength" in data and not model.normal_map:
+        ctx.error("E003", "normal_strength goes with normal_map (the map it scales)", _line(data, "normal_strength"), "normal_strength")
+    else:
+        model.normal_strength = float(strength)
     prefix = data.get("node_prefix")
     if prefix is not None:
         if isinstance(prefix, str) and PREFIX_RE.match(prefix):
