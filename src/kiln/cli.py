@@ -288,7 +288,8 @@ def _terrain_preview(project: Project, args: argparse.Namespace, out: Output) ->
     errors = [f for f in findings if f.severity == "error"]
     if style is None or errors:
         raise PaganError(errors or findings)
-    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at") if getattr(args, flag, None)]
+    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at", "views", "pitch", "size")
+              if getattr(args, flag, None) is not None and getattr(args, flag) is not False]  # fmt: skip
     if others:
         raise _usage(f"{model.name} is a terrain: its preview is one sheet (from above and four sides); --{others[0]} doesn't apply")
     palette, _ = project.palette(model.palette)
@@ -315,7 +316,8 @@ def _scatter_preview(project: Project, args: argparse.Namespace, out: Output) ->
     errors = [f for f in findings if f.severity == "error"]
     if style is None or errors:
         raise PaganError(errors or findings)
-    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at") if getattr(args, flag, None)]
+    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at", "views", "pitch", "size")
+              if getattr(args, flag, None) is not None and getattr(args, flag) is not False]  # fmt: skip
     if others:
         raise _usage(f"{model.name} is a scatter: its preview is one sheet (from above, two sides, close up); --{others[0]} doesn't apply")
     cache = project.root / ".kiln-cache"
@@ -391,7 +393,7 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     if want_views:
         try:
             yaws = [pv.heading(v) for v in args.views.split(",")] if args.views else list(pv.HEADINGS)
-            pitches = [float(p) for p in args.pitch.split(",")] if args.pitch else [15.0]
+            pitches = [float(p) for p in args.pitch.split(",")] if args.pitch else [15.0]  # nan fails the range test below
         except ValueError as exc:
             raise _usage(str(exc) if "view" in str(exc) else "--pitch is degrees above the horizon, e.g. 5 or 5,30") from None
         if not all(-89 <= p <= 89 for p in pitches):

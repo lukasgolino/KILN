@@ -349,3 +349,19 @@ def test_preview_views_pitch_and_size(in_project: Project, capsys: pytest.Captur
     for argv, text in ((["--views", "upwards"], "view 'upwards'"), (["--pitch", "95"], "between -89 and 89"), (["--size", "9"], "64-1024")):
         code, result = run_json(["preview", "ball", *argv], capsys)
         assert code == 1 and text in result["findings"][0]["message"], result
+
+
+def test_preview_views_flags_on_terrains_and_config(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    land = "name: land\nterrain:\n  size: [8, 8]\n  cell: 0.5\n  chunk: 8\n  lod: []\n  splat:\n    - grass: { color: green }\n  shapes:\n    - hill: { at: [0, 0], radius: 3, height: 1 }\n"
+    write_model(in_project, land, "land")
+    for argv in (["--views", "front"], ["--pitch", "5"], ["--size", "200"]):
+        code, result = run_json(["preview", "land", *argv], capsys)
+        assert code == 1 and "doesn't apply" in result["findings"][0]["message"], result
+    code, result = run_json(["config", "set", "preview_size", "500"], capsys)
+    assert code == 0, result
+    code, result = run_json(["preview", "land"], capsys)  # a configured preview_size is harmless here
+    assert code == 0, result
+    code, result = run_json(["config", "set", "preview_size", "5000"], capsys)
+    assert code == 1 and result["findings"][0]["where"] == "preview_size"
+    code, result = run_json(["preview", "land", "--views", "nan"], capsys)
+    assert code == 1

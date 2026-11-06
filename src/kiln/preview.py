@@ -92,9 +92,12 @@ def heading(text: str) -> tuple[str, float]:
     if key in names:
         return key, names[key]
     try:
-        return f"{float(key):g} deg", float(key) % 360
+        degrees = float(key)
     except ValueError:
-        raise ValueError(f"view {text!r}: a name ({', '.join(n for n, _ in HEADINGS)}, side, 34) or degrees") from None
+        degrees = math.nan
+    if not math.isfinite(degrees):
+        raise ValueError(f"view {text!r}: a name ({', '.join(n for n, _ in HEADINGS)}, side, 34) or degrees")
+    return f"{degrees:g} deg", degrees % 360
 
 
 def views(built: Built, yaws: list[tuple[str, float]], pitches: list[float], size: int = 400, swap: dict[str, str] | None = None) -> Image.Image:
