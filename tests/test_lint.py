@@ -211,3 +211,73 @@ def test_w123_a_small_dip_below_the_ground_and_origin_ground(project: Project) -
     root = doc["nodes"][doc["scenes"][0]["nodes"][0]]
     assert abs(min(lows) + root.get("translation", [0, 0, 0])[1]) < 1e-6  # the lowest point lands on y = 0
     assert warnings(lint(project, sphere_text())) == []  # standing on y = 0: no W123
+
+
+BODY = "name: thing\nparts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.5 }\n    color: red\n"
+
+
+def test_w101_names_the_covering_part(project: Project) -> None:
+    """#98: W101 says which part covers the hidden one."""
+    text = BODY.replace("parts:\n", "parts:\n  - sphere: { at: [0, 0.5, 0.1], radius: 0.1 }\n    color: blue\n")
+    found = [f for f in lint(project, text) if f.rule == "W101"]
+    assert len(found) == 1 and "part 1 (sphere, red) covers it" in found[0].message
+
+
+@pytest.mark.parametrize(("extra", "expected"), [
+    ("  - sphere: { at: [0, 0.5, 0.305], radius: 0.2 }\n    color: blue\n", True),  # a 5 mm cap of it shows
+    ("  - sphere: { at: [0.15, 0.85, 0.35], radius: 0.08 }\n    color: white\n", False),  # an eye, about half in
+])  # fmt: skip
+def test_w124_a_part_that_shows_only_a_sliver(project: Project, extra: str, expected: bool) -> None:
+    findings = lint(project, BODY.replace("parts:", "resolution: 0.01\nparts:") + extra)
+    w124 = [f for f in findings if f.rule == "W124"]
+    assert bool(w124) == expected, findings
+    if expected:
+        assert "part 1 (sphere, blue) is" in w124[0].message and "inside part 0 (sphere, red)" in w124[0].message
+
+
+def test_cover_counts_what_a_cut_opens(project: Project) -> None:
+    from conftest import load
+
+    from kiln.builder import field_of
+    from kiln.cover import covers
+
+    eye = "  - sphere: { at: [0, 0.5, 0.42], radius: 0.06 }\n    color: white\n"
+    slit = "  - box: { at: [0, 0.5, 0.5], size: [0.4, 0.05, 0.3] }\n    cut: true\n"
+    cover = []
+    for text in (BODY + eye + slit, BODY + eye):
+        model, _, findings = load(project, text)
+        assert model is not None, findings
+        cover.append(covers(model, field_of(model, 0.01), 0.01, [1])[1].covered)
+    assert cover[0] < cover[1] - 0.1  # the slit cut into the body shows more of the eye
+
+
+def test_cover_keeps_to_the_builders_pieces(project: Project) -> None:
+    """union: per_bone meshes each bone apart: an arm deep in the chest is its own surface, not covered by it."""
+    from conftest import load
+
+    from kiln.builder import field_of
+    from kiln.cover import covers
+
+    text = ("name: thing\nskin: rigid\nUNION:parts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.5 }\n    id: chest\n    color: red\n"
+            "  - sphere: { at: [0, 0.5, 0.3], radius: 0.15 }\n    id: arm\n    color: blue\n"
+            "rig:\n  arm: { pivot: [0, 0.5, 0.3] }\n")  # fmt: skip
+    for union, covered in (("", True), ("union: per_bone\n", False)):
+        model, _, findings = load(project, text.replace("UNION:", union))
+        assert model is not None, findings
+        c = covers(model, field_of(model, 0.01), 0.01, [1])
+        assert (c[1].covered > 0.9) == covered, (union, c)
+
+
+def test_cover_samples_every_copy(project: Project) -> None:
+    import numpy as np
+    from conftest import load
+
+    from kiln.builder import field_of
+    from kiln.cover import surface_samples
+
+    ring = BODY + "  - sphere: { at: [0.6, 0.5, 0], radius: 0.04 }\n    color: blue\n    array: { count: 8, around: y, center: [0, 0.5, 0] }\n"
+    model, _, findings = load(project, ring)
+    assert model is not None, findings
+    points = surface_samples(field_of(model, 0.01).parts[1], 0.01)
+    angles = np.round(np.degrees(np.arctan2(points[:, 2], points[:, 0])) / 45) % 8
+    assert len(set(angles.tolist())) == 8 and len(points) > 8 * 100  # every bead of the ring, densely
