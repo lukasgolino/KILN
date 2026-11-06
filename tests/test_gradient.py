@@ -184,10 +184,14 @@ def test_a_long_phase_keeps_saying_so(monkeypatch: pytest.MonkeyPatch, capsys: p
 
 
 def test_slow_runs_without_the_fast_extra_say_so(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kiln import jit
+    """Only when numba isn't installed: KILN_JIT=0 (numpy pinned on purpose) stays quiet."""
+    import importlib.util
+
     from kiln.usage import cost_line
 
-    monkeypatch.setattr(jit, "AVAILABLE", False)
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "numba" else real(name, *a))
     assert "kiln[fast]" in cost_line(25.0) and "kiln[fast]" not in cost_line(5.0)
-    monkeypatch.setattr(jit, "AVAILABLE", True)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: object())
+    monkeypatch.setenv("KILN_JIT", "0")
     assert "kiln[fast]" not in cost_line(25.0)

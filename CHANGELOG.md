@@ -19,7 +19,7 @@ before 1.0).
 
 - Long builds and lints are never silent for more than 10 s (#99): the current phase repeats itself every 10 s
   (`kiln: bigfoot: reducing to 15000 triangles (10 s)`), not only when the next one starts. Runs over 20 s without
-  `kiln[fast]` say it meshes about twice as fast (a 50-part character: 20 s -> 9 s; cached: 1 s, shared with previews).
+  `kiln[fast]` installed point at it (a 50-part character: 20 s -> 9 s; cached: 1 s, shared with previews).
 
 ### Fixed
 

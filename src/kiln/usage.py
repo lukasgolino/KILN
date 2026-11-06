@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 import threading
@@ -28,10 +29,8 @@ SLOW_SECONDS = 20.0  # past this, a run without kiln[fast] says what the extra w
 def cost_line(seconds: float) -> str:
     peak = peak_gb()
     line = f"{seconds:.0f} s" + (f", peak memory {peak:.1f} GB" if peak is not None else "")
-    from kiln import jit
-
-    if seconds >= SLOW_SECONDS and not jit.AVAILABLE:  # #99: the compiled distances about halve meshing
-        line += "; pip install 'kiln[fast]' meshes about twice as fast"
+    if seconds >= SLOW_SECONDS and importlib.util.find_spec("numba") is None:  # #99 (not when KILN_JIT=0 pins numpy)
+        line += "; meshing runs faster with pip install 'kiln[fast]'"
     return line
 
 
