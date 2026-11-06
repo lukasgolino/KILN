@@ -6,6 +6,13 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-06
+
+Fixes the open issues from game use: faster painting, Godot Compatibility colours, filtered normal maps, clean
+colour edges on noisy parts, new lint warnings (W123, W124), preview views and sizes, a smaller MCP tool list.
+Meshes change for models with `noise` next to another colour and for every baked normal map; others are
+byte-identical apart from the generator string.
+
 ### Added
 
 - `origin: ground` (#101): the exported mesh lifted (or lowered) onto y = 0 by its built lowest point, x and z as
@@ -609,7 +616,9 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/lukasgolino/KILN/compare/v0.16.1...v0.17.0
+[0.16.1]: https://github.com/lukasgolino/KILN/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/lukasgolino/KILN/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/lukasgolino/KILN/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/lukasgolino/KILN/compare/v0.13.0...v0.14.0

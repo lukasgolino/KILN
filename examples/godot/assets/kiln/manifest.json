@@ -25,7 +25,7 @@
     "manifest.json"
   ],
   "front": "+Z",
-  "generator": "kiln 0.16.1",
+  "generator": "kiln 0.17.0",
   "looks": {
     "soft_toy": "res://assets/kiln/looks/soft_toy.tscn"
   },
@@ -1111,7 +1111,7 @@
       "lods": [
         {
           "glb": "models/tree.lod1.glb",
-          "triangles": 1494
+          "triangles": 1488
         }
       ],
       "parts": {
@@ -1221,7 +1221,7 @@
       "tags": [
         "siege"
       ],
-      "triangles": 19950
+      "triangles": 19952
     }
   },
   "units": "metres",
