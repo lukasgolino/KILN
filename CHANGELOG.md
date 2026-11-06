@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+### Fixed
+
+- A palette with errors (e.g. a key of two characters, #126) reports only its own errors, naming the file and key;
+  models using it are not parsed, instead of failing with one "unknown colour ... (none)" per part.
+
 ### Changed
 
 - README links the website at its own domain, https://kiln3d.dev/ ([#128](https://github.com/lukasgolino/KILN/issues/128)).

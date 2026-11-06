@@ -10,7 +10,7 @@ from typing import Any
 from kiln.atlas import AO_STRENGTH
 from kiln.notation import MODEL_SUFFIX, NAME_RE, Model, load_model
 from kiln.style import Style, load_style, resolve_look
-from kiln.vendor.findings import Finding, PaganError
+from kiln.vendor.findings import Finding, PaganError, has_errors
 from kiln.vendor.palette import PALETTE_SUFFIX, load_palette_file
 
 CONFIG_NAME = "kiln.toml"
@@ -92,7 +92,7 @@ class Project:
                             lookup[c.name] = c.hex
                     self._palettes[key] = (lookup, [])
                 except PaganError as exc:
-                    self._palettes[key] = ({}, list(exc.findings))
+                    self._palettes[key] = ({}, [_key_hint(f) for f in exc.findings])
         return self._palettes[key]
 
     def model_paths(self) -> list[Path]:
@@ -106,7 +106,7 @@ class Project:
         palette, pf = self.palette(palette_name)
         findings += [Finding(f.rule, f.message, f.path or path, f.line, f.where) for f in sf]
         findings += [Finding(f.rule, f.message, f.path or path, f.line, f.where) for f in pf]
-        if style is None:
+        if style is None or has_errors(pf):  # a broken palette: its own errors, not one "unknown colour" per part
             return None, None, findings
         style, lf = resolve_look(style, palette)  # a palette colour in [look] (palettes are per model)
         findings += [Finding(f.rule, f.message, f.path or path, f.line, f.where) for f in lf]
@@ -150,6 +150,14 @@ class Project:
         model.animations = {k: replace(a, poses=[{i: p for i, p in pose.items() if i in mine} for pose in a.poses]) for k, a in lib.animations.items()}
         model.library_text = lib.text
         return []
+
+
+def _key_hint(f: Finding) -> Finding:
+    """PAGAN's palette keys are single characters (its sprites are grids of them); models use the colour names."""
+    if f.rule == "E005" and f.message.startswith("color key "):
+        hint = "; KILN models use the colour names, so any distinct keys do"
+        return Finding(f.rule, f.message + hint, f.path, f.line, f.where)
+    return f
 
 
 def _peek(path: Path, depth: int = 0) -> tuple[str | None, str | None]:
