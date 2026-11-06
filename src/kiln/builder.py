@@ -148,7 +148,11 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
         if not (np.isfinite(lo).all() and np.isfinite(hi).all() and np.isfinite(part.geometry.distance(probe)).all()):
             raise ValueError(f"{part.where} ({part.geometry.shape}) has no valid surface (its numbers give NaN); check its points")
     step, asked = mesh_steps(field, model, style)
-    phase = Phases(model.name)
+    with Phases(model.name) as phase:  # its heartbeat stops with the build, however it ends
+        return _build_meshed(model, style, budget, step, asked, phase)
+
+
+def _build_meshed(model: Model, style: Style, budget: int | None, step: float, asked: float, phase: Phases) -> Built:
     field = field_of(model, step)
     target = budget or model.budget or style.budget(model.cls)
     rigged = model.skin != "none"
