@@ -157,21 +157,69 @@ def _paths(value: Any) -> list[str]:
     return []
 
 
+_SUBSCHEMA = ("items", "additionalProperties", "not")  # keywords holding one schema
+_SUBSCHEMAS = ("anyOf", "oneOf", "allOf", "prefixItems")  # keywords holding a list of them
+_SCHEMA_MAPS = ("properties", "$defs", "definitions")  # name -> schema (a property may well be called "title")
+
+
+def _untitled(schema: Any) -> Any:
+    """A JSON schema without the SDK's `title` on every schema object (the names say it already). Only schema-valued
+    keywords are walked, so data (`default`, `const`, `enum`, `examples`) stays as it is."""
+    if not isinstance(schema, dict):
+        return schema
+    out: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key == "title":
+            continue
+        if key in _SCHEMA_MAPS and isinstance(value, dict):
+            out[key] = {name: _untitled(v) for name, v in value.items()}
+        elif key in _SUBSCHEMA:
+            out[key] = _untitled(value)
+        elif key in _SUBSCHEMAS and isinstance(value, list):
+            out[key] = [_untitled(v) for v in value]
+        else:
+            out[key] = value
+    return out
+
+
+def _hints(a: ToolAnnotations | None) -> ToolAnnotations | None:
+    """Only the hints that differ from the spec's defaults (read-only false, destructive true, idempotent false,
+    open-world true); destructive and idempotent mean nothing on a read-only tool."""
+    if a is None:
+        return None
+    if a.read_only_hint:
+        return ToolAnnotations(read_only_hint=True, open_world_hint=a.open_world_hint if a.open_world_hint is False else None)
+    return ToolAnnotations(destructive_hint=False if a.destructive_hint is False else None, idempotent_hint=a.idempotent_hint or None,
+                           open_world_hint=False if a.open_world_hint is False else None)  # fmt: skip
+
+
+class _SlimServer(MCPServer):
+    """The tool list without SDK boilerplate (#94): no schema titles, no generic `additionalProperties: true` output
+    schemas, only non-default annotation hints. A client that loads every tool pays for the list on every request."""
+
+    async def list_tools(self) -> list[Any]:
+        tools = await super().list_tools()
+        for t in tools:
+            t.input_schema = _untitled(t.input_schema)
+            out = t.output_schema
+            if out is not None and set(out) <= {"type", "additionalProperties", "title"}:
+                t.output_schema = None
+            t.annotations = _hints(t.annotations)
+        return tools
+
+
 def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
     kiln = Kiln(root, allow_godot)
-    server = MCPServer(name="kiln", title="KILN", version=__version__, instructions=INSTRUCTIONS)
+    server = _SlimServer(name="kiln", title="KILN", version=__version__, instructions=INSTRUCTIONS)
 
     @server.tool(annotations=READ)
     def status(verbose: bool = False) -> dict[str, Any]:
-        """Every model (class, status, style, needs-review flags, errors) and the project's style version. Call first.
-        `verbose` adds each model's description."""
+        """Every model (class, status, style, review flags, errors) and the style version. Call first."""
         return kiln.cli("status", *(["--verbose"] if verbose else []))
 
     @server.tool(annotations=READ)
     def docs(topic: str = "", search: str = "") -> dict[str, Any]:
-        """KILN's documentation, one topic at a time: no arguments = the topic list (name, summary, size);
-        `topic` = that topic's text (e.g. "parts", "rigs", "lint"); `search` = the few paragraphs matching those
-        words across all topics. Read only what the task needs."""
+        """KILN's docs: no arguments = topic list; `topic` = one topic ("parts", "rigs", "lint"); `search` = matching paragraphs."""
         if search:
             return kiln.cli("docs", "--search", *search.split())
         return kiln.cli("docs", *topic.split())
@@ -284,12 +332,8 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
         ref_height: float | None = None,
         at: list[float] | None = None,
     ) -> list[Any]:
-        """Render a preview sheet and return it as an image: turntable (8 sides x 3 heights), closeup on a part, an
-        animation's frames (pose), the model beside the style's inspiration images (vs), each separate part taken off
-        (detach), the model's effect: block played out over time (effect; `at`: seconds for a contact sheet at those times
-        instead of 8 evenly spaced frames), or Godot's own render (engine). vs with `reference` (a .glb/.gltf in the project, e.g. imports/x.glb;
-        `ref_height` metres to scale it): the model against it at one scale, with metrics in `compare` (silhouette IoU
-        over 8 views, triangles and ratio, surfaces, materials, colours, facet regularity, open edges)."""
+        """A preview sheet as an image: turntable, closeup (`part`), pose (`animation`), vs (inspiration; or `reference`
+        .glb at `ref_height` m, with metrics), detach, effect (`at`: seconds), engine (Godot). docs topic "commands"."""
         argv = ["preview", model]
         if (reference or ref_height is not None) and which != "vs":
             return [{"ok": False, "findings": [{"rule": "E000", "message": "reference and ref_height go with which='vs'"}]}]
@@ -344,8 +388,7 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
 
     @server.tool(annotations=WRITE)
     def build(verify_godot: bool = False, models: list[str] | None = None) -> dict[str, Any]:
-        """Build every model (or only `models`: the others keep their last output) into the output dir (glb, Godot
-        scenes, look kits, manifest). verify_godot loads it all in headless Godot (server needs --allow-godot)."""
+        """Build all models (or `models`) into the output dir; verify_godot loads them in headless Godot (--allow-godot)."""
         if verify_godot and not kiln.allow_godot:
             return {"ok": False, "findings": [{"rule": "E000", "message": "verify_godot needs the server started with --allow-godot"}]}
         return kiln.cli("build", *(models or []), *(["--verify-godot"] if verify_godot else []))
@@ -381,14 +424,12 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
 
     @server.tool(annotations=READ)
     def pack_list() -> dict[str, Any]:
-        """CC0 packs KILN ships recipes for, and which are mirrored in the local cache (`kiln pack add <pack>` mirrors one;
-        it downloads, so it isn't a tool: ask the owner to run it)."""
+        """CC0 packs with recipes, and which are mirrored locally (mirroring downloads: ask the owner to run kiln pack add)."""
         return kiln.cli("pack", "list")
 
     @server.tool(annotations=READ, structured_output=False)
     def pack_search(terms: list[str] | None = None, pack: str | None = None, limit: int = 30, lineup: bool = False) -> list[Any]:
-        """Search the mirrored CC0 packs (local cache, no network) by file name and tags: path, triangles, size per hit.
-        `lineup`: a sheet of the first hits side by side at one scale."""
+        """Search mirrored CC0 packs (no network) by name and tags; `lineup`: the first hits side by side."""
         argv = ["pack", "search", *(terms or []), "--limit", str(limit)]
         if pack:
             argv += ["--pack", pack]
@@ -399,8 +440,7 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
 
     @server.tool(annotations=WRITE)
     def pack_import(pack: str, model: str, name: str | None = None, height: float | None = None, model_class: str = "prop") -> dict[str, Any]:
-        """Import a model from a mirrored pack: copies it into imports/<pack>/, writes the model and records the files in
-        kiln.lock (pack, version, URL, sha256, licence)."""
+        """Import a model from a mirrored pack into imports/<pack>/ and a model file; recorded in kiln.lock."""
         argv = ["pack", "import", pack, model, "--class", model_class]
         if name:
             argv += ["--name", name]
