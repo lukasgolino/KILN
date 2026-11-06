@@ -4,6 +4,7 @@ class: building
 tags: [siege]
 status: approved
 style_version: 1
+origin: ground                 # the built feet dip a few mm under y = 0 (W123)
 parts:
   - box: { at: [0, 0.15, 0], size: [4.2, 0.3, 1.2], round: 0.04 }
     color: stone_dark

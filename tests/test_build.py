@@ -597,3 +597,31 @@ def test_previews_hide_revealed_parts_until_their_part_is_off(project: Project) 
     p = built.painted
     caps = sum(p.groups[g].bone.startswith("stump") for g in p.face_group)
     assert caps and len(_corners(built)) == len(p.faces) - caps  # --vs silhouettes leave them out too
+
+
+def test_origin_ground_lifts_lods_and_rigged_models(project: Project) -> None:
+    """#101: origin: ground puts the built lowest point on y = 0 in every glb (LODs too) and the manifest says where."""
+    from kiln.vendor.gltf import read_glb
+
+    sunk = rich_model().replace("parts:", "origin: ground\nparts:").replace("[0, 0.3, 0]", "[0, 0.29, 0]")
+    write_model(project, sunk, "hero")
+    result = build(project)
+    assert result.errors == []
+    out = project.output_dir
+    hero = json.loads((out / MANIFEST).read_text())["models"]["hero"]
+    assert hero["origin"][0] == 0 and hero["origin"][2] == 0 and hero["origin"][1] < 0
+    roots = []
+    for rel in ("models/hero.glb", "models/hero.lod1.glb"):
+        doc, binary = read_glb((out / rel).read_bytes())
+        roots.append([doc["nodes"][n].get("translation") for n in doc["scenes"][0]["nodes"]])
+
+        def lowest(index: int, lifted: float, doc: dict = doc, binary: bytes = binary) -> float:  # type: ignore[type-arg]
+            node = doc["nodes"][index]
+            lifted += node.get("translation", [0, 0, 0])[1]
+            lows = [accessor(doc, binary, p["attributes"]["POSITION"])[:, 1].min() + lifted
+                    for p in doc["meshes"][node["mesh"]]["primitives"]] if "mesh" in node else []  # fmt: skip
+            return min([*lows, *(lowest(c, lifted) for c in node.get("children", []))], default=np.inf)
+
+        if rel == "models/hero.glb":  # LODs take LOD 0's lift (they line up), not their own lowest point
+            assert abs(min(lowest(n, 0.0) for n in doc["scenes"][0]["nodes"])) < 1e-6
+    assert roots[0] == roots[1] and roots[0][0] is not None

@@ -11,7 +11,7 @@ before 1.0).
 - `origin: ground` (#101): the exported mesh lifted (or lowered) onto y = 0 by its built lowest point, x and z as
   written; the manifest records the origin as for the other values.
 - W123 (#101): the built mesh of a model standing on y = 0 dips 2 mm or more under it (2 mm, or a tenth of a cell; blends
-  and meshing push feet under the shapes' bottom; W106 only fires past 1 cm). It points at `origin: ground`. The demo's knight and wall get it.
+  and meshing push feet under the shapes' bottom; W106 only fires past 1 cm). It points at `origin: ground`, which the demo's knight and wall now use (they dipped 4.5 and 7.1 mm).
 
 ### Fixed
 
