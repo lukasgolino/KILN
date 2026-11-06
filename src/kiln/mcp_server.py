@@ -157,17 +157,28 @@ def _paths(value: Any) -> list[str]:
     return []
 
 
+_SUBSCHEMA = ("items", "additionalProperties", "not")  # keywords holding one schema
+_SUBSCHEMAS = ("anyOf", "oneOf", "allOf", "prefixItems")  # keywords holding a list of them
+_SCHEMA_MAPS = ("properties", "$defs", "definitions")  # name -> schema (a property may well be called "title")
+
+
 def _untitled(schema: Any) -> Any:
-    """A JSON schema without the SDK's `title` on every property and schema (names say it already)."""
-    if isinstance(schema, list):
-        return [_untitled(v) for v in schema]
+    """A JSON schema without the SDK's `title` on every schema object (the names say it already). Only schema-valued
+    keywords are walked, so data (`default`, `const`, `enum`, `examples`) stays as it is."""
     if not isinstance(schema, dict):
         return schema
-    out = {}
+    out: dict[str, Any] = {}
     for key, value in schema.items():
         if key == "title":
             continue
-        out[key] = {k: _untitled(v) for k, v in value.items()} if key in ("properties", "$defs") and isinstance(value, dict) else _untitled(value)
+        if key in _SCHEMA_MAPS and isinstance(value, dict):
+            out[key] = {name: _untitled(v) for name, v in value.items()}
+        elif key in _SUBSCHEMA:
+            out[key] = _untitled(value)
+        elif key in _SUBSCHEMAS and isinstance(value, list):
+            out[key] = [_untitled(v) for v in value]
+        else:
+            out[key] = value
     return out
 
 
