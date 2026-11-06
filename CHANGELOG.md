@@ -23,6 +23,10 @@ before 1.0).
 
 - `normal_strength` (#125): scales a baked normal map's tilt (0.5 softer, 0 flat, up to 4).
 
+- `kiln preview --views front,34,side,back --pitch 5,30 --size 500` (#96): one sheet of the views asked for (names
+  or degrees, a row per pitch) as `views.png`; `--size` sets the tile size of the turntable, closeups and views, and
+  `preview_size` in kiln.toml its default. `--turntable` has a help line.
+
 ### Fixed
 
 - Baked normal maps are filtered per texel (#125): four samples a quarter texel around its centre, each with a

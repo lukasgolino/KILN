@@ -32,6 +32,7 @@ SETTINGS = {
     "default_palette": "palettes/<name>.pal.yaml (PAGAN format) whose colour names models use",
     "output_dir": "where kiln build writes (inside a Godot project for export godot)",
     "preview_dir": "where previews go",
+    "preview_size": "kiln preview's tile size in pixels (64-1024; unset: 220 for the turntable, 400 for --views)",
     "export": 'what kiln build writes: ["glb"] or ["glb", "godot"]',
     "style_version": "the look's version; models made under an older one are flagged (W107)",
     "variant_glbs": "true: a .glb per variant; false: variants are swap tables (Godot: <name>.<variant>.tscn recolours the base)",
@@ -287,7 +288,8 @@ def _terrain_preview(project: Project, args: argparse.Namespace, out: Output) ->
     errors = [f for f in findings if f.severity == "error"]
     if style is None or errors:
         raise PaganError(errors or findings)
-    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at") if getattr(args, flag, None)]
+    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at", "views", "pitch", "size")
+              if getattr(args, flag, None) is not None and getattr(args, flag) is not False]  # fmt: skip
     if others:
         raise _usage(f"{model.name} is a terrain: its preview is one sheet (from above and four sides); --{others[0]} doesn't apply")
     palette, _ = project.palette(model.palette)
@@ -314,7 +316,8 @@ def _scatter_preview(project: Project, args: argparse.Namespace, out: Output) ->
     errors = [f for f in findings if f.severity == "error"]
     if style is None or errors:
         raise PaganError(errors or findings)
-    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at") if getattr(args, flag, None)]
+    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at", "views", "pitch", "size")
+              if getattr(args, flag, None) is not None and getattr(args, flag) is not False]  # fmt: skip
     if others:
         raise _usage(f"{model.name} is a scatter: its preview is one sheet (from above, two sides, close up); --{others[0]} doesn't apply")
     cache = project.root / ".kiln-cache"
@@ -373,19 +376,35 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     swap = built.model.variants.get(args.variant) if args.variant else None
     if args.variant and swap is None:
         raise _usage(f"{name} has no variant {args.variant!r} (variants: {', '.join(built.model.variants) or 'none'})")
-    wanted_any = args.closeup or args.pose or args.vs is not None or args.engine or args.detach or args.fit or args.effect
+    size = args.size if args.size is not None else project.config.preview_size
+    if size is not None and not 64 <= size <= 1024:
+        raise _usage("--size is the tile size in pixels, 64-1024")
+    tile = {"size": size} if size is not None else {}
+    want_views = args.views is not None or args.pitch is not None
+    wanted_any = args.closeup or args.pose or args.vs is not None or args.engine or args.detach or args.fit or args.effect or want_views
     if args.ref_height is not None and not args.vs:
         raise _usage("--ref-height goes with --vs <ref.glb>")
     if args.at is not None and not args.effect:
         raise _usage("--at goes with --effect")
     if args.turntable or not wanted_any:
         path = folder / (f"turntable.{args.variant}.png" if args.variant else "turntable.png")
-        pv.turntable(built, swap=swap).save(path)
+        pv.turntable(built, swap=swap, **tile).save(path)
         outputs["turntable"] = display_path(path)
+    if want_views:
+        try:
+            yaws = [pv.heading(v) for v in args.views.split(",")] if args.views else list(pv.HEADINGS)
+            pitches = [float(p) for p in args.pitch.split(",")] if args.pitch else [15.0]  # nan fails the range test below
+        except ValueError as exc:
+            raise _usage(str(exc) if "view" in str(exc) else "--pitch is degrees above the horizon, e.g. 5 or 5,30") from None
+        if not all(-89 <= p <= 89 for p in pitches):
+            raise _usage("--pitch is between -89 and 89 degrees")
+        path = folder / (f"views.{args.variant}.png" if args.variant else "views.png")
+        pv.views(built, yaws, pitches, size or 400, swap=swap).save(path)
+        outputs["views"] = display_path(path)
     for part in args.closeup or []:
         try:
             path = folder / f"closeup_{part}.png"
-            pv.closeup(built, part).save(path)
+            pv.closeup(built, part, **tile).save(path)
             outputs.setdefault("closeup", {})[part] = display_path(path)
         except KeyError:
             raise _usage(f"{name} has no part {part!r} (ids: {', '.join(built.model.ids)}, or a part's number in the file: 0-{len(built.model.parts) - 1})") from None
@@ -687,7 +706,8 @@ def cmd_config(args: argparse.Namespace, out: Output) -> int:
     cfg = project.config
     values = {"default_style": cfg.default_style, "default_palette": cfg.default_palette, "output_dir": cfg.output_dir,
               "preview_dir": cfg.preview_dir, "export": list(cfg.export), "style_version": cfg.style_version,
-              "variant_glbs": cfg.variant_glbs, "vertex_colors": cfg.vertex_colors, "atlas": cfg.atlas, "atlas_ao": cfg.atlas_ao}  # fmt: skip
+              "variant_glbs": cfg.variant_glbs, "vertex_colors": cfg.vertex_colors, "atlas": cfg.atlas, "atlas_ao": cfg.atlas_ao,
+              "preview_size": cfg.preview_size}  # fmt: skip
     if args.config_cmd == "show":
         for key, meaning in SETTINGS.items():
             out.say(f"{key:<16} = {json.dumps(values[key]):<24} {meaning}")
@@ -1041,7 +1061,11 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--verify-godot", action="store_true", help="load everything in headless Godot afterwards")
     s = sub.add_parser("preview", parents=[common], help="preview sheets for one model (default: turntable)")
     s.add_argument("model")
-    s.add_argument("--turntable", action="store_true")
+    s.add_argument("--turntable", action="store_true", help="8 sides x 3 heights (the default sheet when nothing else is asked for)")
+    s.add_argument("--views", metavar="V,V,...", help="one sheet of these views: names (front, front-left, left, back, side, 34, ...) or "
+                   "degrees (counter-clockwise from the front); default all 8 with --pitch")  # fmt: skip
+    s.add_argument("--pitch", metavar="DEG,...", help="with --views: degrees above the horizon, a row each (default 15)")
+    s.add_argument("--size", type=int, metavar="PX", help="tile size in pixels (64-1024) for turntable, closeup and views (kiln.toml preview_size)")
     s.add_argument("--closeup", action="append", metavar="PART")
     s.add_argument("--pose", action="append", metavar="ANIMATION")
     s.add_argument("--vs", nargs="?", const="", metavar="REF",

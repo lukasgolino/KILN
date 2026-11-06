@@ -84,6 +84,31 @@ def turntable(built: Built, size: int = 220, swap: dict[str, str] | None = None)
     return sheet(f"{m.name} turntable", f"style {built.style.name} · {built.triangles} triangles · {m.cls} · front = +Z", rows)
 
 
+def heading(text: str) -> tuple[str, float]:
+    """A view direction by name (front, front-left, left, back-left, back, back-right, right, front-right; side = left,
+    34 / 3/4 = front-left) or by degrees (yaw, counter-clockwise seen from above; 0 = front)."""
+    names = {**dict(HEADINGS), "side": 90.0, "34": 45.0, "3/4": 45.0}
+    key = text.strip().lower()
+    if key in names:
+        return key, names[key]
+    try:
+        degrees = float(key)
+    except ValueError:
+        degrees = math.nan
+    if not math.isfinite(degrees):
+        raise ValueError(f"view {text!r}: a name ({', '.join(n for n, _ in HEADINGS)}, side, 34) or degrees")
+    return f"{degrees:g} deg", degrees % 360
+
+
+def views(built: Built, yaws: list[tuple[str, float]], pitches: list[float], size: int = 400, swap: dict[str, str] | None = None) -> Image.Image:
+    """The views asked for (#96): a row per pitch (degrees above the horizon), a tile per yaw, all at one scale."""
+    fit = _fit(built)
+    rows = [(f"{pitch:+g} degrees", [(n, render(built, View(yaw, pitch), size, swap=swap, fit=fit, background=TILE_BG)) for n, yaw in yaws])
+            for pitch in pitches]  # fmt: skip
+    m = built.model
+    return sheet(f"{m.name} views", f"style {built.style.name} · {built.triangles} triangles · {m.cls} · front = +Z", rows)
+
+
 def closeup(built: Built, part_id: str, size: int = 260) -> Image.Image:
     """One part (bone) filling the view, in place: what a close camera (a kill cam, a dialogue shot) sees."""
     p = built.painted

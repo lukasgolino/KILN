@@ -38,6 +38,7 @@ default_style = "soft_toy"     # kiln style list
 default_palette = "main"
 output_dir = "build"           # inside the Godot project when export has "godot"
 preview_dir = "previews"
+preview_size = 400             # optional: kiln preview tile size in pixels (64-1024; a hero face needs ~400+)
 export = ["glb", "godot"]
 style_version = 1
 variant_glbs = true            # false: no .glb per variant; Godot gets <name>.<variant>.tscn recolouring the base glb

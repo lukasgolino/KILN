@@ -32,6 +32,7 @@ class Config:
     atlas: bool = False  # true: one material per model, colours and presets from small palette textures
     atlas_ao: float = 0.0  # with atlas: strength of the ambient occlusion baked into the vertex colours (0 = none)
     godot_bonemap: bool = False  # true: humanoids get a Godot BoneMap in their glb's .import (bones take the profile's names)
+    preview_size: int | None = None  # kiln preview's tile size in pixels (None: each sheet's own, 220 for the turntable)
 
 
 @dataclass
@@ -191,7 +192,7 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
         findings.append(Finding("E000", message, path, None, where))
 
     allowed = {"default_style", "default_palette", "output_dir", "preview_dir", "export", "style_version", "variant_glbs", "vertex_colors",
-               "atlas", "atlas_ao", "merge_rigid", "godot_bonemap", "lint"}  # fmt: skip
+               "atlas", "atlas_ao", "merge_rigid", "godot_bonemap", "preview_size", "lint"}  # fmt: skip
     for key in data:
         if key not in allowed:
             bad(f"unknown setting {key!r}; allowed: {', '.join(sorted(allowed))}", key)
@@ -211,6 +212,12 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
                 bad(f"{key} is a folder path (relative to the project)", key)
             else:
                 setattr(cfg, key, data[key])
+    if "preview_size" in data:
+        size = data["preview_size"]
+        if not isinstance(size, int) or isinstance(size, bool) or not 64 <= size <= 1024:
+            bad("preview_size is kiln preview's tile size in pixels, 64-1024 (e.g. 500 to judge a face)", "preview_size")
+        else:
+            cfg.preview_size = size
     if "export" in data:
         ex = data["export"]
         if not isinstance(ex, list) or not ex or any(e not in EXPORTS for e in ex):
