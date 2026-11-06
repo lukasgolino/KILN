@@ -8,6 +8,7 @@ before 1.0).
 
 ### Changed
 
+- README links the website at its own domain, https://kiln3d.dev/ ([#128](https://github.com/lukasgolino/KILN/issues/128)).
 - CI: lint, types and tests on one Python run on every push. The full Python matrix and the Godot checks run on the
   PR once it leaves draft, and again only if a commit lands after that, as the last gate before merge.
 
