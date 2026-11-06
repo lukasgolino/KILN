@@ -4,6 +4,7 @@ class: character
 tags: [siege, soldier]
 status: approved
 style_version: 1
+origin: ground                 # the built feet dip a few mm under y = 0 (W123)
 parts:
   - capsule: { from: [0, 0.3, 0], to: [0, 0.75, 0], radius: 0.3 }
     color: crimson

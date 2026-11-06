@@ -54,7 +54,8 @@ resolution: 0.004              # optional: metres per mesh cell for this model, 
 normal_map: 1024               # optional: bake a normal map (256-4096 texels, needs kiln[bake]; not with atlas = true or source:): detail from the shapes, not triangles
 max_cells: 640                 # optional: mesh cells across at most (64-1024, style default 256); W120 says when it decides
 lod: [2500, 800]               # optional: extra lower-detail .glb files
-origin: center                 # optional: the .glb's origin: base (bottom centre of the box) | center (spinning debris) | [x, y, z]
+origin: center                 # optional: the .glb's origin: base (bottom centre of the box) | center (spinning debris) | ground
+                               #   ([0, lowest point, 0]: the built mesh lifted onto y = 0, W123) | [x, y, z]
                                #   (default: model space as written; manifest `origin` = that point, other manifest values stay model space)
 node_prefix: Knight_           # optional: mesh nodes are Knight_<id> children of the part nodes (bones keep the ids;
                                # a soft skin's mesh is Knight_mesh); manifest parts get mesh_node

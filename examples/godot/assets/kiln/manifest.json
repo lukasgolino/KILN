@@ -25,7 +25,7 @@
     "manifest.json"
   ],
   "front": "+Z",
-  "generator": "kiln 0.14.0",
+  "generator": "kiln 0.16.1",
   "looks": {
     "soft_toy": "res://assets/kiln/looks/soft_toy.tscn"
   },
@@ -220,7 +220,7 @@
         ],
         "min": [
           -0.35791,
-          -0.0,
+          0.0,
           -0.35792
         ]
       },
@@ -243,7 +243,7 @@
             ],
             "min": [
               -0.35791,
-              -0.0,
+              0.0,
               -0.35792
             ]
           },
@@ -321,6 +321,11 @@
       "glb": "models/knight.glb",
       "glb_res": "res://assets/kiln/models/knight.glb",
       "godot_scene": "res://assets/kiln/models/knight.tscn",
+      "origin": [
+        0.0,
+        -0.00452,
+        0.0
+      ],
       "parts": {
         "arm_l": {
           "aabb": {
@@ -1173,6 +1178,11 @@
       "glb": "models/wall.glb",
       "glb_res": "res://assets/kiln/models/wall.glb",
       "godot_scene": "res://assets/kiln/models/wall.tscn",
+      "origin": [
+        0.0,
+        -0.00708,
+        0.0
+      ],
       "parts": {
         "root": {
           "aabb": {

@@ -190,3 +190,24 @@ def test_w106_allows_a_rounded_bottom_at_coarse_resolution(project: Project) -> 
             " at: [0, 0.5, 0] }\n    color: red\n")  # fmt: skip
     assert "W106" not in warnings(lint(project, text))
     assert "W106" not in warnings(lint(project, text.replace("parts:", "origin: center\nparts:").replace("[0, 0.5, 0]", "[0, 0.8, 0]")))
+
+
+def test_w123_a_small_dip_below_the_ground_and_origin_ground(project: Project) -> None:
+    """#101: a few millimetres under y = 0 is under W106's tolerance; W123 says so, and origin: ground lifts the export."""
+    from kiln.export import to_glb
+    from kiln.gltf_check import accessor
+    from kiln.vendor.gltf import read_glb
+
+    text = "name: thing\nparts:\n  - box: { at: [0, 0.245, 0], size: [0.5, 0.5, 0.5] }\n    color: red\n"  # 5 mm under
+    found = warnings(lint(project, text))
+    assert "W123" in found and "W106" not in found
+    path = write_model(project, text.replace("parts:", "origin: ground\nparts:"))
+    result = lint_paths(project, [path])
+    assert "W123" not in warnings(result.findings)
+    built = result.built["thing"]
+    assert built.origin()[0] == 0 and built.origin()[2] == 0 and built.origin()[1] < -0.002
+    doc, binary = read_glb(to_glb(built, "kiln"))
+    lows = [accessor(doc, binary, p["attributes"]["POSITION"])[:, 1].min() for m in doc["meshes"] for p in m["primitives"]]
+    root = doc["nodes"][doc["scenes"][0]["nodes"][0]]
+    assert abs(min(lows) + root.get("translation", [0, 0, 0])[1]) < 1e-6  # the lowest point lands on y = 0
+    assert warnings(lint(project, sphere_text())) == []  # standing on y = 0: no W123
