@@ -34,13 +34,20 @@ class Phases:
         self.name = name
         self.start = time.monotonic()
         self.on = os.environ.get(PROGRESS_ENV) == "1"
+        self.last = 0.0  # when the last line was printed (seconds into the build)
 
     def __call__(self, what: str) -> None:
         if not self.on:
             return
         elapsed = time.monotonic() - self.start
         if elapsed >= QUIET_SECONDS:
+            self.last = elapsed
             print(f"kiln: {self.name}: {what} ({elapsed:.0f} s)", file=sys.stderr, flush=True)
+
+    def within(self, what: str) -> None:
+        """Progress inside a long phase: a line at most every QUIET_SECONDS."""
+        if self.on and time.monotonic() - self.start - self.last >= QUIET_SECONDS:
+            self(what)
 
 
 __all__ = ["PROGRESS_ENV", "Phases", "cost_line", "peak_gb"]

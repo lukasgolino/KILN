@@ -27,7 +27,9 @@ def split(vertices: Array, faces: Array, values: Array, selected: Array) -> tupl
     Returns (vertices, faces, negative, parent): `negative` marks faces on the < 0 side, `parent` maps every
     output face to its input face. New vertices are shared between neighbouring faces, and a face that isn't
     selected but shares a cut edge is split at the new point too (same side, no T-junction): no cracks. A vertex
-    exactly on the line (value 0) is a point of the cut itself: faces only touching the line aren't cut."""
+    exactly on the line (value 0) is a point of the cut itself: faces only touching the line aren't cut. A NaN value
+    is on neither side: callers leave the vertices of unselected faces NaN, so `negative` holds only for the
+    selected faces (faces with a NaN corner are never cut)."""
     neg_v = values < 0
     n_neg = neg_v[faces].sum(axis=1)
     has_pos = (values > 0)[faces].any(axis=1)
@@ -66,15 +68,20 @@ def split(vertices: Array, faces: Array, values: Array, selected: Array) -> tupl
     out_parent: list[Array] = []
     whole: Array = rest
     if lookup:
+        # only faces with two corners on cut edges can share one (the mesh may be far bigger than the cut, #123)
+        ends = np.zeros(len(vertices), dtype=bool)
+        ends[a[real]] = ends[b[real]] = True
+        near = np.flatnonzero(ends[faces[rest]].sum(axis=1) >= 2)
         fr = faces[rest]
-        ek = np.sort(np.stack([fr[:, [0, 1]], fr[:, [1, 2]], fr[:, [2, 0]]], axis=1), axis=2)  # (R, 3, 2)
+        ek = np.sort(np.stack([fr[near][:, [0, 1]], fr[near][:, [1, 2]], fr[near][:, [2, 0]]], axis=1), axis=2)  # (N, 3, 2)
         flat = ek.reshape(-1, 2)
         # only edges that were cut can match: test cheaply first
         cand = np.isin(flat[:, 0], a[real]) & np.isin(flat[:, 1], b[real])
         mid_flat = np.full(len(flat), -1)
         for k in np.flatnonzero(cand):
             mid_flat[k] = lookup.get((int(flat[k, 0]), int(flat[k, 1])), -1)
-        mid = mid_flat.reshape(-1, 3)
+        mid = np.full((len(rest), 3), -1)
+        mid[near] = mid_flat.reshape(-1, 3)
         touched = (mid >= 0).any(axis=1)
         whole = rest[~touched]
         for r in np.flatnonzero(touched):
@@ -108,24 +115,33 @@ def refine(vertices: Array, faces: Array, selected: Array, max_edge: float, proj
     """Split every edge of the selected faces that is longer than `max_edge` at its midpoint (moved onto the
     surface by `project`), re-triangulating every face that touches a split edge, so the mesh stays watertight.
     Returns (vertices, faces, parent)."""
-    e = np.stack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]], axis=1)  # (F, 3, 2)
-    keys = np.sort(e, axis=2).reshape(-1, 2)
-    length = np.linalg.norm(vertices[keys[:, 0]] - vertices[keys[:, 1]], axis=1)
+    def edge_keys(f: Array) -> Array:
+        return np.sort(np.stack([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]], axis=1), axis=2)  # (F, 3, 2)
+
     # longest-edge bisection: only each selected face's longest edge splits (neighbours follow), which keeps
-    # triangles well shaped instead of multiplying slivers
-    longest = np.zeros((len(faces), 3), dtype=bool)
-    longest[np.arange(len(faces)), length.reshape(-1, 3).argmax(axis=1)] = True
-    long_edge = (length > max_edge) & np.repeat(selected, 3) & longest.reshape(-1)
+    # triangles well shaped instead of multiplying slivers. Only the selected faces and their neighbours are
+    # looked at: a pattern refines one part of a mesh of many (#123).
+    own = edge_keys(faces[selected])  # (S, 3, 2)
+    length = np.linalg.norm(vertices[own[:, :, 0]] - vertices[own[:, :, 1]], axis=2)
+    rows = np.arange(len(own))
+    longest = length.argmax(axis=1)
+    long_edge = length[rows, longest] > max_edge
     if not long_edge.any():
         return vertices, faces, np.arange(len(faces))
-    split_keys = np.unique(keys[long_edge], axis=0)
+    split_keys = np.unique(own[rows, longest][long_edge], axis=0)
     mids = project((vertices[split_keys[:, 0]] + vertices[split_keys[:, 1]]) / 2)
     base = len(vertices)
-    # midpoint index for every face edge (-1 = not split): edges as one integer each, looked up in the sorted split ones
+    # midpoint index for every face edge (-1 = not split): edges as one integer each, looked up in the sorted split
+    # ones; only faces with two corners on split edges can hold one
+    ends = np.zeros(base, dtype=bool)
+    ends[split_keys] = True
+    near = np.flatnonzero(ends[faces].sum(axis=1) >= 2)
+    keys = edge_keys(faces[near]).reshape(-1, 2)
     code = keys[:, 0].astype(np.int64) * base + keys[:, 1]
     split_code = split_keys[:, 0].astype(np.int64) * base + split_keys[:, 1]  # sorted (np.unique sorts rows)
     at = np.minimum(np.searchsorted(split_code, code), len(split_code) - 1)
-    mid = np.where(split_code[at] == code, base + at, -1).reshape(-1, 3)
+    mid = np.full((len(faces), 3), -1, dtype=np.int64)
+    mid[near] = np.where(split_code[at] == code, base + at, -1).reshape(-1, 3)
     flags = mid >= 0
     count = flags.sum(axis=1)
     out, parent = [faces[count == 0]], [np.flatnonzero(count == 0)]
@@ -244,7 +260,8 @@ class Regions:
     pattern_groups: dict[int, tuple[int, ...]]  # group -> its patterns' colour groups
 
 
-def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[int] | None = None, protect: frozenset[int] = frozenset()) -> Regions:
+def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[int] | None = None, protect: frozenset[int] = frozenset(),
+            progress: Callable[[str], None] | None = None) -> Regions:  # fmt: skip
     """Cut the mesh into paint groups (one per bone + colour + material) and patterns. Done on the full-resolution
     mesh, so the borders are smooth curves that decimation then keeps (mesher.decimate_regions). `protect`ed parts
     (thin ones the budget would erase) get their own group, so decimation keeps their outline too."""
@@ -270,7 +287,17 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
                 np.minimum(out[g], d, out=out[g])
         return out
 
-    dist = group_distances(vertices)
+    def margins(d: Array) -> Array:
+        """Row g becomes group g's distance minus the nearest of groups g+1.. (in place: a suffix minimum, so each
+        group's border costs one pass, not a minimum over all the later groups, #123)."""
+        nearest = np.full(d.shape[1], np.inf)
+        for g in range(len(d) - 1, -1, -1):
+            own = d[g].copy()
+            d[g] -= nearest
+            np.minimum(nearest, own, out=nearest)
+        return d
+
+    margin = margins(group_distances(vertices))
     owner = np.full(len(faces), -1)
     for g in range(len(groups)):
         unclaimed = owner < 0
@@ -279,16 +306,16 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
         if g == len(groups) - 1:
             owner[unclaimed] = g
             break
-        rest = dist[g + 1 :].min(axis=0)
-        values = dist[g] - rest
         n_before = len(vertices)
-        vertices, faces, negative, parent = split(vertices, faces, values, unclaimed)
+        vertices, faces, negative, parent = split(vertices, faces, margin[g], unclaimed)
         owner = owner[parent]
         if len(vertices) > n_before:
-            dist = np.concatenate([dist, group_distances(vertices[n_before:])], axis=1)
+            margin = np.concatenate([margin, margins(group_distances(vertices[n_before:]))], axis=1)
         owner[(owner < 0) & negative] = g
+        if progress is not None:
+            progress(f"painting: borders of {g + 1}/{len(groups)} colour groups")
     vertices, faces, owner, pattern_groups = _patterns(vertices, faces, owner, model, adding, groups, group_index, part_group,
-                                                      lambda x: _project(field, x))  # fmt: skip
+                                                      lambda x: _project(field, x), progress=progress)  # fmt: skip
     # `under`: what a detachable (separate) part covers is painted (hair under a helmet), seen once it falls off
     if rigged and include is not None:
         for pid, entry in sorted(model.rig.items()):
@@ -361,15 +388,18 @@ def hard_regions(mesh: Mesh, face_part: Array, model: Model, rigged: bool) -> Re
 
 def _patterns(
     vertices: Array, faces: Array, owner: Array, model: Model, adding: list[int], groups: list[PaintGroup], group_index: dict[PaintGroup, int],
-    part_group: dict[int, int], project: Callable[[Array], Array], flat: bool = False,
+    part_group: dict[int, int], project: Callable[[Array], Array], flat: bool = False, progress: Callable[[str], None] | None = None,
 ) -> tuple[Array, Array, Array, dict[int, tuple[int, ...]]]:
     """Patterns: a second colour cut into each patterned part's own faces (several: in order, each over the last).
     `flat`: the faces are exact polygons (hard parts), so bands and stripes are cut along their border planes as they
     are, without refining: no extra triangles beyond the cuts."""
     pattern_groups: dict[int, tuple[int, ...]] = {}
+    patterned = [i for i in adding if model.parts[i].patterns]
     for i in adding:
         part = model.parts[i]
         g = part_group[i]
+        if progress is not None and part.patterns:
+            progress(f"painting: patterns of {patterned.index(i) + 1}/{len(patterned)} parts")
         for pat in part.patterns:
             fn = _pattern_fn(pat, part.geometry)
             own = [g, *pattern_groups.get(g, ())]  # a later pattern paints over the earlier ones' colours too
@@ -380,12 +410,13 @@ def _patterns(
             if borders is not None:
                 for value in borders:
                     sel = np.isin(owner, own)
-                    d = value(vertices)
+                    d = _own_values(value, vertices, faces, sel)
                     vertices, faces, _, parent = split(vertices, faces, np.where(np.abs(d) < ON_BORDER, 0.0, d), sel)
                     owner = owner[parent]
                 sel = np.isin(owner, own)
-                inside = fn(vertices[faces].mean(axis=1)) >= -ON_BORDER  # every face is now on one side of every border
-                owner = _paint_alt(owner, own, sel & inside, pat, part, g, groups, group_index, pattern_groups)
+                inside = sel.copy()  # every face is now on one side of every border
+                inside[sel] = fn(vertices[faces[sel]].mean(axis=1)) >= -ON_BORDER
+                owner = _paint_alt(owner, own, inside, pat, part, g, groups, group_index, pattern_groups)
                 continue
             # A pattern needs edges shorter than its repeat (or a stripe could fall between vertices), then short edges
             # along its borders to cut them cleanly; areas between borders stay coarse (the budget). A gradient's band
@@ -393,12 +424,12 @@ def _patterns(
             passes = [(pat.size / 2 if pat.type != "band" else pat.size, False), (pat.size / 4, True)]
             for limit, border_only in passes[1:] if pat.type == "along" else passes:
                 for _ in range(12):
-                    values = fn(vertices)[faces]
                     sel = np.isin(owner, own)
+                    values = _own_values(fn, vertices, faces, sel)[faces[sel]]  # the part's faces only (#123)
                     if border_only:
-                        sel &= (values.min(axis=1) < 0) & (values.max(axis=1) >= 0)
+                        sel[sel] = (values.min(axis=1) < 0) & (values.max(axis=1) >= 0)
                     elif pat.type == "band":
-                        sel &= values.max(axis=1) > -pat.size  # only near the band
+                        sel[sel] = values.max(axis=1) > -pat.size  # only near the band
                     if not sel.any():
                         break
                     n_before = len(faces)
@@ -407,10 +438,22 @@ def _patterns(
                     if len(faces) == n_before:
                         break
             sel = np.isin(owner, own)
-            vertices, faces, negative, parent = split(vertices, faces, fn(vertices), sel)
+            vertices, faces, negative, parent = split(vertices, faces, _own_values(fn, vertices, faces, sel), sel)
             owner = owner[parent]
             owner = _paint_alt(owner, own, np.isin(owner, own) & ~negative, pat, part, g, groups, group_index, pattern_groups)
     return vertices, faces, owner, pattern_groups
+
+
+def _own_values(fn: ScalarFn, vertices: Array, faces: Array, sel: Array) -> Array:
+    """`fn` at the vertices of the selected faces, NaN elsewhere (neither side of a border: those faces aren't cut).
+    A pattern only ever looks at its own part's faces; evaluating it over the whole mesh made many-part models slow."""
+    out = np.full(len(vertices), np.nan)
+    mask = np.zeros(len(vertices), dtype=bool)
+    mask[faces[sel]] = True
+    used = np.flatnonzero(mask)
+    if len(used):
+        out[used] = fn(vertices[used])
+    return out
 
 
 def _paint_alt(owner: Array, own: list[int], faces: Array, pat: Pattern, part: Part, g: int, groups: list[PaintGroup],

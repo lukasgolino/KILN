@@ -203,7 +203,7 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
         total = sum(mesh.triangles for _, _, mesh in live)
         live = [(include, f, decimate(f, mesh, max(200, round(PRESHAPE * soft_target * mesh.triangles / total)), step)) for include, f, mesh in live]
         phase(f"painting {len(adding)} parts")
-        cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect) for include, f, mesh in live])
+        cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect, phase.within) for include, f, mesh in live])
         fields = [f for _, f, _ in live]
         phase(f"reducing to {soft_target} triangles")
         painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, soft_target, [inc for inc, _, _ in live], full_areas)
