@@ -1,20 +1,28 @@
 name: CI
 
-# Runs only when started (Actions → CI → Run workflow, or `gh workflow run ci.yml --ref <branch>`): once per PR,
-# just before merging, after the review is answered. Pushes and PRs don't trigger it (Actions minutes cost money).
-# A vX.Y.Z tag only publishes its CHANGELOG section as the release notes (the checks passed before the merge).
+# Tiered for Actions minutes. Every push: lint, types and tests on one Python. Big checks (all Pythons, Godot) run on
+# the PR once it leaves draft (PRs stay drafts while in development and review), and again only if a commit lands
+# after that: the last gate before merge. Run workflow runs everything. A vX.Y.Z tag only runs the release job.
 on:
-  workflow_dispatch:
   push:
+    branches: ["**"]
     tags: ["v*.*.*"]
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   test:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        # one Python on a push; all three before merge
+        python-version: ${{ fromJSON(github.event_name == 'push' && '["3.12"]' || '["3.11", "3.12", "3.13"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,7 +43,7 @@ jobs:
         run: kiln lint
 
   godot:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
     # Builds the demo into the example Godot project twice (deterministic), loads everything in headless Godot and
     # runs the showcase scene.
     runs-on: ubuntu-latest

@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+### Changed
+
+- CI: lint, types and tests on one Python run on every push. The full Python matrix and the Godot checks run on the
+  PR once it leaves draft, and again only if a commit lands after that, as the last gate before merge.
+
 ## [0.16.1] - 2026-11-05
 
 The 0.16.0 release as it was meant to be: the `v0.16.0` tag was pushed before #120 merged and sits on the commit
