@@ -165,3 +165,33 @@ def test_progress_within_a_phase_is_throttled(monkeypatch: pytest.MonkeyPatch, c
         now[0] = 100.0 + t
         phase.within(what)
     assert [line.split(": ")[2] for line in capsys.readouterr().err.splitlines()] == ["b (11 s)", "d (22 s)"]
+
+
+def test_a_long_phase_keeps_saying_so(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """#99: a phase that runs on repeats itself every QUIET_SECONDS (a heartbeat), and stops with the build."""
+    import time
+
+    from kiln import usage
+
+    monkeypatch.setattr("kiln.usage.QUIET_SECONDS", 0.2)
+    monkeypatch.setenv(usage.PROGRESS_ENV, "1")
+    with usage.Phases("thing") as phase:
+        phase("reducing to 100 triangles")
+        time.sleep(0.75)
+    time.sleep(0.3)  # nothing after the build ended
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) >= 2 and all(line.startswith("kiln: thing: reducing to 100 triangles (") for line in lines)
+
+
+def test_slow_runs_without_the_fast_extra_say_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only when numba isn't installed: KILN_JIT=0 (numpy pinned on purpose) stays quiet."""
+    import importlib.util
+
+    from kiln.usage import cost_line
+
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "numba" else real(name, *a))
+    assert "kiln[fast]" in cost_line(25.0) and "kiln[fast]" not in cost_line(5.0)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: object())
+    monkeypatch.setenv("KILN_JIT", "0")
+    assert "kiln[fast]" not in cost_line(25.0)
