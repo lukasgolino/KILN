@@ -52,7 +52,7 @@ palette: main                  # optional: else default_palette
 budget: 6000                   # optional: triangles (overrides the style's budget for the class)
 resolution: 0.004              # optional: metres per mesh cell for this model, as is (not scaled by size): finer detail
 normal_map: 1024               # optional: bake a normal map (256-4096 texels, needs kiln[bake]; not with atlas = true or source:): detail from the shapes, not triangles
-normal_strength: 1             # optional: scales the map's tilt (0.5 softer grooves, 0 flat), up to 4
+normal_strength: 1             # optional: scales the map's tilt (0.5 softer grooves, 0 flat), up to 4 (steep slopes cap)
 max_cells: 640                 # optional: mesh cells across at most (64-1024, style default 256); W120 says when it decides
 lod: [2500, 800]               # optional: extra lower-detail .glb files
 origin: center                 # optional: the .glb's origin: base (bottom centre of the box) | center (spinning debris) | ground

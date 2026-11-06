@@ -266,6 +266,10 @@ def test_normal_strength_scales_the_tilt(project: Project) -> None:
     text = ("name: thing\nnormal_map: 256\n{strength}parts:\n  - sphere: {{ at: [0, 0.3, 0], radius: 0.3 }}\n    color: red\n"
             "  - box: {{ at: [0, 0.3, 0.3], size: [0.02, 0.4, 0.02] }}\n    cut: true\n    detail: true\n")  # fmt: skip
     tilts = []
+    flat = lint_paths(project, [write_model(project, text.format(strength="normal_strength: 0\n"))]).built["thing"]
+    assert flat.bake is not None
+    rgb = np.asarray(Image.open(io.BytesIO(flat.bake.png)))
+    assert (rgb == (128, 128, 255)).all()  # 0: the mesh normal everywhere
     for strength in ("", "normal_strength: 0.5\n"):
         built = lint_paths(project, [write_model(project, text.format(strength=strength))]).built["thing"]
         assert built.bake is not None
