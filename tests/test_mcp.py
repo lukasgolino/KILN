@@ -65,3 +65,18 @@ def test_docs_and_feedback(project: Project) -> None:
     call(project, "log_feedback", {"note": "rounder hats"})
     docs, _ = call(project, "read_docs")
     assert "rounder hats" in docs["BRIEF.md"]
+
+
+def test_tool_list_stays_small(project: Project) -> None:
+    """#94: a client that loads every tool pays for the list on every request: no schema titles, no generic output
+    schemas, only non-default hints, one-line descriptions (the docs tool has the detail)."""
+    tools = asyncio.run(create_server(project.root).list_tools())
+    wire = json.dumps([t.model_dump(by_alias=True, exclude_none=True) for t in tools])
+    assert len(wire) < 10_500, len(wire)  # 15.1k before
+    assert '"title"' not in json.dumps([t.input_schema for t in tools])
+    assert all(t.output_schema is None for t in tools)
+    status = next(t for t in tools if t.name == "status")
+    assert status.annotations is not None and status.annotations.read_only_hint and status.annotations.destructive_hint is None
+    write = next(t for t in tools if t.name == "write_model")
+    assert write.annotations is not None and write.annotations.destructive_hint is None and write.annotations.idempotent_hint
+    assert max(len(t.description or "") for t in tools) < 300

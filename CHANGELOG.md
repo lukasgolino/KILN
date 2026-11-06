@@ -52,6 +52,9 @@ before 1.0).
 
 ### Changed
 
+- The MCP tool list is a third smaller (#94): 15.1k -> 9.6k characters (~2.7k tokens) for 24 tools. No `title` on
+  every schema, no generic output schemas, only annotation hints that differ from the spec's defaults, and one-line
+  descriptions for the long ones (`docs` holds the detail). A test keeps it under 10.5k.
 - README links the website at its own domain, https://kiln3d.dev/ ([#128](https://github.com/lukasgolino/KILN/issues/128)).
 - CI: lint, types and tests on one Python run on every push. The full Python matrix and the Godot checks run on the
   PR once it leaves draft, and again only if a commit lands after that, as the last gate before merge.
