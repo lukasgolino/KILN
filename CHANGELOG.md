@@ -6,6 +6,15 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-11-05
+
+The 0.16.0 release as it was meant to be: the `v0.16.0` tag was pushed before #120 merged and sits on the commit
+before it (0.15.0 code), so it doesn't hold what the 0.16.0 section below lists. Pin `v0.16.1`, not `v0.16.0`.
+
+### Fixed
+
+- Tags publish a GitHub release, with their CHANGELOG section as the notes (#121).
+
 ## [0.16.0] - 2026-11-05
 
 ### Added
