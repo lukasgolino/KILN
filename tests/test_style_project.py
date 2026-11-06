@@ -187,3 +187,15 @@ def test_extends_cycle_is_e006(tmp_path: Path) -> None:
     style, findings = load_style("a", tmp_path)
     assert style is None
     assert findings[0].rule == "E006" and "no cycles" in findings[0].message
+
+
+def test_broken_palette_is_reported_once_for_many_models(tmp_path: Path) -> None:
+    from conftest import write_model
+
+    from kiln.lint import lint_paths
+
+    project = make_project(tmp_path)
+    (tmp_path / "palettes" / "alt.pal.yaml").write_text('name: alt\ncolors:\n  "10": { hex: "#040506", name: red }\n')
+    paths = [write_model(project, sphere_text(n) + "palette: alt\n", n) for n in ("one", "two")]
+    result = lint_paths(project, paths, geometry=False)
+    assert [f.rule for f in result.findings] == ["E005"]

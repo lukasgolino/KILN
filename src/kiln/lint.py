@@ -420,7 +420,8 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
         if model is not None and style is not None and not any(f.severity == "error" for f in keep) and not model.template:
             result.models[model.name] = (model, style)
         disabled = set(project.config.lint_disable) | set(model.lint_disable if model else ())
-        result.findings += [f for f in keep if not (f.severity == "warning" and f.rule in disabled)]
+        seen = set(result.findings)  # a broken palette's errors come with every model using it: once is enough
+        result.findings += [f for f in keep if not (f.severity == "warning" and f.rule in disabled) and f not in seen]
     # kiln.lock (pack imports): checked whole, whichever models are linted; no lock, no findings
     sources = [(p, m.source.file, m.source.licence) for p, m, _, _, _ in loaded if m is not None and m.source is not None]
     result.findings += [f for f in lock_findings(project.root, sources) if not (f.severity == "warning" and f.rule in project.config.lint_disable)]
