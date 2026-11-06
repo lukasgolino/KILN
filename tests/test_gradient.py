@@ -152,3 +152,16 @@ def test_painting_reports_progress(project: Project) -> None:
     lines: list[str] = []
     regions(dual_contour(field, 0.02), model, field, False, progress=lines.append)
     assert lines[-1] == "painting: patterns of 1/1 parts" and "painting: borders of 1/2 colour groups" in lines
+
+
+def test_progress_within_a_phase_is_throttled(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from kiln import usage
+
+    now = [100.0]
+    monkeypatch.setattr("kiln.usage.time.monotonic", lambda: now[0])
+    monkeypatch.setenv(usage.PROGRESS_ENV, "1")
+    phase = usage.Phases("thing")
+    for t, what in [(5, "a"), (11, "b"), (15, "c"), (22, "d"), (30, "e")]:
+        now[0] = 100.0 + t
+        phase.within(what)
+    assert [line.split(": ")[2] for line in capsys.readouterr().err.splitlines()] == ["b (11 s)", "d (22 s)"]

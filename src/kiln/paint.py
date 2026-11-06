@@ -27,7 +27,9 @@ def split(vertices: Array, faces: Array, values: Array, selected: Array) -> tupl
     Returns (vertices, faces, negative, parent): `negative` marks faces on the < 0 side, `parent` maps every
     output face to its input face. New vertices are shared between neighbouring faces, and a face that isn't
     selected but shares a cut edge is split at the new point too (same side, no T-junction): no cracks. A vertex
-    exactly on the line (value 0) is a point of the cut itself: faces only touching the line aren't cut."""
+    exactly on the line (value 0) is a point of the cut itself: faces only touching the line aren't cut. A NaN value
+    is on neither side: callers leave the vertices of unselected faces NaN, so `negative` holds only for the
+    selected faces (faces with a NaN corner are never cut)."""
     neg_v = values < 0
     n_neg = neg_v[faces].sum(axis=1)
     has_pos = (values > 0)[faces].any(axis=1)
@@ -408,12 +410,13 @@ def _patterns(
             if borders is not None:
                 for value in borders:
                     sel = np.isin(owner, own)
-                    d = value(vertices)
+                    d = _own_values(value, vertices, faces, sel)
                     vertices, faces, _, parent = split(vertices, faces, np.where(np.abs(d) < ON_BORDER, 0.0, d), sel)
                     owner = owner[parent]
                 sel = np.isin(owner, own)
-                inside = fn(vertices[faces].mean(axis=1)) >= -ON_BORDER  # every face is now on one side of every border
-                owner = _paint_alt(owner, own, sel & inside, pat, part, g, groups, group_index, pattern_groups)
+                inside = sel.copy()  # every face is now on one side of every border
+                inside[sel] = fn(vertices[faces[sel]].mean(axis=1)) >= -ON_BORDER
+                owner = _paint_alt(owner, own, inside, pat, part, g, groups, group_index, pattern_groups)
                 continue
             # A pattern needs edges shorter than its repeat (or a stripe could fall between vertices), then short edges
             # along its borders to cut them cleanly; areas between borders stay coarse (the budget). A gradient's band
