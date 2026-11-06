@@ -21,7 +21,14 @@ before 1.0).
   (`kiln: bigfoot: reducing to 15000 triangles (10 s)`), not only when the next one starts. Runs over 20 s without
   `kiln[fast]` installed point at it (a 50-part character: 20 s -> 9 s; cached: 1 s, shared with previews).
 
+- `normal_strength` (#125): scales a baked normal map's tilt (0.5 softer, 0 flat, up to 4).
+
 ### Fixed
+
+- Baked normal maps are filtered per texel (#125): four samples a quarter texel around its centre, each with a
+  gradient step of half a texel, so detail finer than a texel blurs out instead of aliasing into streaks and speckle
+  (sub-texel noise: tilt std 0.10 -> 0.04). Bakes take about 1.5x as long; every baked map changes. parts.md says
+  which groove sizes read at which map size.
 
 - Colour borders between a noisy part and its neighbours follow the parts' smooth shapes (#100): noise roughens the
   surface, not the edge of a blended patch on it (it came out saw-toothed). Meshes of models with `noise` next to

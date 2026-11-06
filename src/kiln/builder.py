@@ -27,7 +27,7 @@ from kiln.sdf import Array, Field, part_thickness
 from kiln.style import Style
 from kiln.usage import Phases
 
-BUILDER_VERSION = 16  # bump when meshing/painting changes output
+BUILDER_VERSION = 17  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -269,7 +269,7 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
     owner = np.asarray(adding)[field_of(model, step).nearest(adding, centres)[0]] if adding else np.zeros(len(p.faces), np.int64)
     piece_of = {i: k for k, inc in enumerate(pieces) for i in inc}
     face_field = np.array([piece_of.get(int(i), -1) for i in owner], dtype=np.int64)  # hard parts: -1
-    return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step)
+    return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength)
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],

@@ -250,3 +250,33 @@ def test_lods_bake_smaller_maps(project: Project) -> None:
     w = Image.open(project.output_dir / "models" / "thing.normal.png").width
     w1 = Image.open(project.output_dir / "models" / "thing.lod1.normal.png").width
     assert w1 < w
+
+
+def test_detail_finer_than_a_texel_blurs_instead_of_speckling(project: Project) -> None:
+    """#125: each texel is filtered (four samples, a gradient step of half a texel): bumps far smaller than a texel
+    average out instead of aliasing into speckle (unfiltered, this map's tilt had a std of 0.10)."""
+    text = "name: thing\nnormal_map: 256\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: red\n    noise: { amount: 0.001, scale: 0.002 }\n"
+    built = lint_paths(project, [write_model(project, text)]).built["thing"]
+    assert built.bake is not None
+    tilt = np.asarray(Image.open(io.BytesIO(built.bake.png))).astype(float)[:, :, :2] / 255 * 2 - 1
+    assert float(tilt.std()) < 0.06
+
+
+def test_normal_strength_scales_the_tilt(project: Project) -> None:
+    text = ("name: thing\nnormal_map: 256\n{strength}parts:\n  - sphere: {{ at: [0, 0.3, 0], radius: 0.3 }}\n    color: red\n"
+            "  - box: {{ at: [0, 0.3, 0.3], size: [0.02, 0.4, 0.02] }}\n    cut: true\n    detail: true\n")  # fmt: skip
+    tilts = []
+    flat = lint_paths(project, [write_model(project, text.format(strength="normal_strength: 0\n"))]).built["thing"]
+    assert flat.bake is not None
+    rgb = np.asarray(Image.open(io.BytesIO(flat.bake.png)))
+    assert (rgb == (128, 128, 255)).all()  # 0: the mesh normal everywhere
+    for strength in ("", "normal_strength: 0.5\n"):
+        built = lint_paths(project, [write_model(project, text.format(strength=strength))]).built["thing"]
+        assert built.bake is not None
+        tilts.append(np.abs(np.asarray(Image.open(io.BytesIO(built.bake.png))).astype(float)[:, :, :2] - 128).sum(axis=2))
+    groove = tilts[0] > 20  # where the groove tilts the map
+    assert groove.sum() > 20 and tilts[1][groove].mean() < tilts[0][groove].mean() * 0.75
+    _, _, findings = load(project, text.format(strength="normal_strength: 9\n"))
+    assert any(f.where == "normal_strength" for f in findings)
+    _, _, findings = load(project, text.format(strength="normal_strength: 0.5\n").replace("normal_map: 256\n", "").replace("    detail: true\n", ""))
+    assert any(f.where == "normal_strength" for f in findings)
