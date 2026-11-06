@@ -109,6 +109,18 @@ def test_model_names_its_own_style_and_palette(tmp_path: Path) -> None:
     assert style.name == "low_poly" and model.parts[0].color == "#010203"
 
 
+def test_broken_palette_reports_its_own_errors_only(tmp_path: Path) -> None:
+    """#126: a two-character key used to empty the palette, burying its error under one "unknown colour" per part."""
+    project = make_project(tmp_path)
+    (tmp_path / "palettes" / "alt.pal.yaml").write_text(
+        'name: alt\ncolors:\n  "0": { hex: "#010203", name: red }\n  "10": { hex: "#040506", name: nail }\n')
+    model, style, findings = load(project, sphere_text() + "palette: alt\n")
+    assert model is None and style is None
+    assert [(f.rule, f.where) for f in findings] == [("E005", "colors.10")]
+    assert findings[0].path == tmp_path / "palettes" / "alt.pal.yaml" and "'10'" in findings[0].message
+    assert "colour names" in findings[0].message
+
+
 def test_parse_config_defaults_and_values() -> None:
     cfg, findings = parse_config({}, None)
     assert findings == [] and cfg == Config()
