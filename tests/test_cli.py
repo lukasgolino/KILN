@@ -330,3 +330,22 @@ def test_closeup_by_part_number(in_project: Project, capsys: pytest.CaptureFixtu
     capsys.readouterr()
     assert main(["--json", "preview", "crate", "--closeup", "0"]) == 0
     assert "0" in json.loads(capsys.readouterr().out)["outputs"]["closeup"]
+
+
+def test_preview_views_pitch_and_size(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#96: a chosen set of views and pitches in one sheet, at a chosen tile size (flag or kiln.toml preview_size)."""
+    from PIL import Image
+
+    write_model(in_project, sphere_text("ball"), "ball")
+    code, result = run_json(["preview", "ball", "--views", "front,34,side,back", "--pitch", "5,30", "--size", "120"], capsys)
+    assert code == 0 and set(result["outputs"]) == {"views"}, result
+    sheet = Image.open(in_project.root / result["outputs"]["views"])
+    assert 4 * 120 < sheet.width < 4 * 120 + 200 and 2 * 120 < sheet.height < 2 * 120 + 200  # 4 x 2 tiles (title and gaps around)
+    code, result = run_json(["preview", "ball", "--size", "100"], capsys)
+    small = Image.open(in_project.root / result["outputs"]["turntable"]).size
+    (in_project.root / "kiln.toml").write_text((in_project.root / "kiln.toml").read_text() + "preview_size = 150\n")
+    code, result = run_json(["preview", "ball"], capsys)
+    assert code == 0 and Image.open(in_project.root / result["outputs"]["turntable"]).width > small[0]
+    for argv, text in ((["--views", "upwards"], "view 'upwards'"), (["--pitch", "95"], "between -89 and 89"), (["--size", "9"], "64-1024")):
+        code, result = run_json(["preview", "ball", *argv], capsys)
+        assert code == 1 and text in result["findings"][0]["message"], result
