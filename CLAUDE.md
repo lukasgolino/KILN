@@ -211,3 +211,9 @@ anything that changes output.
   leave model.parts at parse time (model.bake_parts keeps all, in order; cut_only/blend_to renumbered on copies).
   Godot toon scenes get a normal-mapped shader only for models with a map (other output unchanged). Atlas + normal map
   is refused for now: Godot's StandardMaterial3D samples both on UV1.
+- 2026-11-06: #124: Godot 4.7's Compatibility renderer decodes the vertex colour attribute from sRGB once more
+  (measured offscreen: unshaded linear 0.254 shows as 0.251 instead of 0.541; `vertex_color_is_srgb` is a no-op there).
+  The glb keeps linear COLOR_0 (glTF); the generated scene script of a model with COLOR_0 sRGB-encodes each mesh's
+  colour bytes once at load, only on Compatibility (RenderingServer attribute region, so LODs and indices stay), which
+  fixes the standard and toon looks alike without touching their shaders. Engine renders run offscreen through
+  `tools/godot_window.sh` (Xvfb + Mesa CPU drivers); the render test is opt-in (`KILN_ENGINE_RENDER=1`).

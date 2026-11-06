@@ -47,7 +47,10 @@ in model space, rest pose, for hit zones), `animations` (gltf_name, fps, frames,
 `humanoid` (each joint's KayKit, Mixamo, Godot name), `godot_bonemap` (with godot_bonemap = true: the BoneMap file);
 parts also have `sockets`, animations a `start` (the parts their first frame moves, e.g. an arm built level but
 cocked when the animation starts). With `vertex_colors = true`, a game loading the .glb itself must set
-`vertex_color_use_as_albedo = true` on the imported materials (KILN's .tscn scenes do it); variants are then swap
+`vertex_color_use_as_albedo = true` on the imported materials (KILN's .tscn scenes do it), and on Godot's
+Compatibility renderer, which decodes vertex colours from sRGB once more (darker, more saturated;
+`vertex_color_is_srgb` changes nothing there), re-encode each mesh's colours once (`_encode_colours` in a KILN .tscn
+does it; it also covers `atlas_ao`'s occlusion); variants are then swap
 tables for the game (or `variant_glbs = true`). KILN's .tscn scripts share their materials between instances and
 leave any surface override the game set before `add_child` alone.
 

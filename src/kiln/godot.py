@@ -491,6 +491,44 @@ def _with_rim(script: str) -> str:
     ])  # fmt: skip
 
 
+def _with_compat_colours(script: str) -> str:
+    """The apply script, also re-encoding the glb's vertex colours for the Compatibility renderer (#124; only written
+    for models whose glb has COLOR_0). Godot 4.7's Compatibility renderer decodes the colour attribute from sRGB once
+    more (vertex_color_is_srgb changes nothing there), so linear glTF colours came out darker and more saturated than
+    in Forward+, Mobile and the previews. Each mesh's colour bytes are sRGB-encoded once, in place on the GPU copy
+    (index buffers and LODs untouched), so the renderer's decode gives the glTF values back."""
+    return _swap_lines(script, [
+        ("static var _shared: Dictionary = {}\n",
+         "static var _shared: Dictionary = {}\n"
+         "static var _encoded: Dictionary = {}  # mesh RIDs whose colours are already re-encoded (Compatibility only)\n\n"
+         "static func _encode_colours(mesh: Mesh) -> void:\n"
+         "\tif RenderingServer.get_current_rendering_method() != \"gl_compatibility\" or _encoded.has(mesh.get_rid()):\n"
+         "\t\treturn\n"
+         "\t_encoded[mesh.get_rid()] = true\n"
+         "\tvar srgb := PackedByteArray()\n"
+         "\tfor v in 256:\n"
+         "\t\tvar c := v / 255.0\n"
+         "\t\tsrgb.append(roundi(255.0 * (c * 12.92 if c < 0.0031308 else 1.055 * pow(c, 1.0 / 2.4) - 0.055)))\n"
+         "\tfor s in mesh.get_surface_count():\n"
+         "\t\tvar surface := RenderingServer.mesh_get_surface(mesh.get_rid(), s)\n"
+         "\t\tvar format: int = surface[\"format\"]\n"
+         "\t\tif not (format & Mesh.ARRAY_FORMAT_COLOR):\n"
+         "\t\t\tcontinue\n"
+         "\t\tvar count: int = surface[\"vertex_count\"]\n"
+         "\t\tvar stride := RenderingServer.mesh_surface_get_format_attribute_stride(format, count)\n"
+         "\t\tvar offset := RenderingServer.mesh_surface_get_format_offset(format, count, Mesh.ARRAY_COLOR)\n"
+         "\t\tvar data: PackedByteArray = surface[\"attribute_data\"]\n"
+         "\t\tfor v in count:\n"
+         "\t\t\tvar at := v * stride + offset\n"
+         "\t\t\tdata[at] = srgb[data[at]]\n"
+         "\t\t\tdata[at + 1] = srgb[data[at + 1]]\n"
+         "\t\t\tdata[at + 2] = srgb[data[at + 2]]\n"
+         "\t\tRenderingServer.mesh_surface_update_attribute_region(mesh.get_rid(), s, 0, data)\n"),
+        ("\t\tif mesh_instance.mesh == null:\n\t\t\tcontinue\n",
+         "\t\tif mesh_instance.mesh == null:\n\t\t\tcontinue\n\t\t_encode_colours(mesh_instance.mesh)\n"),
+    ])  # fmt: skip
+
+
 def with_normal_map(shader: str) -> str:
     """A toon shader that also reads the glb's baked normal map (model normal_map)."""
     return _swap_lines(shader, [
@@ -509,11 +547,12 @@ def _script_normal_map(script: str) -> str:
 
 
 def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | None = None, textures: dict[str, str] | None = None,
-                revealed: list[str] | None = None, normal_map: bool = False) -> str:
+                revealed: list[str] | None = None, normal_map: bool = False, vertex_colours: bool = False) -> str:
     """`<name>.tscn`: the .glb with the style's materials applied by a small built-in tool script. With `swap`
     (a variant, when variant_glbs is false) the script also recolours: the base glb, other colours. `textures`
     (atlas = true): res:// paths by script property (`palette` and `glow` for a variant, `rim_texture`). `revealed`:
-    node names the script hides (parts shown once another is gone)."""
+    node names the script hides (parts shown once another is gone). `vertex_colours`: the glb has COLOR_0 (colours or
+    baked occlusion), re-encoded for the Compatibility renderer."""
     look = style.look
     rims = ", ".join(f"{_quote(k)}: {v.rim:.6g}" for k, v in sorted(style.materials.items()) if v.rim > 0)
     atlas = textures is not None
@@ -521,6 +560,8 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
     toon = toon_shader(look, atlas)
     if normal_map:
         script, toon = _script_normal_map(script), with_normal_map(toon)
+    if vertex_colours:
+        script = _with_compat_colours(script)
     rim = look.rim_light > 0
     keys = sorted(textures or {})
     ext = [f'[ext_resource type="Texture2D" path={_quote((textures or {})[k])} id="{i}_{k}"]' for i, k in enumerate(keys, 2)]

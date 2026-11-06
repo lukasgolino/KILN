@@ -10,6 +10,12 @@ before 1.0).
 
 - A palette with errors (e.g. a key of two characters, #126) reports only its own errors, naming the file and key;
   models using it are not parsed, instead of failing with one "unknown colour ... (none)" per part.
+- Vertex colours (`vertex_colors = true`, and `atlas_ao`'s baked occlusion) render as in the previews in Godot's
+  Compatibility renderer (#124): it decodes the colour attribute from sRGB once more, so they came out darker and
+  more saturated. The generated scenes of models with COLOR_0 re-encode each mesh's colours once at load, only on
+  Compatibility (Forward+ and Mobile, and scenes of models without vertex colours, are unchanged). An offscreen render
+  test (`KILN_ENGINE_RENDER=1`, `tools/godot_window.sh`: Xvfb with Mesa's CPU drivers) compares vertex and material
+  colours in both renderers.
 - Painting no longer grows with the square of the paint groups (#123): each group's border takes one suffix minimum
   instead of a minimum over all later groups, and patterns and gradient bands evaluate and refine only their own
   part's faces, not the whole mesh. Output is byte-identical. A 120-tuft gradient test model paints in 30 s instead

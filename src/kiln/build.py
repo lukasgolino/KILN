@@ -577,18 +577,20 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             rim = {"rim_texture": res_path(models_dir / atlas_files[""]["rim"], godot_root)} if "rim" in atlas_files.get("", {}) else {}
             revealed = [f"{model.node_prefix}{pid}" for pid, e in sorted(model.rig.items()) if e.revealed]
             mapped_normals = built.bake is not None
-            write(scene, model_scene(name, res_path(glb, godot_root), style, None, rim if atlas else None, revealed, mapped_normals).encode())
+            coloured = project.config.vertex_colors and atlas is None or atlas is not None and project.config.atlas_ao > 0  # COLOR_0
+            write(scene, model_scene(name, res_path(glb, godot_root), style, None, rim if atlas else None, revealed, mapped_normals,
+                                     coloured).encode())  # fmt: skip
             entry["godot_scene"] = res_path(scene, godot_root)
             recolourable = project.config.variant_glbs or not project.config.vertex_colors  # vertex colours: swap table only
             for vname, swap in sorted(model.variants.items()) if recolourable else ():  # a scene per variant: its glb, or the base recoloured
                 vscene = out / "models" / f"{name}.{vname}.tscn"
                 if atlas is not None:  # the base glb with the variant's textures
                     textures = {**rim, **{k: res_path(models_dir / v, godot_root) for k, v in atlas_files[vname].items()}}
-                    write(vscene, model_scene(name, res_path(glb, godot_root), style, swap, textures, revealed, mapped_normals).encode())
+                    write(vscene, model_scene(name, res_path(glb, godot_root), style, swap, textures, revealed, mapped_normals, coloured).encode())
                 else:
                     vglb = out / variants[vname]["glb"] if "glb" in variants[vname] else glb
                     write(vscene, model_scene(name, res_path(vglb, godot_root), style, None if "glb" in variants[vname] else swap, None, revealed,
-                                              mapped_normals).encode())  # fmt: skip
+                                              mapped_normals, coloured).encode())  # fmt: skip
                 variants[vname]["godot_scene"] = res_path(vscene, godot_root)
             entry["glb_res"] = res_path(glb, godot_root)
         styles_used[style.name] = style
