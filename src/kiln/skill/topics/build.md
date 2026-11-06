@@ -50,7 +50,8 @@ cocked when the animation starts). With `vertex_colors = true`, a game loading t
 `vertex_color_use_as_albedo = true` on the imported materials (KILN's .tscn scenes do it), and on Godot's
 Compatibility renderer, which decodes vertex colours from sRGB once more (darker, more saturated;
 `vertex_color_is_srgb` changes nothing there), re-encode each mesh's colours once (`_encode_colours` in a KILN .tscn
-does it; it also covers `atlas_ao`'s occlusion); variants are then swap
+does it, as do scatter scenes for LOD glbs; it also covers `atlas_ao`'s occlusion; LOD glbs a game loads itself need
+it too); variants are then swap
 tables for the game (or `variant_glbs = true`). KILN's .tscn scripts share their materials between instances and
 leave any surface override the game set before `add_child` alone.
 

@@ -1,11 +1,33 @@
 extends SceneTree
-# Renders a model scene unshaded (its vertex colours or material colour as albedo, after the scene's own script ran)
-# and prints the colour at the centre: `-s colour_probe.gd -- res://.../model.tscn`. Used by test_compat_colours.
+# Colour checks for test_compat_colours, run offscreen (tools/godot_window.sh):
+#   -s colour_probe.gd -- pixel res://a.tscn [res://b.tscn ...]: the other scenes are instanced (their scripts run) and
+#     hidden first, then a.tscn is rendered unshaded (vertex colours, else the material colour, as albedo after the
+#     scene's own script ran) and the colour at the centre printed.
+#   -s colour_probe.gd -- bytes res://scatter.tscn: the first vertex colour bytes of every MultiMesh's mesh (every LOD).
 func _init() -> void:
+	var args := OS.get_cmdline_user_args()
 	var holder := Node3D.new()
 	get_root().add_child(holder)
-	var scene: Node3D = load(OS.get_cmdline_user_args()[0]).instantiate()
+	for extra in args.slice(2):
+		var other: Node3D = load(extra).instantiate()
+		holder.add_child(other)
+		other.visible = false
+	var scene: Node3D = load(args[1]).instantiate()
 	holder.add_child(scene)
+	for i in 4:
+		await process_frame
+	if args[0] == "bytes":
+		for node in scene.find_children("*", "MultiMeshInstance3D", true, false):
+			var mesh := (node as MultiMeshInstance3D).multimesh.mesh
+			for s in mesh.get_surface_count():
+				var surface := RenderingServer.mesh_get_surface(mesh.get_rid(), s)
+				var format: int = surface["format"]
+				if format & Mesh.ARRAY_FORMAT_COLOR:
+					var at := RenderingServer.mesh_surface_get_format_offset(format, surface["vertex_count"], Mesh.ARRAY_COLOR)
+					var data: PackedByteArray = surface["attribute_data"]
+					print("KILN_BYTES ", node.name, " ", data[at], ",", data[at + 1], ",", data[at + 2])
+		quit()
+		return
 	for node in scene.find_children("*", "MeshInstance3D", true, false):
 		var mesh_instance := node as MeshInstance3D
 		for i in mesh_instance.mesh.get_surface_count():

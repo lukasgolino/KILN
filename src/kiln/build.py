@@ -334,7 +334,8 @@ def scatter_files(project: Project, model: Model, style: Style, models: dict[str
         sources = {src: (files[src]["godot_scene"], [res_path(out / lod, godot_root) for lod in files[src].get("lods", [])][: max((len(p.lod) for p in s.places if src in p.models), default=0)],
                          frames[src]) for src in s.sources}  # fmt: skip
         scene_path = out / "models" / f"{model.name}.tscn"
-        write(scene_path, sc.godot_scene(model.name, placed, sources).encode())
+        coloured = project.config.vertex_colors and not project.config.atlas or project.config.atlas and project.config.atlas_ao > 0
+        write(scene_path, sc.godot_scene(model.name, placed, sources, coloured).encode())
         entry_out["godot_scene"] = res_path(scene_path, godot_root)
     return entry_out
 

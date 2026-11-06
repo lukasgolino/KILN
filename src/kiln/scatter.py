@@ -787,11 +787,20 @@ def godot_buffer(transforms: Array, frame: Array, colors: Array | None) -> Array
     return rows
 
 
-def godot_scene(name: str, placed: Placed, sources: dict[str, tuple[str, list[str], Array]]) -> str:
+def godot_scene(name: str, placed: Placed, sources: dict[str, tuple[str, list[str], Array]], coloured: bool = False) -> str:
     """`<name>.tscn`: a Node3D per group (entry x model) holding a MultiMeshInstance3D per chunk (instance transforms and
     colours inline), the meshes given by the inline script from the models' own scenes. `sources`: model or
-    model.variant -> (scene res path, LOD glb res paths, mesh frame)."""
-    from kiln.godot import _quote
+    model.variant -> (scene res path, LOD glb res paths, mesh frame). `coloured`: the glbs have COLOR_0, and the LOD
+    glbs (loaded directly, not through a model scene) get the Compatibility re-encode too (#124)."""
+    from kiln.godot import ENCODE_COLOURS, _quote, _swap_lines
+
+    script = SCATTER_SCRIPT
+    if coloured:
+        script = _swap_lines(script, [
+            ("func _ready() -> void:\n", ENCODE_COLOURS.lstrip("\n") + "\nfunc _ready() -> void:\n"),
+            ("\tvar mesh := source.mesh.duplicate() as Mesh\n",
+             "\tvar mesh := source.mesh.duplicate() as Mesh\n\tif lod > 0:  # LOD 0's scene re-encoded its own mesh\n\t\t_encode_colours(mesh)\n"),
+        ])  # fmt: skip
 
     order = [s for s in placed.scatter.sources if any(g.source == s for g in placed.groups)]
     lines = ["[gd_scene format=3]", ""]
@@ -803,7 +812,7 @@ def godot_scene(name: str, placed: Placed, sources: dict[str, tuple[str, list[st
             n += 1
             ext[res] = f"{n}_{s.replace('.', '_')}_{kind}"
             lines.append(f'[ext_resource type="PackedScene" path={_quote(res)} id="{ext[res]}"]')
-    lines += ["", '[sub_resource type="GDScript" id="GDScript_scatter"]', f"script/source = {_quote(SCATTER_SCRIPT)}", ""]
+    lines += ["", '[sub_resource type="GDScript" id="GDScript_scatter"]', f"script/source = {_quote(script)}", ""]
     ids = []
     for g in placed.groups:
         frame = sources[g.source][2]

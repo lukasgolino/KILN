@@ -491,39 +491,44 @@ def _with_rim(script: str) -> str:
     ])  # fmt: skip
 
 
+# #124: Godot 4.7's Compatibility renderer decodes the colour attribute from sRGB once more (vertex_color_is_srgb changes
+# nothing there), so linear glTF colours came out darker and more saturated than in Forward+, Mobile and the previews.
+# Each mesh's colour bytes are sRGB-encoded once, in place on the GPU copy (index buffers and LODs untouched), so the
+# renderer's decode gives the glTF values back. The mark is on the mesh: every scene's script sees it, and
+# duplicate() copies it along with the (already encoded) data.
+ENCODE_COLOURS = """
+static func _encode_colours(mesh: Mesh) -> void:
+\tif mesh.has_meta("kiln_srgb") or DisplayServer.get_name() == "headless" \\
+\t\t\tor RenderingServer.get_current_rendering_method() != "gl_compatibility":
+\t\treturn
+\tmesh.set_meta("kiln_srgb", true)
+\tvar srgb := PackedByteArray()
+\tfor v in 256:
+\t\tvar c := v / 255.0
+\t\tsrgb.append(roundi(255.0 * (c * 12.92 if c < 0.0031308 else 1.055 * pow(c, 1.0 / 2.4) - 0.055)))
+\tfor s in mesh.get_surface_count():
+\t\tvar surface := RenderingServer.mesh_get_surface(mesh.get_rid(), s)
+\t\tvar format: int = surface["format"]
+\t\tif not (format & Mesh.ARRAY_FORMAT_COLOR):
+\t\t\tcontinue
+\t\tvar count: int = surface["vertex_count"]
+\t\tvar stride := RenderingServer.mesh_surface_get_format_attribute_stride(format, count)
+\t\tvar offset := RenderingServer.mesh_surface_get_format_offset(format, count, Mesh.ARRAY_COLOR)
+\t\tvar data: PackedByteArray = surface["attribute_data"]
+\t\tfor v in count:
+\t\t\tvar at := v * stride + offset
+\t\t\tdata[at] = srgb[data[at]]
+\t\t\tdata[at + 1] = srgb[data[at + 1]]
+\t\t\tdata[at + 2] = srgb[data[at + 2]]
+\t\tRenderingServer.mesh_surface_update_attribute_region(mesh.get_rid(), s, 0, data)
+"""
+
+
 def _with_compat_colours(script: str) -> str:
-    """The apply script, also re-encoding the glb's vertex colours for the Compatibility renderer (#124; only written
-    for models whose glb has COLOR_0). Godot 4.7's Compatibility renderer decodes the colour attribute from sRGB once
-    more (vertex_color_is_srgb changes nothing there), so linear glTF colours came out darker and more saturated than
-    in Forward+, Mobile and the previews. Each mesh's colour bytes are sRGB-encoded once, in place on the GPU copy
-    (index buffers and LODs untouched), so the renderer's decode gives the glTF values back."""
+    """The apply script, also re-encoding the glb's vertex colours for the Compatibility renderer (only written for
+    models whose glb has COLOR_0; see ENCODE_COLOURS)."""
     return _swap_lines(script, [
-        ("static var _shared: Dictionary = {}\n",
-         "static var _shared: Dictionary = {}\n"
-         "static var _encoded: Dictionary = {}  # mesh RIDs whose colours are already re-encoded (Compatibility only)\n\n"
-         "static func _encode_colours(mesh: Mesh) -> void:\n"
-         "\tif RenderingServer.get_current_rendering_method() != \"gl_compatibility\" or _encoded.has(mesh.get_rid()):\n"
-         "\t\treturn\n"
-         "\t_encoded[mesh.get_rid()] = true\n"
-         "\tvar srgb := PackedByteArray()\n"
-         "\tfor v in 256:\n"
-         "\t\tvar c := v / 255.0\n"
-         "\t\tsrgb.append(roundi(255.0 * (c * 12.92 if c < 0.0031308 else 1.055 * pow(c, 1.0 / 2.4) - 0.055)))\n"
-         "\tfor s in mesh.get_surface_count():\n"
-         "\t\tvar surface := RenderingServer.mesh_get_surface(mesh.get_rid(), s)\n"
-         "\t\tvar format: int = surface[\"format\"]\n"
-         "\t\tif not (format & Mesh.ARRAY_FORMAT_COLOR):\n"
-         "\t\t\tcontinue\n"
-         "\t\tvar count: int = surface[\"vertex_count\"]\n"
-         "\t\tvar stride := RenderingServer.mesh_surface_get_format_attribute_stride(format, count)\n"
-         "\t\tvar offset := RenderingServer.mesh_surface_get_format_offset(format, count, Mesh.ARRAY_COLOR)\n"
-         "\t\tvar data: PackedByteArray = surface[\"attribute_data\"]\n"
-         "\t\tfor v in count:\n"
-         "\t\t\tvar at := v * stride + offset\n"
-         "\t\t\tdata[at] = srgb[data[at]]\n"
-         "\t\t\tdata[at + 1] = srgb[data[at + 1]]\n"
-         "\t\t\tdata[at + 2] = srgb[data[at + 2]]\n"
-         "\t\tRenderingServer.mesh_surface_update_attribute_region(mesh.get_rid(), s, 0, data)\n"),
+        ("static var _shared: Dictionary = {}\n", "static var _shared: Dictionary = {}\n" + ENCODE_COLOURS),
         ("\t\tif mesh_instance.mesh == null:\n\t\t\tcontinue\n",
          "\t\tif mesh_instance.mesh == null:\n\t\t\tcontinue\n\t\t_encode_colours(mesh_instance.mesh)\n"),
     ])  # fmt: skip
