@@ -190,6 +190,33 @@ def test_init_inside_a_godot_project_writes_gdignore(tmp_path: Path, monkeypatch
     assert not (outside / ".gdignore").exists()
 
 
+def test_init_names_the_gdignore_and_build_refuses_ignored_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                                  capsys: pytest.CaptureFixture[str]) -> None:  # fmt: skip
+    """#97: the message named the Godot project, not the folder the .gdignore is in; the default output sat under it."""
+    from kiln.build import build
+    from kiln.cli import main
+    from kiln.project import load_project
+
+    (tmp_path / "project.godot").write_text("config_version=5\n")
+    monkeypatch.chdir(tmp_path)
+    assert main(["init", "art3d/bigfoot_a"]) == 0
+    said = capsys.readouterr().out
+    assert "art3d/bigfoot_a/.gdignore" in said and '"../../assets/kiln"' in said
+    root = tmp_path / "art3d" / "bigfoot_a"
+    config = root / "kiln.toml"
+    config.write_text(config.read_text().replace('export = ["glb"]', 'export = ["glb", "godot"]'))
+    result = build(load_project(root))
+    assert [f.rule for f in result.findings] == ["E000"] and "Godot ignores" in result.findings[0].message
+    assert '"../../assets/kiln"' in result.findings[0].message
+    config.write_text(config.read_text().replace('output_dir = "build"', 'output_dir = "../../assets/kiln"'))
+    assert not [f for f in build(load_project(root)).findings if f.rule == "E000"]
+    (tmp_path.parent / ".gdignore").write_text("")  # above the Godot project: not Godot's business
+    try:
+        assert not [f for f in build(load_project(root)).findings if f.rule == "E000"]
+    finally:
+        (tmp_path.parent / ".gdignore").unlink()
+
+
 # 9 + 10. part boxes in the manifest; list values in rig meta
 def test_manifest_part_boxes_and_vector_meta(project: Project) -> None:
     text = arms_text().replace("  arm_l: { pivot: [0.3, 0.6, 0] }", "  arm_l: { pivot: [0.3, 0.6, 0], meta: { hand: [0.45, 0.35, 0], side: left } }")
