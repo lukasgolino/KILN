@@ -23,6 +23,9 @@ before 1.0).
 
 ### Fixed
 
+- Colour borders between a noisy part and its neighbours follow the parts' smooth shapes (#100): noise roughens the
+  surface, not the edge of a blended patch on it (it came out saw-toothed). Meshes of models with `noise` next to
+  another colour change.
 - `kiln init` inside a Godot project names the `.gdignore` it wrote (in the KILN folder, not the Godot project's) and
   says the default `output_dir` is under it, with a path Godot sees (#97). `kiln build` with Godot export stops with
   E000 when `output_dir` is under a `.gdignore` in the Godot project (the scenes would never import).

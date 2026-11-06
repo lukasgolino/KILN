@@ -163,3 +163,20 @@ def test_decal_uv_orientation(project: Project) -> None:
     d = built.painted.decals[0]
     uv = decal_uv(d, np.array([[0, 0.3, 0.3], [0.1, 0.5, 0.3], [-0.1, 0.1, 0.3]]))
     np.testing.assert_allclose(uv, np.array([[0.5, 0.5], [1.0, 0.0], [0.0, 1.0]]), atol=1e-12)  # u to the right seen from the front, v down
+
+
+def test_noise_leaves_colour_borders_smooth(project: Project) -> None:
+    """#100: a noisy torso's border with a blended patch follows where the smooth shapes meet (it was saw-toothed)."""
+    from dataclasses import replace
+
+    text = ("name: thing\nparts:\n  - ellipsoid: { at: [0, 0.6, 0], radii: [0.35, 0.6, 0.25] }\n    color: red\n"
+            "    noise: { amount: 0.014, scale: 0.1 }\n  - ellipsoid: { at: [0, 0.75, 0.12], radii: [0.22, 0.25, 0.15] }\n"
+            "    color: white\n    blend: 0.04\n")  # fmt: skip
+    built = built_of(project, text)
+    p = built.painted
+    group = p.face_group
+    shared = np.intersect1d(np.unique(p.faces[group == 0]), np.unique(p.faces[group == 1]))
+    assert len(shared) > 8
+    plain = [replace(g, noise=None) for g in field_of(built.model, built.step).parts]
+    gap = np.abs(plain[0].distance(p.vertices[shared]) - plain[1].distance(p.vertices[shared]))
+    assert float(np.median(gap)) < 0.002

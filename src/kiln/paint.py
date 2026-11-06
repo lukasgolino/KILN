@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -271,6 +271,9 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
     members = [[i for i in adding if part_group[i] == g] for g in range(len(groups))]
 
     later = {i: [j for j in range(i + 1, len(model.parts)) if model.parts[j].geometry.op != "add" and _cuts(model, j, i)] for i in adding}
+    # borders between parts follow their smooth shapes: noise roughens the surface, not the colour edges on it (#100)
+    if any(g.noise is not None for g in field.parts):
+        field = Field([replace(g, noise=None) for g in field.parts], field.margin, field.active)
 
     def group_distances(points: Array) -> Array:
         if not len(points):
