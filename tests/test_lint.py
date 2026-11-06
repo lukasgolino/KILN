@@ -249,3 +249,35 @@ def test_cover_counts_what_a_cut_opens(project: Project) -> None:
         assert model is not None, findings
         cover.append(covers(model, field_of(model, 0.01), 0.01, [1])[1].covered)
     assert cover[0] < cover[1] - 0.1  # the slit cut into the body shows more of the eye
+
+
+def test_cover_keeps_to_the_builders_pieces(project: Project) -> None:
+    """union: per_bone meshes each bone apart: an arm deep in the chest is its own surface, not covered by it."""
+    from conftest import load
+
+    from kiln.builder import field_of
+    from kiln.cover import covers
+
+    text = ("name: thing\nskin: rigid\nUNION:parts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.5 }\n    id: chest\n    color: red\n"
+            "  - sphere: { at: [0, 0.5, 0.3], radius: 0.15 }\n    id: arm\n    color: blue\n"
+            "rig:\n  arm: { pivot: [0, 0.5, 0.3] }\n")  # fmt: skip
+    for union, covered in (("", True), ("union: per_bone\n", False)):
+        model, _, findings = load(project, text.replace("UNION:", union))
+        assert model is not None, findings
+        c = covers(model, field_of(model, 0.01), 0.01, [1])
+        assert (c[1].covered > 0.9) == covered, (union, c)
+
+
+def test_cover_samples_every_copy(project: Project) -> None:
+    import numpy as np
+    from conftest import load
+
+    from kiln.builder import field_of
+    from kiln.cover import surface_samples
+
+    ring = BODY + "  - sphere: { at: [0.6, 0.5, 0], radius: 0.04 }\n    color: blue\n    array: { count: 8, around: y, center: [0, 0.5, 0] }\n"
+    model, _, findings = load(project, ring)
+    assert model is not None, findings
+    points = surface_samples(field_of(model, 0.01).parts[1], 0.01)
+    angles = np.round(np.degrees(np.arctan2(points[:, 2], points[:, 0])) / 45) % 8
+    assert len(set(angles.tolist())) == 8 and len(points) > 8 * 100  # every bead of the ring, densely

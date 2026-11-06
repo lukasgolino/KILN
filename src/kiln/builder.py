@@ -153,22 +153,9 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     target = budget or model.budget or style.budget(model.cls)
     rigged = model.skin != "none"
     hard = hard_parts(model, style)
-    # `separate` parts (a detachable helmet) are meshed on their own: their own closed surface, not fused into the
-    # body, so detaching one leaves no hole. The rest is the main piece.
-    separate = sorted(pid for pid, entry in model.rig.items() if entry.separate) if rigged else []
+    all_pieces, n_main = mesh_pieces(model)
     adding = [i for i, p in enumerate(model.parts) if p.geometry.op == "add"]
-    # fitted shells (armour wrapping a body, a gap away) are their own pieces too: meshed with what they wrap, the thin
-    # air gap between the two surfaces would tear both
-    fitted = sorted({model.parts[i].id for i in adding if model.parts[i].geometry.fit is not None and model.parts[i].id not in separate})
-    own = set(separate) | set(fitted)
-    main = [i for i in adding if model.parts[i].id not in own]
-    # union: per_bone (rigid skins): each bone's parts are one closed surface; neighbouring bones' surfaces overlap
-    # instead of being cut along where they meet, so turning a joint can't open the mesh (#50)
     per_bone = model.union == "per_bone" and model.skin == "rigid"
-    bones = [pid for pid in model.ids if any(model.parts[i].id == pid for i in main)] if per_bone else []
-    all_pieces = [[i for i in main if model.parts[i].id == pid] for pid in bones] if per_bone else [main]
-    n_main = len(all_pieces)
-    all_pieces += [[i for i in adding if model.parts[i].id == pid] for pid in [*separate, *fitted]]
     # hard parts are exact polygons, made first: what they leave of the budget goes to the smooth parts
     hard_pieces = [frozenset(i for i in inc if i in hard) for inc in all_pieces]
     hard_pieces = [inc for inc in hard_pieces if inc]
@@ -488,6 +475,29 @@ def _decimate(
         hidden += [i for i, a in zip(include, full, strict=True) if a == 0]
         lost += [i for i, a, b in zip(include, full, final, strict=True) if a > 0 and b < a * LOST_AREA]
     return painted, normals, tuple(sorted(hidden)), tuple(sorted(lost))
+
+
+def mesh_pieces(model: Model) -> tuple[list[list[int]], int]:
+    """The adding parts meshed together, as lists of part indices, and how many of them are the main surface (one, or
+    one per bone with union: per_bone); the rest are separate parts and fitted shells."""
+    rigged = model.skin != "none"
+    # `separate` parts (a detachable helmet) are meshed on their own: their own closed surface, not fused into the
+    # body, so detaching one leaves no hole. The rest is the main piece.
+    separate = sorted(pid for pid, entry in model.rig.items() if entry.separate) if rigged else []
+    adding = [i for i, p in enumerate(model.parts) if p.geometry.op == "add"]
+    # fitted shells (armour wrapping a body, a gap away) are their own pieces too: meshed with what they wrap, the thin
+    # air gap between the two surfaces would tear both
+    fitted = sorted({model.parts[i].id for i in adding if model.parts[i].geometry.fit is not None and model.parts[i].id not in separate})
+    own = set(separate) | set(fitted)
+    main = [i for i in adding if model.parts[i].id not in own]
+    # union: per_bone (rigid skins): each bone's parts are one closed surface; neighbouring bones' surfaces overlap
+    # instead of being cut along where they meet, so turning a joint can't open the mesh (#50)
+    per_bone = model.union == "per_bone" and model.skin == "rigid"
+    bones = [pid for pid in model.ids if any(model.parts[i].id == pid for i in main)] if per_bone else []
+    all_pieces = [[i for i in main if model.parts[i].id == pid] for pid in bones] if per_bone else [main]
+    n_main = len(all_pieces)
+    all_pieces += [[i for i in adding if model.parts[i].id == pid] for pid in [*separate, *fitted]]
+    return all_pieces, n_main
 
 
 def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int | None = None) -> str:

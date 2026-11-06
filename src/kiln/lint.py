@@ -25,7 +25,7 @@ from kiln.mesher import CELL_LIMIT, crack_groups, mesh_steps, open_edges, pinche
 from kiln.notation import Model
 from kiln.packs import lock_findings
 from kiln.project import Project
-from kiln.sdf import Array, part_thickness
+from kiln.sdf import Array, Field, part_thickness
 from kiln.style import Style
 from kiln.vendor.findings import Finding
 
@@ -88,6 +88,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     def warn(rule: str, message: str, line: int | None = None, where: str = "") -> None:
         out.append(Finding(rule, message, m.path, line, where))
 
+    field: Field | None = None
     if m.source is None:
         p = built.painted
 
@@ -113,7 +114,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             spots = np.concatenate([crowded, np.stack([pinched, pinched], axis=1)])
             warn("E013", f"the mesh isn't a manifold: {len(crowded)} edge(s) with more than two faces and {len(pinched)} point(s) where "
                  f"two sheets touch, in {places(spots, 1)}: {report}")  # fmt: skip
-        field = field_of(m, built.step) if built.hidden or m.parts else None
+        field = field_of(m, built.step) if m.parts else None
 
         def named(parts: tuple[int, ...]) -> str:
             shown = [f"part {m.parts[j].index} ({m.parts[j].geometry.shape}, {m.parts[j].color_name})" for j in parts[:3]]
@@ -209,7 +210,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     tol = max(0.01, 0.01 * size)
     grounded = m.origin is not None or abs(float(lo[1])) <= tol  # a model with an explicit `origin` chose its own anchor
     if not grounded and m.parts:  # the mesh may sit up to a cell above the shapes' own bottom (rounded edges, coarse cells)
-        shapes_lo = float(field_of(m, built.step).bounds()[0][1])
+        shapes_lo = float((field or field_of(m, built.step)).bounds()[0][1])
         grounded = abs(shapes_lo) <= tol and 0 <= float(lo[1]) - shapes_lo <= 1.5 * built.step
     if not grounded:
         warn("W106", f"the lowest point is at y = {float(lo[1]):.3g} m: models stand on y = 0 (feet, wheels, base). Move the parts, "
