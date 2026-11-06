@@ -111,8 +111,10 @@ def cmd_init(args: argparse.Namespace, out: Output) -> int:
     if godot is not None and not (root / ".gdignore").exists():
         (root / ".gdignore").write_text("", encoding="utf-8")  # sources, imports and previews aren't game assets
     out.say(f"created KILN project in {display_path(root)} (style {args.style}); next: kiln new model <name>")
-    if godot is not None:
-        out.say(f"inside the Godot project {display_path(godot)}: wrote .gdignore; set output_dir to a folder Godot sees, e.g. ../assets/kiln")
+    if godot is not None:  # .gdignore hides the whole folder from Godot, the default output_dir ("build") included (#97)
+        suggestion = Path(os.path.relpath(godot / "assets" / "kiln", root)).as_posix()
+        out.say(f"inside the Godot project {display_path(godot)}: wrote {display_path(root / '.gdignore')}, so Godot skips this folder, "
+                f"build output included; set output_dir in kiln.toml to a folder Godot sees, e.g. \"{suggestion}\"")
     out.result({"project": display_path(root), "style": args.style, "godot_project": display_path(godot) if godot else None})
     return 0
 

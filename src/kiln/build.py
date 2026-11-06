@@ -422,6 +422,12 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             result.findings.append(Finding("E000", f'export includes "godot" but {out} isn\'t inside a Godot project (no project.godot above it); '
                                            "point output_dir into your Godot project, e.g. ../game/assets/kiln", project.config_path))  # fmt: skip
             return result
+        hidden = next((f for f in (out, *out.parents) if (f / ".gdignore").is_file() and f.is_relative_to(godot_root)), None)
+        if hidden is not None:  # Godot skips everything under a .gdignore: the scenes would never import (#97)
+            result.findings.append(Finding("E000", f'export includes "godot" but Godot ignores {out}: {hidden / ".gdignore"} hides that '
+                                           "folder (kiln init writes one in the KILN project); point output_dir outside it, e.g. "
+                                           "../assets/kiln", project.config_path))  # fmt: skip
+            return result
         result.godot_root = godot_root
     # Godot's import settings (lossless palettes, carriers as AnimationLibrary) whenever the output is in a Godot
     # project, scenes or not: a game may load the glbs itself and still import the textures (#56)

@@ -15,6 +15,9 @@ before 1.0).
 
 ### Fixed
 
+- `kiln init` inside a Godot project names the `.gdignore` it wrote (in the KILN folder, not the Godot project's) and
+  says the default `output_dir` is under it, with a path Godot sees (#97). `kiln build` with Godot export stops with
+  E000 when `output_dir` is under a `.gdignore` in the Godot project (the scenes would never import).
 - A palette with errors (e.g. a key of two characters, #126) reports only its own errors, naming the file and key;
   models using it are not parsed, instead of failing with one "unknown colour ... (none)" per part.
 - Vertex colours (`vertex_colors = true`, and `atlas_ao`'s baked occlusion) render as in the previews in Godot's
