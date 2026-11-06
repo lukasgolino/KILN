@@ -272,19 +272,19 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
 
     later = {i: [j for j in range(i + 1, len(model.parts)) if model.parts[j].geometry.op != "add" and _cuts(model, j, i)] for i in adding}
     # borders between parts follow their smooth shapes: noise roughens the surface, not the colour edges on it (#100)
-    if any(g.noise is not None for g in field.parts):
-        field = Field([replace(g, noise=None) for g in field.parts], field.margin, field.active)
+    # (`owners`; the mesh's own field, noise and all, still places new vertices on the surface)
+    owners = Field([replace(g, noise=None) for g in field.parts], field.margin, field.active) if any(g.noise for g in field.parts) else field
 
     def group_distances(points: Array) -> Array:
         if not len(points):
             return np.zeros((len(groups), 0))
         # a part's surface counts only where the cuts after it left it (a door in a cut archway isn't the wall's)
-        removers = {j: field.part_distance(j, points) for j in sorted({j for js in later.values() for j in js})}
+        removers = {j: owners.part_distance(j, points) for j in sorted({j for js in later.values() for j in js})}
         # a running minimum per group (parts x points would not fit for many-part models)
         out = np.full((len(groups), len(points)), np.inf)
         for g, m in enumerate(members):
             for i in m:
-                d = field.part_distance(i, points)
+                d = owners.part_distance(i, points)
                 for j in later[i]:
                     d = np.maximum(d, -removers[j] if model.parts[j].geometry.op == "cut" else removers[j])
                 np.minimum(out[g], d, out=out[g])
@@ -332,13 +332,13 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
             def under_values(x: Array, covering: list[int] = covering, gap: float = gap) -> Array:
                 per = []
                 for i in covering:  # its solid shape, minus what later cuts take away (a face opening)
-                    d = field.parts[i].distance(x, filled=True)
+                    d = owners.parts[i].distance(x, filled=True)
                     for j in range(i + 1, len(model.parts)):
                         g = model.parts[j].geometry
                         if g.op == "cut" and _cuts(model, j, i):
-                            d = np.maximum(d, -field.part_distance(j, x))
+                            d = np.maximum(d, -owners.part_distance(j, x))
                         elif g.op == "intersect":
-                            d = np.maximum(d, field.part_distance(j, x))
+                            d = np.maximum(d, owners.part_distance(j, x))
                     per.append(d)
                 return np.min(per, axis=0) - gap
 

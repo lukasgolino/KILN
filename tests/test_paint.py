@@ -180,3 +180,13 @@ def test_noise_leaves_colour_borders_smooth(project: Project) -> None:
     plain = [replace(g, noise=None) for g in field_of(built.model, built.step).parts]
     gap = np.abs(plain[0].distance(p.vertices[shared]) - plain[1].distance(p.vertices[shared]))
     assert float(np.median(gap)) < 0.002
+
+
+def test_patterns_on_a_noisy_part_stay_on_its_surface(project: Project) -> None:
+    """The smooth shapes decide colour borders only: vertices refined for a pattern still land on the noisy surface."""
+    text = ("name: thing\nbudget: 200000\nparts:\n  - ellipsoid: { at: [0, 0.6, 0], radii: [0.35, 0.6, 0.25] }\n    color: red\n"
+            "    noise: { amount: 0.014, scale: 0.1 }\n    pattern: { type: stripes, color: white, size: 0.1, axis: y }\n")  # fmt: skip
+    built = built_of(project, text)
+    p = built.painted
+    v = p.vertices[np.unique(p.faces)]
+    assert float(np.abs(field_of(built.model, built.step).distance(v)).max()) < built.step / 4
