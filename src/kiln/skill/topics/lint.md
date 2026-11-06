@@ -23,7 +23,9 @@ terrain's height shape is off the map. W118 a scatter entry places more than 50 
 W120 the grid cap (`max_cells`), not the resolution, set the mesh cell size: raise `max_cells` to what it says. W121 a `detail` part shows nowhere (no `normal_map`, or under two texels thick). W122 a
 `blend_to` target is meshed apart from the part (hard, kept, separate, another bone's piece): they join crisply.
 W123 the built mesh dips 2 mm (or a tenth of a cell) or more below y = 0 (blends push feet under the ground): `origin: ground` exports it
-lifted onto y = 0.
+lifted onto y = 0. W124 a part shows only a sliver: 97% or more of its own surface is deeper inside other parts than
+their blend (clipped flat, nearly gone; W101 is all of it), with the covering parts named; not for hard, shell or
+separate parts. Partly floating details have no warning yet: check them in the previews.
 Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`. Lint meshes models in parallel
 (`KILN_JOBS` processes, default: every core) and caches them for build and previews. `pip install "kiln[fast]"`
 (numba) evaluates the shapes compiled, 2-3x faster on big models; the output then differs from the plain install in

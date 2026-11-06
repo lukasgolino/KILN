@@ -13,6 +13,10 @@ before 1.0).
 - W123 (#101): the built mesh of a model standing on y = 0 dips 2 mm or more under it (2 mm, or a tenth of a cell; blends
   and meshing push feet under the shapes' bottom; W106 only fires past 1 cm). It points at `origin: ground`, which the demo's knight and wall now use (they dipped 4.5 and 7.1 mm).
 
+- W124 (#98): a part shows only a sliver (97% or more of its own surface deeper inside other parts than their blend:
+  clipped flat or nearly gone), naming the covering parts. W101 also names the parts that cover a hidden one. Hard,
+  shell, separate and revealed parts are left out (hard parts are meshed as their tessellation, not their field).
+
 ### Fixed
 
 - `kiln init` inside a Godot project names the `.gdignore` it wrote (in the KILN folder, not the Godot project's) and

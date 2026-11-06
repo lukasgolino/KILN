@@ -18,6 +18,7 @@ import numpy as np
 
 from kiln.bake import texel_size
 from kiln.builder import build_cached, cached, field_of, hard_parts, kept_parts
+from kiln.cover import covers, mostly_covered
 from kiln.export import Built
 from kiln.jit import set_threads
 from kiln.mesher import CELL_LIMIT, crack_groups, mesh_steps, open_edges, pinches
@@ -51,6 +52,7 @@ WARNING_RULES = {
     "W121": "a detail part shows nowhere: the model has no normal_map, or it is thinner than two of the map's texels",
     "W122": "a blend_to part can't melt into a target: it is hard, kept, separate or another bone's piece (they join crisply)",
     "W123": "the built mesh dips a little below y = 0 (blends and meshing push the feet under the ground)",
+    "W124": "a part shows only a sliver: nearly all of it is inside other parts (clipped flat or nearly gone)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -111,10 +113,24 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             spots = np.concatenate([crowded, np.stack([pinched, pinched], axis=1)])
             warn("E013", f"the mesh isn't a manifold: {len(crowded)} edge(s) with more than two faces and {len(pinched)} point(s) where "
                  f"two sheets touch, in {places(spots, 1)}: {report}")  # fmt: skip
+        field = field_of(m, built.step) if built.hidden or m.parts else None
+
+        def named(parts: tuple[int, ...]) -> str:
+            shown = [f"part {m.parts[j].index} ({m.parts[j].geometry.shape}, {m.parts[j].color_name})" for j in parts[:3]]
+            return ", ".join(shown) + (f" and {len(parts) - 3} more" if len(parts) > 3 else "")
+
+        exact = frozenset(hard_parts(m, built.style))
+        hidden_by = covers(m, field, built.step, [i for i in built.hidden if m.parts[i].geometry.op == "add"], exact) if field and built.hidden else {}
         for i in built.hidden:
             part = m.parts[i]
-            warn("W101", f"part {part.index} ({part.geometry.shape}, {part.color_name}) has no visible surface: later parts cover it or a "
-                 "cut removes it; move it out, or make the covering part a shell", part.line, part.where)  # fmt: skip
+            by = hidden_by[i].by if i in hidden_by else ()
+            what = f"{named(by)} cover{'s' if len(by) == 1 else ''} it" if by else "later parts cover it or a cut removes it"
+            warn("W101", f"part {part.index} ({part.geometry.shape}, {part.color_name}) has no visible surface: {what}; move it out, or "
+                 "make the covering part a shell", part.line, part.where)  # fmt: skip
+        for i, c in (mostly_covered(m, field, built.step, built.hidden, exact) if field else {}).items():
+            part = m.parts[i]
+            warn("W124", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is {c.covered * 100:.0f}% inside {named(c.by)}: only "
+                 "a sliver shows (clipped flat or nearly gone); move it out, or make it bigger", part.line, part.where)  # fmt: skip
         for i in built.lost:
             part = m.parts[i]
             warn("W111", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is there at full detail but the triangle budget "
@@ -193,8 +209,6 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     tol = max(0.01, 0.01 * size)
     grounded = m.origin is not None or abs(float(lo[1])) <= tol  # a model with an explicit `origin` chose its own anchor
     if not grounded and m.parts:  # the mesh may sit up to a cell above the shapes' own bottom (rounded edges, coarse cells)
-        from kiln.builder import field_of
-
         shapes_lo = float(field_of(m, built.step).bounds()[0][1])
         grounded = abs(shapes_lo) <= tol and 0 <= float(lo[1]) - shapes_lo <= 1.5 * built.step
     if not grounded:
