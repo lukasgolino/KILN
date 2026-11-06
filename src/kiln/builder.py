@@ -27,7 +27,7 @@ from kiln.sdf import Array, Field, part_thickness
 from kiln.style import Style
 from kiln.usage import Phases
 
-BUILDER_VERSION = 15  # bump when meshing/painting changes output
+BUILDER_VERSION = 16  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
