@@ -29,6 +29,9 @@ before 1.0).
 
 ### Fixed
 
+- Docs (#102): where a ring `array`'s arc starts and which way it runs, that copies turn with the ring, and that a
+  `cone`'s (and `cylinder`'s) `at` is its middle, with `aim` to place it by its ends.
+
 - Baked normal maps are filtered per texel (#125): four samples a quarter texel around its centre, each with a
   gradient step of half a texel, so detail finer than a texel blurs out instead of aliasing into streaks and speckle
   (sub-texel noise: tilt std 0.10 -> 0.04). Bakes take about 1.5x as long; every baked map changes. parts.md says
