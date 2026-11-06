@@ -5,6 +5,7 @@ aren't produced any more are removed."""
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -424,9 +425,10 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             return result
         hidden = next((f for f in (out, *out.parents) if (f / ".gdignore").is_file() and f.is_relative_to(godot_root)), None)
         if hidden is not None:  # Godot skips everything under a .gdignore: the scenes would never import (#97)
+            seen = Path(os.path.relpath(godot_root / "assets" / "kiln", project.root)).as_posix()
             result.findings.append(Finding("E000", f'export includes "godot" but Godot ignores {out}: {hidden / ".gdignore"} hides that '
-                                           "folder (kiln init writes one in the KILN project); point output_dir outside it, e.g. "
-                                           "../assets/kiln", project.config_path))  # fmt: skip
+                                           f'folder (kiln init writes one in the KILN project); point output_dir outside it, e.g. "{seen}"',
+                                           project.config_path))  # fmt: skip
             return result
         result.godot_root = godot_root
     # Godot's import settings (lossless palettes, carriers as AnimationLibrary) whenever the output is in a Godot

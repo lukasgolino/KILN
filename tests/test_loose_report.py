@@ -207,8 +207,14 @@ def test_init_names_the_gdignore_and_build_refuses_ignored_output(tmp_path: Path
     config.write_text(config.read_text().replace('export = ["glb"]', 'export = ["glb", "godot"]'))
     result = build(load_project(root))
     assert [f.rule for f in result.findings] == ["E000"] and "Godot ignores" in result.findings[0].message
+    assert '"../../assets/kiln"' in result.findings[0].message
     config.write_text(config.read_text().replace('output_dir = "build"', 'output_dir = "../../assets/kiln"'))
     assert not [f for f in build(load_project(root)).findings if f.rule == "E000"]
+    (tmp_path.parent / ".gdignore").write_text("")  # above the Godot project: not Godot's business
+    try:
+        assert not [f for f in build(load_project(root)).findings if f.rule == "E000"]
+    finally:
+        (tmp_path.parent / ".gdignore").unlink()
 
 
 # 9 + 10. part boxes in the manifest; list values in rig meta
