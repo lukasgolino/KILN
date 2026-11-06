@@ -53,6 +53,28 @@ def test_refine_splits_long_edges_and_stays_closed() -> None:
     assert closed_faces(nf)
 
 
+def test_refine_of_a_few_faces_stays_closed_and_leaves_far_faces() -> None:
+    """#123: refine looks only at the selected faces and their neighbours; the rest of the mesh stays as it was."""
+    v, f = sphere_mesh()
+    centres = v[f].mean(axis=1)
+    selected = centres[:, 0] > 0.35
+    nv, nf, parent = refine(v, f, selected, 0.01, lambda x: x / np.linalg.norm(x, axis=1, keepdims=True) * 0.5)
+    assert len(nf) > len(f) and closed_faces(nf)
+    far = np.flatnonzero(centres[:, 0] < 0.2)
+    assert (np.bincount(parent, minlength=len(f))[far] == 1).all()  # far faces aren't split
+    np.testing.assert_array_equal(nv[: len(v)], v)
+
+
+def test_split_far_from_the_cut_keeps_faces() -> None:
+    v, f = sphere_mesh()
+    centres = v[f].mean(axis=1)
+    selected = centres[:, 1] > 0.3
+    nv, nf, _, parent = split(v, f, v[:, 0] - 0.01, selected)
+    assert closed_faces(nf)
+    far = np.flatnonzero(centres[:, 1] < 0.1)
+    assert (np.bincount(parent, minlength=len(f))[far] == 1).all()
+
+
 def two_colour(project: Project) -> str:
     return """\
 name: thing

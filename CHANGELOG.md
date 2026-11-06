@@ -10,6 +10,10 @@ before 1.0).
 
 - A palette with errors (e.g. a key of two characters, #126) reports only its own errors, naming the file and key;
   models using it are not parsed, instead of failing with one "unknown colour ... (none)" per part.
+- Painting no longer grows with the square of the paint groups (#123): each group's border takes one suffix minimum
+  instead of a minimum over all later groups, and patterns and gradient bands evaluate and refine only their own
+  part's faces, not the whole mesh. Output is byte-identical. A 120-tuft gradient test model paints in 30 s instead
+  of 75 s; long paints print their progress (parts, colour groups) at most every 10 s.
 
 ### Changed
 

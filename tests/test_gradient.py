@@ -138,3 +138,17 @@ def test_gradient_on_a_turned_mirrored_array(project: Project) -> None:
     colours = {g.color for g in result.built["thing"].painted.groups}
     pats = result.built["thing"].model.parts[1].patterns
     assert {p.color for p in pats} <= colours
+
+
+def test_painting_reports_progress(project: Project) -> None:
+    """#123: long paints say how far they are (lines at most every QUIET_SECONDS, via Phases.within)."""
+    from kiln.builder import field_of
+    from kiln.mesher import dual_contour
+    from kiln.paint import regions
+
+    model, _, findings = load(project, MODEL.format(gradient="{ to: white, steps: 3 }"))
+    assert model is not None, findings
+    field = field_of(model, 0.02)
+    lines: list[str] = []
+    regions(dual_contour(field, 0.02), model, field, False, progress=lines.append)
+    assert lines[-1] == "painting: patterns of 1/1 parts" and "painting: borders of 1/2 colour groups" in lines
