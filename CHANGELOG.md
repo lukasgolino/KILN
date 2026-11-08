@@ -8,7 +8,8 @@ before 1.0).
 
 ## [0.18.0] - 2026-11-08
 
-Meshes change for models whose parts share pattern colours (several parts with the same `gradient`).
+Meshes change for models whose parts share pattern colours (several parts with the same `gradient`); everything
+else, the demo included, is byte-identical apart from the generator string.
 
 ### Fixed
 
