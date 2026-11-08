@@ -633,8 +633,51 @@ def decimate_regions(
         for k, piece_field in enumerate(fields):
             v = relax(piece_field, Mesh(v, f), border | (piece != k), step).vertices
     f, face_region = drop_twins(*merge_coincident(v, f, face_region))
+    f, face_region = drop_twins(*close_pockets(v, f, face_region))
     used, inverse = np.unique(f, return_inverse=True)
     return Mesh(v[used], inverse.reshape(-1, 3).astype(np.int64)), face_region
+
+
+def close_pockets(vertices: Array, faces: Array, *extra: Array) -> tuple[Array, ...]:
+    """Join two vertices at one place that no edge joins when they cap the same ring from both sides: every face
+    round one, renamed to the other, is an opposite-facing twin of a face round the other (two copies of a
+    colour-border vertex left by a collapse at a thin part's pointed tip, #131: a closed pocket of no volume whose
+    faces pinch when seen as points). drop_twins then removes the caps. Other per-face arrays in `extra` are
+    filtered alike."""
+    key = np.round(vertices, 9)
+    _, inverse, counts = np.unique(key, axis=0, return_inverse=True, return_counts=True)
+    inverse = inverse.reshape(-1)
+    used = np.zeros(len(vertices), dtype=bool)
+    used[faces.reshape(-1)] = True
+    shared = np.flatnonzero((counts[inverse] > 1) & used)
+    if len(shared) < 2:
+        return (faces, *extra)
+    is_shared = np.zeros(len(vertices), dtype=bool)
+    is_shared[shared] = True
+    near = np.flatnonzero(is_shared[faces].any(axis=1))  # only these faces can take part
+    round_vertex: dict[int, list[tuple[int, int, int]]] = {int(i): [] for i in shared}
+    for row in faces[near].tolist():
+        for k in range(3):
+            if row[k] in round_vertex:  # the face as (this vertex, next, next): its winding seen from the vertex
+                round_vertex[row[k]].append((row[k], row[(k + 1) % 3], row[(k + 2) % 3]))
+    into = np.arange(len(vertices))
+    by_place: dict[int, list[int]] = {}
+    for i in shared.tolist():
+        by_place.setdefault(int(inverse[i]), []).append(i)
+    for members in by_place.values():
+        for k, a in enumerate(members):
+            for b in members[k + 1 :]:
+                fa, fb = round_vertex[a], round_vertex[b]
+                if into[b] != b or not fa or len(fa) != len(fb):
+                    continue
+                flipped = sorted((a, z, y) for _, y, z in fb)  # b's faces renamed to a, winding reversed
+                if flipped == sorted(fa):
+                    into[b] = a
+    if (into == np.arange(len(vertices))).all():
+        return (faces, *extra)
+    f = into[faces]
+    keep = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 2] != f[:, 0])
+    return (f[keep], *(x[keep] for x in extra))
 
 
 def merge_coincident(vertices: Array, faces: Array, *extra: Array) -> tuple[Array, ...]:

@@ -228,3 +228,32 @@ def test_thin_sharp_rim_reaches_its_edge() -> None:
     radius = np.linalg.norm(rim[:, [0, 2]], axis=1)
     reach = (np.array([radius[sector == k].max() for k in range(90)]) - 0.4) / step  # the rim's furthest point, per 4 degrees
     assert reach.min() > -0.2 and reach.max() < 0.05 and reach.std() < 0.05
+
+
+def test_close_pockets_joins_twin_caps_but_not_touching_sheets() -> None:
+    """#131: two copies of a vertex at one place capping the same ring (a zero-volume pocket) are joined and their
+    faces go as twins; two sheets that only touch at a point keep their vertices."""
+    from kiln.mesher import close_pockets, drop_twins
+
+    v = np.array([[0, 0, 0], [0, 0, 0], [1, 0, 0], [0, 1, 0], [-1, -1, 0.0], [5, 5, 5], [6, 5, 5], [5, 6, 5]], dtype=float)
+    caps = np.array([[1, 3, 2], [1, 2, 4], [1, 4, 3], [0, 2, 3], [0, 4, 2], [0, 3, 4]])
+    f, tag = drop_twins(*close_pockets(v, caps, np.arange(len(caps))))
+    assert len(f) == 0 and len(tag) == 0
+    touching = np.array([[0, 2, 3], [1, 6, 7]])  # vertices 0 and 1 at one place, different neighbours
+    (f,) = close_pockets(v, touching)
+    np.testing.assert_array_equal(f, touching)
+
+
+def test_close_pockets_needs_twin_caps_not_just_the_same_neighbours() -> None:
+    """Coincident vertices fanning over the same neighbours in another order (or wound the same way) aren't a pocket."""
+    from kiln.mesher import close_pockets
+
+    v = np.array([[0, 0, 0], [0, 0, 0], [1, 0, 0], [0, 1, 0], [-1, 0, 0], [0, -1, 0]], dtype=float)
+    a = [[0, 2, 3], [0, 3, 4], [0, 4, 5], [0, 5, 2]]
+    b = [[1, 2, 4], [1, 4, 3], [1, 3, 5], [1, 5, 2]]  # same neighbours, another fan order
+    faces = np.array(a + b)
+    (f,) = close_pockets(v, faces)
+    np.testing.assert_array_equal(f, faces)
+    same_way = np.array(a + [[1, x, y] for _, x, y in a])  # a duplicate cap wound the same way
+    (f,) = close_pockets(v, same_way)
+    np.testing.assert_array_equal(f, same_way)

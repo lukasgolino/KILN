@@ -195,3 +195,44 @@ def test_slow_runs_without_the_fast_extra_say_so(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: object())
     monkeypatch.setenv("KILN_JIT", "0")
     assert "kiln[fast]" not in cost_line(25.0)
+
+
+def test_parts_with_the_same_gradient_paint_their_own_faces(project: Project) -> None:
+    """#131: the bands' colour groups are shared by every part with the same gradient; each part's bands must still be
+    cut and painted on its own faces only (a later part's coordinate repainted the earlier parts' bands, and the
+    stray cuts cracked the mesh)."""
+    two = (MODEL.format(gradient="{ to: white, steps: 3 }")
+           + "  - capsule: { from: [0.5, 0.45, 0.1], to: [0.15, 0.8, 0.1], radius: 0.05 }\n    color: red\n"
+           "    gradient: { to: white, steps: 3 }\n")  # fmt: skip
+    colours = []
+    for text in (two, MODEL.format(gradient="{ to: white, steps: 3 }")):
+        built = lint_paths(project, [write_model(project, text)]).built["thing"]
+        p = built.painted
+        centres = p.vertices[p.faces].mean(axis=1)
+        upright = (np.abs(centres[:, 0]) < 0.06) & (np.abs(centres[:, 2]) < 0.06) & (centres[:, 1] > 0.62)
+        colours.append((centres[upright], np.array([p.groups[g].color for g in p.face_group[upright]])))
+    (c2, k2), (c1, k1) = colours
+    nearest = np.argmin(np.linalg.norm(c2[:, None] - c1[None], axis=2), axis=1)
+    assert (k2 == k1[nearest]).mean() > 0.9  # its bands as when it is alone (decimation moves borders a little; 0.55 before)
+
+
+@pytest.mark.parametrize("extra", ["    hard: true\n", "    pattern: { type: stripes, color: blue, size: 0.3, axis: x }\n"])
+def test_same_gradient_with_hard_parts_or_another_pattern_stays_own(project: Project, extra: str) -> None:
+    """#131 on the other paths: hard parts (flat border planes) and a gradient with a pattern over it, two such parts
+    side by side: each part's faces keep the colours they get alone."""
+    base = MODEL.format(gradient="{ to: white, steps: 3 }") + extra
+    box = "box: { at: [0, 0.7, 0], size: [0.1, 0.4, 0.1] }"
+    base = base.replace("capsule: { from: [0, 0.5, 0], to: [0, 0.9, 0], radius: 0.05 }", box)
+    base = base.replace("gradient: { to: white, steps: 3 }", "gradient: { to: white, steps: 3, along: y }")
+    other = base.split("parts:\n")[1].split("  - box")[1]
+    two = base + "  - box" + other.replace("at: [0, 0.7, 0]", "at: [0.25, 0.6, 0.05]")  # its second band starts inside the first one's first
+    colours = []
+    for text in (two, base):
+        built = lint_paths(project, [write_model(project, text)]).built["thing"]
+        p = built.painted
+        centres = p.vertices[p.faces].mean(axis=1)
+        mine = (np.abs(centres[:, 0]) < 0.06) & (np.abs(centres[:, 2]) < 0.06) & (centres[:, 1] > 0.62)
+        colours.append((centres[mine], np.array([p.groups[g].color for g in p.face_group[mine]])))
+    (c2, k2), (c1, k1) = colours
+    nearest = np.argmin(np.linalg.norm(c2[:, None] - c1[None], axis=2), axis=1)
+    assert (k2 == k1[nearest]).mean() > 0.9
