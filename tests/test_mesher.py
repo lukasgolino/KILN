@@ -228,3 +228,17 @@ def test_thin_sharp_rim_reaches_its_edge() -> None:
     radius = np.linalg.norm(rim[:, [0, 2]], axis=1)
     reach = (np.array([radius[sector == k].max() for k in range(90)]) - 0.4) / step  # the rim's furthest point, per 4 degrees
     assert reach.min() > -0.2 and reach.max() < 0.05 and reach.std() < 0.05
+
+
+def test_close_pockets_joins_twin_caps_but_not_touching_sheets() -> None:
+    """#131: two copies of a vertex at one place capping the same ring (a zero-volume pocket) are joined and their
+    faces go as twins; two sheets that only touch at a point keep their vertices."""
+    from kiln.mesher import close_pockets, drop_twins
+
+    v = np.array([[0, 0, 0], [0, 0, 0], [1, 0, 0], [0, 1, 0], [-1, -1, 0.0], [5, 5, 5], [6, 5, 5], [5, 6, 5]], dtype=float)
+    caps = np.array([[1, 3, 2], [1, 2, 4], [1, 4, 3], [0, 2, 3], [0, 4, 2], [0, 3, 4]])
+    f, tag = drop_twins(*close_pockets(v, caps, np.arange(len(caps))))
+    assert len(f) == 0 and len(tag) == 0
+    touching = np.array([[0, 2, 3], [1, 6, 7]])  # vertices 0 and 1 at one place, different neighbours
+    (f,) = close_pockets(v, touching)
+    np.testing.assert_array_equal(f, touching)

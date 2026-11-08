@@ -403,22 +403,22 @@ def _patterns(
         g = part_group[i]
         if progress is not None and part.patterns:
             progress(f"painting: patterns of {patterned.index(i) + 1}/{len(patterned)} parts")
+        # this part's faces, followed through every cut: its patterns' colour groups are shared with other parts that
+        # paint the same colours (every tuft with the same gradient), so "owner in own" would take theirs too (#131)
+        mine = owner == g
         for pat in part.patterns:
             fn = _pattern_fn(pat, part.geometry)
             own = [g, *pattern_groups.get(g, ())]  # a later pattern paints over the earlier ones' colours too
-            sel = np.isin(owner, own)
-            if not sel.any():
+            if not mine.any():
                 break
-            borders = _border_planes(pat, vertices[np.unique(faces[sel])], part.geometry) if flat else None
+            borders = _border_planes(pat, vertices[np.unique(faces[mine])], part.geometry) if flat else None
             if borders is not None:
                 for value in borders:
-                    sel = np.isin(owner, own)
-                    d = _own_values(value, vertices, faces, sel)
-                    vertices, faces, _, parent = split(vertices, faces, np.where(np.abs(d) < ON_BORDER, 0.0, d), sel)
-                    owner = owner[parent]
-                sel = np.isin(owner, own)
-                inside = sel.copy()  # every face is now on one side of every border
-                inside[sel] = fn(vertices[faces[sel]].mean(axis=1)) >= -ON_BORDER
+                    d = _own_values(value, vertices, faces, mine)
+                    vertices, faces, _, parent = split(vertices, faces, np.where(np.abs(d) < ON_BORDER, 0.0, d), mine)
+                    owner, mine = owner[parent], mine[parent]
+                inside = mine.copy()  # every face is now on one side of every border
+                inside[mine] = fn(vertices[faces[mine]].mean(axis=1)) >= -ON_BORDER
                 owner = _paint_alt(owner, own, inside, pat, part, g, groups, group_index, pattern_groups)
                 continue
             # A pattern needs edges shorter than its repeat (or a stripe could fall between vertices), then short edges
@@ -427,7 +427,7 @@ def _patterns(
             passes = [(pat.size / 2 if pat.type != "band" else pat.size, False), (pat.size / 4, True)]
             for limit, border_only in passes[1:] if pat.type == "along" else passes:
                 for _ in range(12):
-                    sel = np.isin(owner, own)
+                    sel = mine.copy()
                     values = _own_values(fn, vertices, faces, sel)[faces[sel]]  # the part's faces only (#123)
                     if border_only:
                         sel[sel] = (values.min(axis=1) < 0) & (values.max(axis=1) >= 0)
@@ -437,13 +437,12 @@ def _patterns(
                         break
                     n_before = len(faces)
                     vertices, faces, parent = refine(vertices, faces, sel, limit, project)
-                    owner = owner[parent]
+                    owner, mine = owner[parent], mine[parent]
                     if len(faces) == n_before:
                         break
-            sel = np.isin(owner, own)
-            vertices, faces, negative, parent = split(vertices, faces, _own_values(fn, vertices, faces, sel), sel)
-            owner = owner[parent]
-            owner = _paint_alt(owner, own, np.isin(owner, own) & ~negative, pat, part, g, groups, group_index, pattern_groups)
+            vertices, faces, negative, parent = split(vertices, faces, _own_values(fn, vertices, faces, mine), mine)
+            owner, mine = owner[parent], mine[parent]
+            owner = _paint_alt(owner, own, mine & ~negative, pat, part, g, groups, group_index, pattern_groups)
     return vertices, faces, owner, pattern_groups
 
 

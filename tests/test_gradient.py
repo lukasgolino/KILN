@@ -195,3 +195,22 @@ def test_slow_runs_without_the_fast_extra_say_so(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: object())
     monkeypatch.setenv("KILN_JIT", "0")
     assert "kiln[fast]" not in cost_line(25.0)
+
+
+def test_parts_with_the_same_gradient_paint_their_own_faces(project: Project) -> None:
+    """#131: the bands' colour groups are shared by every part with the same gradient; each part's bands must still be
+    cut and painted on its own faces only (a later part's coordinate repainted the earlier parts' bands, and the
+    stray cuts cracked the mesh)."""
+    two = (MODEL.format(gradient="{ to: white, steps: 3 }")
+           + "  - capsule: { from: [0.5, 0.45, 0.1], to: [0.15, 0.8, 0.1], radius: 0.05 }\n    color: red\n"
+           "    gradient: { to: white, steps: 3 }\n")  # fmt: skip
+    colours = []
+    for text in (two, MODEL.format(gradient="{ to: white, steps: 3 }")):
+        built = lint_paths(project, [write_model(project, text)]).built["thing"]
+        p = built.painted
+        centres = p.vertices[p.faces].mean(axis=1)
+        upright = (np.abs(centres[:, 0]) < 0.06) & (np.abs(centres[:, 2]) < 0.06) & (centres[:, 1] > 0.62)
+        colours.append((centres[upright], np.array([p.groups[g].color for g in p.face_group[upright]])))
+    (c2, k2), (c1, k1) = colours
+    nearest = np.argmin(np.linalg.norm(c2[:, None] - c1[None], axis=2), axis=1)
+    assert (k2 == k1[nearest]).mean() > 0.9  # its bands as when it is alone (decimation moves borders a little; 0.55 before)

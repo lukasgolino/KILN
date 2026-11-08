@@ -633,8 +633,45 @@ def decimate_regions(
         for k, piece_field in enumerate(fields):
             v = relax(piece_field, Mesh(v, f), border | (piece != k), step).vertices
     f, face_region = drop_twins(*merge_coincident(v, f, face_region))
+    f, face_region = drop_twins(*close_pockets(v, f, face_region))
     used, inverse = np.unique(f, return_inverse=True)
     return Mesh(v[used], inverse.reshape(-1, 3).astype(np.int64)), face_region
+
+
+def close_pockets(vertices: Array, faces: Array, *extra: Array) -> tuple[Array, ...]:
+    """Join vertices at one place that no edge joins but that have the same neighbours: two copies of a colour-border
+    vertex each capping the same ring (a collapse at a thin part's pointed tip, #131), a closed pocket of no volume
+    whose faces pinch when seen as points. Joined, the two caps' faces are opposite-facing twins (drop_twins removes
+    them). Other per-face arrays in `extra` are filtered alike."""
+    key = np.round(vertices, 9)
+    _, inverse, counts = np.unique(key, axis=0, return_inverse=True, return_counts=True)
+    inverse = inverse.reshape(-1)
+    shared = np.flatnonzero(counts[inverse] > 1)
+    used = np.zeros(len(vertices), dtype=bool)
+    used[faces.reshape(-1)] = True
+    shared = shared[used[shared]]
+    if len(shared) < 2:
+        return (faces, *extra)
+    ring: dict[int, set[int]] = {int(i): set() for i in shared}
+    for a, b in np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]).tolist():
+        if a in ring:
+            ring[a].add(b)
+        if b in ring:
+            ring[b].add(a)
+    into = np.arange(len(vertices))
+    by_place: dict[int, list[int]] = {}
+    for i in shared.tolist():
+        by_place.setdefault(int(inverse[i]), []).append(i)
+    for members in by_place.values():
+        for k, a in enumerate(members):
+            for b in members[k + 1 :]:
+                if into[b] == b and ring[a] == ring[b]:
+                    into[b] = into[a]
+    if (into == np.arange(len(vertices))).all():
+        return (faces, *extra)
+    f = into[faces]
+    keep = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 2] != f[:, 0])
+    return (f[keep], *(x[keep] for x in extra))
 
 
 def merge_coincident(vertices: Array, faces: Array, *extra: Array) -> tuple[Array, ...]:

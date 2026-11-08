@@ -6,6 +6,15 @@ before 1.0).
 
 ## [Unreleased]
 
+### Fixed
+
+- Parts with the same `gradient` (or patterns of the same colours) paint only their own faces (#131): the bands'
+  colour groups are shared between them, and a later part's bands cut and repainted the earlier parts' band faces
+  by its own coordinate (wrong colours, stray cuts, cracks). Meshes of such models change.
+- Decimation no longer leaves zero-volume pockets at thin parts' pointed tips (#131): two copies of a colour-border
+  vertex at one place, each capping the same ring, read as non-manifold edges (E013). They are joined and the twin
+  faces dropped.
+
 ## [0.17.0] - 2026-11-06
 
 Fixes the open issues from game use: faster painting, Godot Compatibility colours, filtered normal maps, clean
