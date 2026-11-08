@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-08
+
+Meshes change for models whose parts share pattern colours (several parts with the same `gradient`); everything
+else, the demo included, is byte-identical apart from the generator string.
+
 ### Fixed
 
 - Parts with the same `gradient` (or patterns of the same colours) paint only their own faces (#131): the bands'
@@ -621,7 +626,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/lukasgolino/KILN/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/lukasgolino/KILN/compare/v0.16.1...v0.17.0
 [0.16.1]: https://github.com/lukasgolino/KILN/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/lukasgolino/KILN/compare/v0.15.0...v0.16.0
