@@ -117,3 +117,10 @@ def test_engine_preview_takes_views_pitch_size_and_framing(tmp_path: Path, monke
     assert calls["half"] == pytest.approx(half) and calls["centre"] == pytest.approx(tuple(float(c) for c in centre))
     sheet = Image.open(project.root / "previews" / "thing" / "engine.png").convert("RGBA")
     assert sheet.getpixel((20, 90)) == pv.TILE_BG  # the transparent render sits on the previews' tile colour
+
+
+def test_engine_default_views_match_the_headings() -> None:
+    from kiln import cli
+    from kiln import preview as pv
+
+    assert all(dict(pv.HEADINGS)[name] == yaw for name, yaw in cli.ENGINE_VIEWS)

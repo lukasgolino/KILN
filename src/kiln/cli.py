@@ -521,7 +521,7 @@ def _compare(project: Project, built: Any, ref_path: Path, ref_height: float | N
     return metrics
 
 
-ENGINE_VIEWS = [("front-left", 30.0), ("back-left", 120.0), ("back-right", 210.0), ("front-right", 300.0)]
+ENGINE_VIEWS = [("front-left", 45.0), ("back-left", 135.0), ("back-right", 225.0), ("front-right", 315.0)]  # as preview.HEADINGS
 
 
 def _engine_preview(project: Project, built: Any, folder: Path, yaws: list[tuple[str, float]], pitches: list[float], size: int | None) -> str:
