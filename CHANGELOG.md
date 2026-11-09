@@ -6,6 +6,10 @@ before 1.0).
 
 ## [Unreleased]
 
+### Changed
+
+- The vendored PAGAN pieces are Apache 2.0 like the rest of KILN (same author); the separate MIT file is gone.
+
 ## [0.21.0] - 2026-11-09
 
 ### Changed
