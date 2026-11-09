@@ -25,6 +25,7 @@ from kiln.mesher import CELL_LIMIT, crack_groups, mesh_steps, open_edges, pinche
 from kiln.notation import Model
 from kiln.packs import lock_findings
 from kiln.project import Project
+from kiln.retarget import JOINTS
 from kiln.sdf import Array, Field, part_thickness
 from kiln.style import Style
 from kiln.vendor.findings import Finding
@@ -224,7 +225,8 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     animated = {name for t in built.tracks for name in _moved(m, t.name)}
     for name in sorted(animated):
         entry = m.rig.get(name)
-        if name != "root" and (entry is None or entry.pivot is None):
+        humanoid_joint = m.skeleton == "humanoid" and name in JOINTS  # the skeleton sets its pivot at the joint (#187)
+        if name != "root" and (entry is None or entry.pivot is None) and not humanoid_joint:
             warn("W109", f"part {name!r} is animated but has no rig pivot: it turns about the middle of its box; set rig: {{ {name}: {{ pivot: [x, y, z] }} }}")
     return out
 

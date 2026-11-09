@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+### Fixed
+
+- W109 no longer fires for animated joints of a `skeleton: humanoid` model: the skeleton puts their pivots at the
+  joints (#187).
+
 ## [0.20.0] - 2026-11-09
 
 Textures tiled over whole parts, Godot renders that match the previews (and run offscreen), hard-part mirror and CSG

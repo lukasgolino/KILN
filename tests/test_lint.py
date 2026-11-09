@@ -108,6 +108,23 @@ animations:
     assert warnings(lint(project, text)) == ["W109"]
 
 
+def test_w109_not_for_humanoid_joints(project: Project) -> None:
+    """#187: `skeleton: humanoid` puts its joints' pivots at the joints, so animating them needs no rig pivot; a
+    non-joint part still does."""
+    from test_retarget import HERO
+
+    parts = HERO[: HERO.index("rig:\n")]  # no explicit pivots, no imported clips
+    text = parts + """\
+  - sphere: { at: [0.3, 1.3, 0], radius: 0.05 }
+    id: nub
+    color: red
+animations:
+  look: { poses: [{ head: { rotate: [0, 30, 0] }, upperarm_l: { rotate: [0, 0, 40] }, nub: { rotate: [0, 0, 30] } }, {}] }
+"""
+    w109 = [f.message for f in lint(project, text) if f.rule == "W109"]
+    assert len(w109) == 1 and "'nub'" in w109[0]
+
+
 def test_disable_in_kiln_toml(tmp_path: Path) -> None:
     project = make_project(tmp_path, 'default_style = "fast"\ndefault_palette = "main"\n[lint]\ndisable = ["W106"]\n')
     assert lint(project, sphere_text().replace("at: [0, 0.3, 0]", "at: [0, 1.0, 0]")) == []
