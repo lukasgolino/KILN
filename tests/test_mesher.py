@@ -295,14 +295,21 @@ def _relax_reference(f_: Field, mesh: Mesh, fixed: np.ndarray, step: float, iter
     return Mesh(v, f)
 
 
-def test_relax_retesting_only_moved_faces_gives_the_same_mesh() -> None:
-    """Relaxing re-tests only faces next to a vertex that moved (the rest keep their verdict): identical output."""
+@pytest.mark.parametrize(("jitter", "iterations"), [(0.01, 8), (0.03, 8), (0.002, 40)])
+def test_relax_retesting_only_moved_faces_gives_the_same_mesh(jitter: float, iterations: int) -> None:
+    """Relaxing re-tests only faces next to a vertex that moved (the rest keep their verdict): the same output as
+    testing every face every round. Cases: some bad faces, most faces bad, and few bad faces over many rounds
+    (small batches: the field's numpy path)."""
     from kiln.mesher import relax
 
     fld = field("box", {"size": [0.6, 0.3, 0.4], "round": 0.05})
     mesh = decimate(fld, dual_contour(fld, 0.02), 300, 0.02)
     rng = np.random.default_rng(3)
-    jittered = Mesh(mesh.vertices + rng.normal(0, 0.01, mesh.vertices.shape), mesh.faces)  # plenty of bad faces
+    jittered = Mesh(mesh.vertices + rng.normal(0, jitter, mesh.vertices.shape), mesh.faces)
     fixed = rng.random(len(mesh.vertices)) < 0.1
-    new, old = relax(fld, jittered, fixed, 0.02), _relax_reference(fld, jittered, fixed, 0.02)
-    assert np.array_equal(new.vertices, old.vertices) and not np.array_equal(new.vertices, jittered.vertices)
+    new = relax(fld, jittered, fixed, 0.02, iterations)
+    old = _relax_reference(fld, jittered, fixed, 0.02, iterations)
+    assert np.allclose(new.vertices, old.vertices, rtol=0, atol=1e-12)
+    assert not np.array_equal(new.vertices, jittered.vertices)
+    held = relax(fld, jittered, np.ones(len(mesh.vertices), dtype=bool), 0.02, iterations)  # nothing free: the first round stops
+    assert np.array_equal(held.vertices, jittered.vertices)

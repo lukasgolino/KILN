@@ -534,7 +534,8 @@ def relax(field: Field, mesh: Mesh, fixed: Array, step: float, iterations: int =
     sharp &= ~fixed[e[:, 0]] & ~fixed[e[:, 1]] & (part[e[:, 0]] == part[e[:, 1]])
     crease[e[sharp].reshape(-1)] = True
     # Only faces with a vertex that moved last round can turn good or bad: the others keep their verdict, so the
-    # field (the costly part) is only asked about those. Same results as testing every face every round.
+    # field (the costly part) is only asked about those. The same as testing every face every round, up to the field's
+    # jit and numpy paths (picked by batch size) differing by ~1e-15 for a face right at a threshold.
     bad = np.zeros(len(f), dtype=bool)
     check = np.ones(len(f), dtype=bool)
     for _ in range(iterations):
