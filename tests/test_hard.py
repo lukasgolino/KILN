@@ -574,3 +574,20 @@ def test_csg_with_one_solid_inside_the_other(swap: bool) -> None:
     assert _volume(union(a, b)) == pytest.approx(1.0, rel=1e-6)
     assert _volume(subtract(big, small)) == pytest.approx(1.0 - 0.008, rel=1e-6)  # the cavity is kept
     assert subtract(small, big) == []
+
+
+def test_many_hard_parts_unite_to_the_same_solid(project: Project) -> None:
+    """#207: adding hard parts unite pairwise (balanced); the result is the solid the one-by-one union gave."""
+    from kiln.builder import _hard_solid
+    from kiln.hard import to_mesh
+
+    rows = "".join(f"  - box: {{ at: [{0.03 * (i % 6):.2f}, {0.02 + 0.03 * (i // 6):.2f}, 0], size: [0.04, 0.04, 0.04] }}\n    color: red\n    bevel: 0.004\n"
+                   for i in range(18))  # fmt: skip
+    model, style = ok_model(project, "name: grid\nclass: prop\nparts:\n" + rows, "grid")
+    include = frozenset(hard_parts(model, style))
+    acc: list = []  # type: ignore[type-arg]
+    for i in sorted(include):
+        acc = union(acc, solid(model.parts[i].geometry, HardSpec(bevel=0.004), i))
+    one_by_one, balanced = to_mesh(acc), to_mesh(_hard_solid(model, style, include, 0))
+    assert set(balanced.face_part.tolist()) == set(one_by_one.face_part.tolist()) == set(include)
+    assert signed_volume(balanced.vertices, balanced.faces) == pytest.approx(signed_volume(one_by_one.vertices, one_by_one.faces), rel=1e-6)

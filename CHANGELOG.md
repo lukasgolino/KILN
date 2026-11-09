@@ -6,6 +6,12 @@ before 1.0).
 
 ## [Unreleased]
 
+### Performance
+
+- Hard parts unite pairwise instead of one by one into a growing solid, and detail levels that change nothing are
+  skipped (#207): a 55-hard-part character's hard pass 38 s -> 3 s per level, its whole build 136 s -> 77 s. Same
+  solids (the demo's output is unchanged).
+
 ### Fixed
 
 - Hard parts (#170): `mirror` on a hard part kept nothing (intersecting a solid with a half-space that wholly contains
