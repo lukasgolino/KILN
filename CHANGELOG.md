@@ -8,6 +8,10 @@ before 1.0).
 
 ### Changed
 
+- `kiln preview --engine` renders offscreen (#160): on Linux a private Xvfb display with Mesa's CPU drivers, the
+  desktop's DISPLAY and WAYLAND_DISPLAY removed; without Xvfb it refuses instead of opening a window. `KILN_OFFSCREEN`
+  sets a wrapper command (or `window` to opt in to the current display). `kiln doctor` reports how engine renders run
+  (`offscreen` in `--json`) instead of whether a desktop display exists.
 - `kiln init` inside a Godot project sets `output_dir` to the project's `assets/kiln` (relative) and `export = ["glb",
   "godot"]`, instead of keeping `build` under its own `.gdignore` and only saying so (#163).
 

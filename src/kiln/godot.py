@@ -7,11 +7,14 @@ file with a random id next to every .gdshader/.gd, which would make builds non-d
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from importlib.resources import files
@@ -748,9 +751,56 @@ def verify(godot: str, godot_root: Path, manifest_res: str, attachments: dict[st
     return GodotCheck(ok, output, int(match.group(1)) if match else 0)
 
 
+@dataclass(frozen=True)
+class Offscreen:
+    """How a rendering Godot runs without touching the desktop (#160): prefix + Godot args + environment."""
+
+    prefix: list[str]
+    godot_args: list[str]
+    env: dict[str, str]
+    how: str  # for `kiln doctor`
+
+
+def _lavapipe() -> str | None:
+    found = sorted(glob.glob("/usr/share/vulkan/icd.d/lvp_icd*.json"))  # lvp_icd.json, or lvp_icd.x86_64.json (Arch, Fedora)
+    return found[0] if found else None
+
+
+def offscreen_command(size: int = 1024) -> Offscreen | str:
+    """How to run a rendering Godot without a window on the desktop (#160), or why it can't.
+    Linux and the BSDs: a private Xvfb display (`xvfb-run -a`) with Mesa's CPU drivers, the desktop's DISPLAY and
+    WAYLAND_DISPLAY removed, so nothing ever opens on screen and the GPU is never touched (no lavapipe: Godot's OpenGL
+    driver on llvmpipe, so Vulkan can't pick the real GPU). `KILN_OFFSCREEN` replaces the prefix (a wrapper command,
+    shell-quoted), or `window` opts in to the current display. Windows and macOS have no Xvfb: Godot renders in a
+    short-lived window there."""
+    override = os.environ.get("KILN_OFFSCREEN", "").strip()
+    if override == "window":
+        return Offscreen([], [], dict(os.environ), "the current display (KILN_OFFSCREEN=window)")
+    if sys.platform in ("win32", "darwin"):
+        return Offscreen([], [], dict(os.environ), "Godot's own window (no Xvfb on this OS)")
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+    if override:
+        return Offscreen(shlex.split(override), [], env, f"KILN_OFFSCREEN: {override}")
+    xvfb_run = shutil.which("xvfb-run")
+    if xvfb_run is None or shutil.which("xauth") is None:
+        missing = "xvfb-run" if xvfb_run is None else "xauth (xvfb-run needs it)"
+        return (f"no offscreen display: {missing} not found; install xvfb and xauth (e.g. apt install xvfb xauth), or set "
+                "KILN_OFFSCREEN to a wrapper; KILN never opens a window here")
+    env.update({"LIBGL_ALWAYS_SOFTWARE": "1", "GALLIUM_DRIVER": "llvmpipe", "LP_NUM_THREADS": env.get("LP_NUM_THREADS", "2")})
+    lavapipe = _lavapipe()
+    if lavapipe is not None:
+        env.update({"VK_ICD_FILENAMES": lavapipe, "VK_DRIVER_FILES": lavapipe})
+    args = [] if lavapipe is not None else ["--rendering-driver", "opengl3"]
+    how = f"xvfb-run with Mesa's CPU drivers ({'lavapipe' if lavapipe else 'OpenGL on llvmpipe'})"
+    return Offscreen([xvfb_run, "-a", "-s", f"-screen 0 {size}x{size}x24"], args, env, how)
+
+
 def render_engine(godot: str, godot_root: Path, scene_res: str, look_res: str, views: list[tuple[float, float]], radius: float,
                   centre_y: float, size: int, out_dir: Path, timeout: int = 300) -> tuple[list[Path], str]:  # fmt: skip
-    """Render a model scene under its look kit through Godot (needs a display). Returns (PNGs, output)."""
+    """Render a model scene under its look kit through Godot, offscreen (`offscreen_command`). Returns (PNGs, output)."""
+    offscreen = offscreen_command(max(size, 256))
+    if isinstance(offscreen, str):  # refuse before copying or launching anything
+        return [], offscreen
     script = files("kiln").joinpath("templates", "godot_views.gd").read_text(encoding="utf-8")
     out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="kiln-views-") as tmp:
@@ -760,8 +810,9 @@ def render_engine(godot: str, godot_root: Path, scene_res: str, look_res: str, v
         project = _sandbox(godot_root, _folder(scene_res), Path(tmp))
         try:
             subprocess.run([godot, "--headless", "--path", str(project), "--import"], capture_output=True, text=True, timeout=timeout)
-            run = subprocess.run([godot, "--path", str(project), "-s", str(path), "--", scene_res, look_res, str(out_dir), str(size),
-                                  f"{radius:g}", f"{centre_y:g}", *pairs], capture_output=True, text=True, timeout=timeout)  # fmt: skip
+            run = subprocess.run([*offscreen.prefix, godot, *offscreen.godot_args, "--path", str(project), "-s", str(path), "--", scene_res,
+                                  look_res, str(out_dir), str(size), f"{radius:g}", f"{centre_y:g}", *pairs],
+                                 capture_output=True, text=True, timeout=timeout, env=offscreen.env)  # fmt: skip
         except (OSError, subprocess.TimeoutExpired) as exc:
             return [], f"couldn't run Godot: {exc}"
     output = (run.stdout + run.stderr).strip()
@@ -771,5 +822,5 @@ def render_engine(godot: str, godot_root: Path, scene_res: str, look_res: str, v
     return images, output
 
 
-__all__ = ["ATLAS_SCRIPT", "ATLAS_TOON_SHADER", "GodotCheck", "bone_map_tres", "find_godot_binary", "find_godot_project", "look_scene", "model_scene",
+__all__ = ["ATLAS_SCRIPT", "ATLAS_TOON_SHADER", "GodotCheck", "Offscreen", "bone_map_tres", "find_godot_binary", "find_godot_project", "look_scene", "model_scene", "offscreen_command",
            "outline_shader", "render_engine", "res_path", "rich_toon", "toon_shader", "verify", "with_bone_map"]

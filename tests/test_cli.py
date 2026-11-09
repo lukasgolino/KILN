@@ -301,7 +301,7 @@ def test_import_and_credits(in_project: Project, tmp_path: Path, capsys: pytest.
 
 def test_doctor(in_tmp: Path, capsys: pytest.CaptureFixture[str]) -> None:
     code, result = run_json(["doctor"], capsys)
-    assert code == 0 and result["kiln"] == __version__ and "python" in result and "display" in result
+    assert code == 0 and result["kiln"] == __version__ and "python" in result and "display" in result and "offscreen" in result
 
 
 def test_skill_install(in_project: Project, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
