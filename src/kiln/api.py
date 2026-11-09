@@ -109,7 +109,7 @@ def tree(height: float = 3.0, crown: float = 1.0, seed: int = 1, bark: str = "br
 
 
 def offset(parts: list[Part], dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> list[Part]:
-    """Move parts (their `at`, capsule from/to, tube points)."""
+    """Move parts (their `at`, capsule from/to, tube points, decal and texture centres)."""
     out = []
     for p in parts:
         q = {k: (dict(v) if isinstance(v, dict) else v) for k, v in p.items()}
@@ -121,6 +121,10 @@ def offset(parts: list[Part], dx: float = 0.0, dy: float = 0.0, dz: float = 0.0)
                 s[key] = [_r(v[0] + dx), _r(v[1] + dy), _r(v[2] + dz)]
         if "points" in s and shape == "tube":
             s["points"] = [[_r(x + dx), _r(y + dy), _r(z + dz)] for x, y, z in s["points"]]
+        for key in ("decal", "texture"):  # model-space centres move with the part (a texture without `at` follows the part already)
+            if isinstance(q.get(key), dict) and "at" in q[key]:
+                x, y, z = q[key]["at"]
+                q[key]["at"] = [_r(x + dx), _r(y + dy), _r(z + dz)]
         out.append(q)
     return out
 

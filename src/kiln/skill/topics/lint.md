@@ -6,7 +6,7 @@ Lint rules: what each means and how to fix it.
 
 Errors: E000 usage/config, E001 file/YAML, E002 unknown field, E003 bad value, E004 unknown colour, E005 unknown
 material, E006 style problem, E007 rig problem, E008 animation problem, E009 nothing to mesh, E010 import file
-problem, E011 decal image missing, E012 extends problem (no such model, not a template, a loop, unknown remove id),
+problem, E011 decal or texture image missing or unreadable, E012 extends problem (no such model, not a template, a loop, unknown remove id),
 E013 the built mesh has open edges (cracks), edges with more than two faces or sheets touching at a vertex (a KILN
 bug; report it), E014 `kiln.lock` problem (a pack-imported file changed, a licence that isn't CC0-1.0), E015 scatter problem
 (an unknown or unsuitable model to place or stand on, too many instances).

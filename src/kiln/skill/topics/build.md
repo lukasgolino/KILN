@@ -15,7 +15,7 @@ Building for the game: glb, Godot scenes, look kits, colour modes, the manifest,
 - Crowds (many instances): `vertex_colors = true` puts colours in the vertices, one surface per material preset,
   so a character costs 2-4 draw calls instead of one per colour.
 - Crowds, best: `atlas = true` gives every model one material (colours and presets in a small palette texture): 1 draw
-  call per mesh (2 with a decal), and team colours become a texture swap on one shared mesh. `atlas_ao = true` adds
+  call per mesh (+1 per decal or texture), and team colours become a texture swap on one shared mesh. `atlas_ao = true` adds
   baked ambient occlusion (a number 0..1 sets its strength). Use it instead of `vertex_colors`.
 - Warnings W111 (a part lost to the triangle budget) and W112 (a LOD well over its target) mean: raise the budget.
 - Ground for a level: a model with `terrain:` instead of `parts:` (hills, ridges, plateaus, noise and paths combined in

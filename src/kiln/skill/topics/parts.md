@@ -150,10 +150,10 @@ Small images (<= 256 px) are sampled crisp (pixel art).
     texture: { image: textures/trim.png, project: cylindrical, at: [0, 0, 0], axis: y, size: [0.1, 0.05] }
 ```
 
-Tiles an image over the whole part (a printed shirt, pixel-art metal, a robe's trim band, wood grain). `box`: each
-face takes it from the side it faces (x, -x, y, -y, z, -z), the way Godot's triplanar mapping does; `cylindrical`:
-round `axis` through `at` (u = arc length, so texels keep their size on any radius; the seam is at the back, -z for
-`axis: y`), with the caps taken flat. Tile size: `size: [w, h]` metres, or `texel:` metres per pixel (the image's
-pixel count sets the tile). The image repeats (REPEAT sampler); small images (<= 256 px) are sampled crisp, so a
-16-32 px texture gives a pixel-art look on a smooth 3D shape. Transparent pixels show the part's colour. A `decal` on
-the same part paints over it.
+Tiles an image over the whole part (a shirt print, pixel-art metal, a trim band), as one material. `box`: each face
+takes it from the side it faces (its main normal direction, no blending), upright seen from there. `cylindrical`:
+round `axis` through `at` (u = arc length: texels keep their size), caps taken flat; seam at -z for `axis: y`, -y
+for x, -x for z (it shows unless the circumference is whole tiles). `at`: the part's centre by default. Cylindrical
+can't follow `mirror`/`array` copies: use `mirror_id` or `box`. Tile: `size: [w, h]` metres or `texel:` metres per
+pixel. It repeats; images <= 256 px are crisp (pixel art on smooth shapes). Clear pixels show the part's colour
+(after swaps); its pattern colours paint over it; a `decal` replaces it there.

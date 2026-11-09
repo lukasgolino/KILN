@@ -252,25 +252,52 @@ def decal_uv(d: Decal, points: Array) -> Array:
         b, c = (a + 1) % 3, (a + 2) % 3  # y axis: angle from +z towards +x, so the seam is at the back (-z)
         radius = np.hypot(rel[:, b], rel[:, c])
         return np.stack([np.arctan2(rel[:, c], rel[:, b]) * radius / d.size[0], -rel[:, a] / d.size[1]], axis=1)
-    _, u, v = _decal_frame(d)
     if d.project == "box":
-        return np.stack([(rel @ u) / d.size[0], -(rel @ v) / d.size[1]], axis=1)
+        raise ValueError("a box texture's coordinates depend on each face's side: use corner_uv")
+    _, u, v = _decal_frame(d)
     return np.stack([(rel @ u) / d.size[0] + 0.5, 0.5 - (rel @ v) / d.size[1]], axis=1)
 
 
+def _box_uv(d: Decal, rel: Array, axis: Array, sign: Array) -> Array:
+    """Box-projected tile coordinates of points `rel` (relative to the texture's centre), each from the side
+    (axis 0-2, sign) given per point: the image upright and unmirrored seen from that side."""
+    out = np.zeros((len(rel), 2))
+    for a in range(3):
+        for s_ in (1.0, -1.0):
+            m = (axis == a) & (sign == s_)
+            if m.any():
+                _, u, v = _decal_frame(Decal(d.image, ("" if s_ > 0 else "-") + "xyz"[a], d.at, d.size))
+                out[m] = np.stack([(rel[m] @ u) / d.size[0], -(rel[m] @ v) / d.size[1]], axis=1)
+    return out
+
+
 def corner_uv(d: Decal, corners: Array) -> Array:
-    """(F, 3, 2) image coordinates per face corner: a cylindrical texture's corners on one side of its seam (a face
-    across it would otherwise smear the whole image round)."""
-    uv = decal_uv(d, corners.reshape(-1, 3)).reshape(-1, 3, 2)
-    if d.project == "cylindrical":
-        rel = corners - np.array(d.at)
-        a = "xyz".index(d.axis)
-        b, c = (a + 1) % 3, (a + 2) % 3
-        angle = np.arctan2(rel[..., c], rel[..., b])
-        radius = np.hypot(rel[..., b], rel[..., c])
-        wrap = (angle.max(axis=1) - angle.min(axis=1)) > np.pi
-        lift = wrap[:, None] & (angle < 0)
-        uv[..., 0] = np.where(lift, (angle + 2 * np.pi) * radius / d.size[0], uv[..., 0])
+    """(F, 3, 2) image coordinates per face corner. Planar decals: decal_uv. Textures (#184): box picks each face's
+    side from its normal; cylindrical wraps the side round its axis (corners kept on one side of the seam, so no face
+    smears the image round) and takes faces along the axis flat, as box does."""
+    flat = corners.reshape(-1, 3)
+    if d.project == "planar":
+        return decal_uv(d, flat).reshape(-1, 3, 2)
+    rel = corners - np.array(d.at)
+    normal = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
+    normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
+    dominant = np.argmax(np.abs(normal), axis=1)
+    sign = np.where(normal[np.arange(len(normal)), dominant] >= 0, 1.0, -1.0)
+    if d.project == "box":
+        return _box_uv(d, rel.reshape(-1, 3), np.repeat(dominant, 3), np.repeat(sign, 3)).reshape(-1, 3, 2)
+    a = "xyz".index(d.axis)
+    b, c = (a + 1) % 3, (a + 2) % 3
+    angle = np.arctan2(rel[..., c], rel[..., b])
+    radius = np.hypot(rel[..., b], rel[..., c])
+    on_axis = radius < 1e-9 * max(d.size)  # a cone's tip: any angle; left out of the seam test
+    spread = np.where(on_axis, np.nan, angle)
+    wrap = (np.nanmax(np.where(np.isnan(spread).all(axis=1, keepdims=True), 0.0, spread), axis=1)
+            - np.nanmin(np.where(np.isnan(spread).all(axis=1, keepdims=True), 0.0, spread), axis=1)) > np.pi  # fmt: skip
+    angle = np.where(wrap[:, None] & (angle < 0), angle + 2 * np.pi, angle)
+    uv = np.stack([angle * radius / d.size[0], -rel[..., a] / d.size[1]], axis=-1)
+    cap = np.abs(normal[:, a]) >= 0.7
+    if cap.any():
+        uv[cap] = _box_uv(d, rel[cap].reshape(-1, 3), np.full(cap.sum() * 3, a), np.repeat(np.where(normal[cap, a] >= 0, 1.0, -1.0), 3)).reshape(-1, 3, 2)
     return uv
 
 
@@ -395,7 +422,7 @@ def _groups(model: Model, adding: list[int], rigged: bool, protect: frozenset[in
         part = model.parts[i]
         key = PaintGroup(part.id if rigged else "root", part.color, part.color_name, part.material)
         own_data = part.uv is not None or bool(part.attr)
-        if part.pattern is not None or part.decal is not None or own_data or i in protect:
+        if part.pattern is not None or part.decal is not None or part.texture is not None or own_data or i in protect:
             key = PaintGroup(key.bone, key.color, f"{key.color_name}#{i}", key.material, i if own_data else -1)  # its own group
         if key not in group_index:
             group_index[key] = len(groups)
@@ -552,31 +579,16 @@ def paint(painted: Regions, model: Model) -> Painted:
         mark = inside & np.isin(owner, list(own)) & (face_decal < 0)
         face_decal[mark] = len(decals)
         decals.append(d)
-    # textures: every face of the part not under its decal; box ones take the image from the side each face faces
+    # textures: every face of the part's own group not under its decal (its pattern colours paint over it); one entry
+    # per texture: the side (box) or the wrap (cylindrical) is worked out per face (corner_uv)
     for i in adding:
         part = model.parts[i]
         if part.texture is None or i not in part_group:
             continue
-        t = part.texture
-        g = part_group[i]
-        free = np.isin(owner, [g, *pattern_groups.get(g, ())]) & (face_decal < 0)
-        if not free.any():
-            continue
-        normal = np.cross(vertices[faces[:, 1]] - vertices[faces[:, 0]], vertices[faces[:, 2]] - vertices[faces[:, 0]])
-        normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
-        if t.project == "cylindrical":  # the side wraps round; caps (facing along the axis) take it flat, as a box does
-            side = free & (np.abs(normal[:, "xyz".index(t.axis)]) < 0.7)
-            face_decal[side] = len(decals)
-            decals.append(t)
-            free &= ~side
-        dominant = np.argmax(np.abs(normal), axis=1)
-        sign = np.sign(normal[np.arange(len(faces)), dominant])
-        for a in range(3):
-            for s_ in (1.0, -1.0):
-                mark = free & (dominant == a) & (sign == s_)
-                if mark.any():
-                    face_decal[mark] = len(decals)
-                    decals.append(Decal(t.image, ("" if s_ > 0 else "-") + "xyz"[a], t.at, t.size, "box"))
+        free = (owner == part_group[i]) & (face_decal < 0)
+        if free.any():
+            face_decal[free] = len(decals)
+            decals.append(part.texture)
     return Painted(vertices, faces, owner, groups, face_decal, decals)
 
 

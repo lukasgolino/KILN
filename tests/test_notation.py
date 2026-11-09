@@ -489,3 +489,15 @@ def test_texture_texel_sizes_the_tile_and_mirror_moves_its_centre(project: Proje
     one, other = model.parts
     assert one.texture is not None and other.texture is not None
     assert one.texture.size == (0.16, 0.08) and one.texture.at == (0.3, 0.0, 0.0) and other.texture.at == (-0.3, 0.0, 0.0)
+
+
+def test_texture_rejects_cylindrical_with_mirror_or_array_and_unreadable_images(project: Project) -> None:
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 8)).save(project.root / "textures" / "tile.png")
+    (project.root / "textures" / "bad.png").write_text("not a png")
+    cyl = "name: thing\nparts:\n  - cylinder: { at: [0.3, 0.2, 0], radius: 0.1, height: 0.4 }\n    color: red\n"
+    tex = "    texture: { image: textures/tile.png, project: cylindrical, texel: 0.01 }\n"
+    assert [f.rule for f in errors_of(project, cyl + "    mirror: x\n" + tex)] == ["E003"]
+    assert [f.rule for f in errors_of(project, cyl + "    array: { count: 3, step: [0, 0, 0.3] }\n" + tex)] == ["E003"]
+    assert not errors_of(project, cyl + "    mirror: x\n    texture: { image: textures/tile.png, project: box, texel: 0.01 }\n")
+    assert [f.rule for f in errors_of(project, cyl + "    texture: { image: textures/bad.png, texel: 0.01 }\n")] == ["E011"]

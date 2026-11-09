@@ -170,3 +170,28 @@ def test_texture_exports_tiled_and_split_at_its_seam(project: Project) -> None:
         tri = accessor(doc, binary, prim["indices"]).reshape(-1, 3)
         span = uv[tri][..., 0].max(axis=1) - uv[tri][..., 0].min(axis=1)
         assert span.max() < 6  # a cap is 4 tiles across; across the seam would be ~12.6
+
+
+def test_a_texture_is_one_image_and_one_material(project: Project) -> None:
+    """#216 review: a box texture was six decals (six images, materials, primitives)."""
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 8), (0, 0, 255, 255)).save(project.root / "textures" / "tile.png")
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n"
+            "    texture: { image: textures/tile.png, project: box, texel: 0.01 }\n")  # fmt: skip
+    doc, _ = read_glb(to_glb(built_of(project, text), "kiln test"))
+    assert len(doc["images"]) == 1 and len(doc["materials"]) == 1 and len(doc["meshes"][0]["primitives"]) == 1
+
+
+def test_variant_swap_recolours_under_a_texture(project: Project) -> None:
+    """#216 review: transparent texture pixels show the part's colour, after a variant's swap."""
+    import io
+
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 8), (0, 0, 0, 0)).save(project.root / "textures" / "clear.png")
+    text = sphere_text() + "    texture: { image: textures/clear.png, texel: 0.01 }\n"
+    built = built_of(project, text)
+    for swap, want in ((None, (232, 65, 60)), ({"#e8413c": "#2f6fd0"}, (47, 111, 208))):
+        doc, binary = read_glb(to_glb(built, "kiln test", swap))
+        view = doc["bufferViews"][doc["images"][0]["bufferView"]]
+        png = Image.open(io.BytesIO(binary[view.get("byteOffset", 0) : view.get("byteOffset", 0) + view["byteLength"]])).convert("RGB")
+        assert png.getpixel((0, 0)) == want

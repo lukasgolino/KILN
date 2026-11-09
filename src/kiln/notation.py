@@ -558,8 +558,12 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             decal = _parse_decal(ctx, raw["decal"], line, f"{where}.decal")
             ok = ok and decal is not None
         if "texture" in raw:
-            texture = _parse_texture(ctx, raw["texture"], line, f"{where}.texture")
+            texture = _parse_texture(ctx, raw["texture"], line, f"{where}.texture", at)
             ok = ok and texture is not None
+            if texture is not None and texture.project == "cylindrical" and ((mirror and mirror_id is None) or copies):
+                ctx.error("E003", "a cylindrical texture wraps round one axis: it can't follow mirror or array copies (use mirror_id, "
+                          "or project: box)", line, f"{where}.texture")  # fmt: skip
+                ok = False
     else:
         for paint in ("color", "material", "pattern", "gradient", "decal", "texture", "id"):
             if paint in raw:
@@ -903,15 +907,16 @@ def _parse_decal(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal | N
 TEXTURE_KEYS = ("image", "project", "size", "texel", "at", "axis")
 
 
-def _parse_texture(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal | None:
+def _parse_texture(ctx: _Ctx, raw: Any, line: int | None, where: str, part_at: tuple[float, ...] | None = None) -> Decal | None:
     """`texture: { image, project: box | cylindrical, size: [w, h] | texel: m, at, axis }`: an image tiled over the
     whole part (#184): box faces take it from the side they face, cylindrical wraps it round `axis` through `at`."""
-    form = "texture is { image: textures/x.png, project: box | cylindrical, size: [w, h] (metres per tile) or texel: m (per pixel), at: [x, y, z], axis: x|y|z (cylindrical) }"
+    form = ("texture is { image: textures/x.png, project: box | cylindrical, size: [w, h] (metres per tile) or texel: m (per pixel), "
+            "at: [x, y, z] (default: the part's centre), axis: x|y|z (cylindrical) }")
     if not isinstance(raw, dict) or not isinstance(raw.get("image"), str) or [k for k in raw if k not in TEXTURE_KEYS]:
         ctx.error("E003", form, line, where)
         return None
     project, axis = raw.get("project", "box"), raw.get("axis", "y")
-    at = _vec(raw.get("at", [0, 0, 0]))
+    at = _vec(raw["at"]) if "at" in raw else (part_at or (0.0, 0.0, 0.0))  # default: the part's own centre
     if project not in ("box", "cylindrical") or axis not in ("x", "y", "z") or at is None or ("size" in raw) == ("texel" in raw):
         ctx.error("E003", form + "; give size or texel, not both", line, where)
         return None
@@ -924,10 +929,14 @@ def _parse_texture(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal |
         size = _vec(raw["size"], 2)
     else:
         texel = raw["texel"]
-        from PIL import Image
+        from PIL import Image, UnidentifiedImageError
 
-        with Image.open(image) as im:
-            w, h = im.size
+        try:
+            with Image.open(image) as im:
+                w, h = im.size
+        except (OSError, UnidentifiedImageError):
+            ctx.error("E011", f"texture image {raw['image']} isn't an image KILN can read (PNG)", line, f"{where}.image")
+            return None
         size = (float(texel) * w, float(texel) * h) if isinstance(texel, (int, float)) and not isinstance(texel, bool) and texel > 0 else None
     if size is None or min(size) <= 0:
         ctx.error("E003", form + "; size and texel are positive", line, where)
