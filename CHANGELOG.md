@@ -6,6 +6,13 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-09
+
+Textures tiled over whole parts, Godot renders that match the previews (and run offscreen), hard-part mirror and CSG
+fixes, faster builds. Meshes change for models with hard parts wholly inside others and for every relaxed mesh (to
+float rounding); look kits and previews change (colour parity); the rest is byte-identical apart from the generator
+string.
+
 ### Added
 
 - `texture: { image, project: box | cylindrical, size | texel, at, axis }` on a part (#184, #198): an image tiled over
@@ -30,6 +37,8 @@ before 1.0).
 
 ### Changed
 
+- The repository is now `lukasgolino/kiln` (#158): move git pins and links to the new name (GitHub redirects the old
+  URLs for now).
 - The Godot render matches `kiln preview` (#161; mean OKLab gap 0.25 -> 0.02 on a palette x material grid, soft_toy):
   - look kits set `tonemap_white = 3`, so Godot's Filmic is exactly the previews' curve (Godot's default white made
     every colour paler);
@@ -686,7 +695,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/lukasgolino/kiln/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/lukasgolino/kiln/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/lukasgolino/kiln/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/lukasgolino/kiln/compare/v0.16.1...v0.17.0
