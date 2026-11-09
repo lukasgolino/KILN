@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+### Changed
+
+- `kiln init` inside a Godot project sets `output_dir` to the project's `assets/kiln` (relative) and `export = ["glb",
+  "godot"]`, instead of keeping `build` under its own `.gdignore` and only saying so (#163).
+
 ## [0.19.0] - 2026-11-09
 
 KILN is on PyPI as `kiln-gen` and in the MCP Registry as `io.github.lukasgolino/kiln` (#155). Output is

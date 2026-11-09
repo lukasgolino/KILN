@@ -204,7 +204,9 @@ def test_init_names_the_gdignore_and_build_refuses_ignored_output(tmp_path: Path
     assert "art3d/bigfoot_a/.gdignore" in said and '"../../assets/kiln"' in said
     root = tmp_path / "art3d" / "bigfoot_a"
     config = root / "kiln.toml"
-    config.write_text(config.read_text().replace('export = ["glb"]', 'export = ["glb", "godot"]'))
+    project = load_project(root)  # #163: inside a Godot project the defaults are Godot's
+    assert project.config.output_dir == "../../assets/kiln" and project.config.export == ("glb", "godot")
+    config.write_text(config.read_text().replace('output_dir = "../../assets/kiln"', 'output_dir = "build"'))
     result = build(load_project(root))
     assert [f.rule for f in result.findings] == ["E000"] and "Godot ignores" in result.findings[0].message
     assert '"../../assets/kiln"' in result.findings[0].message

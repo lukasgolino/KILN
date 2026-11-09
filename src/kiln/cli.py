@@ -99,7 +99,12 @@ def cmd_init(args: argparse.Namespace, out: Output) -> int:
         raise _usage(f"unknown style {args.style!r}; built-in: {', '.join(builtin_names())}")
     for folder in ("models", "palettes", "styles", "decals", "imports"):
         (root / folder).mkdir(parents=True, exist_ok=True)
-    values = {"style": args.style}
+    godot = find_godot_project(root.parent)
+    # inside a Godot project the output goes where Godot sees it, with scenes; the KILN folder itself gets a .gdignore (#97, #163)
+    output_dir = Path(os.path.relpath(godot / "assets" / "kiln", root)).as_posix() if godot is not None else "build"
+    export = '["glb", "godot"]' if godot is not None else '["glb"]'
+    values = {"style": args.style, "output_dir": output_dir, "export": export,
+              "output_pad": " " * max(1, 31 - len(f'output_dir = "{output_dir}"')), "export_pad": " " * max(1, 31 - len(f"export = {export}"))}
     (root / CONFIG_NAME).write_text(Template(_template("kiln.toml")).safe_substitute(values), encoding="utf-8")
     (root / "palettes" / "main.pal.yaml").write_text(_template("main.pal.yaml"), encoding="utf-8")
     for doc in ("BRIEF.md", "STYLE.md"):
@@ -108,15 +113,14 @@ def cmd_init(args: argparse.Namespace, out: Output) -> int:
     if not (root / ".gitignore").exists():
         (root / ".gitignore").write_text(_template("gitignore"), encoding="utf-8")
     (root / "styles" / args.style / "inspiration").mkdir(parents=True, exist_ok=True)
-    godot = find_godot_project(root.parent)
     if godot is not None and not (root / ".gdignore").exists():
         (root / ".gdignore").write_text("", encoding="utf-8")  # sources, imports and previews aren't game assets
     out.say(f"created KILN project in {display_path(root)} (style {args.style}); next: kiln new model <name>")
-    if godot is not None:  # .gdignore hides the whole folder from Godot, the default output_dir ("build") included (#97)
-        suggestion = Path(os.path.relpath(godot / "assets" / "kiln", root)).as_posix()
-        out.say(f"inside the Godot project {display_path(godot)}: wrote {display_path(root / '.gdignore')}, so Godot skips this folder, "
-                f"build output included; set output_dir in kiln.toml to a folder Godot sees, e.g. \"{suggestion}\"")
-    out.result({"project": display_path(root), "style": args.style, "godot_project": display_path(godot) if godot else None})
+    if godot is not None:
+        out.say(f"inside the Godot project {display_path(godot)}: wrote {display_path(root / '.gdignore')}, so Godot skips this folder; "
+                f"builds go to \"{output_dir}\" with Godot scenes (output_dir, export in kiln.toml)")
+    out.result({"project": display_path(root), "style": args.style, "godot_project": display_path(godot) if godot else None,
+                "output_dir": output_dir})
     return 0
 
 
