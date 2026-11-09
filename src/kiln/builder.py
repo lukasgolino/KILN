@@ -1,7 +1,7 @@
 """One model -> Built (field, mesh, paint, normals, rig, animations), with a cache in `.kiln-cache/`.
 
 Meshing is the slow step (seconds); the cache key covers everything that changes the result: the model text,
-the style, the palette, decal images, imported files and KILN's version.
+the style, the palette, decal and texture images, imported files and KILN's version.
 """
 
 from __future__ import annotations
@@ -538,6 +538,8 @@ def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int |
     for part in model.parts:
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())
+        if part.texture is not None:
+            h.update(part.texture.image.read_bytes())
         if part.geometry.shape == "extrude":  # outlines from a font file aren't in the model text
             h.update(json.dumps([part.geometry.params.get("points"), part.geometry.params.get("holes")]).encode())
     if model.fit_to is not None:  # the character it's fitted to

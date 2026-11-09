@@ -12,11 +12,11 @@ from PIL import Image
 
 from kiln.atlas import AtlasUse, ambient_occlusion
 from kiln.notation import ROOT_ID, Model
-from kiln.paint import Painted, decal_uv
+from kiln.paint import Painted, corner_uv, decal_uv
 from kiln.rig import Skeleton, Track
 from kiln.sdf import Array
 from kiln.style import Style
-from kiln.vendor.gltf import ARRAY_BUFFER, CLAMP_TO_EDGE, ELEMENT_ARRAY_BUFFER, NEAREST, Document
+from kiln.vendor.gltf import ARRAY_BUFFER, CLAMP_TO_EDGE, ELEMENT_ARRAY_BUFFER, NEAREST, REPEAT, Document
 
 LINEAR = 9729
 WHITE = "#ffffff"
@@ -140,7 +140,7 @@ class _Writer:
         self.doc = Document(generator)
         self.materials: dict[tuple[str, str, int], int] = {}
         self.textures: dict[tuple[int, str], int] = {}
-        self.sampler: dict[bool, int] = {}
+        self.sampler: dict[tuple[bool, bool], int] = {}  # (nearest, repeat) -> sampler
 
     def color(self, hex_color: str) -> str:
         return self.swap.get(hex_color, hex_color)
@@ -174,9 +174,9 @@ class _Writer:
         return self.materials[key]
 
     def nearest_sampler(self) -> int:
-        if True not in self.sampler:
-            self.sampler[True] = self.doc.add("samplers", {"magFilter": NEAREST, "minFilter": NEAREST, "wrapS": CLAMP_TO_EDGE, "wrapT": CLAMP_TO_EDGE})
-        return self.sampler[True]
+        if (True, False) not in self.sampler:
+            self.sampler[(True, False)] = self.doc.add("samplers", {"magFilter": NEAREST, "minFilter": NEAREST, "wrapS": CLAMP_TO_EDGE, "wrapT": CLAMP_TO_EDGE})
+        return self.sampler[(True, False)]
 
     def uri_texture(self, uri: str, name: str) -> dict[str, Any]:
         img = self.doc.add("images", {"uri": uri, "name": name})
@@ -213,12 +213,15 @@ class _Writer:
         buf = io.BytesIO()
         backdrop.convert("RGB").save(buf, format="PNG", optimize=False)
         pixel_art = max(image.size) <= 256
-        if pixel_art not in self.sampler:
+        tiled = d.project != "planar"  # textures repeat
+        skey = (pixel_art, tiled)
+        if skey not in self.sampler:
             filt = NEAREST if pixel_art else LINEAR
-            self.sampler[pixel_art] = self.doc.add("samplers", {"magFilter": filt, "minFilter": filt if pixel_art else LINEAR_MIPMAP_LINEAR,
-                                                                "wrapS": CLAMP_TO_EDGE, "wrapT": CLAMP_TO_EDGE})  # fmt: skip
+            wrap = REPEAT if tiled else CLAMP_TO_EDGE
+            self.sampler[skey] = self.doc.add("samplers", {"magFilter": filt, "minFilter": filt if pixel_art else LINEAR_MIPMAP_LINEAR,
+                                                           "wrapS": wrap, "wrapT": wrap})  # fmt: skip
         img = self.doc.image_png(buf.getvalue(), f"decal{decal}_{base_color[1:]}")
-        self.textures[key] = self.doc.add("textures", {"sampler": self.sampler[pixel_art], "source": img})
+        self.textures[key] = self.doc.add("textures", {"sampler": self.sampler[skey], "source": img})
         return self.textures[key]
 
     def normal_map(self) -> int:
@@ -273,6 +276,9 @@ class _Writer:
             if self.b.bake is not None:  # the normal map's UVs and tangents split vertices along its chart seams
                 rows = np.concatenate([rows, np.round(self.b.bake.uv[sel].reshape(-1, 2), 7), np.round(self.b.bake.tangent[sel].reshape(-1, 4), 5)],
                                       axis=1)  # fmt: skip
+            decal_col = rows.shape[1]
+            if key[3] >= 0 and p.decals[key[3]].project != "planar":  # a texture's UVs per corner: split along its seam
+                rows = np.concatenate([rows, np.round(corner_uv(p.decals[key[3]], p.vertices[p.faces[sel]]).reshape(-1, 2), 6)], axis=1)
             attr_col = rows.shape[1]
             for name in self.face_attr:  # and attributes along part borders
                 rows = np.concatenate([rows, np.repeat(self.face_attr[name][sel], 3)[:, None]], axis=1)
@@ -304,7 +310,8 @@ class _Writer:
                 tangent[:, :3] /= np.maximum(np.linalg.norm(tangent[:, :3], axis=1, keepdims=True), 1e-12)
                 attributes["TANGENT"] = self.doc.accessor(tangent.astype(np.float32), target=ARRAY_BUFFER)
             if key[3] >= 0:
-                uv = decal_uv(p.decals[key[3]], p.vertices[vidx])
+                tiled = p.decals[key[3]].project != "planar"
+                uv = unique[:, decal_col : decal_col + 2] if tiled else decal_uv(p.decals[key[3]], p.vertices[vidx])
                 attributes["TEXCOORD_0"] = self.doc.accessor(uv.astype(np.float32), target=ARRAY_BUFFER)  # decals: no normal map
             if self.face_uv is not None:
                 attributes[f"TEXCOORD_{self.uv_set}"] = self.doc.accessor(unique[:, 5:7].astype(np.float32), target=ARRAY_BUFFER)

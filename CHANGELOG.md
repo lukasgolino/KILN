@@ -6,6 +6,13 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- `texture: { image, project: box | cylindrical, size | texel, at, axis }` on a part (#184, #198): an image tiled over
+  the whole part. Box: every face from the side it faces; cylindrical: wrapped round an axis by arc length, caps flat,
+  vertices split along the seam. Exported with a repeating sampler (nearest for <= 256 px: pixel-art textures on
+  smooth shapes), previewed the same; a decal on the part paints over it.
+
 ### Performance
 
 - Relaxing after decimation re-tests only the faces next to a vertex that moved (#199): the same meshes (to float

@@ -28,7 +28,7 @@ def part(shape: str, color: str | None = None, material: str = "default", id: st
     hard, bevel, chamfer, segments, fit, keep, uv, attr, aim) may be passed with the shape's own parameters; they are sorted into the
     right place."""
     part_keys = {"blend", "blend_to", "cut", "intersect", "mirror", "mirror_id", "array", "shell", "twist", "scale", "noise", "pattern",
-                 "gradient", "decal", "loose",
+                 "gradient", "decal", "texture", "loose",
                  "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "attr", "aim"}  # fmt: skip
     shape_params = {k: v for k, v in params.items() if k not in part_keys}
     out: Part = {shape: shape_params}
@@ -109,11 +109,11 @@ def tree(height: float = 3.0, crown: float = 1.0, seed: int = 1, bark: str = "br
 
 
 def offset(parts: list[Part], dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> list[Part]:
-    """Move parts (their `at`, capsule from/to, tube points)."""
+    """Move parts (their `at`, capsule from/to, tube points, decal and texture centres)."""
     out = []
     for p in parts:
         q = {k: (dict(v) if isinstance(v, dict) else v) for k, v in p.items()}
-        shape = next(k for k in q if isinstance(q[k], dict) and k not in ("array", "noise", "pattern", "decal"))
+        shape = next(k for k in q if isinstance(q[k], dict) and k not in ("array", "noise", "pattern", "decal", "texture"))
         s = q[shape]
         for key in ("at", "from", "to"):
             if key in s or (key == "at" and "from" not in s):
@@ -121,6 +121,10 @@ def offset(parts: list[Part], dx: float = 0.0, dy: float = 0.0, dz: float = 0.0)
                 s[key] = [_r(v[0] + dx), _r(v[1] + dy), _r(v[2] + dz)]
         if "points" in s and shape == "tube":
             s["points"] = [[_r(x + dx), _r(y + dy), _r(z + dz)] for x, y, z in s["points"]]
+        for key in ("decal", "texture"):  # model-space centres move with the part (a texture without `at` follows the part already)
+            if isinstance(q.get(key), dict) and "at" in q[key]:
+                x, y, z = q[key]["at"]
+                q[key]["at"] = [_r(x + dx), _r(y + dy), _r(z + dz)]
         out.append(q)
     return out
 

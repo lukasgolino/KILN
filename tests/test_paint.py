@@ -190,3 +190,94 @@ def test_patterns_on_a_noisy_part_stay_on_its_surface(project: Project) -> None:
     p = built.painted
     v = p.vertices[np.unique(p.faces)]
     assert float(np.abs(field_of(built.model, built.step).distance(v)).max()) < built.step / 4
+
+
+def _texture_image(project: Project) -> None:
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 8), (0, 0, 255, 255)).save(project.root / "textures" / "tile.png")
+
+
+def test_box_texture_covers_the_part_from_six_sides(project: Project) -> None:
+    """#184: a box-projected texture covers every face of its part, as one texture (one material); each face takes
+    it from the side it faces, upright and unmirrored seen from there."""
+    from kiln.paint import corner_uv
+
+    _texture_image(project)
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n"
+            "    texture: { image: textures/tile.png, project: box, texel: 0.01 }\n")  # fmt: skip
+    p = built_of(project, text).painted
+    assert (p.face_decal == 0).all() and len(p.decals) == 1 and p.decals[0].size == (0.08, 0.08)
+    d = p.decals[0]
+    assert d.at == (0.0, 0.2, 0.0)  # the part's centre by default
+    seen = {"z": ([1, 0, 0], [0, 1, 0]), "-z": ([-1, 0, 0], [0, 1, 0]), "x": ([0, 0, -1], [0, 1, 0]), "-x": ([0, 0, 1], [0, 1, 0])}
+    for side, (right, up) in seen.items():
+        a, sign = "xyz".index(side[-1]), (-1.0 if side.startswith("-") else 1.0)
+        centre = np.array(d.at)
+        centre[a] += sign * 0.2
+        tri = np.array([centre, centre + 0.08 * np.array(right), centre + 0.08 * np.array(up)])
+        if np.cross(tri[1] - tri[0], tri[2] - tri[0])[a] * sign < 0:
+            tri = tri[[0, 2, 1]]
+        uv = corner_uv(d, tri[None])[0]
+        right_at, up_at = (1, 2) if np.allclose(tri[1], centre + 0.08 * np.array(right)) else (2, 1)
+        np.testing.assert_allclose(uv[right_at] - uv[0], [1.0, 0.0], atol=1e-9)  # one tile to the right: u + 1
+        np.testing.assert_allclose(uv[up_at] - uv[0], [0.0, -1.0], atol=1e-9)  # one tile up: v - 1 (images run down)
+
+
+def test_texture_stays_on_its_part(project: Project) -> None:
+    """#216 review: a textured part paints its own group: another part of the same colour isn't textured, and the
+    part's own pattern colours paint over its texture."""
+    _texture_image(project)
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n"
+            "    texture: { image: textures/tile.png, project: box, texel: 0.01 }\n"
+            "    pattern: { type: stripes, color: blue, size: 0.1, width: 0.4, axis: y }\n"
+            "  - sphere: { at: [0.8, 0.2, 0], radius: 0.2 }\n    color: red\n")  # fmt: skip
+    p = built_of(project, text).painted
+    centre = p.vertices[p.faces].mean(axis=1)
+    on_sphere = centre[:, 0] > 0.5
+    assert (p.face_decal[on_sphere] < 0).all() and (p.face_decal[~on_sphere] == 0).any()
+    blue = [k for k, g in enumerate(p.groups) if g.color == "#2f6fd0" or g.color_name.startswith("blue")]
+    assert blue and (p.face_decal[np.isin(p.face_group, blue)] < 0).all()
+
+
+def test_cylindrical_texture_wraps_the_side_and_lays_flat_on_the_caps(project: Project) -> None:
+    """#184: cylindrical wraps round the axis by arc length (texels keep their size); caps take it flat; faces across
+    the seam get corner UVs on one side of it."""
+    from kiln.paint import corner_uv
+
+    _texture_image(project)
+    text = ("name: thing\nparts:\n  - cylinder: { at: [0.5, 0.25, 0], radius: 0.2, height: 0.5 }\n    color: red\n"
+            "    texture: { image: textures/tile.png, project: cylindrical, size: [0.1, 0.1] }\n")  # fmt: skip
+    p = built_of(project, text).painted
+    d = p.decals[0]
+    assert len(p.decals) == 1 and (p.face_decal == 0).all() and d.at == (0.5, 0.25, 0.0)  # round the part's own axis
+    corners = p.vertices[p.faces]
+    uv = corner_uv(d, corners)
+    span = uv[..., 0].max(axis=1) - uv[..., 0].min(axis=1)
+    assert span.max() < 6  # no face smears across the seam (that would be the whole way round: 12.6 tiles; a cap is 4 across)
+    np.testing.assert_allclose(decal_uv(d, np.array([[0.5, 0.25, 0.2], [0.7, 0.25, 0.0]]))[:, 0], [0.0, np.pi / 2 * 0.2 / 0.1], atol=1e-9)
+    n = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
+    cap = np.abs(n[:, 1]) > 0.9 * np.linalg.norm(n, axis=1)
+    top = corners[cap & (n[:, 1] > 0)]
+    np.testing.assert_allclose(corner_uv(d, top)[..., 0], (top[..., 0] - 0.5) / 0.1, atol=1e-9)  # flat from above: u = x
+
+
+def test_cone_tip_is_not_a_seam() -> None:
+    from pathlib import Path
+
+    from kiln.notation import Decal
+    from kiln.paint import corner_uv
+
+    d = Decal(Path("t.png"), "y", (0.0, 0.0, 0.0), (0.1, 0.1), "cylindrical")
+    tri = np.array([[[0.0, 1.0, 0.0], [0.005, 0.5, -0.1], [-0.005, 0.5, -0.1]]])  # tip on the axis; base corners either side of the seam
+    uv = corner_uv(d, tri)
+    assert abs(uv[0, 1, 0] - uv[0, 2, 0]) < 0.2  # the base stays on one side of the seam (the tip's angle is ignored)
+
+
+def test_decal_paints_over_a_texture(project: Project) -> None:
+    _texture_image(project)
+    Image.new("RGBA", (16, 16), (255, 0, 0, 255)).save(project.root / "decals" / "logo.png")
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n"
+            "    decal: { image: decals/logo.png, axis: z, at: [0, 0.2, 0.2], size: [0.2, 0.2] }\n"
+            "    texture: { image: textures/tile.png, project: box, size: [0.1, 0.1] }\n")  # fmt: skip
+    p = built_of(project, text).painted
+    assert p.decals[0].project == "planar" and (p.face_decal == 0).any() and (p.face_decal >= 0).all()

@@ -19,7 +19,7 @@ import numpy as np
 from PIL import Image
 
 from kiln.export import Built, srgb_to_linear
-from kiln.paint import decal_uv
+from kiln.paint import corner_uv, decal_uv
 from kiln.rig import skin_matrices
 from kiln.sdf import Array, rotation_matrix
 from kiln.style import FILMIC_WHITE, TOON_DARKEN, Look
@@ -216,7 +216,11 @@ def render(
                 if not m.any():
                     continue
                 img = np.asarray(Image.open(d.image).convert("RGBA"), dtype=float) / 255.0
-                uv = decal_uv(d, rest[m]).clip(0, 0.999999)
+                if d.project == "planar":
+                    uv = decal_uv(d, rest[m]).clip(0, 0.999999)
+                else:  # textures: the glTF's per-corner coordinates, interpolated as the GPU does; they repeat
+                    uv = (corner_uv(d, p.vertices[p.faces[T[m]]]) * bary[m][:, :, None]).sum(axis=1)
+                    uv = np.mod(uv, 1.0).clip(0, 0.999999)
                 tx = (uv[:, 0] * img.shape[1]).astype(int)
                 ty = (uv[:, 1] * img.shape[0]).astype(int)
                 texel = img[ty, tx]

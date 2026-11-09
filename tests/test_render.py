@@ -142,3 +142,19 @@ def test_glow_blooms_in_previews(project: Project) -> None:
     off = np.asarray(render(dull, View(0, 10), 96))
     ring = (off[..., 3] == 0) & (on[..., 3] > 0)  # around the sphere: transparent without glow, lit with it
     assert ring.sum() > 50
+
+
+def test_preview_shows_a_texture(project: Project) -> None:
+    """#216 review: the software preview samples a texture (blue tiles on a red part read blue)."""
+    from conftest import built_of
+    from PIL import Image
+
+    from kiln.render import View, render
+
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 8), (0, 0, 255, 255)).save(project.root / "textures" / "tile.png")
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n"
+            "    texture: { image: textures/tile.png, project: box, texel: 0.01 }\n")  # fmt: skip
+    img = np.asarray(render(built_of(project, text), View(0.0, 0.0), 64).convert("RGB")).astype(int)
+    r, g, b = img[32, 32]
+    assert b > r + 40
