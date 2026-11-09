@@ -533,14 +533,18 @@ def relax(field: Field, mesh: Mesh, fixed: Array, step: float, iterations: int =
     sharp = (normal[e[:, 0]] * normal[e[:, 1]]).sum(axis=1) < BAD_TILT_COS
     sharp &= ~fixed[e[:, 0]] & ~fixed[e[:, 1]] & (part[e[:, 0]] == part[e[:, 1]])
     crease[e[sharp].reshape(-1)] = True
+    # Only faces with a vertex that moved last round can turn good or bad: the others keep their verdict, so the
+    # field (the costly part) is only asked about those. Same results as testing every face every round.
+    bad = np.zeros(len(f), dtype=bool)
+    check = np.ones(len(f), dtype=bool)
     for _ in range(iterations):
-        p = v[f]
+        p = v[f[check]]
         n = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
         area2 = np.linalg.norm(n, axis=1)
         tilt = (n * field.gradient(p.mean(axis=1), step * 0.01)).sum(axis=1) < BAD_TILT_COS * area2
         longest = np.max(np.linalg.norm(p - np.roll(p, 1, axis=1), axis=2), axis=1)
         sliver = longest**2 > BAD_ASPECT * np.maximum(area2, 1e-18)
-        bad = tilt | sliver
+        bad[check] = tilt | sliver
         free = np.zeros(len(v), dtype=bool)
         free[f[bad].reshape(-1)] = True
         free &= ~fixed & ~crease & (degree > 0)
@@ -553,6 +557,7 @@ def relax(field: Field, mesh: Mesh, fixed: Array, step: float, iterations: int =
         move = mean[free] - v[free]
         move -= (move * normal).sum(axis=1, keepdims=True) * normal  # along the surface only
         v[free] = project(field, v[free] + rate * move, step, 1)
+        check = free[f].any(axis=1)
     return Mesh(v, f)
 
 

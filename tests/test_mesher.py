@@ -257,3 +257,52 @@ def test_close_pockets_needs_twin_caps_not_just_the_same_neighbours() -> None:
     same_way = np.array(a + [[1, x, y] for _, x, y in a])  # a duplicate cap wound the same way
     (f,) = close_pockets(v, same_way)
     np.testing.assert_array_equal(f, same_way)
+
+
+def _relax_reference(f_: Field, mesh: Mesh, fixed: np.ndarray, step: float, iterations: int = 8, rate: float = 0.5) -> Mesh:
+    """relax as it was before it re-tested only the faces that moved: every face, every round."""
+    from kiln.mesher import BAD_ASPECT, BAD_TILT_COS, nearest_part, project
+
+    v, f = mesh.vertices.copy(), mesh.faces
+    e = np.unique(np.sort(np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]), axis=1), axis=0)
+    a, b = np.concatenate([e[:, 0], e[:, 1]]), np.concatenate([e[:, 1], e[:, 0]])
+    degree = np.bincount(a, minlength=len(v)).astype(float)
+    normal = f_.gradient(v, step * 0.01)
+    crease = np.zeros(len(v), dtype=bool)
+    part = nearest_part(f_, v)
+    sharp = (normal[e[:, 0]] * normal[e[:, 1]]).sum(axis=1) < BAD_TILT_COS
+    sharp &= ~fixed[e[:, 0]] & ~fixed[e[:, 1]] & (part[e[:, 0]] == part[e[:, 1]])
+    crease[e[sharp].reshape(-1)] = True
+    for _ in range(iterations):
+        p = v[f]
+        n = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
+        area2 = np.linalg.norm(n, axis=1)
+        tilt = (n * f_.gradient(p.mean(axis=1), step * 0.01)).sum(axis=1) < BAD_TILT_COS * area2
+        longest = np.max(np.linalg.norm(p - np.roll(p, 1, axis=1), axis=2), axis=1)
+        bad = tilt | (longest**2 > BAD_ASPECT * np.maximum(area2, 1e-18))
+        free = np.zeros(len(v), dtype=bool)
+        free[f[bad].reshape(-1)] = True
+        free &= ~fixed & ~crease & (degree > 0)
+        if not free.any():
+            break
+        mean = np.zeros_like(v)
+        np.add.at(mean, a, v[b])
+        mean[free] /= degree[free, None]
+        nrm = f_.gradient(v[free], step * 0.01)
+        move = mean[free] - v[free]
+        move -= (move * nrm).sum(axis=1, keepdims=True) * nrm
+        v[free] = project(f_, v[free] + rate * move, step, 1)
+    return Mesh(v, f)
+
+
+def test_relax_retesting_only_moved_faces_gives_the_same_mesh() -> None:
+    """Relaxing re-tests only faces next to a vertex that moved (the rest keep their verdict): identical output."""
+    from kiln.mesher import relax
+
+    fld = field("box", {"size": [0.6, 0.3, 0.4], "round": 0.05})
+    mesh = decimate(fld, dual_contour(fld, 0.02), 300, 0.02)
+    rng = np.random.default_rng(3)
+    jittered = Mesh(mesh.vertices + rng.normal(0, 0.01, mesh.vertices.shape), mesh.faces)  # plenty of bad faces
+    fixed = rng.random(len(mesh.vertices)) < 0.1
+    new, old = relax(fld, jittered, fixed, 0.02), _relax_reference(fld, jittered, fixed, 0.02)
+    assert np.array_equal(new.vertices, old.vertices) and not np.array_equal(new.vertices, jittered.vertices)
