@@ -221,3 +221,4 @@ anything that changes output.
   `io.github.lukasgolino/kiln` in the MCP Registry. Tags publish through PyPI Trusted Publishing (environment `pypi`)
   and the registry's GitHub OIDC login: no tokens in the repo. `mcp` became a dependency so registry clients can run
   `uvx kiln-gen mcp` (no extras in registry entries). server.json's versions are tested against pyproject.
+- 2026-11-09: #225: relicensed under Apache-2.0 (explicit patent grant); releases up to 0.20.0 stay MIT.
