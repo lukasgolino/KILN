@@ -105,24 +105,49 @@ def hard_spec(part: Part, style: Style, level: int = 0) -> HardSpec:
 def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int) -> Solid:
     """The hard parts of one piece combined in order: adding parts unite; every later cut or intersect applies."""
     acc: Solid = []
+    run: list[Solid] = []  # adding parts since the last cut: united pairwise (balanced), not one by one into a growing solid
+
+    def flush(acc: Solid) -> Solid:
+        while len(run) > 1:
+            run[:] = [union(run[k], run[k + 1]) if k + 1 < len(run) else run[k] for k in range(0, len(run), 2)]
+        out = union(acc, run[0]) if run else acc
+        run.clear()
+        return out
+
     for i, p in enumerate(model.parts):
         g = p.geometry
         if g.op == "add":
             if i in include:
-                acc = union(acc, solid(g, hard_spec(p, style, level), i))
-        elif acc and g.shape in HARD_SHAPES and not g.twist and g.noise is None and g.scale is None and not (g.shell and g.shape not in SHELL_SHAPES) \
+                run.append(solid(g, hard_spec(p, style, level), i))
+            continue
+        acc = flush(acc)
+        if acc and g.shape in HARD_SHAPES and not g.twist and g.noise is None and g.scale is None and not (g.shell and g.shape not in SHELL_SHAPES) \
                 and (g.cut_only is None or bool(g.cut_only & include)):
             other = solid(g, hard_spec(p, style, level), i)
             acc = subtract(acc, other) if g.op == "cut" else intersect(acc, other)
-    return acc
+    return flush(acc)
+
+
+ROUND_SHAPES = frozenset({"cylinder", "cone", "capsule", "tube", "lathe", "torus", "sphere", "ellipsoid"})
+
+
+def _spec_key(part: Part, spec: HardSpec) -> tuple[int, float, int]:
+    """What of a HardSpec changes this part's solid: bevel bands only with a bevel, sides only on round shapes."""
+    sides = int(part.geometry.params.get("sides") or spec.sides)  # as hard.local_polys reads it
+    return (sides if part.geometry.shape in ROUND_SHAPES else 0, spec.bevel, spec.segments if spec.bevel else 0)
 
 
 def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[int]], budget: float, rigged: bool) -> tuple[list[Regions], list[HardMesh]]:
     """Every piece's hard parts as a mesh (fewer details while they'd go over `budget`), cut into paint groups."""
     meshes: list[HardMesh] = []
+    specs = None
     for level in range(5):
+        level_specs = [_spec_key(p, hard_spec(p, style, level)) for p in model.parts]
+        if level_specs == specs:  # this level details nothing less: same meshes, try the next (#207)
+            continue
+        specs = level_specs
         meshes = [to_mesh(_hard_solid(model, style, include, level)) for include in pieces]
-        if sum(m.triangles for m in meshes) <= budget or level == 4:
+        if sum(m.triangles for m in meshes) <= budget:
             break
     out = []
     for include, mesh in zip(pieces, meshes, strict=True):
