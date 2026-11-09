@@ -410,7 +410,7 @@ settings, partial builds, and E013 crack fixes. Hard-surface and humanoid output
 ### Added
 
 - The skill asks agents to report what got in their way (crashes, misleading messages, workarounds, missing
-  features) as GitHub issues at https://github.com/lukasgolino/KILN/issues: a minimal-repro draft, a duplicate
+  features) as GitHub issues at https://github.com/lukasgolino/kiln/issues: a minimal-repro draft, a duplicate
   check, and filing only once approved. `.github/ISSUE_TEMPLATE/agent-report.md` and the `agent-report` label.
   Run `kiln skill install` to update a project's copy of the skill.
 
@@ -644,26 +644,26 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.19.0...HEAD
-[0.19.0]: https://github.com/lukasgolino/KILN/compare/v0.18.0...v0.19.0
-[0.18.0]: https://github.com/lukasgolino/KILN/compare/v0.17.0...v0.18.0
-[0.17.0]: https://github.com/lukasgolino/KILN/compare/v0.16.1...v0.17.0
-[0.16.1]: https://github.com/lukasgolino/KILN/compare/v0.16.0...v0.16.1
-[0.16.0]: https://github.com/lukasgolino/KILN/compare/v0.15.0...v0.16.0
-[0.15.0]: https://github.com/lukasgolino/KILN/compare/v0.14.0...v0.15.0
-[0.14.0]: https://github.com/lukasgolino/KILN/compare/v0.13.0...v0.14.0
-[0.13.0]: https://github.com/lukasgolino/KILN/compare/v0.12.0...v0.13.0
-[0.12.0]: https://github.com/lukasgolino/KILN/compare/v0.11.0...v0.12.0
-[0.11.0]: https://github.com/lukasgolino/KILN/compare/v0.10.1...v0.11.0
-[0.10.1]: https://github.com/lukasgolino/KILN/compare/v0.10.0...v0.10.1
-[0.10.0]: https://github.com/lukasgolino/KILN/compare/v0.9.0...v0.10.0
-[0.9.0]: https://github.com/lukasgolino/KILN/compare/v0.8.0...v0.9.0
-[0.8.0]: https://github.com/lukasgolino/KILN/compare/v0.7.1...v0.8.0
-[0.7.1]: https://github.com/lukasgolino/KILN/compare/v0.7.0...v0.7.1
-[0.7.0]: https://github.com/lukasgolino/KILN/compare/v0.6.0...v0.7.0
-[0.6.0]: https://github.com/lukasgolino/KILN/compare/v0.5.0...v0.6.0
-[0.5.0]: https://github.com/lukasgolino/KILN/compare/v0.4.0...v0.5.0
-[0.4.0]: https://github.com/lukasgolino/KILN/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/lukasgolino/KILN/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/lukasgolino/KILN/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/lukasgolino/KILN/releases/tag/v0.1.0
+[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/lukasgolino/kiln/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/lukasgolino/kiln/compare/v0.17.0...v0.18.0
+[0.17.0]: https://github.com/lukasgolino/kiln/compare/v0.16.1...v0.17.0
+[0.16.1]: https://github.com/lukasgolino/kiln/compare/v0.16.0...v0.16.1
+[0.16.0]: https://github.com/lukasgolino/kiln/compare/v0.15.0...v0.16.0
+[0.15.0]: https://github.com/lukasgolino/kiln/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/lukasgolino/kiln/compare/v0.13.0...v0.14.0
+[0.13.0]: https://github.com/lukasgolino/kiln/compare/v0.12.0...v0.13.0
+[0.12.0]: https://github.com/lukasgolino/kiln/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/lukasgolino/kiln/compare/v0.10.1...v0.11.0
+[0.10.1]: https://github.com/lukasgolino/kiln/compare/v0.10.0...v0.10.1
+[0.10.0]: https://github.com/lukasgolino/kiln/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/lukasgolino/kiln/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/lukasgolino/kiln/compare/v0.7.1...v0.8.0
+[0.7.1]: https://github.com/lukasgolino/kiln/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/lukasgolino/kiln/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/lukasgolino/kiln/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/lukasgolino/kiln/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/lukasgolino/kiln/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/lukasgolino/kiln/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/lukasgolino/kiln/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/lukasgolino/kiln/releases/tag/v0.1.0

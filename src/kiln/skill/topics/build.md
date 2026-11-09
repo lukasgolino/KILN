@@ -32,7 +32,7 @@ Building for the game: glb, Godot scenes, look kits, colour modes, the manifest,
 - `manifest.json` lists every model: glb, scene, size and bounds in metres, triangles, parts (pivot, parent, meta),
   animations (Godot names, loop, fps), variants, LODs, licences. That's the contract with game code.
 - Not Godot: `export = ["glb"]`; the per-engine notes (Unity, Unreal, Bevy, three.js, Defold) are in KILN's
-  `docs/engines.md` (https://github.com/lukasgolino/KILN/blob/main/docs/engines.md). Outside Godot `atlas = true` is
+  `docs/engines.md` (https://github.com/lukasgolino/kiln/blob/main/docs/engines.md). Outside Godot `atlas = true` is
   usually the best colour mode; look kits, toon, outlines and rim light are Godot-only.
 
 
@@ -84,7 +84,7 @@ BoneAttachment3D and must land where they were made.
 
 Other engines: everything but the `.tscn` files, `.import` sidecars and `<name>.rim.png` is plain glTF + JSON. Notes per
 engine (axes, scale, vertex colours, palette texture filtering, skins, clips, LODs, approximating the look):
-https://github.com/lukasgolino/KILN/blob/main/docs/engines.md
+https://github.com/lukasgolino/kiln/blob/main/docs/engines.md
 
 In Godot:
 

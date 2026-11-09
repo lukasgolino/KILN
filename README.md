@@ -9,7 +9,7 @@ generators, no GPU, no Blender.
 **Website:** https://kiln3d.dev/ (live 3D demo, docs). Sister libraries: [PAGAN](https://pagan.top/)
 (pixel art) and [SEGAN](https://segan.top/) (audio).
 
-![The demo models in Godot](https://raw.githubusercontent.com/lukasgolino/KILN/main/docs/showcase.png)
+![The demo models in Godot](https://raw.githubusercontent.com/lukasgolino/kiln/main/docs/showcase.png)
 
 ```yaml
 name: pilot
@@ -39,7 +39,7 @@ animations:
 > **Status:** 0.9, pre-1.0: notation, smooth and hard-surface meshing, painting (patterns, decals, palette atlas),
 > rigs, soft and rigid skins, clip retargeting (humanoids, or any skeleton with a joint map), animations, effects, terrains (heightfields with splat layers), foliage scattering, five styles,
 > previews, Godot export, lint, CC0 imports, a template library, a Claude skill and an MCP server.
-> Bugs and requests: [GitHub issues](https://github.com/lukasgolino/KILN/issues).
+> Bugs and requests: [GitHub issues](https://github.com/lukasgolino/kiln/issues).
 
 ## One model, any style
 
@@ -47,7 +47,7 @@ A project picks a **style**: how shapes become meshes (smooth or faceted), trian
 the look kit (lighting, tonemapping, outlines). The same model text below is soft toy (Dear Passengers, Fall Guys),
 low poly and toon. Make your own from inspiration images.
 
-![The same models in soft_toy, low_poly and toon](https://raw.githubusercontent.com/lukasgolino/KILN/main/docs/styles.png)
+![The same models in soft_toy, low_poly and toon](https://raw.githubusercontent.com/lukasgolino/kiln/main/docs/styles.png)
 
 ## Terrains
 
@@ -55,7 +55,7 @@ A model with `terrain:` is ground for a level: hills, ridges, plateaus, noise an
 with up to four palette colours by slope, height, nearness to paths and noise. It builds into chunked LOD meshes, a
 splat map and a Godot scene with collision (`examples/terrain`).
 
-![A 256 m terrain from above and from four sides](https://raw.githubusercontent.com/lukasgolino/KILN/main/docs/terrain.png)
+![A 256 m terrain from above and from four sides](https://raw.githubusercontent.com/lukasgolino/kiln/main/docs/terrain.png)
 
 ## Foliage
 
@@ -63,7 +63,7 @@ A model with `scatter:` places other models many times over a terrain, another m
 spacing, slope / height / noise / splat-layer / path rules, random turn, scale, lean and tint. KILN rolls every
 instance at build time into a JSON file and a Godot scene of MultiMeshes with LODs (`examples/terrain`: `meadow`, `moss`).
 
-![Trees, bushes, boulders, flowers and grass over the valley, and grass on a boulder](https://raw.githubusercontent.com/lukasgolino/KILN/main/docs/foliage.png)
+![Trees, bushes, boulders, flowers and grass over the valley, and grass on a boulder](https://raw.githubusercontent.com/lukasgolino/kiln/main/docs/foliage.png)
 
 ## Install
 
@@ -121,7 +121,7 @@ project showing the demo models.
 ## Other engines
 
 The `.glb` files are plain glTF 2.0: Unity, Unreal, Bevy, three.js and Defold import them. Set `export = ["glb"]`.
-[docs/engines.md](https://github.com/lukasgolino/KILN/blob/main/docs/engines.md) has per-engine notes (axes, scale, vertex colours, palette textures, animations,
+[docs/engines.md](https://github.com/lukasgolino/kiln/blob/main/docs/engines.md) has per-engine notes (axes, scale, vertex colours, palette textures, animations,
 LODs) and what's Godot-only (look kits, toon, outlines, rim light) with how to approximate it.
 
 ## Using KILN with Claude
@@ -168,4 +168,4 @@ version, URL, sha256, licence) in `kiln.lock`, which `kiln build` checks.
 
 ## License
 
-MIT — see [LICENSE](https://github.com/lukasgolino/KILN/blob/main/LICENSE).
+MIT — see [LICENSE](https://github.com/lukasgolino/kiln/blob/main/LICENSE).
