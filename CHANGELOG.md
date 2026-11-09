@@ -6,6 +6,14 @@ before 1.0).
 
 ## [Unreleased]
 
+### Changed
+
+- `kiln preview --pose` (#189, #201): `--views`, `--pitch` and `--size` pick its views and tile size (they no longer also
+  write a views sheet), `--frame N[,N...]` shows chosen frames (one up close), and the default rows are 3/4 front and
+  both sides (a limb on -X showed in no side frame); `--pitch` alone tilts those; `--variant` now colours the pose
+  sheet too (`pose_<anim>.<variant>.png`). Pose tiles stay 200 px unless `--size` is given. The MCP `preview` tool
+  takes `frames` and `size`.
+
 ### Fixed
 
 - W109 no longer fires for animated joints of a `skeleton: humanoid` model: the skeleton puts their pivots at the
