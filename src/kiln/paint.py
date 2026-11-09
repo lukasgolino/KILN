@@ -244,9 +244,34 @@ def _decal_frame(d: Decal) -> tuple[Array, Array, Array]:
 
 
 def decal_uv(d: Decal, points: Array) -> Array:
-    _, u, v = _decal_frame(d)
+    """Image coordinates: a decal's 0..1 over its rectangle; a texture's tile coordinates (unbounded: the image
+    repeats). Cylindrical: u is the arc length round `axis` (so texels keep their size on any radius), v along it."""
     rel = points - np.array(d.at)
+    if d.project == "cylindrical":
+        a = "xyz".index(d.axis)
+        b, c = (a + 1) % 3, (a + 2) % 3  # y axis: angle from +z towards +x, so the seam is at the back (-z)
+        radius = np.hypot(rel[:, b], rel[:, c])
+        return np.stack([np.arctan2(rel[:, c], rel[:, b]) * radius / d.size[0], -rel[:, a] / d.size[1]], axis=1)
+    _, u, v = _decal_frame(d)
+    if d.project == "box":
+        return np.stack([(rel @ u) / d.size[0], -(rel @ v) / d.size[1]], axis=1)
     return np.stack([(rel @ u) / d.size[0] + 0.5, 0.5 - (rel @ v) / d.size[1]], axis=1)
+
+
+def corner_uv(d: Decal, corners: Array) -> Array:
+    """(F, 3, 2) image coordinates per face corner: a cylindrical texture's corners on one side of its seam (a face
+    across it would otherwise smear the whole image round)."""
+    uv = decal_uv(d, corners.reshape(-1, 3)).reshape(-1, 3, 2)
+    if d.project == "cylindrical":
+        rel = corners - np.array(d.at)
+        a = "xyz".index(d.axis)
+        b, c = (a + 1) % 3, (a + 2) % 3
+        angle = np.arctan2(rel[..., c], rel[..., b])
+        radius = np.hypot(rel[..., b], rel[..., c])
+        wrap = (angle.max(axis=1) - angle.min(axis=1)) > np.pi
+        lift = wrap[:, None] & (angle < 0)
+        uv[..., 0] = np.where(lift, (angle + 2 * np.pi) * radius / d.size[0], uv[..., 0])
+    return uv
 
 
 @dataclass
@@ -527,6 +552,31 @@ def paint(painted: Regions, model: Model) -> Painted:
         mark = inside & np.isin(owner, list(own)) & (face_decal < 0)
         face_decal[mark] = len(decals)
         decals.append(d)
+    # textures: every face of the part not under its decal; box ones take the image from the side each face faces
+    for i in adding:
+        part = model.parts[i]
+        if part.texture is None or i not in part_group:
+            continue
+        t = part.texture
+        g = part_group[i]
+        free = np.isin(owner, [g, *pattern_groups.get(g, ())]) & (face_decal < 0)
+        if not free.any():
+            continue
+        normal = np.cross(vertices[faces[:, 1]] - vertices[faces[:, 0]], vertices[faces[:, 2]] - vertices[faces[:, 0]])
+        normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
+        if t.project == "cylindrical":  # the side wraps round; caps (facing along the axis) take it flat, as a box does
+            side = free & (np.abs(normal[:, "xyz".index(t.axis)]) < 0.7)
+            face_decal[side] = len(decals)
+            decals.append(t)
+            free &= ~side
+        dominant = np.argmax(np.abs(normal), axis=1)
+        sign = np.sign(normal[np.arange(len(faces)), dominant])
+        for a in range(3):
+            for s_ in (1.0, -1.0):
+                mark = free & (dominant == a) & (sign == s_)
+                if mark.any():
+                    face_decal[mark] = len(decals)
+                    decals.append(Decal(t.image, ("" if s_ > 0 else "-") + "xyz"[a], t.at, t.size, "box"))
     return Painted(vertices, faces, owner, groups, face_decal, decals)
 
 
@@ -583,4 +633,4 @@ def corner_normals(painted: Painted, field: Field, step: float, smooth: bool, sh
     return normals
 
 
-__all__ = ["PaintGroup", "Painted", "Part", "Regions", "corner_normals", "decal_uv", "hard_regions", "paint", "regions", "split"]
+__all__ = ["PaintGroup", "Painted", "Part", "Regions", "corner_normals", "corner_uv", "decal_uv", "hard_regions", "paint", "regions", "split"]

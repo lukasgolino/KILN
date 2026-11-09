@@ -190,3 +190,52 @@ def test_patterns_on_a_noisy_part_stay_on_its_surface(project: Project) -> None:
     p = built.painted
     v = p.vertices[np.unique(p.faces)]
     assert float(np.abs(field_of(built.model, built.step).distance(v)).max()) < built.step / 4
+
+
+def _texture_image(project: Project) -> None:
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 8), (0, 0, 255, 255)).save(project.root / "textures" / "tile.png")
+
+
+def test_box_texture_covers_the_part_from_six_sides(project: Project) -> None:
+    """#184: a box-projected texture covers every face of its part; each face takes it from the side it faces."""
+    _texture_image(project)
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n"
+            "    texture: { image: textures/tile.png, project: box, texel: 0.01 }\n")  # fmt: skip
+    p = built_of(project, text).painted
+    assert (p.face_decal >= 0).all()
+    assert sorted(d.axis for d in p.decals) == ["-x", "-y", "-z", "x", "y", "z"] and {d.size for d in p.decals} == {(0.08, 0.08)}
+    for k, d in enumerate(p.decals):
+        a = "xyz".index(d.axis[-1])
+        n = np.cross(*(p.vertices[p.faces[p.face_decal == k]][:, i] - p.vertices[p.faces[p.face_decal == k]][:, 0] for i in (1, 2)))
+        assert np.all(np.sign(n[:, a]) == (-1 if d.axis.startswith("-") else 1))
+    uv = decal_uv(p.decals[0], p.vertices)
+    assert uv.max() - uv.min() > 4  # tiles: 0.4 m over 0.08 m tiles, not clamped to one image
+
+
+def test_cylindrical_texture_wraps_the_side_and_lays_flat_on_the_caps(project: Project) -> None:
+    """#184: cylindrical wraps round the axis by arc length (texels keep their size); caps take it flat; faces across
+    the seam get corner UVs on one side of it."""
+    from kiln.paint import corner_uv
+
+    _texture_image(project)
+    text = ("name: thing\nparts:\n  - cylinder: { at: [0, 0.25, 0], radius: 0.2, height: 0.5 }\n    color: red\n"
+            "    texture: { image: textures/tile.png, project: cylindrical, size: [0.1, 0.1] }\n")  # fmt: skip
+    p = built_of(project, text).painted
+    cyl = [k for k, d in enumerate(p.decals) if d.project == "cylindrical"]
+    assert len(cyl) == 1 and sorted(d.axis for d in p.decals if d.project == "box") == ["-y", "y"]
+    side = p.faces[p.face_decal == cyl[0]]
+    uv = corner_uv(p.decals[cyl[0]], p.vertices[side])
+    span = uv[..., 0].max(axis=1) - uv[..., 0].min(axis=1)
+    assert span.max() < 2  # no face smears across the seam (that would span the whole way round: 2*pi*0.2/0.1 = 12.6 tiles)
+    np.testing.assert_allclose(decal_uv(p.decals[cyl[0]], np.array([[0.0, 0.25, 0.2], [0.2, 0.25, 0.0]]))[:, 0], [0.0, np.pi / 2 * 0.2 / 0.1], atol=1e-9)
+
+
+def test_decal_paints_over_a_texture(project: Project) -> None:
+    _texture_image(project)
+    Image.new("RGBA", (16, 16), (255, 0, 0, 255)).save(project.root / "decals" / "logo.png")
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n"
+            "    decal: { image: decals/logo.png, axis: z, at: [0, 0.2, 0.2], size: [0.2, 0.2] }\n"
+            "    texture: { image: textures/tile.png, project: box, size: [0.1, 0.1] }\n")  # fmt: skip
+    p = built_of(project, text).painted
+    assert p.decals[0].project == "planar" and (p.face_decal == 0).any() and (p.face_decal >= 0).all()

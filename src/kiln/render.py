@@ -216,7 +216,8 @@ def render(
                 if not m.any():
                     continue
                 img = np.asarray(Image.open(d.image).convert("RGBA"), dtype=float) / 255.0
-                uv = decal_uv(d, rest[m]).clip(0, 0.999999)
+                uv = decal_uv(d, rest[m])
+                uv = uv.clip(0, 0.999999) if d.project == "planar" else np.mod(uv, 1.0).clip(0, 0.999999)  # textures repeat
                 tx = (uv[:, 0] * img.shape[1]).astype(int)
                 ty = (uv[:, 1] * img.shape[0]).astype(int)
                 texel = img[ty, tx]

@@ -28,7 +28,7 @@ def part(shape: str, color: str | None = None, material: str = "default", id: st
     hard, bevel, chamfer, segments, fit, keep, uv, attr, aim) may be passed with the shape's own parameters; they are sorted into the
     right place."""
     part_keys = {"blend", "blend_to", "cut", "intersect", "mirror", "mirror_id", "array", "shell", "twist", "scale", "noise", "pattern",
-                 "gradient", "decal", "loose",
+                 "gradient", "decal", "texture", "loose",
                  "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "attr", "aim"}  # fmt: skip
     shape_params = {k: v for k, v in params.items() if k not in part_keys}
     out: Part = {shape: shape_params}
@@ -113,7 +113,7 @@ def offset(parts: list[Part], dx: float = 0.0, dy: float = 0.0, dz: float = 0.0)
     out = []
     for p in parts:
         q = {k: (dict(v) if isinstance(v, dict) else v) for k, v in p.items()}
-        shape = next(k for k in q if isinstance(q[k], dict) and k not in ("array", "noise", "pattern", "decal"))
+        shape = next(k for k in q if isinstance(q[k], dict) and k not in ("array", "noise", "pattern", "decal", "texture"))
         s = q[shape]
         for key in ("at", "from", "to"):
             if key in s or (key == "at" and "from" not in s):

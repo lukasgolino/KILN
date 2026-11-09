@@ -65,6 +65,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `pattern: {...}` | a second colour painted on the part (below) |
 | `gradient: { to: fur_light, steps: 3 }` | the part's colour going to `to` in `steps` bands (2-16, default 3), mixed in OKLab; `from:` replaces the part's colour at the start. `along: path` (the default for tube, capsule and lock: first point to last) or `x`/`y`/`z` (the default for other shapes: across the shape's own box, low to high). Patterns paint over it; variants recolour the mixed bands from the swapped ends |
 | `decal: {...}` | an image on the part (below) |
+| `texture: {...}` | an image tiled over the whole part, box or cylindrical projection, crisp when small (below) |
 | `loose: true` | this part may float free (flames, bees, sparks, rubble): W103 doesn't count it |
 | `blend: none` | a hard part, joined crisply (below) |
 | `hard: true` / `false` | make this part hard (exact polygons) or smooth, whatever the style says |
@@ -141,3 +142,18 @@ Projects an image (PNG with transparency, e.g. made with PAGAN) onto the faces o
 (x, -x, y, -y, z, -z), centred at `at` (model space, on or near the surface), `size` = width, height in metres. It
 shows on that side only (a flag needs a second decal with `axis: -z` for its back). Transparent pixels show the part's colour.
 Small images (<= 256 px) are sampled crisp (pixel art).
+
+### Textures
+
+```yaml
+    texture: { image: textures/brushed.png, project: box, texel: 0.004 }                       # every face, from the side it faces
+    texture: { image: textures/trim.png, project: cylindrical, at: [0, 0, 0], axis: y, size: [0.1, 0.05] }
+```
+
+Tiles an image over the whole part (a printed shirt, pixel-art metal, a robe's trim band, wood grain). `box`: each
+face takes it from the side it faces (x, -x, y, -y, z, -z), the way Godot's triplanar mapping does; `cylindrical`:
+round `axis` through `at` (u = arc length, so texels keep their size on any radius; the seam is at the back, -z for
+`axis: y`), with the caps taken flat. Tile size: `size: [w, h]` metres, or `texel:` metres per pixel (the image's
+pixel count sets the tile). The image repeats (REPEAT sampler); small images (<= 256 px) are sampled crisp, so a
+16-32 px texture gives a pixel-art look on a smooth 3D shape. Transparent pixels show the part's colour. A `decal` on
+the same part paints over it.

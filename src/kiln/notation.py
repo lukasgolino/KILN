@@ -43,7 +43,7 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
+               "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -73,7 +73,8 @@ class Decal:
     image: Path
     axis: str  # x, -x, y, -y, z, -z: the direction the decal faces (it is projected along it)
     at: tuple[float, float, float]
-    size: tuple[float, float]  # width, height in metres on the surface
+    size: tuple[float, float]  # width, height in metres on the surface (a texture: one tile)
+    project: str = "planar"  # planar: a decal; box, cylindrical: a texture tiled over the whole part
 
 
 @dataclass
@@ -98,6 +99,7 @@ class Part:
     fit: tuple[tuple[str, ...], float] | None = None  # a shell wrapping the parts with these ids, this far from them
     cut_only: str | None = None  # a cut that only cuts the parts with this id
     blend_to: tuple[str, ...] | None = None  # blends only into the earlier parts with these ids (crisp against the rest)
+    texture: Decal | None = None  # an image tiled over the whole part (project box | cylindrical), under its decal
     detail: bool = False  # only in the baked normal map (grooves, wrinkles, strands), never in the mesh
     keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
     uv: UVSpec | None = None  # texture coordinates projected from its shape (kiln.uv)
@@ -524,7 +526,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
 
     color = ("#ff00ff", "#ff00ff")
     material = "default"
-    pattern = decal = None
+    pattern = decal = texture = None
     patterns: tuple[Pattern, ...] = ()
     if op == "add":
         c = _color(ctx, raw.get("color"), line, f"{where}.color") if "color" in raw else None
@@ -555,8 +557,11 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         if "decal" in raw:
             decal = _parse_decal(ctx, raw["decal"], line, f"{where}.decal")
             ok = ok and decal is not None
+        if "texture" in raw:
+            texture = _parse_texture(ctx, raw["texture"], line, f"{where}.texture")
+            ok = ok and texture is not None
     else:
-        for paint in ("color", "material", "pattern", "gradient", "decal", "id"):
+        for paint in ("color", "material", "pattern", "gradient", "decal", "texture", "id"):
             if paint in raw:
                 ctx.error("E003", f"a {op} part removes material: it has no {paint}", line, f"{where}.{paint}")
                 ok = False
@@ -642,7 +647,8 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
-                   "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr}  # fmt: skip
+                   "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
+                   "texture": texture}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
@@ -652,8 +658,13 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             at_m[mirror[0]] = -at_m[mirror[0]]
             axis_m = decal.axis if decal.axis.lstrip("-") != "xyz"[mirror[0]] else (decal.axis[1:] if decal.axis.startswith("-") else "-" + decal.axis)
             twin_decal = Decal(decal.image, axis_m, (at_m[0], at_m[1], at_m[2]), decal.size)
+        twin_fields = dict(hard_fields)
+        if texture is not None:  # the tiling's centre mirrored too
+            t_at = list(texture.at)
+            t_at[mirror[0]] = -t_at[mirror[0]]
+            twin_fields["texture"] = Decal(texture.image, texture.axis, (t_at[0], t_at[1], t_at[2]), texture.size, texture.project)
         parts.append(Part(index, str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where, str(part_id), mirror[0],
-                          bool(loose), **hard_fields))  # fmt: skip
+                          bool(loose), **twin_fields))  # fmt: skip
     return parts
 
 
@@ -887,6 +898,41 @@ def _parse_decal(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal | N
         ctx.error("E011", f"decal image {raw['image']} not found (paths are relative to the project folder)", line, f"{where}.image")
         return None
     return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]))
+
+
+TEXTURE_KEYS = ("image", "project", "size", "texel", "at", "axis")
+
+
+def _parse_texture(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal | None:
+    """`texture: { image, project: box | cylindrical, size: [w, h] | texel: m, at, axis }`: an image tiled over the
+    whole part (#184): box faces take it from the side they face, cylindrical wraps it round `axis` through `at`."""
+    form = "texture is { image: textures/x.png, project: box | cylindrical, size: [w, h] (metres per tile) or texel: m (per pixel), at: [x, y, z], axis: x|y|z (cylindrical) }"
+    if not isinstance(raw, dict) or not isinstance(raw.get("image"), str) or [k for k in raw if k not in TEXTURE_KEYS]:
+        ctx.error("E003", form, line, where)
+        return None
+    project, axis = raw.get("project", "box"), raw.get("axis", "y")
+    at = _vec(raw.get("at", [0, 0, 0]))
+    if project not in ("box", "cylindrical") or axis not in ("x", "y", "z") or at is None or ("size" in raw) == ("texel" in raw):
+        ctx.error("E003", form + "; give size or texel, not both", line, where)
+        return None
+    base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+    image = (base / raw["image"]).resolve()
+    if not image.is_file():
+        ctx.error("E011", f"texture image {raw['image']} not found (paths are relative to the project folder)", line, f"{where}.image")
+        return None
+    if "size" in raw:
+        size = _vec(raw["size"], 2)
+    else:
+        texel = raw["texel"]
+        from PIL import Image
+
+        with Image.open(image) as im:
+            w, h = im.size
+        size = (float(texel) * w, float(texel) * h) if isinstance(texel, (int, float)) and not isinstance(texel, bool) and texel > 0 else None
+    if size is None or min(size) <= 0:
+        ctx.error("E003", form + "; size and texel are positive", line, where)
+        return None
+    return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]), str(project))
 
 
 def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, template: bool = False) -> dict[str, RigEntry]:

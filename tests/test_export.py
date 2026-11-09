@@ -152,3 +152,21 @@ def test_validator_catches_problems(project: Project) -> None:
     problems = validate(doc, binary)
     assert "asset.version must be 2.0" in problems
     assert any("min/max" in p for p in problems)
+
+
+def test_texture_exports_tiled_and_split_at_its_seam(project: Project) -> None:
+    """#184: a texture's sampler repeats (nearest for small images); a cylindrical one's UVs run continuously within
+    every triangle (the vertices at the seam are split)."""
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 8), (0, 0, 255, 255)).save(project.root / "textures" / "tile.png")
+    text = ("name: thing\nparts:\n  - cylinder: { at: [0, 0.25, 0], radius: 0.2, height: 0.5 }\n    color: red\n"
+            "    texture: { image: textures/tile.png, project: cylindrical, size: [0.1, 0.1] }\n")  # fmt: skip
+    doc, binary = read_glb(to_glb(built_of(project, text), "kiln test"))
+    assert all(s["wrapS"] == 10497 and s["wrapT"] == 10497 and s["magFilter"] == 9728 for s in doc["samplers"])
+    for prim in doc["meshes"][0]["primitives"]:
+        if "TEXCOORD_0" not in prim["attributes"]:
+            continue
+        uv = accessor(doc, binary, prim["attributes"]["TEXCOORD_0"])
+        tri = accessor(doc, binary, prim["indices"]).reshape(-1, 3)
+        span = uv[tri][..., 0].max(axis=1) - uv[tri][..., 0].min(axis=1)
+        assert span.max() < 6  # a cap is 4 tiles across; across the seam would be ~12.6

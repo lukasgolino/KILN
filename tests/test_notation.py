@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from conftest import arms_text, errors_of, load, ok_model, parse, sphere_text
+from PIL import Image
 
 from kiln.notation import ROOT_ID
 from kiln.project import Project
@@ -464,3 +465,27 @@ parts:
     material: velvet
 """
     assert rules(errors_of(project, text)) == ["E003", "E004", "E005"]
+
+
+@pytest.mark.parametrize("texture", [
+    "{ image: textures/tile.png, project: box }",  # neither size nor texel
+    "{ image: textures/tile.png, project: box, size: [0.1, 0.1], texel: 0.01 }",  # both
+    "{ image: textures/tile.png, project: sphere, texel: 0.01 }",
+    "{ image: textures/tile.png, texel: 0.01, axis: -y }",
+    "{ image: textures/tile.png, texel: 0.01, tile: 2 }",
+])  # fmt: skip
+def test_texture_form_errors(project: Project, texture: str) -> None:
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 8)).save(project.root / "textures" / "tile.png")
+    assert [f.rule for f in errors_of(project, sphere_text() + f"    texture: {texture}\n")] == ["E003"]
+
+
+def test_texture_texel_sizes_the_tile_and_mirror_moves_its_centre(project: Project) -> None:
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 4)).save(project.root / "textures" / "tile.png")
+    model, _ = ok_model(project, "name: thing\nparts:\n  - cylinder: { at: [0.3, 0.2, 0], radius: 0.1, height: 0.4 }\n    color: red\n"
+                                 "    mirror_id: other\n    mirror: x\n    id: one\n"
+                                 "    texture: { image: textures/tile.png, project: cylindrical, at: [0.3, 0, 0], texel: 0.02 }\n")  # fmt: skip
+    one, other = model.parts
+    assert one.texture is not None and other.texture is not None
+    assert one.texture.size == (0.16, 0.08) and one.texture.at == (0.3, 0.0, 0.0) and other.texture.at == (-0.3, 0.0, 0.0)
