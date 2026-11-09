@@ -21,7 +21,8 @@ Characters, rigs, skins and sockets; rig notation.
   `skeleton: { map: { <part id>: <clip joint>, ... }, root_motion: <clip joint> }` (`kiln docs humanoids`, "Clips on any skeleton").
 - **Cloth and flags:** split them into 3-4 segments along their length, each its own id parented to the previous one
   (pivots on the seams), crisp seams (`blend: 0`), `skin: soft`, and animate with `cycle: { type: chain, parts: [...] }`. Check every animation with
-  `kiln preview <name> --pose <animation>`: the filmstrip shows each frame from the front and the side.
+  `kiln preview <name> --pose <animation>`: the filmstrip shows each frame from 3/4 front and both sides; `--views`,
+  `--pitch` and `--size` pick the views and tile size, `--frame 3` (or `0,4`) one frame up close.
 - Gameplay data on parts: `rig: { helmet: { meta: { hitzone: head, detachable: true, socket: [0, 1.6, 0.1] } } }` ->
   node metadata in Godot and in the manifest, which also gives every part's box (`aabb`) for hit zones.
 - Detachables (`separate: true`) are meshed on their own, so they may overlap the body and leave no hole when removed.

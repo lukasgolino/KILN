@@ -426,7 +426,7 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
             raise _usage(str(exc) if "view" in str(exc) else "--pitch is degrees above the horizon, e.g. 5 or 5,30") from None
         if not all(-89 <= p <= 89 for p in pitches):
             raise _usage("--pitch is between -89 and 89 degrees")
-    if want_views and not args.engine:
+    if want_views and not args.engine and not args.pose:  # with --engine or --pose, the views flags pick theirs
         path = folder / (f"views.{args.variant}.png" if args.variant else "views.png")
         pv.views(built, yaws, pitches, size or 400, swap=swap).save(path)
         outputs["views"] = display_path(path)
@@ -437,13 +437,22 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
             outputs.setdefault("closeup", {})[part] = display_path(path)
         except KeyError:
             raise _usage(f"{name} has no part {part!r} (ids: {', '.join(built.model.ids)}, or a part's number in the file: 0-{len(built.model.parts) - 1})") from None
+    pose_views = [(n, yaw, p) for p in pitches for n, yaw in yaws] if want_views else None
+    try:
+        pose_frames = [int(f) for f in args.frame.split(",")] if args.frame else None
+    except ValueError:
+        raise _usage("--frame is frame numbers, e.g. 3 or 0,4,8") from None
+    if pose_frames is not None and not args.pose:
+        raise _usage("--frame goes with --pose")
     for anim in args.pose or []:
         try:
             path = folder / f"pose_{anim}.png"
-            pv.filmstrip(built, anim).save(path)
+            pv.filmstrip(built, anim, size or 200, pose_views, pose_frames).save(path)
             outputs.setdefault("pose", {})[anim] = display_path(path)
         except KeyError:
             raise _usage(f"{name} has no animation {anim!r} (animations: {', '.join(built.model.animations) or 'none'})") from None
+        except ValueError as exc:
+            raise _usage(f"--frame: {exc}") from None
     if args.fit:
         try:
             path = folder / "fit.png"
@@ -1121,6 +1130,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--fit", action="store_true", help="an attachment (fit_to) on its character, and the character without it")
     s.add_argument("--effect", action="store_true", help="the model's effect: block played out (its emitted models over time)")
     s.add_argument("--at", metavar="T,T,...", help="with --effect: a contact sheet at these times (seconds) instead of 8 evenly spaced frames")
+    s.add_argument("--frame", metavar="N,N,...", help="with --pose: only these frames (e.g. one, up close with --size)")
     s.add_argument("--engine", action="store_true", help="render through Godot, offscreen (needs a build; Linux: xvfb); --views/--pitch/--size pick its views")
     s.add_argument("--variant")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")

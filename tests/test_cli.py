@@ -370,3 +370,23 @@ def test_preview_views_flags_on_terrains_and_config(in_project: Project, capsys:
     assert code == 1 and result["findings"][0]["where"] == "preview_size"
     code, result = run_json(["preview", "land", "--views", "nan"], capsys)
     assert code == 1
+
+
+def test_pose_preview_views_size_and_frames(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#189, #201: --pose honours --views/--pitch/--size, --frame picks frames, both sides by default, no stray views.png."""
+    from conftest import arms_text, write_model
+    from PIL import Image
+
+    write_model(in_project, arms_text(), "thing")
+    code, _ = run_json(["preview", "thing", "--pose", "wave"], capsys)
+    folder = in_project.preview_dir / "thing"
+    default = Image.open(folder / "pose_wave.png")
+    assert code == 0
+    code, result = run_json(["preview", "thing", "--pose", "wave", "--views", "front", "--pitch", "10", "--size", "300", "--frame", "1"], capsys)
+    assert code == 0 and not (folder / "views.png").exists()
+    one = Image.open(folder / "pose_wave.png")
+    assert one.height < default.height and 300 <= one.width < 640 + 20  # one row (front), one 300 px tile
+    code, result = run_json(["preview", "thing", "--pose", "wave", "--frame", "99"], capsys)
+    assert code == 1 and "frames" in result["findings"][0]["message"]
+    code, result = run_json(["preview", "thing", "--frame", "1"], capsys)
+    assert code == 1 and "--pose" in result["findings"][0]["message"]
