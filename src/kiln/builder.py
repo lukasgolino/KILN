@@ -128,14 +128,23 @@ def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int)
     return flush(acc)
 
 
+ROUND_SHAPES = frozenset({"cylinder", "cone", "capsule", "tube", "lathe", "torus", "sphere", "ellipsoid"})
+
+
+def _spec_key(part: Part, spec: HardSpec) -> tuple[int, float, int]:
+    """What of a HardSpec changes this part's solid: bevel bands only with a bevel, sides only on round shapes."""
+    sides = int(part.geometry.params.get("sides") or spec.sides)  # as hard.local_polys reads it
+    return (sides if part.geometry.shape in ROUND_SHAPES else 0, spec.bevel, spec.segments if spec.bevel else 0)
+
+
 def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[int]], budget: float, rigged: bool) -> tuple[list[Regions], list[HardMesh]]:
     """Every piece's hard parts as a mesh (fewer details while they'd go over `budget`), cut into paint groups."""
     meshes: list[HardMesh] = []
     specs = None
     for level in range(5):
-        level_specs = [hard_spec(p, style, level) for p in model.parts]
-        if level_specs == specs:  # this level details nothing less: the meshes would be the same (#207)
-            break
+        level_specs = [_spec_key(p, hard_spec(p, style, level)) for p in model.parts]
+        if level_specs == specs:  # this level details nothing less: same meshes, try the next (#207)
+            continue
         specs = level_specs
         meshes = [to_mesh(_hard_solid(model, style, include, level)) for include in pieces]
         if sum(m.triangles for m in meshes) <= budget:

@@ -591,3 +591,64 @@ def test_many_hard_parts_unite_to_the_same_solid(project: Project) -> None:
     one_by_one, balanced = to_mesh(acc), to_mesh(_hard_solid(model, style, include, 0))
     assert set(balanced.face_part.tolist()) == set(one_by_one.face_part.tolist()) == set(include)
     assert signed_volume(balanced.vertices, balanced.faces) == pytest.approx(signed_volume(one_by_one.vertices, one_by_one.faces), rel=1e-6)
+
+
+def _owned_area(mesh: object) -> dict[int, float]:
+    v = mesh.vertices[mesh.faces]  # type: ignore[attr-defined]
+    area = np.linalg.norm(np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0]), axis=1) / 2
+    return {int(k): float(area[mesh.face_part == k].sum()) for k in np.unique(mesh.face_part)}  # type: ignore[attr-defined]
+
+
+def test_balanced_union_keeps_who_owns_shared_faces(project: Project) -> None:
+    """#207 review: on shared planes and triple overlaps every part keeps the same surface as with the one-by-one union."""
+    from kiln.builder import _hard_solid
+    from kiln.hard import to_mesh
+
+    model, style = ok_model(project, """\
+name: shared
+class: prop
+parts:
+  - box: { at: [0, 0.05, 0], size: [0.1, 0.1, 0.1] }
+    color: red
+    hard: true
+  - box: { at: [0.1, 0.05, 0], size: [0.1, 0.1, 0.1] }
+    color: blue
+    hard: true
+  - box: { at: [0.05, 0.08, 0], size: [0.12, 0.06, 0.06] }
+    color: green
+    hard: true
+  - box: { at: [0.05, 0.1, 0.02], size: [0.05, 0.05, 0.05] }
+    color: red
+    hard: true
+""", "shared")
+    include = frozenset(hard_parts(model, style))
+    acc: list = []  # type: ignore[type-arg]
+    for i in sorted(include):
+        acc = union(acc, solid(model.parts[i].geometry, HardSpec(), i))
+    old, new = _owned_area(to_mesh(acc)), _owned_area(to_mesh(_hard_solid(model, style, include, 0)))
+    assert old.keys() == new.keys()
+    for k in old:
+        assert new[k] == pytest.approx(old[k], rel=1e-6), k
+
+
+def test_detail_levels_stop_when_nothing_changes(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#207: over budget, levels that details nothing less are skipped; otherwise it still goes down to level 4."""
+    from kiln import builder
+
+    calls: list[int] = []
+    real = builder._hard_solid
+    def counted(m: object, st: object, inc: frozenset[int], level: int) -> object:
+        calls.append(level)
+        return real(m, st, inc, level)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(builder, "_hard_solid", counted)
+    plain = built_of(project, "name: plain\nclass: prop\nparts:\n  - box: { at: [0, 0.05, 0], size: [0.1, 0.1, 0.1] }\n    color: red\n    hard: true\n", "plain")
+    model, style = ok_model(project, "name: plain\nclass: prop\nparts:\n  - box: { at: [0, 0.05, 0], size: [0.1, 0.1, 0.1] }\n    color: red\n    hard: true\n", "plain")
+    assert plain is not None
+    calls.clear()
+    builder.build_hard(model, style, builder.field_of(model, 0.01), [frozenset(hard_parts(model, style))], 1, False)
+    assert calls == [0]  # a plain box: no level details it less
+    model, style = ok_model(project, "name: round\nclass: prop\nparts:\n  - cylinder: { at: [0, 0.05, 0], radius: 0.05, height: 0.1 }\n    color: red\n    bevel: 0.01\n", "round")
+    calls.clear()
+    builder.build_hard(model, style, builder.field_of(model, 0.01), [frozenset(hard_parts(model, style))], 1, False)
+    assert calls == [0, 1, 2, 3]  # bands, then the bevel, then sides; level 4 keeps 6 sides like 3: skipped

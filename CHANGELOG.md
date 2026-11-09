@@ -10,7 +10,8 @@ before 1.0).
 
 - Hard parts unite pairwise instead of one by one into a growing solid, and detail levels that change nothing are
   skipped (#207): a 55-hard-part character's hard pass 38 s -> 3 s per level, its whole build 136 s -> 77 s. Same
-  solids (the demo's output is unchanged).
+  volumes and parts owning the same surface; the triangulation can differ (5796 -> 5804 triangles there), the demo's
+  output is unchanged.
 
 ### Fixed
 
