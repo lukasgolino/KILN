@@ -13,7 +13,7 @@ bug; report it), E014 `kiln.lock` problem (a pack-imported file changed, a licen
 
 Warnings: W101 part has no visible surface, W102 part thinner than the mesh resolution, W103 separate pieces,
 W104 colour not in the palette, W106 not standing on y = 0, W107 made under an older style_version, W108 size
-unusual for the class, W109 animated part without a pivot, W110 well over the triangle budget (patterns cost
+unusual for the class, W109 animated part without a pivot (not humanoid joints), W110 well over the triangle budget (patterns cost
 triangles: every stripe border is cut into the mesh; prefer few, large patterns, or model details as parts), W111 a
 part lost when reducing to the triangle budget (raise `budget:`), W112 a LOD well above its target (from `kiln build`),
 W113 a part pokes through a shell (eyes bigger than a visor slot, a head through a helmet: keep it inside or outside).

@@ -9,7 +9,7 @@ Characters, rigs, skins and sockets; rig notation.
   Hats, helmets, hair: separate shapes on top, crisp seams. Heads on caricatures: an ellipsoid blended into the
   body with a big nose ellipsoid blended in. Keep hands simple (a sphere or mitten).
 - **Rig** what moves: give it an `id`, then `rig: { id: { pivot: [joint], parent: id } }`. Pivots are the joint
-  positions (hip, shoulder, hinge, axle). Without a pivot a part turns about its box centre (W109).
+  positions (hip, shoulder, hinge, axle). Without a pivot a part turns about its box centre (W109); `skeleton: humanoid` joints get theirs at the joint.
 - **Skin:** `rigid` (each part moves as one piece: robots, machines, props, toys) or `soft` (one mesh that bends
   where parts blend: creatures, bean characters). `separate: true` keeps a part rigid inside a soft skin
   (detachable helmet). Rigid joints that turn far (ragdolls): `union: per_bone`, so no turn opens the mesh.
