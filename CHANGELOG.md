@@ -8,6 +8,13 @@ before 1.0).
 
 ### Changed
 
+- The Godot render matches `kiln preview` (#161; mean OKLab gap 0.25 -> 0.02 on a palette x material grid, soft_toy):
+  - look kits set `tonemap_white = 3`, so Godot's Filmic is exactly the previews' curve (Godot's default white made
+    every colour paler);
+  - on the Compatibility renderer the look kit's sun casts no shadows: Godot adds the ambient light again for each
+    shadowed light there (godotengine/godot#90259), which made models several times too bright;
+  - the preview's sky ambient is `ambient` as Godot applies it (it was scaled by 0.55): previews are a little brighter.
+  Every look kit and every preview image changes. The toon look still differs (#183).
 - `kiln preview --engine` takes `--views`, `--pitch` and `--size`, is framed exactly like the software views and sits on
   their tile colour (the look kit still lights it; its sky is no longer the backdrop), in the same sheet layout (#162).
   Default: four sides at 15 and 50 degrees. With `--engine`, those flags pick the engine's views.

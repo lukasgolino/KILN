@@ -16,11 +16,21 @@ ambient_light_source = 3
 ambient_light_energy = 0.9
 tonemap_mode = 2
 tonemap_exposure = 1
+tonemap_white = 3
 ssao_enabled = true
 glow_enabled = true
 adjustment_enabled = true
 adjustment_saturation = 1.15
 adjustment_contrast = 1
+
+[sub_resource type="GDScript" id="GDScript_sun"]
+script/source = "extends DirectionalLight3D
+# Godot's Compatibility renderer adds the ambient light again for every light with shadows
+# (godotengine/godot#90259): everything comes out several times too bright. There the sun casts no shadows.
+func _ready() -> void:
+	if RenderingServer.get_current_rendering_method() == \"gl_compatibility\":
+		shadow_enabled = false
+"
 
 [node name="look_soft_toy" type="Node3D"]
 metadata/kiln_style = "soft_toy"
@@ -33,3 +43,4 @@ transform = Transform3D(0.866025, -0.371572, 0.334565, 0, 0.669131, 0.743145, -0
 light_color = Color(1, 0.964706, 0.909804, 1)
 light_energy = 1.1
 shadow_enabled = true
+script = SubResource("GDScript_sun")

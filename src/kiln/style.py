@@ -36,6 +36,9 @@ class MaterialPreset:
     rim: float = 0.0  # soft-light rim (Godot: rim), 0..1
 
 
+FILMIC_WHITE = 3.0  # Godot's tonemap_white in every look kit, so its Filmic curve is the previews' exactly (#161)
+
+
 @dataclass(frozen=True)
 class Look:
     shader: str = "standard"
