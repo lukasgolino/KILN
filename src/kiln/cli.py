@@ -982,7 +982,7 @@ def cmd_doctor(args: argparse.Namespace, out: Output) -> int:
 
     offscreen = offscreen_command()
     display = not isinstance(offscreen, str)  # engine renders run offscreen, never on the desktop (#160)
-    how = offscreen if isinstance(offscreen, str) else ("Godot's own window (no Xvfb on this OS)" if not offscreen[0] else " ".join(offscreen[0][:1]))
+    how = offscreen if isinstance(offscreen, str) else offscreen.how
     from kiln.blender import blender_version, find_blender
 
     blender = find_blender()
