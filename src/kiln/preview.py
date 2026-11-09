@@ -70,6 +70,11 @@ def sheet(title: str, subtitle: str, rows: list[tuple[str, list[tuple[str, Image
     return out
 
 
+def fit_of(built: Built) -> tuple[Array, float]:
+    """The framing every sheet of one model shares: (centre, half extent in metres); `preview --engine` uses it too."""
+    return _fit(built)
+
+
 def _fit(built: Built) -> tuple[Array, float]:
     lo, hi = built.bounds()
     return (lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2 * 1.08

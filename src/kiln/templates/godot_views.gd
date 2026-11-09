@@ -1,6 +1,7 @@
 # Run by `kiln preview --engine` (from a temp folder): renders a model scene under its look kit through Godot's real
 # renderer, from several sides, into PNGs. Not --headless: KILN runs it on a private offscreen display (godot.offscreen_command).
-# Args: scene, look kit, output folder, size, radius (m), centre y (m), then yaw:pitch pairs.
+# Args: scene, look kit, output folder, size, half extent (m), centre x, y, z (m), then yaw:pitch pairs.
+# The background is transparent (KILN composites it like its own previews); the look kit still lights the model.
 extends SceneTree
 
 var _viewport: SubViewport
@@ -17,22 +18,23 @@ func _init() -> void:
 	var args := OS.get_cmdline_user_args()
 	_out = args[2]
 	var size := int(args[3])
-	var radius := float(args[4])
-	_centre = Vector3(0, float(args[5]), 0)
-	_distance = radius * 4.0
-	for pair in args.slice(6):
+	var half := float(args[4])
+	_centre = Vector3(float(args[5]), float(args[6]), float(args[7]))
+	_distance = half * 4.0
+	for pair in args.slice(8):
 		var parts: PackedStringArray = pair.split(":")
 		_views.append(Vector2(float(parts[0]), float(parts[1])))
 	_viewport = SubViewport.new()
 	_viewport.size = Vector2i(size, size)
 	_viewport.msaa_3d = Viewport.MSAA_4X
+	_viewport.transparent_bg = true
 	_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	root.add_child(_viewport)
 	_viewport.add_child(load(args[1]).instantiate())
 	_viewport.add_child(load(args[0]).instantiate())
 	_camera = Camera3D.new()
 	_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	_camera.size = radius * 2.2
+	_camera.size = half * 2.0
 	_camera.near = 0.01
 	_camera.far = _distance * 3.0
 	_viewport.add_child(_camera)
