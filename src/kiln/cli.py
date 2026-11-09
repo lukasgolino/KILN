@@ -437,17 +437,24 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
             outputs.setdefault("closeup", {})[part] = display_path(path)
         except KeyError:
             raise _usage(f"{name} has no part {part!r} (ids: {', '.join(built.model.ids)}, or a part's number in the file: 0-{len(built.model.parts) - 1})") from None
-    pose_views = [(n, yaw, p) for p in pitches for n, yaw in yaws] if want_views else None
+    pose_views = None
+    if want_views:  # --pitch alone: the default views at those pitches; the pitch is in the row label
+        named = yaws if args.views else [(n, yaw) for n, yaw, _ in pv.POSE_VIEWS]
+        pose_views = [(f"{n} {p:+g}" if len(pitches) > 1 or args.pitch else n, yaw, p) for p in pitches for n, yaw in named]
     try:
         pose_frames = [int(f) for f in args.frame.split(",")] if args.frame else None
     except ValueError:
         raise _usage("--frame is frame numbers, e.g. 3 or 0,4,8") from None
     if pose_frames is not None and not args.pose:
         raise _usage("--frame goes with --pose")
+    tracks = {t.name: t for t in built.tracks}
+    for anim in args.pose or []:  # check every clip first: no sheet is written when one asks for a frame it lacks
+        if anim in tracks and pose_frames is not None and any(not 0 <= f < tracks[anim].frames for f in pose_frames):
+            raise _usage(f"--frame: {anim} has frames 0-{tracks[anim].frames - 1} (the frames apply to every --pose)")
     for anim in args.pose or []:
         try:
-            path = folder / f"pose_{anim}.png"
-            pv.filmstrip(built, anim, size or 200, pose_views, pose_frames).save(path)
+            path = folder / (f"pose_{anim}.{args.variant}.png" if args.variant else f"pose_{anim}.png")
+            pv.filmstrip(built, anim, args.size or 200, pose_views, pose_frames, swap).save(path)
             outputs.setdefault("pose", {})[anim] = display_path(path)
         except KeyError:
             raise _usage(f"{name} has no animation {anim!r} (animations: {', '.join(built.model.animations) or 'none'})") from None

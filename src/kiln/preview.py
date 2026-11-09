@@ -188,7 +188,7 @@ POSE_VIEWS = [("3/4 front", 30.0, 12.0), ("left side", 90.0, 5.0), ("right side"
 
 
 def filmstrip(built: Built, animation: str, size: int = 200, views: list[tuple[str, float, float]] | None = None,
-              frames: list[int] | None = None) -> Image.Image:  # fmt: skip
+              frames: list[int] | None = None, swap: dict[str, str] | None = None) -> Image.Image:  # fmt: skip
     """An animation's frames, a row per view (name, yaw, pitch): by default 3/4 front and both sides (#201).
     `frames` picks some (e.g. one frame up close with a big `size`)."""
     names = [t.name for t in built.tracks]
@@ -200,12 +200,12 @@ def filmstrip(built: Built, animation: str, size: int = 200, views: list[tuple[s
     centre = (lo + hi) / 2
     half = float(np.linalg.norm(hi - lo)) / 2 * 1.3
     fit = (centre, half)
-    shown = [i for i in (frames if frames is not None else range(t.frames)) if 0 <= i < t.frames]
-    if not shown:
+    shown = list(frames) if frames is not None else list(range(t.frames))
+    if not shown or any(not 0 <= i < t.frames for i in shown):
         raise ValueError(f"{animation} has frames 0-{t.frames - 1}")
     rows = []
     for label, yaw, pitch in views or POSE_VIEWS:
-        rows.append((label, [(f"{i}", render(built, View(yaw, pitch), size, track=k, frame=i, fit=fit, background=TILE_BG)) for i in shown]))
+        rows.append((label, [(f"{i}", render(built, View(yaw, pitch), size, track=k, frame=i, swap=swap, fit=fit, background=TILE_BG)) for i in shown]))
     loop = "loops" if t.loop else "plays once"
     return sheet(f"{built.model.name} · {animation}", f"{t.frames} frames at {t.fps:g} fps ({t.frames / t.fps:.2f} s), {loop}, {t.interpolation}", rows)
 

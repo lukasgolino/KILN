@@ -135,8 +135,8 @@ def test_preview(in_project: Project, capsys: pytest.CaptureFixture[str]) -> Non
     outputs = result["outputs"]
     assert outputs["turntable"] == "previews/hero/turntable.blue.png"
     assert outputs["closeup"] == {"arm_l": "previews/hero/closeup_arm_l.png"}
-    assert outputs["pose"] == {"hold": "previews/hero/pose_hold.png"}
-    for rel in ("previews/hero/turntable.blue.png", "previews/hero/closeup_arm_l.png", "previews/hero/pose_hold.png"):
+    assert outputs["pose"] == {"hold": "previews/hero/pose_hold.blue.png"}  # in the variant's colours (#219)
+    for rel in ("previews/hero/turntable.blue.png", "previews/hero/closeup_arm_l.png", "previews/hero/pose_hold.blue.png"):
         assert (in_project.root / rel).is_file()
 
 
@@ -373,20 +373,37 @@ def test_preview_views_flags_on_terrains_and_config(in_project: Project, capsys:
 
 
 def test_pose_preview_views_size_and_frames(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
-    """#189, #201: --pose honours --views/--pitch/--size, --frame picks frames, both sides by default, no stray views.png."""
+    """#189, #201: --pose honours --views/--pitch/--size, --frame picks frames, 3/4 front + both sides by default, no
+    stray views.png; frames out of range are refused before any sheet is written."""
     from conftest import arms_text, write_model
     from PIL import Image
 
+    from kiln import preview as pv
+
     write_model(in_project, arms_text(), "thing")
-    code, _ = run_json(["preview", "thing", "--pose", "wave"], capsys)
     folder = in_project.preview_dir / "thing"
-    default = Image.open(folder / "pose_wave.png")
-    assert code == 0
-    code, result = run_json(["preview", "thing", "--pose", "wave", "--views", "front", "--pitch", "10", "--size", "300", "--frame", "1"], capsys)
-    assert code == 0 and not (folder / "views.png").exists()
+    rows: list[list[str]] = []
+    real = pv.sheet
+    monkey = pytest.MonkeyPatch()
+    def recorded(title: str, sub: str, r: list, *a: object, **k: object) -> object:  # type: ignore[type-arg]
+        rows.append([label for label, _ in r])
+        return real(title, sub, r, *a, **k)  # type: ignore[arg-type]
+
+    monkey.setattr(pv, "sheet", recorded)
+    try:
+        assert run_json(["preview", "thing", "--pose", "wave"], capsys)[0] == 0
+        assert rows[-1] == ["3/4 front", "left side", "right side"]
+        assert run_json(["preview", "thing", "--pose", "wave", "--pitch", "30"], capsys)[0] == 0
+        assert rows[-1] == ["3/4 front +30", "left side +30", "right side +30"]
+        code, _ = run_json(["preview", "thing", "--pose", "wave", "--views", "front", "--pitch", "10", "--size", "300", "--frame", "1"], capsys)
+        assert code == 0 and rows[-1] == ["front +10"] and not (folder / "views.png").exists()
+    finally:
+        monkey.undo()
     one = Image.open(folder / "pose_wave.png")
-    assert one.height < default.height and 300 <= one.width < 640 + 20  # one row (front), one 300 px tile
-    code, result = run_json(["preview", "thing", "--pose", "wave", "--frame", "99"], capsys)
-    assert code == 1 and "frames" in result["findings"][0]["message"]
+    assert 300 <= one.width < 660  # one 300 px tile (sheets are at least 640 wide)
+    (folder / "pose_wave.png").unlink()
+    for bad in ("99", "1,99", "-1"):
+        code, result = run_json(["preview", "thing", "--pose", "wave", "--frame", bad], capsys)
+        assert code == 1 and "frames" in result["findings"][0]["message"] and not (folder / "pose_wave.png").exists()
     code, result = run_json(["preview", "thing", "--frame", "1"], capsys)
     assert code == 1 and "--pose" in result["findings"][0]["message"]

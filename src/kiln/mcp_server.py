@@ -331,14 +331,20 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
         reference: str | None = None,
         ref_height: float | None = None,
         at: list[float] | None = None,
+        frames: list[int] | None = None,
+        size: int | None = None,
     ) -> list[Any]:
-        """A preview sheet as an image: turntable, closeup (`part`), pose (`animation`), vs (inspiration; or `reference`
+        """A preview sheet as an image: turntable, closeup (`part`), pose (`animation`; `frames`: some frames only; `size`: tile px), vs (inspiration; or `reference`
         .glb at `ref_height` m, with metrics), detach, effect (`at`: seconds), engine (Godot). docs topic "commands"."""
         argv = ["preview", model]
         if (reference or ref_height is not None) and which != "vs":
             return [{"ok": False, "findings": [{"rule": "E000", "message": "reference and ref_height go with which='vs'"}]}]
         if at is not None and which != "effect":
             return [{"ok": False, "findings": [{"rule": "E000", "message": "at goes with which='effect'"}]}]
+        if frames and which != "pose":
+            return [{"ok": False, "findings": [{"rule": "E000", "message": "frames go with which='pose'"}]}]
+        if size is not None:
+            argv += ["--size", str(int(size))]
         if which == "closeup":
             if not part:
                 return [{"ok": False, "findings": [{"rule": "E000", "message": "closeup needs part"}]}]
@@ -347,6 +353,8 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
             if not animation:
                 return [{"ok": False, "findings": [{"rule": "E000", "message": "pose needs animation"}]}]
             argv += ["--pose", animation]
+            if frames:
+                argv += ["--frame", ",".join(str(int(f)) for f in frames)]
         elif which == "vs":
             if reference:
                 try:
