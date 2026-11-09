@@ -105,27 +105,16 @@ def hard_spec(part: Part, style: Style, level: int = 0) -> HardSpec:
 def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int) -> Solid:
     """The hard parts of one piece combined in order: adding parts unite; every later cut or intersect applies."""
     acc: Solid = []
-    run: list[Solid] = []  # adding parts since the last cut: united pairwise (balanced), not one by one into a growing solid
-
-    def flush(acc: Solid) -> Solid:
-        while len(run) > 1:
-            run[:] = [union(run[k], run[k + 1]) if k + 1 < len(run) else run[k] for k in range(0, len(run), 2)]
-        out = union(acc, run[0]) if run else acc
-        run.clear()
-        return out
-
     for i, p in enumerate(model.parts):
         g = p.geometry
         if g.op == "add":
             if i in include:
-                run.append(solid(g, hard_spec(p, style, level), i))
-            continue
-        acc = flush(acc)
-        if acc and g.shape in HARD_SHAPES and not g.twist and g.noise is None and g.scale is None and not (g.shell and g.shape not in SHELL_SHAPES) \
+                acc = union(acc, solid(g, hard_spec(p, style, level), i))
+        elif acc and g.shape in HARD_SHAPES and not g.twist and g.noise is None and g.scale is None and not (g.shell and g.shape not in SHELL_SHAPES) \
                 and (g.cut_only is None or bool(g.cut_only & include)):
             other = solid(g, hard_spec(p, style, level), i)
             acc = subtract(acc, other) if g.op == "cut" else intersect(acc, other)
-    return flush(acc)
+    return acc
 
 
 ROUND_SHAPES = frozenset({"cylinder", "cone", "capsule", "tube", "lathe", "torus", "sphere", "ellipsoid"})
