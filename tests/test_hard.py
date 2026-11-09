@@ -577,7 +577,7 @@ def test_csg_with_one_solid_inside_the_other(swap: bool) -> None:
 
 
 def test_many_hard_parts_unite_to_the_same_solid(project: Project) -> None:
-    """#207: adding hard parts unite pairwise (balanced); the result is the solid the one-by-one union gave."""
+    """Guard for a faster union (#214): `_hard_solid` must give the solid the plain one-by-one union gives."""
     from kiln.builder import _hard_solid
     from kiln.hard import to_mesh
 
@@ -600,7 +600,8 @@ def _owned_area(mesh: object) -> dict[int, float]:
 
 
 def test_balanced_union_keeps_who_owns_shared_faces(project: Project) -> None:
-    """#207 review: on shared planes and triple overlaps every part keeps the same surface as with the one-by-one union."""
+    """Guard for a faster union (#214): on shared planes and triple overlaps every part keeps the surface the plain
+    one-by-one union gives it."""
     from kiln.builder import _hard_solid
     from kiln.hard import to_mesh
 
@@ -652,3 +653,53 @@ def test_detail_levels_stop_when_nothing_changes(project: Project, monkeypatch: 
     calls.clear()
     builder.build_hard(model, style, builder.field_of(model, 0.01), [frozenset(hard_parts(model, style))], 1, False)
     assert calls == [0, 1, 2, 3]  # bands, then the bevel, then sides; level 4 keeps 6 sides like 3: skipped
+
+
+def test_coplanar_hard_parts_stay_manifold(project: Project) -> None:
+    """#214: twelve hard parts from a watch-repair desk (mat, pad, a case side, a movement's plates and screws) with
+    coplanar contacts unite without non-manifold edges. Uniting them pairwise left 39 here."""
+    from kiln.builder import _hard_solid
+    from kiln.hard import to_mesh
+
+    model, style = ok_model(project, """\
+name: desk
+class: prop
+parts:
+  - box: { at: [0.0, 0.215, -0.25], size: [0.3, 0.08, 0.1] }
+    color: red
+    bevel: 0.02
+  - cylinder: { at: [-0.24, 0.22, -0.08], radius: 0.026, height: 0.06, sides: 16 }
+    rotate: [0, 0, 90]
+    color: blue
+    bevel: 0.008
+  - box: { at: [-0.23, 0.22, 0.0], size: [0.04, 0.07, 0.07] }
+    color: red
+    bevel: 0.012
+  - cylinder: { at: [0.0, 0.2225, 0.0], radius: 0.158, height: 0.035, sides: 40 }
+    color: blue
+    bevel: 0.006
+  - cylinder: { at: [0.0, 0.246, 0.0], radius: 0.148, height: 0.016, sides: 40 }
+    color: red
+    bevel: 0.003
+  - cylinder: { at: [-0.06, 0.2535, 0.02], radius: 0.066, height: 0.003, sides: 32 }
+    color: blue
+  - cylinder: { at: [-0.06, 0.258, -0.07], radius: 0.014, height: 0.016, sides: 12 }
+    color: red
+    chamfer: 0.003
+  - capsule: { from: [0.03, 0.264, -0.1], to: [0.1, 0.264, -0.1], radius: 0.014, sides: 12 }
+    color: red
+  - box: { at: [0, 0.01, 0], size: [3.1, 0.02, 2.2] }
+    color: blue
+    bevel: 0.008
+  - cylinder: { at: [0, 0.08, 0], radius: 0.62, height: 0.12, sides: 48 }
+    color: red
+    bevel: 0.015
+  - cylinder: { at: [0, 0.115, 0], radius: 0.6, height: 0.13, sides: 48 }
+    color: blue
+    bevel: 0.04
+  - capsule: { from: [-0.95, 0.065, 0.1], to: [-0.83, 0.065, 0.53], radius: 0.045, radius_to: 0.055, sides: 12 }
+    color: red
+""", "desk")
+    mesh = to_mesh(_hard_solid(model, style, frozenset(hard_parts(model, style)), 0))
+    crowded, pinched = pinches(mesh.vertices, mesh.faces)
+    assert len(crowded) == 0 and len(pinched) == 0
