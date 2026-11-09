@@ -204,7 +204,9 @@ def test_init_names_the_gdignore_and_build_refuses_ignored_output(tmp_path: Path
     assert "art3d/bigfoot_a/.gdignore" in said and '"../../assets/kiln"' in said
     root = tmp_path / "art3d" / "bigfoot_a"
     config = root / "kiln.toml"
-    config.write_text(config.read_text().replace('export = ["glb"]', 'export = ["glb", "godot"]'))
+    project = load_project(root)  # #163: inside a Godot project the defaults are Godot's
+    assert project.config.output_dir == "../../assets/kiln" and project.config.export == ("glb", "godot")
+    config.write_text(config.read_text().replace('output_dir = "../../assets/kiln"', 'output_dir = "build"'))
     result = build(load_project(root))
     assert [f.rule for f in result.findings] == ["E000"] and "Godot ignores" in result.findings[0].message
     assert '"../../assets/kiln"' in result.findings[0].message
@@ -757,3 +759,31 @@ def test_effect_block(project: Project, monkeypatch: pytest.MonkeyPatch) -> None
     assert any(f.rule == "E011" and "nothing" in f.message for f in lint_project(project, geometry=False).findings)
     assert any(f.rule == "E003" and "drag" in f.message for f in errors_of(project, burst.replace("drag: 1.5", "drag: -1"), "burst"))
     assert any(f.rule == "E003" for f in errors_of(project, burst.replace("count: 6", "count: 6\n      speed: 3"), "burst"))
+
+
+def test_init_godot_defaults_edge_cases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """#163: the KILN folder at (or holding) assets/kiln keeps `build`; a path relpath can't express is written absolute and quoted."""
+    import os
+
+    from kiln.cli import main
+    from kiln.project import load_project
+
+    (tmp_path / "project.godot").write_text("config_version=5\n")
+    monkeypatch.chdir(tmp_path)
+    for folder in ("assets/kiln", "assets"):
+        assert main(["init", folder]) == 0
+        config = load_project(tmp_path / folder).config
+        assert config.output_dir == "build" and config.export == ("glb",), folder
+        assert "outside it" in capsys.readouterr().out
+        (tmp_path / folder / "kiln.toml").unlink()
+    weird = tmp_path / 'we"ird'
+    (weird / "game").mkdir(parents=True)
+    (weird / "game" / "project.godot").write_text("config_version=5\n")
+
+    def no_relpath(*_: object) -> str:
+        raise ValueError("path is on mount 'C:', start on mount 'D:'")
+
+    monkeypatch.setattr(os.path, "relpath", no_relpath)
+    assert main(["--json", "init", str(weird / "game" / "art")]) == 0
+    config = load_project(weird / "game" / "art").config
+    assert config.output_dir == (weird / "game" / "assets" / "kiln").as_posix() and config.export == ("glb", "godot")

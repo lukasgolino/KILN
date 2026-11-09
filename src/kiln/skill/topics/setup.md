@@ -5,9 +5,8 @@ Start of every session, a new project, kiln.toml and the project layout.
 ## Start of every session
 
 1. `kiln status` (or MCP `status`): what exists, what needs review. No `kiln.toml`? `kiln init <dir> --style <preset>`
-   (inside a Godot project it writes `.gdignore` in the KILN folder, so Godot skips the sources and everything else under it,
-   the default `output_dir = "build"` included: point `output_dir` at a folder Godot sees, e.g. `../assets/kiln`; `kiln build`
-   with Godot export refuses an ignored one).
+   (inside a Godot project it writes `.gdignore` in the KILN folder, so Godot skips the sources, and sets `output_dir` to the
+   Godot project's `assets/kiln` with `export = ["glb", "godot"]`; `kiln build` with Godot export refuses an output Godot ignores).
 2. Read `BRIEF.md` (what the game needs, decisions) and `STYLE.md` (how it looks). They are the project's memory.
 3. `kiln style show`: the style's notes (shape language, proportions) and numbers. Follow them.
 

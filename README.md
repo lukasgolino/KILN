@@ -97,7 +97,7 @@ GPU, no display); `kiln preview <model> --engine` renders through Godot.
 
 ## In Godot
 
-Set `export = ["glb", "godot"]` and `output_dir` inside your Godot project. Each model gets `models/<name>.tscn`
+`kiln init` inside a Godot project sets `export = ["glb", "godot"]` and `output_dir` to its `assets/kiln`; elsewhere set both by hand. Each model gets `models/<name>.tscn`
 (the glb with the style's materials: toon bands, outlines, rim light) and each style a look kit
 `looks/<style>.tscn` (sky, sun, tonemapper, SSAO, glow, colour grading).
 

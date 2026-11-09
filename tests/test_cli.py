@@ -37,6 +37,11 @@ def test_init_creates_a_project(in_tmp: Path, capsys: pytest.CaptureFixture[str]
         assert (root / rel).exists(), rel
     project = load_project(root)
     assert project.config.default_style == "toon" and project.config.default_palette == "main"
+    assert project.config.output_dir == "build" and project.config.export == ("glb",)  # not in a Godot project (#163)
+    assert result["output_dir"] == "build" and result["export"] == ["glb"]
+    for line in (root / "kiln.toml").read_text().splitlines():
+        if line.startswith(("output_dir", "export")):
+            assert line.index("#") == 31, line  # the comments stay aligned
     assert "toon" in (root / "STYLE.md").read_text()
     palette, findings = project.palette()
     assert findings == [] and palette["red"] == "#e8413c"
