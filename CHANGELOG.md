@@ -8,6 +8,9 @@ before 1.0).
 
 ### Performance
 
+- Relaxing after decimation re-tests only the faces next to a vertex that moved (#199): the same meshes (to float rounding;
+  the demo is byte-identical), the pass ~3x
+  faster; the 94-part character above builds in 35 s (was 136 s before both changes).
 - Hard parts unite pairwise instead of one by one into a growing solid, and detail levels that change nothing are
   skipped (#207): a 55-hard-part character's hard pass 38 s -> 3 s per level, its whole build 136 s -> 77 s. Same
   volumes and parts owning the same surface; the triangulation can differ (5796 -> 5804 triangles there), the demo's
