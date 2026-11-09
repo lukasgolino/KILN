@@ -6,8 +6,12 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-09
+
 ### Changed
 
+- Licensed under the Apache License 2.0 instead of MIT (#225). Releases up to 0.20.0 stay
+  available under MIT.
 - `kiln preview --pose` (#189, #201): `--views`, `--pitch` and `--size` pick its views and tile size (they no longer also
   write a views sheet), `--frame N[,N...]` shows chosen frames (one up close), and the default rows are 3/4 front and
   both sides (a limb on -X showed in no side frame); `--pitch` alone tilts those; `--variant` now colours the pose
@@ -708,7 +712,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/lukasgolino/kiln/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/lukasgolino/kiln/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/lukasgolino/kiln/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/lukasgolino/kiln/compare/v0.17.0...v0.18.0

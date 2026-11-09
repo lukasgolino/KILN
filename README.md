@@ -168,4 +168,4 @@ version, URL, sha256, licence) in `kiln.lock`, which `kiln build` checks.
 
 ## License
 
-MIT — see [LICENSE](https://github.com/lukasgolino/kiln/blob/main/LICENSE).
+Apache 2.0 — see [LICENSE](https://github.com/lukasgolino/kiln/blob/main/LICENSE).
