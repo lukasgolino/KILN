@@ -537,7 +537,7 @@ def _engine_preview(project: Project, built: Any, folder: Path) -> str:
     views = [(30.0, 15.0), (120.0, 15.0), (210.0, 15.0), (300.0, 15.0), (30.0, 60.0), (30.0, -20.0)]
     images, output = render_engine(godot, root, entry["godot_scene"], looks[built.style.name], views, radius, float((lo[1] + hi[1]) / 2), 320, folder / "engine")
     if not images:
-        raise _usage(f"Godot couldn't render (needs a display): {output[-400:]}")
+        raise _usage(f"Godot couldn't render offscreen: {output[-400:]}")
     sheet = Image.new("RGB", (320 * 3, 320 * 2))
     for i, path in enumerate(images):
         sheet.paste(Image.open(path).convert("RGB"), ((i % 3) * 320, (i // 3) * 320))
@@ -978,16 +978,20 @@ def cmd_doctor(args: argparse.Namespace, out: Output) -> int:
     from kiln.godot import find_godot_binary
 
     godot = find_godot_binary()
-    display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY") or sys.platform in ("win32", "darwin"))
+    from kiln.godot import offscreen_command
+
+    offscreen = offscreen_command()
+    display = not isinstance(offscreen, str)  # engine renders run offscreen, never on the desktop (#160)
+    how = offscreen if isinstance(offscreen, str) else ("Godot's own window (no Xvfb on this OS)" if not offscreen[0] else " ".join(offscreen[0][:1]))
     from kiln.blender import blender_version, find_blender
 
     blender = find_blender()
     blender_ver = blender_version(blender) if blender else None
-    info = {"kiln": __version__, "python": sys.version.split()[0], "godot": godot, "display": display, "blender": blender, "blender_version": blender_ver}
+    info = {"kiln": __version__, "python": sys.version.split()[0], "godot": godot, "display": display, "offscreen": how, "blender": blender, "blender_version": blender_ver}
     out.say(f"kiln {__version__}, Python {info['python']}")
     out.say(f"Godot: {godot or 'not found (set GODOT=/path/to/godot for --verify-godot and --engine)'}")
     out.say(f"Blender: {f'{blender} ({blender_ver})' if blender_ver else 'not found (set BLENDER=/path/to/blender, 4.x, for .fbx/.blend/.obj imports)'}")
-    out.say(f"display: {'yes' if display else 'no (preview --engine needs one; the built-in renderer does not)'}")
+    out.say(f"engine renders (preview --engine): {'yes, via ' + how if display else how}")
     out.result(info)
     return 0
 
@@ -1099,7 +1103,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--fit", action="store_true", help="an attachment (fit_to) on its character, and the character without it")
     s.add_argument("--effect", action="store_true", help="the model's effect: block played out (its emitted models over time)")
     s.add_argument("--at", metavar="T,T,...", help="with --effect: a contact sheet at these times (seconds) instead of 8 evenly spaced frames")
-    s.add_argument("--engine", action="store_true", help="render through Godot (needs a display and a build)")
+    s.add_argument("--engine", action="store_true", help="render through Godot, offscreen (needs a build; Linux: xvfb)")
     s.add_argument("--variant")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")
     s.add_argument("models", nargs="*")
@@ -1161,7 +1165,7 @@ def parser() -> argparse.ArgumentParser:
     x.add_argument("--description")
     x.add_argument("--force", action="store_true", help="replace an existing model and imported files")
     sub.add_parser("credits", parents=[common], help="authors and licences of imported models")
-    sub.add_parser("doctor", parents=[common], help="versions, Godot, display")
+    sub.add_parser("doctor", parents=[common], help="versions, Godot, offscreen rendering")
     s = sub.add_parser("docs", parents=[common], help="the documentation, one topic at a time (list, print, search)")
     s.add_argument("topic", nargs="*", help="topic name(s); none = list the topics")
     s.add_argument("--search", "-s", nargs="+", metavar="WORD", help="print the paragraphs that match these words")

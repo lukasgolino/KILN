@@ -28,7 +28,7 @@ Building for the game: glb, Godot scenes, look kits, colour modes, the manifest,
   spacing and rules (slope, height, noise patches, splat layers, paths), with random turn, scale, lean and tint. It
   builds `<name>.scatter.json` and a Godot scene of MultiMeshes (with LODs and a fade-out distance); `kiln preview
   <name>` shows it. Lint W118/W119: too many / no instances.
-- `kiln preview <name> --engine` renders through Godot itself (needs a display): use it to confirm the look.
+- `kiln preview <name> --engine` renders through Godot itself, offscreen (Linux: a private Xvfb with CPU drivers; never a window on the desktop; `KILN_OFFSCREEN` overrides): use it to confirm the look.
 - `manifest.json` lists every model: glb, scene, size and bounds in metres, triangles, parts (pivot, parent, meta),
   animations (Godot names, loop, fps), variants, LODs, licences. That's the contract with game code.
 - Not Godot: `export = ["glb"]`; the per-engine notes (Unity, Unreal, Bevy, three.js, Defold) are in KILN's

@@ -1,5 +1,5 @@
 # Run by `kiln preview --engine` (from a temp folder): renders a model scene under its look kit through Godot's real
-# renderer, from several sides, into PNGs. Needs a display (not --headless).
+# renderer, from several sides, into PNGs. Not --headless: KILN runs it on a private offscreen display (godot.offscreen_command).
 # Args: scene, look kit, output folder, size, radius (m), centre y (m), then yaw:pitch pairs.
 extends SceneTree
 
