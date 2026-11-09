@@ -297,7 +297,9 @@ def _built(project: Project, name: str) -> Any:
     try:
         return _with_occlusion(project, build_cached(model, style, palette, project.root / ".kiln-cache"))
     except ValueError as exc:
-        raise PaganError([Finding("E009", str(exc), path)]) from None
+        from kiln.builder import build_error
+
+        raise PaganError([Finding("E009", build_error(exc), path)]) from None
 
 
 def _terrain_preview(project: Project, args: argparse.Namespace, out: Output) -> int | None:

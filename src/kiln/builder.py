@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import pickle
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -134,6 +135,19 @@ def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[
             part[foreign] = np.asarray(own)[field.nearest(own, centres, absolute=False)[0]]
         out.append(hard_regions(Mesh(mesh.vertices, mesh.faces), part, model, rigged))
     return out, meshes
+
+
+def build_error(exc: ValueError) -> str:
+    """A build failure as a finding's message (#170): KILN's own ValueErrors say what to fix and pass as they are; one
+    raised inside a library (numpy's "zero-size array ..." and the like) is a KILN bug, said so, with where it came from."""
+    package = Path(__file__).resolve().parent
+    frames = traceback.extract_tb(exc.__traceback__)
+    ours = [f for f in frames if Path(f.filename).resolve().is_relative_to(package)]
+    if not frames or (ours and ours[-1] is frames[-1]):
+        return str(exc)
+    where = f" in {Path(ours[-1].filename).name}:{ours[-1].lineno}" if ours else ""
+    return (f"internal error while building{where} ({type(exc).__name__}: {exc}); this is a KILN bug: please report it with "
+            "the model file (https://github.com/lukasgolino/kiln/issues)")
 
 
 def build_model(model: Model, style: Style, budget: int | None = None, palette: dict[str, str] | None = None) -> Built:

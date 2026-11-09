@@ -247,14 +247,18 @@ def _inverted_tree(polys: Solid) -> _Node:
 # wrong pieces (cracks). Only the polygons near the other solid are clipped: the rest can't touch it.
 
 
+def _boxes_meet(box_a: tuple[Array, Array], box_b: tuple[Array, Array]) -> bool:
+    return bool(np.all(box_a[0] <= box_b[1]) and np.all(box_b[0] <= box_a[1]))
+
+
 def union(a: Solid, b: Solid) -> Solid:
     if not a or not b:
         return a + b
     box_a, box_b = _box(a), _box(b)
-    near_a = [p for p in a if _overlaps(box_b, p)]
-    near_b = [p for p in b if _overlaps(box_a, p)]
-    if not near_a or not near_b:
+    if not _boxes_meet(box_a, box_b):
         return a + b
+    near_a = [p for p in a if _overlaps(box_b, p)]  # either may be empty: one solid wholly inside the other (#170)
+    near_b = [p for p in b if _overlaps(box_a, p)]
     far = [p for p in a if not _overlaps(box_b, p)] + [p for p in b if not _overlaps(box_a, p)]
     ta, tb = _tree(a), _tree(b)
     kept_a = tb.clip_polygons(near_a)  # a.clipTo(b)
@@ -267,10 +271,10 @@ def subtract(a: Solid, b: Solid) -> Solid:
     if not a or not b:
         return a
     box_b, box_a = _box(b), _box(a)
-    near_a = [p for p in a if _overlaps(box_b, p)]
-    near_b = [p for p in b if _overlaps(box_a, p)]
-    if not near_a or not near_b:
+    if not _boxes_meet(box_a, box_b):
         return a
+    near_a = [p for p in a if _overlaps(box_b, p)]  # either may be empty: a cut wholly inside (a cavity) or around (#170)
+    near_b = [p for p in b if _overlaps(box_a, p)]
     far = [p for p in a if not _overlaps(box_b, p)]
     ta_inv, tb = _inverted_tree(a), _tree(b)
     kept_a = tb.clip_polygons(_flip(near_a))  # a.invert(); a.clipTo(b)
@@ -283,15 +287,17 @@ def intersect(a: Solid, b: Solid) -> Solid:
     if not a or not b:
         return []
     box_b, box_a = _box(b), _box(a)
+    if not _boxes_meet(box_a, box_b):
+        return []
+    # polygons outside the other's box are outside the other solid: drop them. One list may end up empty (a solid wholly
+    # inside the other one, e.g. a part inside a mirror's half-space): the other's polygons are still clipped (#170).
     near_a = [p for p in a if _overlaps(box_b, p)]
     near_b = [p for p in b if _overlaps(box_a, p)]
-    if not near_a or not near_b:
-        return []
-    ta_inv, tb_inv = _inverted_tree(a), _inverted_tree(b)
-    kept_b = ta_inv.clip_polygons(near_b)  # a.invert(); b.clipTo(a)
-    kept_b = _flip(kept_b)  # b.invert()
-    kept_a = tb_inv.clip_polygons(_flip(near_a))  # a.clipTo(b)
-    kept_b = ta_inv.clip_polygons(kept_b)  # b.clipTo(a)
+    kept_a = _inverted_tree(b).clip_polygons(_flip(near_a)) if near_a else []  # a.clipTo(b)
+    kept_b: list[Polygon] = []
+    if near_b:  # the trees are only built for a side with polygons to clip
+        ta_inv = _inverted_tree(a)
+        kept_b = ta_inv.clip_polygons(_flip(ta_inv.clip_polygons(near_b)))  # a.invert(); b.clipTo(a); b.invert(); b.clipTo(a)
     return _flip(kept_a + kept_b)  # a.build(b.allPolygons()); a.invert()
 
 

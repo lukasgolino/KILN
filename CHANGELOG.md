@@ -6,6 +6,14 @@ before 1.0).
 
 ## [Unreleased]
 
+### Fixed
+
+- Hard parts (#170): `mirror` on a hard part kept nothing (intersecting a solid with a half-space that wholly contains
+  it returned no polygons), and a mirrored cut on a hard solid failed with numpy's "zero-size array ...". Union and subtract had the same early exit: a hard
+  part wholly inside another kept its inner faces, a cut wholly inside one lost its cavity. A build error
+  raised inside a library is now reported as an internal KILN error to report, with where it came from, not as numpy's
+  message.
+
 ### Changed
 
 - The Godot render matches `kiln preview` (#161; mean OKLab gap 0.25 -> 0.02 on a palette x material grid, soft_toy):
