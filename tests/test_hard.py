@@ -495,3 +495,50 @@ def test_a_box_beside_loose_hard_links_builds(project: Project) -> None:
     p = built.painted
     assert len(open_edges(p.vertices, p.faces)) == 0
     assert not [f for f in geometry_warnings(built, {}, project) if f.rule in ("E009", "E013")]
+
+
+def test_mirrored_hard_part_and_mirrored_hard_cut(project: Project) -> None:
+    """#170: a hard part's mirror kept nothing (intersect with the half-space returned [] when the part lay wholly
+    inside it), and a mirrored cut on a hard solid crashed with numpy's zero-size reduction."""
+    pair = built_of(project, """\
+name: pair
+class: prop
+parts:
+  - box: { at: [0, 0.02, 0], size: [0.07, 0.04, 0.07] }
+    color: red
+  - box: { at: [0.06, 0.02, 0], size: [0.06, 0.04, 0.07] }
+    color: blue
+    bevel: 0.01
+    mirror: x
+""", "pair")
+    assert not pair.hidden
+    lo, hi = pair.bounds()
+    assert lo[0] == pytest.approx(-0.09, abs=0.002) and hi[0] == pytest.approx(0.09, abs=0.002)  # both copies
+    plate = built_of(project, """\
+name: plate
+class: prop
+parts:
+  - box: { at: [0, 0.01, 0], size: [0.2, 0.02, 0.2] }
+    color: red
+    bevel: 0.002
+  - cylinder: { at: [0.06, 0.01, 0.06], radius: 0.008, height: 0.05 }
+    cut: true
+    mirror: [x, z]
+""", "plate")
+    assert plate.triangles > 200  # four holes through the plate (12 without)
+
+
+def test_library_errors_are_reported_as_kiln_bugs() -> None:
+    from kiln.builder import build_error
+
+    try:
+        np.zeros(0).min()
+    except ValueError as exc:
+        message = build_error(exc)
+    assert "internal error" in message and "KILN bug" in message
+    from kiln.preview import heading
+
+    try:
+        heading("nowhere")  # KILN's own ValueError: its message passes as it is
+    except ValueError as exc:
+        assert build_error(exc) == str(exc) and "internal" not in str(exc)

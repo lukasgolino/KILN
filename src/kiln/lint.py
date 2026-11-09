@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 
 from kiln.bake import texel_size
-from kiln.builder import build_cached, cached, field_of, hard_parts, kept_parts
+from kiln.builder import build_cached, build_error, cached, field_of, hard_parts, kept_parts
 from kiln.cover import covers, mostly_covered
 from kiln.export import Built
 from kiln.jit import set_threads
@@ -340,7 +340,7 @@ def _build_job(job: tuple[Model, Style, dict[str, str], Path]) -> Built | str:
     try:
         return build_cached(*job)
     except ValueError as exc:
-        return str(exc)
+        return build_error(exc)
 
 
 WORKER_MEMORY = 0.7  # GB a worker may need for a big model (measured: up to ~0.6); more workers than RAM allows thrash

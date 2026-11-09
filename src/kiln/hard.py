@@ -283,10 +283,12 @@ def intersect(a: Solid, b: Solid) -> Solid:
     if not a or not b:
         return []
     box_b, box_a = _box(b), _box(a)
+    if not (np.all(box_a[0] <= box_b[1]) and np.all(box_b[0] <= box_a[1])):
+        return []
+    # polygons outside the other's box are outside the other solid: drop them. One list may end up empty (a solid wholly
+    # inside the other one, e.g. a part inside a mirror's half-space): the other's polygons are still clipped (#170).
     near_a = [p for p in a if _overlaps(box_b, p)]
     near_b = [p for p in b if _overlaps(box_a, p)]
-    if not near_a or not near_b:
-        return []
     ta_inv, tb_inv = _inverted_tree(a), _inverted_tree(b)
     kept_b = ta_inv.clip_polygons(near_b)  # a.invert(); b.clipTo(a)
     kept_b = _flip(kept_b)  # b.invert()
