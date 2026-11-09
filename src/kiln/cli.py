@@ -414,6 +414,8 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
         path = folder / (f"turntable.{args.variant}.png" if args.variant else "turntable.png")
         pv.turntable(built, swap=swap, **tile).save(path)
         outputs["turntable"] = display_path(path)
+    yaws: list[tuple[str, float]] = []
+    pitches: list[float] = []
     if want_views:
         try:
             yaws = [pv.heading(v) for v in args.views.split(",")] if args.views else list(pv.HEADINGS)
@@ -422,6 +424,7 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
             raise _usage(str(exc) if "view" in str(exc) else "--pitch is degrees above the horizon, e.g. 5 or 5,30") from None
         if not all(-89 <= p <= 89 for p in pitches):
             raise _usage("--pitch is between -89 and 89 degrees")
+    if want_views and not args.engine:
         path = folder / (f"views.{args.variant}.png" if args.variant else "views.png")
         pv.views(built, yaws, pitches, size or 400, swap=swap).save(path)
         outputs["views"] = display_path(path)
@@ -475,7 +478,7 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
         pv.versus(built, images).save(path)
         outputs["vs_inspiration"] = display_path(path)
     if args.engine:
-        outputs["engine"] = _engine_preview(project, built, folder)
+        outputs["engine"] = _engine_preview(project, built, folder, yaws, pitches, size)
     for key, value in outputs.items():
         for label, path in (value.items() if isinstance(value, dict) else [("", value)]):
             out.say(f"{name} {key}{' ' + label if label else ''}: {path}")
@@ -518,9 +521,15 @@ def _compare(project: Project, built: Any, ref_path: Path, ref_height: float | N
     return metrics
 
 
-def _engine_preview(project: Project, built: Any, folder: Path) -> str:
+ENGINE_VIEWS = [("front-left", 30.0), ("back-left", 120.0), ("back-right", 210.0), ("front-right", 300.0)]
+
+
+def _engine_preview(project: Project, built: Any, folder: Path, yaws: list[tuple[str, float]], pitches: list[float], size: int | None) -> str:
+    """`preview --engine`: the model through Godot under its look kit, offscreen (#160), framed and laid out like the
+    software views (#162): --views/--pitch/--size apply, the background is the previews' tile colour."""
     from PIL import Image
 
+    from kiln import preview as pv
     from kiln.godot import find_godot_binary, find_godot_project, render_engine
 
     godot = find_godot_binary()
@@ -532,17 +541,24 @@ def _engine_preview(project: Project, built: Any, folder: Path) -> str:
     looks = json.loads(manifest.read_text()).get("looks", {})
     if entry is None or "godot_scene" not in entry:
         raise _usage("build first: `kiln build`")
-    lo, hi = built.bounds()
-    radius = float(((hi - lo) ** 2).sum() ** 0.5) / 2
-    views = [(30.0, 15.0), (120.0, 15.0), (210.0, 15.0), (300.0, 15.0), (30.0, 60.0), (30.0, -20.0)]
-    images, output = render_engine(godot, root, entry["godot_scene"], looks[built.style.name], views, radius, float((lo[1] + hi[1]) / 2), 320, folder / "engine")
+    yaws = yaws or ENGINE_VIEWS
+    pitches = pitches or [15.0, 50.0]
+    tile = size or 400
+    centre, half = pv.fit_of(built)
+    views = [(yaw, pitch) for pitch in pitches for _, yaw in yaws]
+    images, output = render_engine(godot, root, entry["godot_scene"], looks[built.style.name], views, half,
+                                   (float(centre[0]), float(centre[1]), float(centre[2])), tile, folder / "engine")  # fmt: skip
     if not images:
         raise _usage(f"Godot couldn't render offscreen: {output[-400:]}")
-    sheet = Image.new("RGB", (320 * 3, 320 * 2))
-    for i, path in enumerate(images):
-        sheet.paste(Image.open(path).convert("RGB"), ((i % 3) * 320, (i // 3) * 320))
+    tiles = []
+    for path in images:
+        shot = Image.open(path).convert("RGBA")
+        back = Image.new("RGBA", shot.size, pv.TILE_BG)
+        tiles.append(Image.alpha_composite(back, shot))
+    rows = [(f"{pitch:+g} degrees", [(n, tiles[i * len(yaws) + j]) for j, (n, _) in enumerate(yaws)]) for i, pitch in enumerate(pitches)]
+    m = built.model
     path = folder / "engine.png"
-    sheet.save(path)
+    pv.sheet(f"{m.name} in Godot", f"look kit {built.style.name} · {m.cls} · front = +Z", rows).save(path)
     return display_path(path)
 
 
@@ -1103,7 +1119,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--fit", action="store_true", help="an attachment (fit_to) on its character, and the character without it")
     s.add_argument("--effect", action="store_true", help="the model's effect: block played out (its emitted models over time)")
     s.add_argument("--at", metavar="T,T,...", help="with --effect: a contact sheet at these times (seconds) instead of 8 evenly spaced frames")
-    s.add_argument("--engine", action="store_true", help="render through Godot, offscreen (needs a build; Linux: xvfb)")
+    s.add_argument("--engine", action="store_true", help="render through Godot, offscreen (needs a build; Linux: xvfb); --views/--pitch/--size pick its views")
     s.add_argument("--variant")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")
     s.add_argument("models", nargs="*")

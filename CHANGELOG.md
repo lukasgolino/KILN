@@ -8,6 +8,9 @@ before 1.0).
 
 ### Changed
 
+- `kiln preview --engine` takes `--views`, `--pitch` and `--size`, is framed exactly like the software views and sits on
+  their tile colour (the look kit still lights it; its sky is no longer the backdrop), in the same sheet layout (#162).
+  Default: four sides at 15 and 50 degrees. With `--engine`, those flags pick the engine's views.
 - `kiln preview --engine` renders offscreen (#160): on Linux a private Xvfb display with Mesa's CPU drivers, the
   desktop's DISPLAY and WAYLAND_DISPLAY removed; without Xvfb it refuses instead of opening a window. `KILN_OFFSCREEN`
   sets a wrapper command (or `window` to opt in to the current display). `kiln doctor` reports how engine renders run
