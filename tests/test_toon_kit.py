@@ -270,3 +270,13 @@ def test_godot_check_catches_shader_errors(tmp_path: Path, monkeypatch: pytest.M
     assert not result.errors and result.godot_root is not None
     check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
     assert not check.ok and "SHADER ERROR" in check.output
+
+
+def test_compat_shadows_keeps_the_sun_unscripted() -> None:
+    """#161: by default the look kit's sun drops its shadows on Compatibility; compat_shadows = true leaves it alone."""
+    look = _toon()
+    style, _ = load_style("toon")
+    assert style is not None
+    assert "gl_compatibility" in look_scene(style) and 'script = SubResource("GDScript_sun")' in look_scene(style)
+    kept = replace(style, look=replace(look, compat_shadows=True))
+    assert "GDScript_sun" not in look_scene(kept) and "shadow_enabled = true" in look_scene(kept)

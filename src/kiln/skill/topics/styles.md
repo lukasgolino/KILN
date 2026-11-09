@@ -69,6 +69,8 @@ sun_yaw = 30.0
 sun_energy = 1.1
 sun_color = "#fff6e8"
 shadows = true
+compat_shadows = false         # Godot's Compatibility renderer: the sun drops its shadows there, since that renderer adds the
+                               # ambient again per shadowed light (godotengine/godot#90259: several times too bright); true keeps them
 fog = 0.0
 fog_color = "#c8d8e8"
 rim_light = 0.0                # an added fresnel rim on every surface (Godot: a next pass; previews too): 0.5-1 reads on bright skies
@@ -79,4 +81,5 @@ rim_light_power = 3.0          # higher: thinner rim
 Every toon key is off by default (today's plain cel look). Wind Waker / Sable-style: `toon_softness = 0.2`,
 `toon_shadow_color` a cool mid tone, `toon_specular = 0.6` on glossy materials, `toon_shadows = "band"`,
 `outline_space = "pixels"` with `outline = 2` and `outline_color = "darken"`. Previews follow every key except
-`toon_shadows` (the software renderer has no cast shadows; `kiln preview --engine` shows them).
+`toon_shadows` (the software renderer has no cast shadows; `kiln preview --engine` shows them in Forward+ and Mobile
+projects, and on Compatibility only with `compat_shadows = true`).

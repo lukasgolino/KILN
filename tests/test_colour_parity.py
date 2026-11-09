@@ -48,7 +48,12 @@ def test_filmic_is_godots_curve_at_the_look_kits_white() -> None:
 
 
 def _centres(sheet: Path) -> dict[tuple[str, str], np.ndarray]:
-    tile = np.asarray(Image.open(sheet).convert("RGB")).astype(float)[82 : 82 + TILE, 10 : 10 + TILE]
+    from kiln.preview import TILE_BG
+
+    image = np.asarray(Image.open(sheet).convert("RGB")).astype(float)
+    ys, xs = np.nonzero((image == np.array(TILE_BG[:3])).all(axis=2))  # the first tile's corner, wherever the title wraps
+    top, left = int(ys.min()), int(xs.min())
+    tile = image[top : top + TILE, left : left + TILE]
     lo, hi = np.array([-1.225, 0.02, -0.1]), np.array([1.225, 0.97, 0.1])
     centre, half = (lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2 * 1.08
     scale = TILE / (2 * half)

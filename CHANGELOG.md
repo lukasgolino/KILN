@@ -12,7 +12,8 @@ before 1.0).
   - look kits set `tonemap_white = 3`, so Godot's Filmic is exactly the previews' curve (Godot's default white made
     every colour paler);
   - on the Compatibility renderer the look kit's sun casts no shadows: Godot adds the ambient light again for each
-    shadowed light there (godotengine/godot#90259), which made models several times too bright;
+    shadowed light there (godotengine/godot#90259), which made models several times too bright (`[look]
+    compat_shadows = true` keeps them);
   - the preview's sky ambient is `ambient` as Godot applies it (it was scaled by 0.55): previews are a little brighter.
   Every look kit and every preview image changes. The toon look still differs (#183).
 - `kiln preview --engine` takes `--views`, `--pitch` and `--size`, is framed exactly like the software views and sits on

@@ -651,7 +651,7 @@ def look_scene(style: Style) -> str:
         '\tif RenderingServer.get_current_rendering_method() == \\"gl_compatibility\\":',
         "\t\tshadow_enabled = false",
         '"',
-    ] if look.shadows else []
+    ] if look.shadows and not look.compat_shadows else []
     nodes = [
         "",
         f'[node name={_quote("look_" + style.name)} type="Node3D"]',
@@ -665,7 +665,7 @@ def look_scene(style: Style) -> str:
         f"light_color = {_color(look.sun_color)}",
         f"light_energy = {look.sun_energy:.6g}",
         f"shadow_enabled = {'true' if look.shadows else 'false'}",
-        *(['script = SubResource("GDScript_sun")'] if look.shadows else []),
+        *(['script = SubResource("GDScript_sun")'] if look.shadows and not look.compat_shadows else []),
         "",
     ]
     return "\n".join(["[gd_scene format=3]", "", *env, *nodes])

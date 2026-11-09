@@ -90,6 +90,7 @@ jobs:
         run: pytest -q -k godot
       - name: Engine renders (offscreen) match the previews
         run: |
+          sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb xauth mesa-vulkan-drivers
           KILN_ENGINE_RENDER=1 pytest -q tests/test_colour_parity.py
 
