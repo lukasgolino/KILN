@@ -17,6 +17,8 @@ byte-identical apart from the generator string.
   import stay `kiln`. Git pins must use the new name from this version on (`kiln-gen @ git+...@v0.19.0`).
 - The MCP server is always installed (`mcp` is a dependency; the `mcp` extra is kept, empty), so
   `uvx kiln-gen mcp` runs it without an install.
+- **Upgrading from a git-pinned `kiln`:** `pip uninstall kiln` first, then install `kiln-gen`. Both own the same
+  `kiln/` files, so uninstalling `kiln` after installing `kiln-gen` deletes them.
 
 ### Added
 
@@ -642,13 +644,15 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/lukasgolino/KILN/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/lukasgolino/KILN/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/lukasgolino/KILN/compare/v0.16.1...v0.17.0
 [0.16.1]: https://github.com/lukasgolino/KILN/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/lukasgolino/KILN/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/lukasgolino/KILN/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/lukasgolino/KILN/compare/v0.13.0...v0.14.0
+[0.13.0]: https://github.com/lukasgolino/KILN/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/lukasgolino/KILN/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/lukasgolino/KILN/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/lukasgolino/KILN/compare/v0.10.0...v0.10.1

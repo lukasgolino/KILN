@@ -15,7 +15,7 @@
       "transport": { "type": "stdio" },
       "packageArguments": [
         { "type": "positional", "value": "mcp" },
-        { "type": "named", "name": "--project", "description": "KILN project directory (holds kiln.toml); defaults to the working directory", "isRequired": false, "format": "filepath" }
+        { "type": "named", "name": "--project", "description": "Absolute path of the KILN project directory (holds kiln.toml); without it, the server's working directory", "isRequired": false, "format": "filepath" }
       ]
     }
   ]

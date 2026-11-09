@@ -18,7 +18,7 @@ from kiln.project import Project
 from kiln.sdf import Field, Geometry, axis_rotation
 from kiln.vendor.gltf import read_glb
 
-pytestmark = pytest.mark.skipif(not bk.available(), reason="xatlas not installed (kiln[bake])")
+pytestmark = pytest.mark.skipif(not bk.available(), reason="xatlas not installed (kiln-gen[bake])")
 
 BALL = Field([Geometry("sphere", {"radius": 0.3})], margin=0.03)
 GROOVED = Field([Geometry("sphere", {"radius": 0.3}), Geometry("torus", {"radius": 0.3, "thickness": 0.01}, op="cut", blend=0.004)], margin=0.03)

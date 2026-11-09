@@ -137,13 +137,13 @@ lint, LOOK at the previews, check the line-up, report.
 ## From any agent (MCP)
 
 ```sh
-claude mcp add kiln -- uvx kiln-gen mcp --project ./art     # no install needed (uv); or `kiln mcp` after pip install
+claude mcp add kiln -- uvx kiln-gen mcp --project /path/to/art     # no install needed (uv); or `kiln mcp` after pip install
 ```
 
 Other clients take the same command in their config:
 
 ```json
-{ "mcpServers": { "kiln": { "command": "uvx", "args": ["kiln-gen", "mcp", "--project", "./art"] } } }
+{ "mcpServers": { "kiln": { "command": "uvx", "args": ["kiln-gen", "mcp", "--project", "/path/to/art"] } } }
 ```
 
 KILN is listed in the [MCP Registry](https://registry.modelcontextprotocol.io/) as `io.github.lukasgolino/kiln`.
@@ -168,4 +168,4 @@ version, URL, sha256, licence) in `kiln.lock`, which `kiln build` checks.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/lukasgolino/KILN/blob/main/LICENSE).

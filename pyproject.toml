@@ -40,12 +40,13 @@ Changelog = "https://github.com/lukasgolino/KILN/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "mypy>=1.10", "ruff>=0.15", "types-PyYAML", "numba>=0.60", "xatlas>=0.0.9"]
-mcp = []  # kept so existing `kiln-gen[mcp]` installs resolve; the MCP server is always installed now
+mcp = []  # kept (empty) so `kiln-gen[mcp]` still resolves; the MCP server is always installed now
 bake = ["xatlas>=0.0.9"]
 fast = ["numba>=0.60"]
 
 [project.scripts]
 kiln = "kiln.cli:main"
+kiln-gen = "kiln.cli:main"  # so `uvx kiln-gen ...` (the MCP Registry entry) finds a command
 
 [tool.setuptools.packages.find]
 where = ["src"]

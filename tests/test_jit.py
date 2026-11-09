@@ -1,4 +1,4 @@
-"""The compiled distance kernel (#112, kiln[fast]) agrees with the numpy reference for every shape and transform."""
+"""The compiled distance kernel (#112, kiln-gen[fast]) agrees with the numpy reference for every shape and transform."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 from kiln import jit
 from kiln.sdf import Copy, Field, Geometry, Noise, rotation_matrix
 
-pytestmark = pytest.mark.skipif(not jit.AVAILABLE, reason="numba not installed (kiln[fast])")
+pytestmark = pytest.mark.skipif(not jit.AVAILABLE, reason="numba not installed (kiln-gen[fast])")
 
 SHAPES: dict[str, tuple[str, dict[str, Any]]] = {
     "sphere": ("sphere", {"radius": 0.4}),

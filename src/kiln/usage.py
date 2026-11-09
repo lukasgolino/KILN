@@ -23,7 +23,7 @@ def peak_gb() -> float | None:
     return round(peak / scale, 2)
 
 
-SLOW_SECONDS = 20.0  # past this, a run without kiln[fast] says what the extra would save
+SLOW_SECONDS = 20.0  # past this, a run without kiln-gen[fast] says what the extra would save
 
 
 def cost_line(seconds: float) -> str:
