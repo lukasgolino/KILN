@@ -9,7 +9,8 @@ before 1.0).
 ### Fixed
 
 - Hard parts (#170): `mirror` on a hard part kept nothing (intersecting a solid with a half-space that wholly contains
-  it returned no polygons), and a mirrored cut on a hard solid failed with numpy's "zero-size array ...". A build error
+  it returned no polygons), and a mirrored cut on a hard solid failed with numpy's "zero-size array ...". Union and subtract had the same early exit: a hard
+  part wholly inside another kept its inner faces, a cut wholly inside one lost its cavity. A build error
   raised inside a library is now reported as an internal KILN error to report, with where it came from, not as numpy's
   message.
 

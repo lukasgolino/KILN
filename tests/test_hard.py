@@ -525,7 +525,11 @@ parts:
     cut: true
     mirror: [x, z]
 """, "plate")
-    assert plate.triangles > 200  # four holes through the plate (12 without)
+    verts = plate.painted.vertices
+    for sx in (-1, 1):
+        for sz in (-1, 1):  # a hole wall at each mirrored place: vertices on the 8 mm circle round (±0.06, ±0.06)
+            d = np.hypot(verts[:, 0] - sx * 0.06, verts[:, 2] - sz * 0.06)
+            assert (np.abs(d - 0.008) < 0.0015).sum() >= 8, (sx, sz)
 
 
 def test_library_errors_are_reported_as_kiln_bugs() -> None:
@@ -542,3 +546,31 @@ def test_library_errors_are_reported_as_kiln_bugs() -> None:
         heading("nowhere")  # KILN's own ValueError: its message passes as it is
     except ValueError as exc:
         assert build_error(exc) == str(exc) and "internal" not in str(exc)
+
+
+def _cube(size: float, centre: tuple[float, float, float], tag: int = 0) -> list:  # type: ignore[type-arg]
+    from kiln.hard import _place, convex
+
+    faces = convex(*_planes_box([size, size, size]))
+    return _place([[(float(q[0]), float(q[1]), float(q[2])) for q in pts] for pts, _ in faces], np.eye(3), np.array(centre), tag)
+
+
+def _volume(solid_: list) -> float:  # type: ignore[type-arg]
+    v = 0.0
+    for poly in solid_:
+        pts = np.array(poly.points)
+        for i in range(1, len(pts) - 1):
+            v += float(np.dot(pts[0], np.cross(pts[i], pts[i + 1]))) / 6
+    return v
+
+
+@pytest.mark.parametrize("swap", [False, True])
+def test_csg_with_one_solid_inside_the_other(swap: bool) -> None:
+    """#170: early-outs on a solid wholly inside the other dropped it (intersect), kept inner faces (union) or lost
+    the cavity (subtract)."""
+    big, small = _cube(1.0, (0, 0, 0)), _cube(0.2, (0.1, 0.1, 0.1), 1)
+    a, b = (small, big) if swap else (big, small)
+    assert _volume(intersect(a, b)) == pytest.approx(0.008, rel=1e-6)
+    assert _volume(union(a, b)) == pytest.approx(1.0, rel=1e-6)
+    assert _volume(subtract(big, small)) == pytest.approx(1.0 - 0.008, rel=1e-6)  # the cavity is kept
+    assert subtract(small, big) == []
