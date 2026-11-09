@@ -34,12 +34,12 @@ ALL: dict[str, Any] = {"toon_softness": 0.4, "toon_shadow_color": "#5b4f9e", "to
                        "outline_space": "pixels", "outline": 2.0, "outline_color": "darken"}  # fmt: skip
 
 # sha256 (16 hex) of the scenes before #26: (plain scene, variant + atlas textures + revealed scene, look kit)
-BEFORE = {
-    "toon": ("e12dc238aa7675fa", "c9692274e96417e7", "cc9a4facd8b30e7e"),
-    "soft_toy": ("2d956e21e5eb81cd", "8896b25d6213ddd7", "a806d296a38315d5"),
-    "low_poly": ("baaee84bee77bb62", "29737b4a8877c374", "06e872ad04478d6c"),
-    "clay": ("7ecb346167048d15", "e1e2f90bbec5c042", "07739d29777b490e"),
-    "diorama": ("0f4c57b06e3bd633", "78ee193728091fce", "38f6dd597b7843c3"),
+BEFORE = {  # look kits changed on purpose in #161 (tonemap_white, the Compatibility sun script)
+    "toon": ("e12dc238aa7675fa", "c9692274e96417e7", "e58c506d45228c13"),
+    "soft_toy": ("2d956e21e5eb81cd", "8896b25d6213ddd7", "b39d8959ee681048"),
+    "low_poly": ("baaee84bee77bb62", "29737b4a8877c374", "b3662df45bfd1a14"),
+    "clay": ("7ecb346167048d15", "e1e2f90bbec5c042", "ad8101e13905dcaa"),
+    "diorama": ("0f4c57b06e3bd633", "78ee193728091fce", "901d6833e7a3a02f"),
 }
 
 
@@ -270,3 +270,13 @@ def test_godot_check_catches_shader_errors(tmp_path: Path, monkeypatch: pytest.M
     assert not result.errors and result.godot_root is not None
     check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
     assert not check.ok and "SHADER ERROR" in check.output
+
+
+def test_compat_shadows_keeps_the_sun_unscripted() -> None:
+    """#161: by default the look kit's sun drops its shadows on Compatibility; compat_shadows = true leaves it alone."""
+    look = _toon()
+    style, _ = load_style("toon")
+    assert style is not None
+    assert "gl_compatibility" in look_scene(style) and 'script = SubResource("GDScript_sun")' in look_scene(style)
+    kept = replace(style, look=replace(look, compat_shadows=True))
+    assert "GDScript_sun" not in look_scene(kept) and "shadow_enabled = true" in look_scene(kept)

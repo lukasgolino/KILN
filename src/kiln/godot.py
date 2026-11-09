@@ -21,7 +21,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TypeAlias
 
-from kiln.style import TOON_DARKEN, Look, Style
+from kiln.style import FILMIC_WHITE, TOON_DARKEN, Look, Style
 
 TOON_SHADER = """shader_type spatial;
 render_mode specular_disabled;
@@ -632,6 +632,7 @@ def look_scene(style: Style) -> str:
         f"ambient_light_energy = {look.ambient:.6g}",
         f"tonemap_mode = {TONEMAP[look.tonemapper]}",
         f"tonemap_exposure = {look.exposure:.6g}",
+        f"tonemap_white = {FILMIC_WHITE:.6g}",  # the curve the previews use (#161)
         f"ssao_enabled = {'true' if look.ssao else 'false'}",
         f"glow_enabled = {'true' if look.glow else 'false'}",
         "adjustment_enabled = true",
@@ -640,6 +641,17 @@ def look_scene(style: Style) -> str:
     ]
     if look.fog > 0:
         env += ["fog_enabled = true", f"fog_density = {look.fog:.6g}", f"fog_light_color = {_color(look.fog_color)}"]
+    env += [
+        "",
+        '[sub_resource type="GDScript" id="GDScript_sun"]',
+        'script/source = "extends DirectionalLight3D',
+        "# Godot's Compatibility renderer adds the ambient light again for every light with shadows",
+        "# (godotengine/godot#90259): everything comes out several times too bright. There the sun casts no shadows.",
+        "func _ready() -> void:",
+        '\tif RenderingServer.get_current_rendering_method() == \\"gl_compatibility\\":',
+        "\t\tshadow_enabled = false",
+        '"',
+    ] if look.shadows and not look.compat_shadows else []
     nodes = [
         "",
         f'[node name={_quote("look_" + style.name)} type="Node3D"]',
@@ -653,6 +665,7 @@ def look_scene(style: Style) -> str:
         f"light_color = {_color(look.sun_color)}",
         f"light_energy = {look.sun_energy:.6g}",
         f"shadow_enabled = {'true' if look.shadows else 'false'}",
+        *(['script = SubResource("GDScript_sun")'] if look.shadows and not look.compat_shadows else []),
         "",
     ]
     return "\n".join(["[gd_scene format=3]", "", *env, *nodes])

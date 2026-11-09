@@ -36,6 +36,9 @@ class MaterialPreset:
     rim: float = 0.0  # soft-light rim (Godot: rim), 0..1
 
 
+FILMIC_WHITE = 3.0  # Godot's tonemap_white in every look kit, so its Filmic curve is the previews' exactly (#161)
+
+
 @dataclass(frozen=True)
 class Look:
     shader: str = "standard"
@@ -62,6 +65,7 @@ class Look:
     sun_energy: float = 1.1
     sun_color: str = "#fff6e8"
     shadows: bool = True
+    compat_shadows: bool = False  # Compatibility renderer: keep the sun's shadows anyway (godotengine/godot#90259 over-brightens)
     fog: float = 0.0  # density; 0 = none
     fog_color: str = "#c8d8e8"
     rim_light: float = 0.0  # strength of an added fresnel glow on every surface (reads on bright skies); 0 = none

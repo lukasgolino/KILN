@@ -22,7 +22,7 @@ from kiln.export import Built, srgb_to_linear
 from kiln.paint import decal_uv
 from kiln.rig import skin_matrices
 from kiln.sdf import Array, rotation_matrix
-from kiln.style import TOON_DARKEN, Look
+from kiln.style import FILMIC_WHITE, TOON_DARKEN, Look
 
 SUPERSAMPLE = 2
 BAYER = (np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]) + 0.5) / 16  # ordered-dither thresholds
@@ -78,14 +78,13 @@ def posed(built: Built, track: int | None, frame: int) -> tuple[Array, Array]:
 
 
 def _filmic(x: Array) -> Array:
-    """A gentle filmic curve (Hable's, white point 6), close to Godot's Filmic tonemapper."""
+    """Godot's Filmic tonemapper (Hable's curve with its exposure bias of 2) at white = FILMIC_WHITE."""
     a, b, c, d, e, f = 0.22, 0.30, 0.10, 0.20, 0.01, 0.30
 
     def curve(v: Array) -> Array:
         return ((v * (a * v + c * b) + d * e) / (v * (a * v + b) + d * f)) - e / f
 
-    white = 6.0
-    return curve(x * 2.0) / curve(np.array(white))
+    return curve(x * 2.0) / curve(np.array(FILMIC_WHITE * 2.0))
 
 
 def _to_srgb(x: Array) -> Array:
@@ -238,7 +237,7 @@ def render(
         sky_top, sky_hor, ground = (np.array(srgb_to_linear(c)) for c in (look.sky_top, look.sky_horizon, look.ground))
         up_amount = n[:, 1:2]
         sky = np.where(up_amount >= 0, sky_hor + (sky_top - sky_hor) * up_amount, sky_hor + (ground - sky_hor) * (-up_amount))
-        ambient = sky * look.ambient * 0.55
+        ambient = sky * look.ambient  # as Godot: ambient_light_energy on the sky (#161)
         if look.shader == "toon":
             bands = max(2, look.toon_bands)
             lit = toon_lit(ndl, bands, look.toon_softness)
