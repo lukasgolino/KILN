@@ -34,9 +34,9 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://kiln3d.dev/"
-Source = "https://github.com/lukasgolino/KILN"
-Issues = "https://github.com/lukasgolino/KILN/issues"
-Changelog = "https://github.com/lukasgolino/KILN/blob/main/CHANGELOG.md"
+Source = "https://github.com/lukasgolino/kiln"
+Issues = "https://github.com/lukasgolino/kiln/issues"
+Changelog = "https://github.com/lukasgolino/kiln/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "mypy>=1.10", "ruff>=0.15", "types-PyYAML", "numba>=0.60", "xatlas>=0.0.9"]
