@@ -91,6 +91,21 @@ def _model_path(project: Project, name: str) -> Path:
 # --- init / new ----------------------------------------------------------------------------------------------
 
 
+def _init_output(root: Path, godot: Path | None) -> tuple[str, tuple[str, ...], bool]:
+    """`kiln init`'s output_dir and export (#163): inside a Godot project, its assets/kiln with Godot scenes, unless that
+    is the KILN folder or under it (the folder gets a .gdignore, #97). Returns (output_dir, export, inside Godot)."""
+    if godot is None:
+        return "build", ("glb",), False
+    target = godot / "assets" / "kiln"
+    if target == root or target.is_relative_to(root):
+        return "build", ("glb",), False
+    try:
+        rel = Path(os.path.relpath(target, root)).as_posix()
+    except ValueError:  # Windows: another drive or a UNC path
+        rel = target.as_posix()
+    return rel, ("glb", "godot"), True
+
+
 def cmd_init(args: argparse.Namespace, out: Output) -> int:
     root = Path(args.dir).resolve()
     if (root / CONFIG_NAME).exists():
@@ -100,11 +115,13 @@ def cmd_init(args: argparse.Namespace, out: Output) -> int:
     for folder in ("models", "palettes", "styles", "decals", "imports"):
         (root / folder).mkdir(parents=True, exist_ok=True)
     godot = find_godot_project(root.parent)
-    # inside a Godot project the output goes where Godot sees it, with scenes; the KILN folder itself gets a .gdignore (#97, #163)
-    output_dir = Path(os.path.relpath(godot / "assets" / "kiln", root)).as_posix() if godot is not None else "build"
-    export = '["glb", "godot"]' if godot is not None else '["glb"]'
-    values = {"style": args.style, "output_dir": output_dir, "export": export,
-              "output_pad": " " * max(1, 31 - len(f'output_dir = "{output_dir}"')), "export_pad": " " * max(1, 31 - len(f"export = {export}"))}
+    output_dir, export, inside = _init_output(root, godot)
+    toml_out = '"' + output_dir.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    toml_export = "[" + ", ".join(f'"{e}"' for e in export) + "]"
+    values = {"style": args.style, "output_dir": toml_out, "export": toml_export,
+              "output_pad": " " * max(1, 31 - len(f"output_dir = {toml_out}")), "export_pad": " " * max(1, 31 - len(f"export = {toml_export}")),
+              "output_note": "the Godot project's assets/kiln: Godot imports it" if inside else 'put this inside your Godot project, e.g. "../game/assets/kiln"',
+              "export_note": "glb + Godot scenes and look kits" if "godot" in export else 'add "godot" for .tscn scenes + look kits (output_dir must be in a Godot project)'}
     (root / CONFIG_NAME).write_text(Template(_template("kiln.toml")).safe_substitute(values), encoding="utf-8")
     (root / "palettes" / "main.pal.yaml").write_text(_template("main.pal.yaml"), encoding="utf-8")
     for doc in ("BRIEF.md", "STYLE.md"):
@@ -116,11 +133,14 @@ def cmd_init(args: argparse.Namespace, out: Output) -> int:
     if godot is not None and not (root / ".gdignore").exists():
         (root / ".gdignore").write_text("", encoding="utf-8")  # sources, imports and previews aren't game assets
     out.say(f"created KILN project in {display_path(root)} (style {args.style}); next: kiln new model <name>")
-    if godot is not None:
+    if godot is not None and inside:
         out.say(f"inside the Godot project {display_path(godot)}: wrote {display_path(root / '.gdignore')}, so Godot skips this folder; "
                 f"builds go to \"{output_dir}\" with Godot scenes (output_dir, export in kiln.toml)")
+    elif godot is not None:  # the KILN folder holds assets/kiln itself: anything under it is hidden from Godot
+        out.say(f"inside the Godot project {display_path(godot)}: wrote {display_path(root / '.gdignore')}, so Godot skips this folder, "
+                f"build output included; set output_dir in kiln.toml to a folder Godot sees outside it")
     out.result({"project": display_path(root), "style": args.style, "godot_project": display_path(godot) if godot else None,
-                "output_dir": output_dir})
+                "output_dir": output_dir, "export": list(export)})
     return 0
 
 
