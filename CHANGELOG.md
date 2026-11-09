@@ -37,6 +37,8 @@ string.
 
 ### Changed
 
+- The repository is now `lukasgolino/kiln` (#158): move git pins and links to the new name (GitHub redirects the old
+  URLs for now).
 - The Godot render matches `kiln preview` (#161; mean OKLab gap 0.25 -> 0.02 on a palette x material grid, soft_toy):
   - look kits set `tonemap_white = 3`, so Godot's Filmic is exactly the previews' curve (Godot's default white made
     every colour paler);
