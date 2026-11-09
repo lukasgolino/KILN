@@ -6,7 +6,7 @@ run the CLI handlers with stdout captured), so the CLI, the skill and MCP share 
 tools also read the user's pack cache; no tool downloads).
 Previews come back as images the model can look at.
 
-Needs the optional extra: `pip install "kiln[mcp]"`.
+Installed with KILN (`pip install kiln-gen`); `uvx kiln-gen mcp` runs it without an install.
 """
 
 from __future__ import annotations

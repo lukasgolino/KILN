@@ -30,7 +30,7 @@ def cost_line(seconds: float) -> str:
     peak = peak_gb()
     line = f"{seconds:.0f} s" + (f", peak memory {peak:.1f} GB" if peak is not None else "")
     if seconds >= SLOW_SECONDS and importlib.util.find_spec("numba") is None:  # #99 (not when KILN_JIT=0 pins numpy)
-        line += "; meshing runs faster with pip install 'kiln[fast]'"
+        line += "; meshing runs faster with pip install 'kiln-gen[fast]'"
     return line
 
 

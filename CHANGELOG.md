@@ -6,6 +6,22 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-09
+
+KILN is on PyPI as `kiln-gen` and in the MCP Registry as `io.github.lukasgolino/kiln` (#155). Output is
+byte-identical apart from the generator string.
+
+### Changed
+
+- The distribution is `kiln-gen` (`kiln` on PyPI is another project): `pip install kiln-gen`; the command and the
+  import stay `kiln`. Git pins must use the new name from this version on (`kiln-gen @ git+...@v0.19.0`).
+- The MCP server is always installed (`mcp` is a dependency; the `mcp` extra is kept, empty), so
+  `uvx kiln-gen mcp` runs it without an install.
+
+### Added
+
+- Tags publish to PyPI (Trusted Publishing) and `server.json` to the MCP Registry.
+
 ## [0.18.0] - 2026-11-08
 
 Meshes change for models whose parts share pattern colours (several parts with the same `gradient`); everything

@@ -1029,7 +1029,7 @@ def cmd_mcp(args: argparse.Namespace, out: Output) -> int:
     try:
         from kiln.mcp_server import serve
     except ImportError:
-        raise _usage('the MCP server needs the optional extra: pip install "kiln[mcp]"') from None
+        raise _usage('the MCP server needs the mcp package: pip install --upgrade kiln-gen') from None
     serve(Path(args.project).resolve() if args.project else Path.cwd(), allow_godot=args.allow_godot)
     return 0
 
