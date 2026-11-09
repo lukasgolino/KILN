@@ -1,10 +1,10 @@
-"""Compiled part distances (optional: `pip install kiln[fast]`, numba). One fused pass per point does what
+"""Compiled part distances (optional: `pip install kiln-gen[fast]`, numba). One fused pass per point does what
 `Geometry._distance` does with numpy arrays: mirror, copies, rotation, twist, the shape, open side, shell, noise,
 and `Field.part_distance`'s box stand-in, without N x 3 temporaries, in parallel over points.
 
 The numpy code stays the reference (and the path for extrudes and fitted shells). The two agree to rounding, not
 bit for bit (sums and sines are done in another order), so a project builds identically only on the same path:
-pin `kiln[fast]` (or KILN_JIT=0) in a game's requirements. KILN_JIT=0 turns the compiled path off.
+pin `kiln-gen[fast]` (or KILN_JIT=0) in a game's requirements. KILN_JIT=0 turns the compiled path off.
 """
 
 from __future__ import annotations

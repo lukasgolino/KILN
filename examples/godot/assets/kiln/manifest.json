@@ -25,7 +25,7 @@
     "manifest.json"
   ],
   "front": "+Z",
-  "generator": "kiln 0.18.0",
+  "generator": "kiln 0.19.0",
   "looks": {
     "soft_toy": "res://assets/kiln/looks/soft_toy.tscn"
   },

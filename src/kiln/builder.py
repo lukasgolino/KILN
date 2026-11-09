@@ -250,7 +250,7 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
     from kiln import bake
 
     if not bake.available():
-        raise ValueError("normal_map needs xatlas for the UVs: pip install \"kiln[bake]\"")
+        raise ValueError("normal_map needs xatlas for the UVs: pip install \"kiln-gen[bake]\"")
     geoms = model.bake_parts if model.bake_parts is not None else [p.geometry for p in model.parts]
     to_bake = model.bake_index if model.bake_parts is not None else list(range(len(model.parts)))  # model.parts -> geoms
     full = Field(geoms, margin=step * 3)

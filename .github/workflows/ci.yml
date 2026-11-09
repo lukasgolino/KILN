@@ -2,7 +2,7 @@ name: CI
 
 # Tiered for Actions minutes. Every push: lint, types and tests on one Python. Big checks (all Pythons, Godot) run on
 # the PR once it leaves draft (PRs stay drafts while in development and review), and again only if a commit lands
-# after that: the last gate before merge. Run workflow runs everything. A vX.Y.Z tag only runs the release job.
+# after that: the last gate before merge. Run workflow runs everything. A vX.Y.Z tag only runs the release and publish (PyPI, MCP Registry) jobs.
 on:
   push:
     branches: ["**"]
@@ -96,6 +96,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Versions match the tag
+        run: |
+          python3 - "${GITHUB_REF_NAME#v}" <<'EOF'
+          import json, sys, tomllib
+          ver = sys.argv[1]
+          server = json.load(open("server.json"))
+          found = {tomllib.load(open("pyproject.toml", "rb"))["project"]["version"], server["version"]}
+          found |= {p["version"] for p in server["packages"]}
+          sys.exit(0 if found == {ver} else f"tag {ver} but pyproject/server.json say {sorted(found)}")
+          EOF
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -103,4 +113,45 @@ jobs:
           ver="${GITHUB_REF_NAME#v}"
           awk -v v="$ver" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md >notes.md
           [ -s notes.md ] || { echo "CHANGELOG.md has no section for $ver"; exit 1; }
-          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
+          # a re-run (after a failed publish) finds the release already there
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
+
+  publish:
+    # PyPI through Trusted Publishing (environment pypi, no token), then server.json to the MCP Registry (GitHub OIDC).
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: pip install build && python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true  # a re-run after a failed registry step finds the files already on PyPI
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl -fsSL -o "$archive" "$base/$archive"
+          curl -fsSL -o "$archive.sigstore.json" "$base/$archive.sigstore.json"
+          cosign verify-blob --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$archive"
+          tar xzf "$archive" mcp-publisher
+      - name: Publish to the MCP Registry
+        run: |
+          ./mcp-publisher login github-oidc
+          # the registry reads the README from PyPI, which can take a moment to show the new release
+          for i in 1 2 3 4 5; do ./mcp-publisher publish && exit 0; sleep 30; done
+          exit 1

@@ -6,6 +6,24 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-09
+
+KILN is on PyPI as `kiln-gen` and in the MCP Registry as `io.github.lukasgolino/kiln` (#155). Output is
+byte-identical apart from the generator string.
+
+### Changed
+
+- The distribution is `kiln-gen` (`kiln` on PyPI is another project): `pip install kiln-gen`; the command and the
+  import stay `kiln`. Git pins must use the new name from this version on (`kiln-gen @ git+...@v0.19.0`).
+- The MCP server is always installed (`mcp` is a dependency; the `mcp` extra is kept, empty), so
+  `uvx kiln-gen mcp` runs it without an install.
+- **Upgrading from a git-pinned `kiln`:** `pip uninstall kiln` first, then install `kiln-gen`. Both own the same
+  `kiln/` files, so uninstalling `kiln` after installing `kiln-gen` deletes them.
+
+### Added
+
+- Tags publish to PyPI (Trusted Publishing) and `server.json` to the MCP Registry.
+
 ## [0.18.0] - 2026-11-08
 
 Meshes change for models whose parts share pattern colours (several parts with the same `gradient`); everything
@@ -626,13 +644,15 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/KILN/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/lukasgolino/KILN/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/lukasgolino/KILN/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/lukasgolino/KILN/compare/v0.16.1...v0.17.0
 [0.16.1]: https://github.com/lukasgolino/KILN/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/lukasgolino/KILN/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/lukasgolino/KILN/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/lukasgolino/KILN/compare/v0.13.0...v0.14.0
+[0.13.0]: https://github.com/lukasgolino/KILN/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/lukasgolino/KILN/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/lukasgolino/KILN/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/lukasgolino/KILN/compare/v0.10.0...v0.10.1

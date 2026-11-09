@@ -56,7 +56,7 @@ anything that changes output.
   attribution. Push only when asked; ask before tags.
 - Versioning as PAGAN: bump `version` in pyproject.toml, CHANGELOG entry (Keep a Changelog), tag `vX.Y.Z` for any
   change to the notation, settings, manifest/exporter output or meshes.
-- Dependencies: numpy, Pillow, PyYAML, fast-simplification, fonttools (font text for extrudes; approved 2026-10-21) (PAGAN is vendored, not a dependency); extras `mcp` and `fast` (numba, #112). Others only if needed:
+- Dependencies: numpy, Pillow, PyYAML, fast-simplification, fonttools (font text for extrudes; approved 2026-10-21), mcp (core since #155, so `uvx kiln-gen mcp` works) (PAGAN is vendored, not a dependency); extras `fast` (numba, #112) and `bake` (xatlas). Others only if needed:
   log why below.
 
 ## Decisions log
@@ -217,3 +217,7 @@ anything that changes output.
   colour bytes once at load, only on Compatibility (RenderingServer attribute region, so LODs and indices stay), which
   fixes the standard and toon looks alike without touching their shaders. Engine renders run offscreen through
   `tools/godot_window.sh` (Xvfb + Mesa CPU drivers); the render test is opt-in (`KILN_ENGINE_RENDER=1`).
+- 2026-11-09: #155: published as `kiln-gen` on PyPI (`kiln` is taken; the import and command stay `kiln`) and as
+  `io.github.lukasgolino/kiln` in the MCP Registry. Tags publish through PyPI Trusted Publishing (environment `pypi`)
+  and the registry's GitHub OIDC login: no tokens in the repo. `mcp` became a dependency so registry clients can run
+  `uvx kiln-gen mcp` (no extras in registry entries). server.json's versions are tested against pyproject.

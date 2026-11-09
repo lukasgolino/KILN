@@ -9,7 +9,7 @@ generators, no GPU, no Blender.
 **Website:** https://kiln3d.dev/ (live 3D demo, docs). Sister libraries: [PAGAN](https://pagan.top/)
 (pixel art) and [SEGAN](https://segan.top/) (audio).
 
-![The demo models in Godot](docs/showcase.png)
+![The demo models in Godot](https://raw.githubusercontent.com/lukasgolino/KILN/main/docs/showcase.png)
 
 ```yaml
 name: pilot
@@ -47,7 +47,7 @@ A project picks a **style**: how shapes become meshes (smooth or faceted), trian
 the look kit (lighting, tonemapping, outlines). The same model text below is soft toy (Dear Passengers, Fall Guys),
 low poly and toon. Make your own from inspiration images.
 
-![The same models in soft_toy, low_poly and toon](docs/styles.png)
+![The same models in soft_toy, low_poly and toon](https://raw.githubusercontent.com/lukasgolino/KILN/main/docs/styles.png)
 
 ## Terrains
 
@@ -55,7 +55,7 @@ A model with `terrain:` is ground for a level: hills, ridges, plateaus, noise an
 with up to four palette colours by slope, height, nearness to paths and noise. It builds into chunked LOD meshes, a
 splat map and a Godot scene with collision (`examples/terrain`).
 
-![A 256 m terrain from above and from four sides](docs/terrain.png)
+![A 256 m terrain from above and from four sides](https://raw.githubusercontent.com/lukasgolino/KILN/main/docs/terrain.png)
 
 ## Foliage
 
@@ -63,18 +63,18 @@ A model with `scatter:` places other models many times over a terrain, another m
 spacing, slope / height / noise / splat-layer / path rules, random turn, scale, lean and tint. KILN rolls every
 instance at build time into a JSON file and a Godot scene of MultiMeshes with LODs (`examples/terrain`: `meadow`, `moss`).
 
-![Trees, bushes, boulders, flowers and grass over the valley, and grass on a boulder](docs/foliage.png)
+![Trees, bushes, boulders, flowers and grass over the valley, and grass on a boulder](https://raw.githubusercontent.com/lukasgolino/KILN/main/docs/foliage.png)
 
 ## Install
 
 Requires Python 3.11+.
 
 ```sh
-pip install "kiln @ git+https://github.com/lukasgolino/KILN@v0.1.0"
+pip install kiln-gen      # the package is kiln-gen on PyPI; the command and the import are `kiln`
 kiln --version
 ```
 
-Faster builds of big models: `kiln[fast]` (numba). Its output differs from the plain install in the last float digits,
+Faster builds of big models: `kiln-gen[fast]` (numba). Its output differs from the plain install in the last float digits,
 so a game pins one or the other in its requirements.
 
 Development: `python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"`, then `pytest` and `mypy`.
@@ -121,7 +121,7 @@ project showing the demo models.
 ## Other engines
 
 The `.glb` files are plain glTF 2.0: Unity, Unreal, Bevy, three.js and Defold import them. Set `export = ["glb"]`.
-[docs/engines.md](docs/engines.md) has per-engine notes (axes, scale, vertex colours, palette textures, animations,
+[docs/engines.md](https://github.com/lukasgolino/KILN/blob/main/docs/engines.md) has per-engine notes (axes, scale, vertex colours, palette textures, animations,
 LODs) and what's Godot-only (look kits, toon, outlines, rim light) with how to approximate it.
 
 ## Using KILN with Claude
@@ -137,9 +137,16 @@ lint, LOOK at the previews, check the line-up, report.
 ## From any agent (MCP)
 
 ```sh
-pip install "kiln[mcp] @ git+https://github.com/lukasgolino/KILN@v0.1.0"
-claude mcp add kiln -- kiln mcp --project ./art     # or any MCP client
+claude mcp add kiln -- uvx kiln-gen mcp --project /path/to/art     # no install needed (uv); or `kiln mcp` after pip install
 ```
+
+Other clients take the same command in their config:
+
+```json
+{ "mcpServers": { "kiln": { "command": "uvx", "args": ["kiln-gen", "mcp", "--project", "/path/to/art"] } } }
+```
+
+KILN is listed in the [MCP Registry](https://registry.modelcontextprotocol.io/) as `io.github.lukasgolino/kiln`.
 
 Tools return the CLI's JSON; previews come back as images. Add `--allow-godot` for Godot verification and engine
 renders.
@@ -157,6 +164,8 @@ into a per-user cache (the only command that downloads), `kiln pack search knigh
 tags, and `kiln pack import kaykit-adventurers knight --height 1.8` brings one in and records its files (pack,
 version, URL, sha256, licence) in `kiln.lock`, which `kiln build` checks.
 
+<!-- mcp-name: io.github.lukasgolino/kiln -->
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/lukasgolino/KILN/blob/main/LICENSE).

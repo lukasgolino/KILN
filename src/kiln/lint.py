@@ -389,7 +389,7 @@ def build_all(jobs: list[tuple[Model, Style, dict[str, str], Path]]) -> list[Bui
     if workers > 1:
         method = "forkserver" if sys.platform.startswith("linux") else "spawn"
         try:
-            threads = max(1, (os.cpu_count() or 1) // workers)  # compiled kernels (kiln[fast]): the cores shared out
+            threads = max(1, (os.cpu_count() or 1) // workers)  # compiled kernels (kiln-gen[fast]): the cores shared out
             with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context(method), initializer=set_threads, initargs=(threads,)) as pool:
                 for k, built in zip(todo, pool.map(_build_job, [jobs[k] for k in todo]), strict=True):
                     out[k] = built

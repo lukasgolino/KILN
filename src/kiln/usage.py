@@ -23,14 +23,14 @@ def peak_gb() -> float | None:
     return round(peak / scale, 2)
 
 
-SLOW_SECONDS = 20.0  # past this, a run without kiln[fast] says what the extra would save
+SLOW_SECONDS = 20.0  # past this, a run without kiln-gen[fast] says what the extra would save
 
 
 def cost_line(seconds: float) -> str:
     peak = peak_gb()
     line = f"{seconds:.0f} s" + (f", peak memory {peak:.1f} GB" if peak is not None else "")
     if seconds >= SLOW_SECONDS and importlib.util.find_spec("numba") is None:  # #99 (not when KILN_JIT=0 pins numpy)
-        line += "; meshing runs faster with pip install 'kiln[fast]'"
+        line += "; meshing runs faster with pip install 'kiln-gen[fast]'"
     return line
 
 

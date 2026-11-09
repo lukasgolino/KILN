@@ -1420,7 +1420,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     normal_map = data.get("normal_map", 0)
     if normal_map not in (0, 256, 512, 1024, 2048, 4096):
         ctx.error("E003", "normal_map is the baked normal map's size in texels: 256, 512, 1024, 2048 or 4096 (0: none); detail then comes from "
-                  "the shapes, not triangles (needs kiln[bake])", _line(data, "normal_map"), "normal_map")  # fmt: skip
+                  "the shapes, not triangles (needs kiln-gen[bake])", _line(data, "normal_map"), "normal_map")  # fmt: skip
     else:
         model.normal_map = int(normal_map)
     strength = data.get("normal_strength", 1.0)

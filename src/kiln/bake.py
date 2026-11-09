@@ -1,6 +1,6 @@
 """Normal maps baked from the distance field (#111): detail without triangles.
 
-The mesh gets unique UVs (xatlas, `pip install kiln[bake]`), tangents (written into the glb, so the engine decodes
+The mesh gets unique UVs (xatlas, `pip install kiln-gen[bake]`), tangents (written into the glb, so the engine decodes
 the map with exactly the basis it was baked with), and a tangent-space normal map: every texel's normal is the
 field's gradient at the surface point under it (the mesh point moved onto the field's surface), so fine detail
 the mesh is too coarse for, and `detail: true` parts that never reach the mesh, show in the lighting.
