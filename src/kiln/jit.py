@@ -499,7 +499,6 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
             box = math.sqrt(ox * ox + oy * oy + oz * oz)
             k = blend[i]
             blended = target_set[i] >= 0
-            tt = math.inf
             if op[i] != 2:  # out of reach: the part can't change f here (its distance is at least its box's)
                 gap = box - 1e-6
                 if gap > 0 and gap >= (f if op[i] == 0 else -f) + k:
@@ -518,8 +517,7 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                 f = -smin(-f, -d, k)
             elif has_targets[i]:  # blend_to: melts into its targets only; a crisp join with the rest
                 if blended:
-                    if tt == math.inf:
-                        tt = target_distance(target_set[i], n, x, y, z, t, lo, hi, pad, pre, slot, set_off, set_idx, cache, stamp)
+                    tt = target_distance(target_set[i], n, x, y, z, t, lo, hi, pad, pre, slot, set_off, set_idx, cache, stamp)
                     f = min(f, smin(max(tt, f), d, k))
                 else:
                     f = min(f, d)

@@ -76,7 +76,6 @@ def test_compiled_blend_to_matches_numpy() -> None:
     np.testing.assert_allclose(field.distance(p), numpy_path(lambda: field.distance(p)), atol=1e-12)
 
 
-
 def test_compiled_many_blend_to_parts_match_numpy() -> None:
     """#220: hundreds of flush tufts melting into body parts by id, each into its own growing set (every earlier part
     with that id, earlier tufts included), mirrored, with a cut and an intersect among them: compiled and numpy agree.
@@ -102,4 +101,6 @@ def test_compiled_many_blend_to_parts_match_numpy() -> None:
     parts.append(geom("box", {"size": [2.0, 1.5, 2.0], "round": 0.0}, at=np.array([0.0, 0.8, 0.0]), op="intersect"))
     field = Field(parts, margin=0.03)
     p = rng.uniform([-0.4, 0.0, -0.3], [0.4, 1.5, 0.3], (20_000, 3))
-    np.testing.assert_allclose(field.distance(p), numpy_path(lambda: field.distance(p)), atol=1e-12)
+    full = field.evaluate(p, with_parts=False)[0]  # no part skipped at all: the skip rule's meaning, not only agreement
+    np.testing.assert_allclose(field.distance(p), full, atol=1e-12)
+    np.testing.assert_allclose(numpy_path(lambda: field.distance(p)), full, atol=1e-12)

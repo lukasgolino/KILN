@@ -214,3 +214,24 @@ def test_lathe_profiles_are_smoothed_unless_asked() -> None:
     smooth = smooth_profile(square)
     assert len(smooth) > len(square) and [0.0, 0.0] in smooth and [0.0, 1.0] in smooth  # axis points stay
     assert [1.0, 1.0] not in smooth  # the corner is cut
+
+
+def test_out_of_reach_blend_to_parts_are_skipped_exactly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#220: the numpy field skips a blend_to part out of reach without its targets' union; the result is the full
+    evaluation's (no part skipped), with growing target sets, mirrors and a cut. Runs without numba too."""
+    from kiln import jit
+
+    monkeypatch.setattr(jit, "AVAILABLE", False)
+    rng = np.random.default_rng(7)
+    parts = [Geometry("ellipsoid", {"radii": [0.2, 0.4, 0.15]}, at=np.array([0.0, 1.0, 0.0]))]
+    for k in range(40):
+        a, y = rng.uniform(0, 2 * np.pi), rng.uniform(0.7, 1.3)
+        base = np.array([0.16 * np.cos(a), y, 0.16 * np.sin(a)])
+        tip = base + np.array([0.0, -0.08, 0.0])
+        parts.append(Geometry("tube", {"points": [base.tolist(), tip.tolist()], "radius": 0.012, "radius_to": 0.004}, blend=0.012,
+                              blend_to=frozenset(range(len(parts))), mirror=(0,) if k % 2 else ()))
+        if k == 20:
+            parts.append(Geometry("sphere", {"radius": 0.05}, at=np.array([0.0, 1.2, 0.15]), op="cut", blend=0.01))
+    field = Field(parts, margin=0.03)
+    p = rng.uniform([-0.3, 0.5, -0.3], [0.3, 1.5, 0.3], (20_000, 3))
+    np.testing.assert_allclose(field.distance(p), field.evaluate(p, with_parts=False)[0], atol=1e-12)
