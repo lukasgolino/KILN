@@ -315,6 +315,7 @@ def test_relax_retesting_only_moved_faces_gives_the_same_mesh(jitter: float, ite
     assert np.array_equal(held.vertices, jittered.vertices)
 
 
+@pytest.mark.slow
 def test_pieces_the_simplifier_removes_whole_do_not_crash(project: Any) -> None:
     """#144: 120 thin tufts on a ball at a low budget: the simplifier collapses some tufts away entirely, so their
     vertices map to -1 in the next round. They must stay -1 (not wrap round to the last vertex) and stay out of the
@@ -334,4 +335,6 @@ def test_pieces_the_simplifier_removes_whole_do_not_crash(project: Any) -> None:
         lines += [f"  - lock: {{ points: {pts}, width: 0.04, thickness: 0.01, width_to: 0 }}", "    color: red", "    blend: 0.02"]
     result = lint_paths(project, [write_model(project, "\n".join(lines) + "\n", "tufts")])
     assert not [f for f in result.findings if f.severity == "error"], [f.message for f in result.findings if f.severity == "error"]
-    assert result.built["tufts"].painted.faces.shape[0] > 0
+    built = result.built["tufts"]
+    assert built.painted.faces.shape[0] > 0
+    assert built.lost and any(f.rule == "W111" for f in result.findings)  # tufts were dropped, and each is reported

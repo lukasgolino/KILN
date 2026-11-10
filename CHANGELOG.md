@@ -13,8 +13,7 @@ before 1.0).
 ### Fixed
 
 - Thin parts the simplifier collapses away entirely (a ball with 120 thin locks at a low budget) no longer fail the
-  build with "'list' argument must have no negative elements" (#144): their vertices stay out of the colour regions
-  and the weld.
+  build with "'list' argument must have no negative elements" (#144): they are dropped, and each is reported as W111.
 
 ## [0.21.0] - 2026-11-09
 

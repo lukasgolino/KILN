@@ -604,7 +604,7 @@ def decimate_regions(
             raise RuntimeError("fast-simplification's replay disagrees with its simplify; please report")
         progress = len(out_f) < len(f) * 0.97
         v, f = np.asarray(out_v, dtype=np.float64), np.asarray(out_f, dtype=np.int64)
-        # a vertex whose whole piece collapsed away maps to -1 (unreferenced in the next round's input): it stays -1
+        # a vertex whose whole piece collapsed away has no output vertex (-1); it stays -1 through later rounds
         follow = np.asarray(step_map, dtype=np.int64)
         mapping = np.where(mapping >= 0, follow[np.maximum(mapping, 0)], -1)
         if len(f) <= budget * 1.02 or not progress:
