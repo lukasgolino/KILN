@@ -12,7 +12,7 @@ from collections.abc import Callable
 PROGRESS_ENV = "KILN_PROGRESS"  # set by the CLI for human output (inherited by lint's worker processes)
 QUIET_SECONDS = 10.0  # a model build says what it is doing only once it has run this long
 LONG_SECONDS = 120.0  # a phase projected to take longer than this says so at once, with what would make it faster
-MANY_PARTS = 100  # a model with this many parts prints its first phase line at once (its build is rarely short)
+MANY_PARTS = 100  # a model with this many parts prints every phase line at once (its build is rarely short)
 
 
 Progress = Callable[[str, int, int], None]  # (what, done, total): how far a long step is
@@ -64,6 +64,7 @@ class Phases:
         self.phase_start = self.start  # when the current phase began (ETAs)
         self._warned: set[str] = set()  # phases that already said they'll be long
         self._eta: tuple[str, int, int, float] | None = None  # the last progress: (label, done, total, expected end)
+        self._counter: tuple[str, int, float, int] | None = None  # (label, last count, clock start, count at the start)
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._beat: threading.Thread | None = None
@@ -102,17 +103,26 @@ class Phases:
     def __call__(self, what: str) -> None:
         self.current = what
         self.phase_start = time.monotonic()
-        self._eta = None
+        self._eta = self._counter = None
         if self.on:
             self._say(what)
 
     def progress(self, label: str, done: int, total: int, hint: str = "") -> None:
-        """How far a long phase is (done of total) and roughly how long it has left, at most every QUIET_SECONDS. When
-        the projection passes LONG_SECONDS the phase says so at once (once), with `hint`: what would make it faster."""
-        spent = time.monotonic() - self.phase_start
-        left = spent / done * (total - done) if 0 < done < total and spent > 1.0 else None
+        """How far a long step is (done of total) and roughly how long it has left, at most every QUIET_SECONDS. When
+        the projection passes LONG_SECONDS the step says so at once (once), with `hint`: what would make it faster.
+        Each counter has its own clock: it starts again when the label changes or the count goes back (the next mesh
+        piece, patterns after borders), so earlier work in the phase doesn't inflate the estimate."""
+        now = time.monotonic()
+        if self._counter is None:  # the phase's first counter: timed from the phase's start
+            self._counter = (label, done, self.phase_start, 0)
+        elif self._counter[0] != label or done < self._counter[1]:
+            self._counter = (label, done, now, done)  # a later counter: its clock starts here, at this count
+        else:
+            self._counter = (label, done, self._counter[2], self._counter[3])
+        spent, counted = now - self._counter[2], done - self._counter[3]
+        left = spent / counted * (total - done) if counted > 0 and done < total and spent > 1.0 else None
         what = f"{label} {done}/{total}" + (f", about {duration(left)} left" if left is not None else "")
-        self._eta = (label, done, total, time.monotonic() + left) if left is not None else None
+        self._eta = (label, done, total, now + left) if left is not None else None
         if self.on and left is not None and spent + left > LONG_SECONDS and label not in self._warned:
             self._warned.add(label)
             self.current = what

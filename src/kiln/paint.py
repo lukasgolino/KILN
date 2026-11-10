@@ -496,6 +496,8 @@ def _patterns(
             vertices, faces, negative, parent = split(vertices, faces, _own_values(fn, vertices, faces, mine), mine)
             owner, mine = owner[parent], mine[parent]
             owner = _paint_alt(owner, own, mine & ~negative, pat, part, g, groups, group_index, pattern_groups)
+    if progress is not None and patterned:
+        progress("painting: patterns, parts done", len(patterned), len(patterned))
     return vertices, faces, owner, pattern_groups
 
 

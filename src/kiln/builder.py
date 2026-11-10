@@ -210,9 +210,10 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     kept = kept_parts(model, hard)
     groups_of = [[i for i in inc if i not in hard and i not in kept] for inc in all_pieces]
     pieces = [(include, field.only(include)) for include in groups_of if include]
-    def meshing(what: str, done: int, total: int) -> None:
-        phase.progress(what, done, total, "a coarser resolution: or fewer parts, meshing cost follows parts x cells")
+    def hinted(hint: str) -> Progress:  # a phase's counter, with what would make it faster
+        return lambda what, done, total: phase.progress(what, done, total, hint)
 
+    meshing = hinted("a coarser resolution or fewer parts meshes faster")
     meshes = [dual_contour(f, step, meshing) for _, f in pieces]
     phase(f"meshed at {step * 1000:.3g} mm: {sum(m.triangles for m in meshes)} triangles")
     kept_cut, kept_hidden = _kept(model, style, field, sorted(kept), step, target, meshes, rigged)
@@ -238,11 +239,11 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
         total = sum(mesh.triangles for _, _, mesh in live)
         live = [(include, f, decimate(f, mesh, max(200, round(PRESHAPE * soft_target * mesh.triangles / total)), step)) for include, f, mesh in live]
         phase(f"painting {len(adding)} parts")
-        cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect, phase.progress) for include, f, mesh in live])
+        cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect, hinted("fewer gradient or pattern parts paint faster")) for include, f, mesh in live])
         fields = [f for _, f, _ in live]
         phase(f"reducing to {soft_target} triangles")
         painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, soft_target, [inc for inc, _, _ in live], full_areas,
-                                                   phase.progress)  # fmt: skip
+                                                   hinted("a coarser resolution (fewer raw triangles) reduces faster"))  # fmt: skip
     floating = 1
     if groups_of[0] and painted is not None and not per_bone:  # separate parts may float
         main_faces = np.flatnonzero(region_piece[painted.face_group] == 0)
@@ -269,7 +270,7 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     joints = weights = None
     if model.skin == "soft":
         phase("skinning")
-        joints, weights = soft_weights(painted.vertices, model, field, skeleton, step, phase.progress)
+        joints, weights = soft_weights(painted.vertices, model, field, skeleton, step, hinted("skin: rigid or fewer parts skins faster"))
         if len(painted.vertices) > n_soft:  # hard parts don't bend: each vertex follows its own part's bone
             names = [b.name for b in skeleton.bones]
             bone = np.zeros(len(painted.vertices), dtype=np.int64)
