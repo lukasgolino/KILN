@@ -104,3 +104,19 @@ def test_compiled_many_blend_to_parts_match_numpy() -> None:
     full = field.evaluate(p, with_parts=False)[0]  # no part skipped at all: the skip rule's meaning, not only agreement
     np.testing.assert_allclose(field.distance(p), full, atol=1e-12)
     np.testing.assert_allclose(numpy_path(lambda: field.distance(p)), full, atol=1e-12)
+
+
+def test_serial_and_parallel_kernels_agree_exactly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#154: small point sets run on one thread (a parallel call costs milliseconds however small); same numbers."""
+    parts = [Geometry("ellipsoid", {"radii": [0.3, 0.4, 0.2]}),
+             Geometry("tube", SHAPES["tube"][1], blend=0.03, blend_to=frozenset({0}), noise=Noise(0.01, 0.2, 3)),
+             Geometry("sphere", {"radius": 0.1}, at=np.array([0.0, 0.3, 0.1]), op="cut", blend=0.02)]
+    field = Field(parts, margin=0.02)
+    p = np.random.default_rng(3).uniform(-0.6, 0.6, (3000, 3))
+    few = p[:500]  # under SERIAL_FIELD, over one CHUNK: the serial field kernel and its one cache; 3000 < SERIAL_POINTS
+    assert len(few) < jit.SERIAL_FIELD and len(few) > jit.CHUNK and len(p) < jit.SERIAL_POINTS
+    serial_field, serial_part = field.distance(few), field.part_distance(1, p)
+    monkeypatch.setattr(jit, "SERIAL_POINTS", 0)
+    monkeypatch.setattr(jit, "SERIAL_FIELD", 0)
+    np.testing.assert_array_equal(field.distance(few), serial_field)
+    np.testing.assert_array_equal(field.part_distance(1, p), serial_part)

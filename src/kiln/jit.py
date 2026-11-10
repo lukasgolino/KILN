@@ -29,7 +29,9 @@ except ImportError:  # numpy only
     AVAILABLE = False
 
 SHAPE_IDS = {"sphere": 0, "ellipsoid": 1, "box": 2, "cylinder": 3, "cone": 4, "capsule": 5, "tube": 6, "torus": 7, "wedge": 8, "lathe": 9, "lock": 10}
-MIN_POINTS = 64  # fewer points: numpy (the call costs more than it saves)
+MIN_POINTS = 64  # fewer points: numpy for one part's distance (the call costs more than it saves)
+SERIAL_POINTS = 8192  # a part's distance at fewer points runs on one thread: a parallel call costs ~3 ms however small (#154)
+SERIAL_FIELD = 1024  # the same for the whole field (a few us a point, so the pool pays off sooner)
 CHUNK = 64  # points per parallel task in the field kernel (each task keeps its own target-union cache)
 
 
@@ -176,7 +178,8 @@ def distance(g: Geometry, p: Array, filled: bool = False, box: tuple[Array, Arra
         object.__setattr__(g, "_jit_table", table)
     out = np.empty(len(p))
     lo, hi, pad = box if box is not None else (np.zeros(3), np.zeros(3), -1.0)
-    _part_kernel(np.ascontiguousarray(p, dtype=float), out, table, filled, np.asarray(lo, float), np.asarray(hi, float), float(pad))
+    kernel = _part_serial if len(p) < SERIAL_POINTS else _part_kernel
+    kernel(np.ascontiguousarray(p, dtype=float), out, table, filled, np.asarray(lo, float), np.asarray(hi, float), float(pad))
     return out
 
 
@@ -235,7 +238,8 @@ def field_distance(field: Field, p: Array) -> Array:
             pre[k] = field.part_distance(i, p)
         slot[i] = k
     out = np.empty(len(p))
-    _field_kernel(p, out, t.table, t.op, t.counts, t.blend, t.lo, t.hi, t.pad, pre, slot, t.target_set, t.set_off, t.set_idx, t.has_targets)
+    kernel = _field_serial if len(p) < SERIAL_FIELD else _field_kernel
+    kernel(p, out, t.table, t.op, t.counts, t.blend, t.lo, t.hi, t.pad, pre, slot, t.target_set, t.set_off, t.set_idx, t.has_targets)
     return out
 
 
@@ -439,17 +443,25 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
         h = min(max(0.5 + 0.5 * (b - a) / k, 0.0), 1.0)
         return b * (1 - h) + a * h - k * h * (1 - h)
 
+    @njit(cache=True, inline="always")
+    def part_point(n: int, p: Any, t: Any, filled: bool, lo: Any, hi: Any, pad: float) -> float:
+        x, y, z = p[n, 0], p[n, 1], p[n, 2]
+        if pad >= 0.0:  # Field.part_distance's stand-in far from the part's box
+            qx, qy, qz = max(lo[0] - x, x - hi[0]), max(lo[1] - y, y - hi[1]), max(lo[2] - z, z - hi[2])
+            if qx > pad or qy > pad or qz > pad:
+                ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
+                return math.sqrt(ox * ox + oy * oy + oz * oz) + pad
+        return part_at(0, x, y, z, filled, t)
+
     @njit(cache=True, parallel=True)
     def part_kernel(p: Any, out: Any, t: Any, filled: bool, lo: Any, hi: Any, pad: float) -> None:
         for n in prange(len(p)):
-            x, y, z = p[n, 0], p[n, 1], p[n, 2]
-            if pad >= 0.0:  # Field.part_distance's stand-in far from the part's box
-                qx, qy, qz = max(lo[0] - x, x - hi[0]), max(lo[1] - y, y - hi[1]), max(lo[2] - z, z - hi[2])
-                if qx > pad or qy > pad or qz > pad:
-                    ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
-                    out[n] = math.sqrt(ox * ox + oy * oy + oz * oz) + pad
-                    continue
-            out[n] = part_at(0, x, y, z, filled, t)
+            out[n] = part_point(n, p, t, filled, lo, hi, pad)
+
+    @njit(cache=True)
+    def part_serial(p: Any, out: Any, t: Any, filled: bool, lo: Any, hi: Any, pad: float) -> None:
+        for n in range(len(p)):
+            out[n] = part_point(n, p, t, filled, lo, hi, pad)
 
     @njit(cache=True, inline="always")
     def stood_in(i: int, n: int, x: float, y: float, z: float, t: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any) -> float:
@@ -485,6 +497,15 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
             stamp = np.full(n_sets, -1, np.int64)
             for n in range(c * CHUNK, min((c + 1) * CHUNK, len(p))):
                 out[n] = field_point(n, p, t, op, counts, blend, lo, hi, pad, pre, slot, target_set, set_off, set_idx, has_targets, cache, stamp)
+
+    @njit(cache=True)
+    def field_serial(p: Any, out: Any, t: Any, op: Any, counts: Any, blend: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any,
+                     target_set: Any, set_off: Any, set_idx: Any, has_targets: Any) -> None:  # fmt: skip
+        n_sets = max(len(set_off) - 1, 1)
+        cache = np.empty(n_sets)
+        stamp = np.full(n_sets, -1, np.int64)
+        for n in range(len(p)):
+            out[n] = field_point(n, p, t, op, counts, blend, lo, hi, pad, pre, slot, target_set, set_off, set_idx, has_targets, cache, stamp)
 
     @njit(cache=True, inline="always")
     def field_point(n: int, p: Any, t: Any, op: Any, counts: Any, blend: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any,
@@ -526,6 +547,8 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
         return f
 
     _part_kernel: Any = part_kernel
+    _part_serial: Any = part_serial
+    _field_serial: Any = field_serial
     _field_kernel: Any = field_kernel
 
 __all__ = ["AVAILABLE", "MIN_POINTS", "SHAPE_IDS", "distance", "field_distance", "field_table", "pack", "set_threads", "supported"]
