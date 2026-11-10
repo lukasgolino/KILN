@@ -303,7 +303,22 @@ def _with_occlusion(project: Project, built: Any) -> Any:
     return built
 
 
-def _built(project: Project, name: str) -> Any:
+DRAFT_CELLS = 3.0  # preview --draft: mesh cells this many times coarser (27x fewer field samples)
+
+
+def _drafted(model: Any, style: Any) -> tuple[Any, Any]:
+    """The model and style for a draft (#222): cells DRAFT_CELLS times coarser than the build's, no normal map. Its
+    style is named apart, so the sheets say draft and its cached build is its own."""
+    from dataclasses import replace
+
+    from kiln.builder import field_of
+    from kiln.mesher import mesh_cells
+
+    step = mesh_cells(field_of(model, 0.01), model, style)[0]
+    return replace(model, resolution=step * DRAFT_CELLS, normal_map=0, lod=(), draft=True), replace(style, name=f"{style.name} (draft)")
+
+
+def _built(project: Project, name: str, draft: bool = False) -> Any:
     from kiln.builder import build_cached
 
     path = _model_path(project, name)
@@ -317,6 +332,8 @@ def _built(project: Project, name: str) -> Any:
         raise _usage(f"{model.name} is a scatter: `kiln preview {model.name}` shows it (it has no parts, poses or line-up mesh)")
     palette, _ = project.palette(model.palette)
     try:
+        if draft:  # its own cache folder: a draft never replaces the build's cached meshes
+            return build_cached(*_drafted(model, style), palette, project.root / ".kiln-cache" / "draft")
         return _with_occlusion(project, build_cached(model, style, palette, project.root / ".kiln-cache"))
     except ValueError as exc:
         from kiln.builder import build_error
@@ -416,9 +433,11 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     scattered = _scatter_preview(project, args, out)
     if scattered is not None:
         return scattered
-    built = _built(project, args.model)
+    if args.draft and (args.engine or args.vs is not None or args.fit or args.effect):
+        raise _usage("--draft is a quick look at the model itself (turntable, --views, --closeup, --pose, --detach): not with --engine, --vs, --fit or --effect")
+    built = _built(project, args.model, args.draft)
     name = built.model.name
-    folder = project.preview_dir / name
+    folder = project.preview_dir / name / "draft" if args.draft else project.preview_dir / name  # drafts never replace the real sheets
     folder.mkdir(parents=True, exist_ok=True)
     outputs: dict[str, Any] = {}
     swap = built.model.variants.get(args.variant) if args.variant else None
@@ -1162,6 +1181,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--frame", metavar="N,N,...", help="with --pose: only these frames (e.g. one, up close with --size)")
     s.add_argument("--engine", action="store_true", help="render through Godot, offscreen (needs a build; Linux: xvfb); --views/--pitch/--size pick its views")
     s.add_argument("--variant")
+    s.add_argument("--draft", action="store_true",
+                   help="a quick coarse look while iterating: mesh cells 3x coarser, no normal map, no occlusion; shapes and placement, not the final surface")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")
     s.add_argument("models", nargs="*")
     sub.add_parser("gallery", parents=[common], help="every model in one sheet")

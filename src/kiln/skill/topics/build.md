@@ -111,6 +111,13 @@ skinning) at least every 10 s, with done/total and roughly how long is left:
 
 A model with 100 or more parts prints every phase line at once.
 
+`kiln preview <model> --draft` (with the turntable, `--views`, `--closeup`, `--pose`, `--detach`) is for iterating on
+a slow model: mesh cells 3 times coarser, each face in its nearest part's colour (ragged colour edges, no patterns
+on smooth parts), hard parts without bevels, one reducing pass, no normal map or baked occlusion. A 536-part
+character that builds in 5 minutes drafts in 14 s; a 23-part one in 5 s. Sheets go to `previews/<model>/draft/` and
+say `(draft)`; the draft has its own cache and never changes what `kiln build` or the real previews use. Judge
+proportions, silhouette and placement on it, not the surface, the colour edges or lint.
+
 ## Reporting
 
 Keep reports short: what you made, the preview image paths, sizes/triangles if relevant, open questions with your

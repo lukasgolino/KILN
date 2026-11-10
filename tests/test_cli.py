@@ -150,6 +150,36 @@ def test_preview(in_project: Project, capsys: pytest.CaptureFixture[str]) -> Non
         assert (in_project.root / rel).is_file()
 
 
+def test_preview_draft(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#222: a quick look: its own sheets (previews/<name>/draft/), its own cached build (coarser cells, rough colour
+    borders, plain hard parts, one reducing pass), the real build's cache untouched; not with the engine."""
+    import pickle
+
+    text = arms_text("hero", "soft").replace("rig:\n", "  - cylinder: { at: [0, 0.95, 0], radius: 0.1, height: 0.1 }\n    color: blue\n    bevel: 0.01\nrig:\n")
+    write_model(in_project, text, "hero")
+    cache = in_project.root / ".kiln-cache"
+    code, result = run_json(["preview", "hero", "--draft", "--pose", "hold", "--turntable", "--closeup", "arm_l"], capsys)
+    assert code == 0, result
+    assert result["outputs"]["turntable"] == "previews/hero/draft/turntable.png"
+    assert result["outputs"]["pose"] == {"hold": "previews/hero/draft/pose_hold.png"}
+    assert (in_project.root / "previews/hero/draft/turntable.png").is_file() and not (in_project.root / "previews/hero/turntable.png").exists()
+    drafts = list((cache / "draft").glob("hero.base.*.pickle"))
+    assert len(drafts) == 1 and not list(cache.glob("hero.base.*.pickle"))  # the build's cache: nothing written
+    with drafts[0].open("rb") as fh:
+        draft = pickle.load(fh)  # noqa: S301 (our own cache file)
+    code, result = run_json(["preview", "hero"], capsys)
+    assert code == 0 and result["outputs"]["turntable"] == "previews/hero/turntable.png"
+    (full,) = list(cache.glob("hero.base.*.pickle"))
+    with full.open("rb") as fh:
+        built = pickle.load(fh)  # noqa: S301
+    assert draft.model.draft and not built.model.draft
+    assert draft.step == pytest.approx(built.step * 3) and draft.style.name.endswith("(draft)")
+    assert draft.triangles > 0 and {g.color_name.split("#")[0] for g in draft.painted.groups} == {g.color_name.split("#")[0] for g in built.painted.groups}
+    assert len(drafts) == 1 and drafts[0].is_file()  # and the full preview left the draft's
+    code, result = run_json(["preview", "hero", "--draft", "--engine"], capsys)
+    assert code == 1 and "--draft is a quick look" in result["findings"][0]["message"]
+
+
 def test_preview_errors(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
     write_model(in_project, arms_text("hero"), "hero")
     code, result = run_json(["preview", "hero", "--closeup", "tail"], capsys)
