@@ -338,3 +338,59 @@ def test_pieces_the_simplifier_removes_whole_do_not_crash(project: Any) -> None:
     built = result.built["tufts"]
     assert built.painted.faces.shape[0] > 0
     assert built.lost and any(f.rule == "W111" for f in result.findings)  # tufts were dropped, and each is reported
+
+
+def test_fold_test_in_plain_floats_gives_numpys_verdicts() -> None:
+    """#199: the border simplifier's fold test on plain floats says what the numpy expression it replaced said,
+    for ordinary, flipped, squashed (zero-area) and repeated-corner triangles."""
+    from kiln.mesher import _folds
+
+    rng = np.random.default_rng(7)
+    v = rng.uniform(-1, 1, (400, 3))
+    v[:40] = np.round(v[:40], 1)  # coarse points: exact right angles and collinear triples turn up
+    before = rng.integers(0, len(v), (20_000, 3))
+    after = before.copy()
+    after[np.arange(len(after)), rng.integers(0, 3, len(after))] = rng.integers(0, len(v), len(after))  # one corner moves
+    after[:500, 1] = after[:500, 0]  # zero area afterwards
+    before[500:1000, 2] = before[500:1000, 1]  # and before
+    n = np.cross(v[before[:, 1]] - v[before[:, 0]], v[before[:, 2]] - v[before[:, 0]])
+    m = np.cross(v[after[:, 1]] - v[after[:, 0]], v[after[:, 2]] - v[after[:, 0]])
+    expect = (n * m).sum(1) <= 0.2 * (np.linalg.norm(n, axis=1) * np.linalg.norm(m, axis=1))
+    pts = v.tolist()
+    got = np.array([_folds(pts, b, a) for b, a in zip(before.tolist(), after.tolist(), strict=True)])
+    assert expect.any() and not expect.all()
+    np.testing.assert_array_equal(got, expect)
+
+
+def test_simplify_borders_thins_a_straight_border_and_keeps_a_bent_one() -> None:
+    """A flat grid in two colours: the straight border loses its vertices (to its ends), the surface and both regions'
+    areas stay, and no triangle flips; a border with a corner keeps the corner."""
+    from kiln.mesher import simplify_borders
+
+    k = 9
+    xs, zs = np.meshgrid(np.arange(k, dtype=float), np.arange(k, dtype=float), indexing="ij")
+    v = np.stack([xs.ravel(), np.zeros(k * k), zs.ravel()], axis=1)
+    quads = [(i * k + j, i * k + j + 1, (i + 1) * k + j + 1, (i + 1) * k + j) for i in range(k - 1) for j in range(k - 1)]
+    f = np.array([t for a, b, c, d in quads for t in ((a, b, c), (a, c, d))])
+    centre = v[f].mean(axis=1)
+
+    def area(mesh: Mesh, region: np.ndarray, r: int) -> float:
+        t = mesh.vertices[mesh.faces[region == r]]
+        return float(np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1).sum() / 2)
+
+    def normals_up(mesh: Mesh) -> bool:
+        t = mesh.vertices[mesh.faces]
+        return bool((np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])[:, 1] != 0).all()) and len(
+            set(np.sign(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])[:, 1]))) == 1  # fmt: skip
+
+    straight = (centre[:, 0] > 4).astype(np.int64)
+    mesh, region = simplify_borders(Mesh(v, f), straight, 0.05)
+    on_border = np.isclose(mesh.vertices[:, 0], 4)
+    assert len(mesh.vertices) < len(v) and on_border.sum() < k
+    assert area(mesh, region, 0) == pytest.approx(32) and area(mesh, region, 1) == pytest.approx(32)
+    assert normals_up(mesh)
+
+    bent = ((centre[:, 0] > 4) & (centre[:, 2] > 4)).astype(np.int64)
+    mesh, region = simplify_borders(Mesh(v, f), bent, 0.05)
+    assert any(np.allclose(p, [4, 0, 4]) for p in mesh.vertices)  # the corner stays
+    assert area(mesh, region, 1) == pytest.approx(16) and normals_up(mesh)

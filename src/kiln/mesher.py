@@ -459,6 +459,9 @@ def simplify_borders(mesh: Mesh, region: Array, tolerance: float) -> tuple[Mesh,
     both sides stay joined. Junctions of three regions and anything that would fold a triangle stay."""
     v, f, region = mesh.vertices, mesh.faces.copy(), region.copy()
     alive = np.ones(len(f), dtype=bool)
+    # plain floats in the loop below (#199): numpy on a handful of 3-vectors costs microseconds a call. The same
+    # products and sums in the same order as np.cross on float64 (what meshes hold), so the same verdicts
+    pts = np.asarray(v, dtype=np.float64).tolist()
     for _ in range(12):
         live = np.flatnonzero(alive)
         e = np.concatenate([f[live][:, [0, 1]], f[live][:, [1, 2]], f[live][:, [2, 0]]])
@@ -495,9 +498,6 @@ def simplify_borders(mesh: Mesh, region: Array, tolerance: float) -> tuple[Mesh,
         def faces_of(x: int) -> list[int]:
             return [int(i) for i in live[by_vertex[first[x] : first[x + 1]] // 3]]  # noqa: B023 (used in this pass)
 
-        # plain floats in the loop (#199): numpy on a handful of 3-vectors costs microseconds a call; the same
-        # products and sums in the same order, so the same verdicts
-        pts = v.tolist()
         tri = f.tolist()
         locked: set[int] = set()
         removed = 0

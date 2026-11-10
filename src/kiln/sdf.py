@@ -732,8 +732,9 @@ class Field:
         return d
 
     def nearest(self, parts: list[int], p: Array, absolute: bool = True) -> tuple[Array, Array]:
-        """(position in `parts`, distance) of the part nearest each point, one part at a time: memory stays O(points),
-        not parts x points. Ties go to the earlier part (as argmin)."""
+        """(position in `parts`, distance) of the part nearest each point. Memory stays O(points), not parts x points:
+        one part at a time here, and the compiled pass takes the parts it can't do itself a block of points at a
+        time. Ties go to the earlier part (as argmin)."""
         if jit.AVAILABLE and len(p) >= jit.MIN_POINTS and parts:  # one compiled pass, the same numbers (#199)
             return jit.nearest(self, parts, p, absolute)
         best = np.full(len(p), np.inf)
