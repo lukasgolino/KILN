@@ -1,7 +1,8 @@
 """One model -> Built (field, mesh, paint, normals, rig, animations), with a cache in `.kiln-cache/`.
 
 Meshing is the slow step (seconds); the cache key covers everything that changes the result: the model text,
-the style, the palette, decal and texture images, imported files and KILN's version.
+the style's shape settings and the triangle budget, the palette, decal and texture images, imported files and
+KILN's version. A style's look and materials are not in it: exports read them from the style at hand.
 """
 
 from __future__ import annotations
@@ -599,16 +600,20 @@ def mesh_pieces(model: Model) -> tuple[list[list[int]], int]:
     return all_pieces, n_main
 
 
-def shape_key(style: Style) -> list[Any]:
-    """What of a style a build depends on: its [shape] settings and [budgets]. Not its [look] or [materials] (the
-    exporters read those from the style at hand), nor its description and notes, so a look-only edit keeps the
-    built meshes (#174)."""
-    return [style.name, *(getattr(style, k) for k in SHAPE_KEYS), sorted(style.budgets.items())]
+STYLE_KEYED = ("name", *SHAPE_KEYS, "budgets")  # the Style fields a build depends on (budgets: the one that applies)
+
+
+def shape_key(model: Model, style: Style, budget: int | None = None) -> list[Any]:
+    """What of a style a build depends on: its [shape] settings and the triangle budget that applies to this model
+    (the asked one, the model's own, or the style's for its class). Not its [look] or [materials] (the exporters
+    read those from the style at hand), nor its description and notes, so a look-only edit keeps the built meshes
+    (#174). A new Style field a builder reads goes in STYLE_KEYED (tests/test_api.py lists every field)."""
+    return [style.name, *(getattr(style, k) for k in SHAPE_KEYS), budget or model.budget or style.budget(model.cls)]
 
 
 def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int | None = None) -> str:
     h = hashlib.sha256()
-    h.update(json.dumps([__version__, BUILDER_VERSION, model.text, model.library_text, shape_key(style), sorted(palette.items()), budget]).encode())
+    h.update(json.dumps([__version__, BUILDER_VERSION, model.text, model.library_text, shape_key(model, style, budget), sorted(palette.items()), budget]).encode())
     for part in model.parts:
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())

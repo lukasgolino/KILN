@@ -85,7 +85,7 @@ class Style:
     look: Look
     notes: str = ""  # proportions and shape language, for the agent
     path: Path | None = None
-    text: str = ""  # for cache keys
+    text: str = ""  # the style file's text, after its parents' (not read by builds: mesh caches key on builder.STYLE_KEYED)
     hard_surface: str = "auto"  # auto: parts asking for it (sides, bevel, blend: none); always: every part that can; never
     hard_sides: int = 12  # sides of round hard shapes that don't say
     max_cells: int = MAX_CELLS  # mesh grid cells per axis at most: big models get coarser cells past this

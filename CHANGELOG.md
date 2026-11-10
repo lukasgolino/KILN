@@ -17,7 +17,8 @@ before 1.0).
 ### Performance
 
 - A look-only style edit no longer rebuilds the meshes (#174): the mesh cache follows a style's `[shape]` and
-  `[budgets]`, not its `[look]`, `[materials]`, description or notes; the cached build is exported with the style as
+  the triangle budget that applies to the model (not the whole `[budgets]` table), not its `[look]`, `[materials]`,
+  description or notes; the cached build is exported with the style as
   it is now. A 23-part character after an `exposure` or material edit: `kiln build` in 4 s instead of 18. (Caches
   written by earlier versions are rebuilt once.)
 - Reducing is a little faster (#199): the nearest part of every vertex is found in one compiled pass instead of one
