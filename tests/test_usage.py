@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from conftest import write_model
+from conftest import ok_model, write_model
 
 from kiln.project import Project
 
@@ -119,5 +119,39 @@ def test_hard_parts_are_their_own_phase_and_a_hard_only_model_meshes_nothing(pro
     ball = "  - sphere: { at: [0, 0.9, 0], radius: 0.2 }\n    color: red\n"
     lint_paths(project, [write_model(project, "name: mixed\nparts:\n" + boxes + ball, "mixed")])
     lines = [line.split(": ", 2)[2] for line in capsys.readouterr().err.splitlines()]
-    assert lines[0].startswith("joining 2 hard parts (")
-    assert any(line.startswith("meshing 1 part at ") for line in lines) and any(line.startswith("meshed at ") for line in lines)
+    starts = [line.split(" (")[0].split(" at ")[0] for line in lines]
+    assert starts[0] == "joining 2 hard parts" and starts.index("joining 2 hard parts") < starts.index("meshing 1 part") < starts.index("meshed")
+
+
+def test_time_left_for_a_step_whose_items_cost_more_and_more(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """#174: with growth 2 (joining hard parts: every join clips against all joined so far) half the count done is a
+    quarter of the time, not half."""
+    from kiln import usage
+
+    clock = [0.0]
+    monkeypatch.setattr("kiln.usage.time.monotonic", lambda: clock[0])
+    monkeypatch.setenv(usage.PROGRESS_ENV, "1")
+    phase = usage.Phases("m")
+    phase("joining 40 hard parts")
+    clock[0] = 20.0
+    phase.progress("joining hard parts: joined", 20, 40, "fewer", 2.0)  # 20 s for a quarter of the work: 60 s left
+    assert capsys.readouterr().err.splitlines()[-1] == "kiln: m: joining hard parts: joined 20/40, about 60 s left (20 s)"
+
+
+def test_hard_join_counter_runs_over_all_pieces_and_says_a_level_made_again(project: Project) -> None:
+    """#174: one counter per detail level over every piece, cuts counted; over budget, the next level says so."""
+    from kiln import builder
+
+    text = "name: cut\nclass: prop\nparts:\n  - cylinder: { at: [0, 0.05, 0], radius: 0.05, height: 0.1 }\n    color: red\n    bevel: 0.01\n" \
+           "  - box: { at: [0.2, 0.05, 0], size: [0.1, 0.1, 0.1] }\n    color: red\n    hard: true\n" \
+           "  - box: { at: [0, 0.1, 0], size: [0.04, 0.04, 0.04] }\n    cut: true\n    hard: true\n"
+    model, style = ok_model(project, text, "cut")
+    hard = sorted(builder.hard_parts(model, style))
+    pieces = [frozenset({hard[0]}), frozenset({hard[1]})]  # as two pieces: the cut reaches both
+    said: list[tuple[str, int, int]] = []
+    builder.build_hard(model, style, builder.field_of(model, 0.01), pieces, 1e9, False, lambda *a: said.append(a))
+    assert said == [("joining hard parts: joined", k, 4) for k in (1, 2, 3, 4)]
+    said.clear()
+    builder.build_hard(model, style, builder.field_of(model, 0.01), pieces, 1, False, lambda *a: said.append(a))
+    assert said[:4] == [("joining hard parts: joined", k, 4) for k in (1, 2, 3, 4)]
+    assert said[4] == ("joining hard parts again with less detail (try 2): joined", 1, 4)
