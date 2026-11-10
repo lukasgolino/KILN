@@ -1,7 +1,8 @@
 """One model -> Built (field, mesh, paint, normals, rig, animations), with a cache in `.kiln-cache/`.
 
 Meshing is the slow step (seconds); the cache key covers everything that changes the result: the model text,
-the style, the palette, decal and texture images, imported files and KILN's version.
+the style's shape settings and the triangle budget, the palette, decal and texture images, imported files and
+KILN's version. A style's look and materials are not in it: exports read them from the style at hand.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from kiln.notation import ROOT_ID, Decal, Model, Part
 from kiln.paint import Painted, PaintGroup, Regions, corner_normals, hard_regions, paint, regions
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
 from kiln.sdf import Array, Field, Geometry, part_thickness
-from kiln.style import Style
+from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
 BUILDER_VERSION = 18  # bump when meshing/painting changes output
@@ -599,9 +600,20 @@ def mesh_pieces(model: Model) -> tuple[list[list[int]], int]:
     return all_pieces, n_main
 
 
+STYLE_KEYED = ("name", *SHAPE_KEYS, "budgets")  # the Style fields a build depends on (budgets: the one that applies)
+
+
+def shape_key(model: Model, style: Style, budget: int | None = None) -> list[Any]:
+    """What of a style a build depends on: its [shape] settings and the triangle budget that applies to this model
+    (the asked one, the model's own, or the style's for its class). Not its [look] or [materials] (the exporters
+    read those from the style at hand), nor its description and notes, so a look-only edit keeps the built meshes
+    (#174). A new Style field a builder reads goes in STYLE_KEYED (tests/test_api.py lists every field)."""
+    return [style.name, *(getattr(style, k) for k in SHAPE_KEYS), budget or model.budget or style.budget(model.cls)]
+
+
 def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int | None = None) -> str:
     h = hashlib.sha256()
-    h.update(json.dumps([__version__, BUILDER_VERSION, model.text, model.library_text, style.text, sorted(palette.items()), budget]).encode())
+    h.update(json.dumps([__version__, BUILDER_VERSION, model.text, model.library_text, shape_key(model, style, budget), sorted(palette.items()), budget]).encode())
     for part in model.parts:
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())
@@ -644,6 +656,7 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
                 built = pickle.load(fh)  # noqa: S301 - our own cache file
             if isinstance(built, Built):
                 built.model = model  # fresh paths/text; geometry is identical by the key
+                built.style = style  # and today's look and materials: the key leaves them out
                 if not built.step_reason and model.source is None:  # cached before builds kept it
                     built.step_reason = mesh_cells(field_of(model, built.step), model, style)[2]
                 return built
