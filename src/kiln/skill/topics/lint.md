@@ -28,6 +28,8 @@ their blend (clipped flat, nearly gone; W101 is all of it), with the covering pa
 separate parts. Partly floating details have no warning yet: check them in the previews.
 Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`. Lint meshes models in parallel
 (`KILN_JOBS` processes, default: every core) and caches them for build and previews: a model is meshed again when
-its text, its palette, its style's `[shape]` or its triangle budget change, not for a `[look]` or `[materials]` edit. `pip install "kiln-gen[fast]"`
+its parts, paint, rig or skin, its palette, its style's `[shape]` or its triangle budget change. Not for an edit of
+its animations (their tracks are made again in seconds), variants, description or comments, nor for a style's
+`[look]` or `[materials]`: iterate on poses and looks freely. `pip install "kiln-gen[fast]"`
 (numba) evaluates the shapes compiled, 2-3x faster on big models; the output then differs from the plain install in
 the last digits, so a game pins one or the other.

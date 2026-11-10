@@ -613,7 +613,10 @@ def shape_key(model: Model, style: Style, budget: int | None = None) -> list[Any
 
 def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int | None = None) -> str:
     h = hashlib.sha256()
-    h.update(json.dumps([__version__, BUILDER_VERSION, model.text, model.library_text, shape_key(model, style, budget), sorted(palette.items()), budget]).encode())
+    # the model's shape fields, not its text: comments, layout, its card, its variants and its animations (their tracks
+    # are sampled again on a cache hit, see motion_key) leave the meshes alone (#185)
+    text = model.shape_text or model.text
+    h.update(json.dumps([__version__, BUILDER_VERSION, text, shape_key(model, style, budget), sorted(palette.items()), budget]).encode())
     for part in model.parts:
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())
@@ -623,16 +626,26 @@ def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int |
             h.update(json.dumps([part.geometry.params.get("points"), part.geometry.params.get("holes")]).encode())
     if model.fit_to is not None:  # the character it's fitted to
         h.update(model.fit_to[0].read_bytes())
-    for anim in model.animations.values():  # retargeted clips
-        if anim.source is not None:
-            h.update(anim.source[0].read_bytes())
     if model.source is not None:
         from kiln.importer import external_files
+
+        h.update(motion_key(model).encode())  # an imported model's clips are part of its build
 
         h.update(model.source.file.read_bytes())
         for uri in external_files(model.source.file):  # its buffers and textures too
             other = model.source.file.parent / uri
             h.update(uri.encode() + (other.read_bytes() if other.is_file() else b"missing"))
+    return h.hexdigest()[:32]
+
+
+def motion_key(model: Model) -> str:
+    """What a build's animation tracks come from, besides its skeleton: the model's animations (or its clip
+    carrier's) and the clip files they are retargeted from."""
+    h = hashlib.sha256()
+    h.update(json.dumps([__version__, BUILDER_VERSION, model.motion_text or model.text, model.library_text]).encode())
+    for anim in model.animations.values():  # retargeted clips
+        if anim.source is not None:
+            h.update(anim.source[0].read_bytes())
     return h.hexdigest()[:32]
 
 
@@ -657,20 +670,30 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
             if isinstance(built, Built):
                 built.model = model  # fresh paths/text; geometry is identical by the key
                 built.style = style  # and today's look and materials: the key leaves them out
+                motion = motion_key(model)
+                if built.motion_key != motion and model.source is None:  # an animation edit: only the tracks (#185)
+                    built.tracks = tracks(model, built.skeleton) if model.skin != "none" else []
+                    built.motion_key = motion
+                    _store(built, path)
                 if not built.step_reason and model.source is None:  # cached before builds kept it
                     built.step_reason = mesh_cells(field_of(model, built.step), model, style)[2]
                 return built
         except (OSError, pickle.UnpicklingError, EOFError, AttributeError, TypeError):
             pass
     built = build_model(model, style, budget, palette)
+    built.motion_key = motion_key(model)
     cache_dir.mkdir(parents=True, exist_ok=True)
     for old in cache_dir.glob(f"{prefix}*.pickle"):
         old.unlink(missing_ok=True)
+    _store(built, path)
+    return built
+
+
+def _store(built: Built, path: Path) -> None:
     tmp = path.with_suffix(".tmp")
     with tmp.open("wb") as fh:
         pickle.dump(built, fh, protocol=pickle.HIGHEST_PROTOCOL)
     tmp.replace(path)
-    return built
 
 
 __all__ = ["BUILDER_VERSION", "Mesh", "build_cached", "build_model", "cache_key", "field_of"]

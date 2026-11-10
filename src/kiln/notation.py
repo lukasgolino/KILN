@@ -6,6 +6,7 @@ collected (not just the first), as in PAGAN.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass, field
@@ -52,6 +53,9 @@ TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
 SCATTER_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "scatter"}  # a scatter's model fields
+# Fields no mesh, paint or skin depends on (#185): the clips (sampled onto the built skeleton), the variants' colour
+# swaps (applied at export) and the model's card. A field a builder reads must not be listed here.
+NOT_SHAPE = ("animations", "animation_library", "variants", "description", "tags", "status")
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
@@ -193,6 +197,8 @@ class Model:
     animation_library: str | None = None  # plays this clip carrier's animations (copied in at load); its glb has none
     animations_only: bool = False  # a clip carrier: Godot imports its glb as an AnimationLibrary (no scene)
     library_text: str = ""  # the carrier's source (cache key)
+    shape_text: str = ""  # the fields a build's mesh, paint and skin come from, as one text (the mesh cache's key)
+    motion_text: str = ""  # the animations, as one text (the cached build's tracks are made again when it changes)
     effect: Effect | None = None  # a burst of other models' meshes (models/<name>.effect.json)
     terrain: Terrain | None = None  # a heightfield with splat layers instead of parts (kiln.terrain)
     scatter: Scatter | None = None  # other models placed many times over a surface instead of parts (kiln.scatter)
@@ -1422,6 +1428,9 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     elif expected is not None and name != expected:
         ctx.error("E003", f"name {name!r} must match the file name ({expected}{MODEL_SUFFIX})", _line(data, "name"), "name")
     model = Model(name=str(name), path=path, text=text)
+    if isinstance(data, dict):  # after `extends`: what the model is made of, whatever its comments and layout
+        model.shape_text = json.dumps({k: v for k, v in data.items() if k not in NOT_SHAPE}, default=str)
+        model.motion_text = json.dumps(data.get("animations"), default=str)
     template = data.get("template", False)
     if not isinstance(template, bool):
         ctx.error("E003", "template is true or false (true: a base other models extend; it isn't built itself)", _line(data, "template"), "template")

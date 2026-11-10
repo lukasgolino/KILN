@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pytest
-from conftest import load, write_model
+from conftest import arms_text, load, ok_model, write_model
 from PIL import Image
 
 from kiln import api
@@ -104,3 +105,49 @@ def test_every_style_field_is_keyed_or_known_not_to_change_a_build() -> None:
     not_keyed = {"description", "notes", "materials", "look", "path", "text"}  # read at export or by people only
     fields = {f.name for f in dataclasses.fields(Style)}
     assert set(STYLE_KEYED) | not_keyed == fields and not set(STYLE_KEYED) & not_keyed
+
+
+@pytest.mark.parametrize("skin", ["rigid", "soft"])
+def test_animation_variant_and_comment_edits_keep_the_built_mesh(project: Project, monkeypatch: pytest.MonkeyPatch, skin: str) -> None:
+    """#185: the mesh cache follows the fields a mesh, its paint and its skin come from. An animation edit only makes
+    the tracks again (on the cached skeleton); variants, the model's card, comments and layout change nothing built.
+    A part or rig edit still builds."""
+    from kiln import builder
+
+    cache = project.root / ".kiln-cache"
+    calls: list[str] = []
+    real = builder.build_model
+
+    def counted(*a: Any, **k: Any) -> Any:
+        calls.append("built")
+        return real(*a, **k)
+
+    monkeypatch.setattr(builder, "build_model", counted)
+    text = arms_text("hero", skin)
+    model, style = ok_model(project, text, "hero")
+    first = builder.build_cached(model, style, {}, cache)
+    hold = {t.name: t for t in first.tracks}["hold"].rotation.copy()
+
+    moved, _ = ok_model(project, text.replace("rotate: [0, 0, -60]", "rotate: [0, 0, -80]"), "hero")
+    again = builder.build_cached(moved, style, {}, cache)
+    assert calls == ["built"] and again.model is moved
+    assert not np.array_equal({t.name: t for t in again.tracks}["hold"].rotation, hold)  # the new pose
+    np.testing.assert_array_equal(again.painted.vertices, first.painted.vertices)
+    fresh = real(moved, style, None, {})  # what a full build of the edited model gives
+    for got, want in zip(again.tracks, fresh.tracks, strict=True):
+        assert got.name == want.name
+        np.testing.assert_array_equal(got.rotation, want.rotation)
+        np.testing.assert_array_equal(got.translation, want.translation)
+    reread = builder.build_cached(moved, style, {}, cache)  # the cache file now holds the new tracks
+    np.testing.assert_array_equal({t.name: t for t in reread.tracks}["hold"].rotation, {t.name: t for t in fresh.tracks}["hold"].rotation)
+
+    dressed = "# a note\n" + text.replace("class: character", "class:   character") + "variants:\n  blue: { swap: { red: blue } }\ndescription: a hero\ntags: [crew]\nstatus: approved\n"
+    other, _ = ok_model(project, dressed, "hero")
+    assert builder.cache_key(other, style, {}) == builder.cache_key(model, style, {})
+    assert builder.build_cached(other, style, {}, cache).model.variants and calls == ["built"]
+
+    for edit in (("radius: 0.08", "radius: 0.09"), ("pivot: [0.3, 0.6, 0]", "pivot: [0.3, 0.62, 0]"), ("color: blue", "color: red"),
+                 (f"skin: {skin}", "skin: soft" if skin == "rigid" else "skin: rigid")):  # fmt: skip
+        assert edit[0] in text
+        changed, _ = ok_model(project, text.replace(*edit), "hero")
+        assert builder.cache_key(changed, style, {}) != builder.cache_key(model, style, {}), edit

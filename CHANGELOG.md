@@ -16,6 +16,11 @@ before 1.0).
 
 ### Performance
 
+- Animation, variant and comment edits no longer rebuild the meshes (#185, #199): the mesh cache follows the fields a
+  mesh, its paint and its skin come from, not the model's whole text. After an animation edit only the tracks are
+  sampled again on the cached skeleton; variants, `description`, `tags`, `status`, comments and layout change nothing
+  built. A 23-part soft-skinned character after a pose edit: `kiln build` in 4 s instead of 18, the glb identical to
+  a full rebuild's. (Caches written by earlier versions are rebuilt once.)
 - Joining hard parts is 2-3.5x faster on scenes of many hard parts (#214): a solid's BSP tree is made only where a clip
   reaches it, not whole for every join (joining a small part to a big solid reaches the few planes near the part),
   and planes a whole batch of polygons lies clear of are passed without a test per polygon. An 82-hard-part desk
