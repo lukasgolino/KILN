@@ -99,3 +99,22 @@ def test_w122_target_meshed_apart(project: Project) -> None:
     text = MODEL.replace("    id: body\n    color: red\n", "    id: body\n    color: red\n    hard: true\n")
     result = lint_paths(project, [write_model(project, text)])
     assert any(f.rule == "W122" for f in result.findings), result.findings
+
+
+def test_a_mirror_id_copys_blend_to_follows_the_mirrored_ids(project: Project) -> None:
+    """#224: on a part with mirror_id, the copy melts into the twins of the ids named (ids without a twin stay); a plain mirror part keeps the ids as written for both halves."""
+    body = "name: thing\nparts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.3 }\n    id: torso\n    color: red\n" \
+           "  - capsule: { from: [0.3, 0.6, 0], to: [0.5, 0.3, 0], radius: 0.08 }\n    id: arm_l\n    mirror: x\n    mirror_id: arm_r\n    color: blue\n"
+    tuft = "  - sphere: { at: [0.42, 0.45, 0.06], radius: 0.05 }\n    id: tuft_l\n    mirror: x\n{twin}    color: red\n    blend: 0.03\n    blend_to: {to}\n"
+
+    def targets(twin: str, to: str) -> dict[str, set[str]]:
+        model, _, findings = load(project, body + tuft.replace("{twin}", twin).replace("{to}", to))
+        assert model is not None and not [f for f in findings if f.severity == "error"]
+        ids = [p.id for p in model.parts]
+        return {p.id: {ids[i] for i in p.geometry.blend_to or ()} for p in model.parts if p.id.startswith("tuft")}
+
+    own = "    mirror_id: tuft_r\n"
+    assert targets(own, "[arm_l, torso]") == {"tuft_l": {"arm_l", "torso"}, "tuft_r": {"arm_r", "torso"}}
+    # both sides listed (as older models do): the copy's left ids become right ones, so it melts into its own side
+    assert targets(own, "[arm_l, arm_r, torso]") == {"tuft_l": {"arm_l", "arm_r", "torso"}, "tuft_r": {"arm_r", "torso"}}
+    assert targets("", "arm_l") == {"tuft_l": {"arm_l"}}  # one part, both halves: its right half meets arm_r crisply

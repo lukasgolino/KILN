@@ -15,6 +15,9 @@ Making a model: plan in metres, scaffold, parts, lint, look, fit with the rest; 
      `mirror_id: arm_r` so the copy is its own part.
    - Holes and openings: a `cut: true` part after the solid. Hollow things: `shell: <thickness>`.
    - Many regular repeats: `array` (in a row or a ring), or a generator script with `kiln.api` (`kiln docs api`).
+   - Before a model gets big, know what is slow (`kiln docs build`, "What things cost"): hundreds of parts, a
+     `gradient` or `pattern` on each of many parts, many hard parts (more so with bevels and many sides).
+     `kiln preview <name> --draft` while shapes are moving.
    - Every colour is a palette name. Materials are the style's presets (plastic, fabric, skin, leather, wood, stone,
      metal, gold, leaf, glass, rubber, paint, glow).
    - Big plain areas read better with geometry than patterns: planks, trims and shields as parts. Patterns cost
