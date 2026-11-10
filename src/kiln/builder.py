@@ -34,7 +34,7 @@ from kiln.notation import ROOT_ID, Decal, Model, Part
 from kiln.paint import Painted, PaintGroup, Regions, corner_normals, hard_regions, paint, regions
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
 from kiln.sdf import Array, Field, Geometry, part_thickness
-from kiln.style import Style
+from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
 BUILDER_VERSION = 18  # bump when meshing/painting changes output
@@ -599,9 +599,16 @@ def mesh_pieces(model: Model) -> tuple[list[list[int]], int]:
     return all_pieces, n_main
 
 
+def shape_key(style: Style) -> list[Any]:
+    """What of a style a build depends on: its [shape] settings and [budgets]. Not its [look] or [materials] (the
+    exporters read those from the style at hand), nor its description and notes, so a look-only edit keeps the
+    built meshes (#174)."""
+    return [style.name, *(getattr(style, k) for k in SHAPE_KEYS), sorted(style.budgets.items())]
+
+
 def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int | None = None) -> str:
     h = hashlib.sha256()
-    h.update(json.dumps([__version__, BUILDER_VERSION, model.text, model.library_text, style.text, sorted(palette.items()), budget]).encode())
+    h.update(json.dumps([__version__, BUILDER_VERSION, model.text, model.library_text, shape_key(style), sorted(palette.items()), budget]).encode())
     for part in model.parts:
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())
@@ -644,6 +651,7 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
                 built = pickle.load(fh)  # noqa: S301 - our own cache file
             if isinstance(built, Built):
                 built.model = model  # fresh paths/text; geometry is identical by the key
+                built.style = style  # and today's look and materials: the key leaves them out
                 if not built.step_reason and model.source is None:  # cached before builds kept it
                     built.step_reason = mesh_cells(field_of(model, built.step), model, style)[2]
                 return built
