@@ -44,6 +44,7 @@ class BuildResult:
     godot_root: Path | None = None
     manifest: dict[str, Any] = field(default_factory=dict)
     attachments: dict[str, Path] = field(default_factory=dict)  # model -> the character file it's fitted to (fit_to)
+    cells: dict[str, str] = field(default_factory=dict)  # model -> why its mesh cells are the size they are
 
     @property
     def errors(self) -> list[Finding]:
@@ -510,6 +511,8 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         write(glb, glb_data)
         merged = project.config.merge_rigid and built.skin == "rigid"
         entry = model_entry(built, out, glb, merged)
+        if built.step_reason:
+            result.cells[name] = built.step_reason
         if model.source is not None and has_lock:
             pack = locked_pack(project.root, model.source.file)
             if pack is not None:  # imported with `kiln pack import`: the manifest and CREDITS name the pack

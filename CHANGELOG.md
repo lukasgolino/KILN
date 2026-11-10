@@ -6,6 +6,12 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- `kiln lint` and `kiln build` say each meshed model's cell size and what set it: the model's or the style's
+  resolution, the size scaling (`scale_with_size`), a `max_cells` cap (#223). Long builds' meshing phase line says it
+  too; `kiln lint --json` has it under `cells`.
+
 ### Changed
 
 - The vendored PAGAN pieces are Apache 2.0 like the rest of KILN (same author); the separate MIT file is gone.

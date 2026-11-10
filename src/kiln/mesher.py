@@ -113,6 +113,24 @@ def mesh_steps(field: Field, model: Model, style: Style) -> tuple[float, float]:
     return grid_step(float((hi - lo).max()), asked, max_cells), asked
 
 
+def cell_reason(field: Field, model: Model, style: Style) -> str:
+    """Why a model is meshed at its cell size, in words (#223): the model's or the style's resolution, the size
+    scaling, and the max_cells cap when it decides."""
+    step, asked = mesh_steps(field, model, style)
+    lo, hi = field.bounds()
+    size = float((hi - lo).max())
+    if model.resolution is not None:
+        why = f"model resolution {model.resolution * 1000:.3g} mm"
+    elif style.scale_with_size and size > 1.0:
+        why = f"style {style.name} resolution {style.resolution * 1000:.3g} mm x sqrt({size:.2g} m, scale_with_size)"
+    else:
+        why = f"style {style.name} resolution {style.resolution * 1000:.3g} mm"
+    if step > asked * (1 + 1e-9):
+        source = "model" if model.max_cells else f"style {style.name}"
+        why += f"; capped by max_cells {model.max_cells or style.max_cells} ({source}) across {size:.2g} m, {asked * 1000:.3g} mm asked"
+    return why
+
+
 def _grid(field: Field, step: float) -> tuple[Array, tuple[int, int, int], Array]:
     """The sampling grid's corner, size and values: the parts' boxes plus a margin, grown on any side the surface
     reaches (smooth unions bulge out of their parts' boxes, by up to a quarter of the blend radius per join)."""

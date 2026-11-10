@@ -407,3 +407,21 @@ def test_pose_preview_views_size_and_frames(in_project: Project, capsys: pytest.
         assert code == 1 and "frames" in result["findings"][0]["message"] and not (folder / "pose_wave.png").exists()
     code, result = run_json(["preview", "thing", "--frame", "1"], capsys)
     assert code == 1 and "--pose" in result["findings"][0]["message"]
+
+
+def test_lint_says_the_cell_size_and_why(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#223: lint names each meshed model's cell size and what set it (style or model resolution, size scaling,
+    the max_cells cap)."""
+    write_model(in_project, sphere_text("ball"), "ball")
+    code, result = run_json(["lint", "ball"], capsys)
+    assert code == 0
+    cell = result["cells"]["ball"]
+    assert cell["step"] == pytest.approx(0.03) and "style fast resolution 30 mm" in cell["why"]
+    big = sphere_text("big").replace("radius: 0.3", "radius: 2").replace("at: [0, 0.3, 0]", "at: [0, 2, 0]")
+    write_model(in_project, big.replace("parts:", "max_cells: 64\nparts:"), "big")
+    code, result = run_json(["lint", "big"], capsys)
+    why = result["cells"]["big"]["why"]
+    assert "x sqrt(4 m, scale_with_size)" in why and "capped by max_cells 64 (model)" in why
+    write_model(in_project, sphere_text("fine").replace("parts:", "resolution: 0.02\nparts:"), "fine")
+    assert main(["lint", "fine"]) == 0
+    assert "mm mesh cells (model resolution 20 mm)" in capsys.readouterr().out

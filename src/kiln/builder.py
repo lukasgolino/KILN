@@ -20,7 +20,17 @@ from kiln import __version__
 from kiln.export import Built
 from kiln.hard import HARD_SHAPES, SHELL_SHAPES, HardMesh, HardSpec, Solid, intersect, solid, subtract, to_mesh, union
 from kiln.hard import corner_normals as hard_corner_normals
-from kiln.mesher import Mesh, component_labels, components, decimate, decimate_regions, dual_contour, mesh_steps, simplify_borders
+from kiln.mesher import (
+    Mesh,
+    cell_reason,
+    component_labels,
+    components,
+    decimate,
+    decimate_regions,
+    dual_contour,
+    mesh_steps,
+    simplify_borders,
+)
 from kiln.notation import ROOT_ID, Decal, Model, Part
 from kiln.paint import Painted, PaintGroup, Regions, corner_normals, hard_regions, paint, regions
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
@@ -176,8 +186,12 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
         if not (np.isfinite(lo).all() and np.isfinite(hi).all() and np.isfinite(part.geometry.distance(probe)).all()):
             raise ValueError(f"{part.where} ({part.geometry.shape}) has no valid surface (its numbers give NaN); check its points")
     step, asked = mesh_steps(field, model, style)
+    reason = cell_reason(field, model, style)
     with Phases(model.name) as phase:  # its heartbeat stops with the build, however it ends
-        return _build_meshed(model, style, budget, step, asked, phase)
+        phase(f"meshing at {step * 1000:.3g} mm cells ({reason})")
+        built = _build_meshed(model, style, budget, step, asked, phase)
+        built.step_reason = reason
+        return built
 
 
 def _build_meshed(model: Model, style: Style, budget: int | None, step: float, asked: float, phase: Phases) -> Built:
