@@ -98,3 +98,26 @@ def test_a_model_with_many_parts_says_each_phase_at_once(project: Project, monke
     lint_paths(project, [write_model(project, text, "two")])
     lines = capsys.readouterr().err.splitlines()
     assert lines and lines[0].startswith("kiln: two: meshing 2 parts at 30 mm cells (style fast resolution 30 mm) (")
+
+
+def test_hard_parts_are_their_own_phase_and_a_hard_only_model_meshes_nothing(project: Project, monkeypatch: pytest.MonkeyPatch,
+                                                                             capsys: pytest.CaptureFixture[str]) -> None:
+    """#174: joining hard parts says so (it was "meshing", and "meshed ...: 0 triangles" for a model of hard parts
+    only); the meshing phase counts the parts it meshes and is only there with something to mesh."""
+    from kiln import usage
+    from kiln.lint import lint_paths
+
+    monkeypatch.setattr("kiln.builder.MANY_PARTS", 2)
+    monkeypatch.setenv(usage.PROGRESS_ENV, "1")
+    boxes = "  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n    hard: true\n" \
+            "  - box: { at: [0.2, 0.5, 0], size: [0.3, 0.3, 0.3] }\n    color: red\n    hard: true\n"
+    lint_paths(project, [write_model(project, "name: crates\nparts:\n" + boxes, "crates")])
+    lines = [line.split(": ", 2)[2] for line in capsys.readouterr().err.splitlines()]
+    assert lines and lines[0].startswith("joining 2 hard parts (")
+    assert not any(line.startswith(("meshing", "meshed")) for line in lines)
+
+    ball = "  - sphere: { at: [0, 0.9, 0], radius: 0.2 }\n    color: red\n"
+    lint_paths(project, [write_model(project, "name: mixed\nparts:\n" + boxes + ball, "mixed")])
+    lines = [line.split(": ", 2)[2] for line in capsys.readouterr().err.splitlines()]
+    assert lines[0].startswith("joining 2 hard parts (")
+    assert any(line.startswith("meshing 1 part at ") for line in lines) and any(line.startswith("meshed at ") for line in lines)

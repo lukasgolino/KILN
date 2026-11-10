@@ -111,14 +111,18 @@ def hard_spec(part: Part, style: Style, level: int = 0) -> HardSpec:
     return HardSpec(sides, bevel, segments)
 
 
-def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int) -> Solid:
+def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int, progress: Progress | None = None) -> Solid:
     """The hard parts of one piece combined in order: adding parts unite; every later cut or intersect applies."""
     acc: Solid = []
+    done = 0
     for i, p in enumerate(model.parts):
         g = p.geometry
         if g.op == "add":
             if i in include:
                 acc = union(acc, solid(g, hard_spec(p, style, level), i))
+                done += 1
+                if progress is not None:
+                    progress("joining hard parts: parts done", done, len(include))
         elif acc and g.shape in HARD_SHAPES and not g.twist and g.noise is None and g.scale is None and not (g.shell and g.shape not in SHELL_SHAPES) \
                 and (g.cut_only is None or bool(g.cut_only & include)):
             other = solid(g, hard_spec(p, style, level), i)
@@ -135,7 +139,8 @@ def _spec_key(part: Part, spec: HardSpec) -> tuple[int, float, int]:
     return (sides if part.geometry.shape in ROUND_SHAPES else 0, spec.bevel, spec.segments if spec.bevel else 0)
 
 
-def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[int]], budget: float, rigged: bool) -> tuple[list[Regions], list[HardMesh]]:
+def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[int]], budget: float, rigged: bool,
+               progress: Progress | None = None) -> tuple[list[Regions], list[HardMesh]]:  # fmt: skip
     """Every piece's hard parts as a mesh (fewer details while they'd go over `budget`), cut into paint groups."""
     meshes: list[HardMesh] = []
     specs = None
@@ -144,7 +149,7 @@ def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[
         if level_specs == specs:  # this level details nothing less: same meshes, try the next (#207)
             continue
         specs = level_specs
-        meshes = [to_mesh(_hard_solid(model, style, include, level)) for include in pieces]
+        meshes = [to_mesh(_hard_solid(model, style, include, level, progress)) for include in pieces]
         if sum(m.triangles for m in meshes) <= budget:
             break
     out = []
@@ -187,13 +192,12 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     step, asked, reason = mesh_cells(field, model, style)
     with Phases(model.name) as phase:  # its heartbeat stops with the build, however it ends
         phase.loud = len(model.parts) >= MANY_PARTS  # a big model's build is rarely short: say each phase at once (#221)
-        phase(f"meshing {len(model.parts)} parts at {step * 1000:.3g} mm cells ({reason})")
-        built = _build_meshed(model, style, budget, step, asked, phase)
+        built = _build_meshed(model, style, budget, step, asked, phase, reason)
         built.step_reason = reason
         return built
 
 
-def _build_meshed(model: Model, style: Style, budget: int | None, step: float, asked: float, phase: Phases) -> Built:
+def _build_meshed(model: Model, style: Style, budget: int | None, step: float, asked: float, phase: Phases, reason: str) -> Built:
     field = field_of(model, step)
     target = budget or model.budget or style.budget(model.cls)
     rigged = model.skin != "none"
@@ -205,17 +209,26 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     hard_pieces = [frozenset(i for i in inc if i in hard) for inc in all_pieces]
     hard_pieces = [inc for inc in hard_pieces if inc]
     any_soft = any(i not in hard for i in adding)
-    hard_cut, hard_meshes = build_hard(model, style, field, hard_pieces, target * (HARD_SHARE if any_soft else 1.0), rigged) if hard_pieces else ([], [])
+    def hinted(hint: str) -> Progress:  # a phase's counter, with what would make it faster
+        return lambda what, done, total: phase.progress(what, done, total, hint)
+
+    hard_cut: list[Regions] = []
+    hard_meshes: list[HardMesh] = []
+    if hard_pieces:  # its own phase (#174): exact polygons joined one by one, whatever the cell size
+        phase(f"joining {len(hard)} hard part{'s' * (len(hard) != 1)}")
+        hard_cut, hard_meshes = build_hard(model, style, field, hard_pieces, target * (HARD_SHARE if any_soft else 1.0), rigged,
+                                           hinted("fewer hard parts, or fewer sides on round ones, join faster"))  # fmt: skip
     hard_triangles = sum(r.mesh.triangles for r in hard_cut)
     kept = kept_parts(model, hard)
     groups_of = [[i for i in inc if i not in hard and i not in kept] for inc in all_pieces]
     pieces = [(include, field.only(include)) for include in groups_of if include]
-    def hinted(hint: str) -> Progress:  # a phase's counter, with what would make it faster
-        return lambda what, done, total: phase.progress(what, done, total, hint)
-
+    smooth = len(model.parts) - len(hard)
     meshing = hinted("a coarser resolution or fewer parts meshes faster")
+    if pieces or kept:  # a model of hard parts only has nothing to mesh: no phase, no "0 triangles" (#174)
+        phase(f"meshing {smooth} part{'s' * (smooth != 1)} at {step * 1000:.3g} mm cells ({reason})")
     meshes = [dual_contour(f, step, meshing) for _, f in pieces]
-    phase(f"meshed at {step * 1000:.3g} mm: {sum(m.triangles for m in meshes)} triangles")
+    if pieces:
+        phase(f"meshed at {step * 1000:.3g} mm: {sum(m.triangles for m in meshes)} triangles")
     kept_cut, kept_hidden = _kept(model, style, field, sorted(kept), step, target, meshes, rigged)
     kept_triangles = sum(len(p.faces) for p, _ in kept_cut)
     if sum(m.triangles for m in meshes) + hard_triangles + kept_triangles == 0:
