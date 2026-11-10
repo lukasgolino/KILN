@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -703,3 +704,77 @@ parts:
     mesh = to_mesh(_hard_solid(model, style, frozenset(hard_parts(model, style)), 0))
     crowded, pinched = pinches(mesh.vertices, mesh.faces)
     assert len(crowded) == 0 and len(pinched) == 0
+
+
+class _EagerNode:
+    """The whole-tree BSP the lazy one replaced (#214), as a reference: built at once, clipped one polygon at a time."""
+
+    def __init__(self, polys: list[Any]) -> None:
+        from kiln.hard import _split
+
+        self.plane = polys[0].plane if polys else None
+        self.front: _EagerNode | None = None
+        self.back: _EagerNode | None = None
+        on: list[Any] = []
+        front: list[Any] = []
+        back: list[Any] = []
+        for p in polys:
+            _split(polys[0].plane, p, on, on, front, back)
+        if front:
+            self.front = _EagerNode(front)
+        if back:
+            self.back = _EagerNode(back)
+
+    def invert(self) -> None:
+        if self.plane is not None:
+            self.plane = self.plane.flipped()
+        for child in (self.front, self.back):
+            if child is not None:
+                child.invert()
+        self.front, self.back = self.back, self.front
+
+    def clip(self, polys: list[Any]) -> list[Any]:
+        from kiln.hard import _split
+
+        if self.plane is None:
+            return list(polys)
+        front: list[Any] = []
+        back: list[Any] = []
+        for p in polys:
+            _split(self.plane, p, front, back, front, back)
+        front = self.front.clip(front) if self.front is not None else front
+        back = self.back.clip(back) if self.back is not None else []
+        return front + back
+
+
+def test_lazy_bsp_tree_clips_as_the_whole_tree_does() -> None:
+    """#214: the tree made only where a clip reaches, with planes a whole batch is clear of passed at once, keeps and
+    cuts exactly what the whole tree does (inside out too): the same polygons, point for point."""
+    from kiln.hard import _inverted_tree, _tree
+
+    rng = np.random.default_rng(11)
+    spec = HardSpec(8, 0.0, 1)
+
+    def part(shape: str, at: Any, i: int) -> list[Any]:
+        params: dict[str, Any] = {"size": [0.3, 0.2, 0.25], "round": 0.0} if shape == "box" else {"radius": 0.12, "height": 0.3}
+        return solid(Geometry(shape, params, at=np.asarray(at, float)), spec, i)
+
+    big: list[Any] = []
+    for i in range(14):  # a scene: parts that overlap, touch face to face (multiples of the box's size) and stand apart
+        at = [0.3 * int(rng.integers(0, 4)), 0.1 * int(rng.integers(0, 3)), 0.25 * int(rng.integers(0, 3))] if i % 3 else rng.uniform(0, 1, 3)
+        big = union(big, part("box" if i % 2 else "cylinder", at, i))
+    assert len(big) > 60
+    seen = 0
+    for k, at in enumerate([[0.3, 0.1, 0.25], [0.45, 0.15, 0.3], [2.0, 2.0, 2.0], [0.1, 0.05, 0.0], [0.6, 0.2, 0.5]]):
+        small = part("cylinder" if k % 2 else "box", at, 99)
+        for inverted in (False, True):
+            lazy = (_inverted_tree if inverted else _tree)(big)
+            eager = _EagerNode(list(big))
+            if inverted:
+                eager.invert()
+            for batch in (small, [p.flipped() for p in small], small[:1]):
+                got, expect = lazy.clip_polygons(list(batch)), eager.clip(list(batch))
+                key = lambda p: (p.points, p.tag)  # noqa: E731 (the lazy tree walks its stack in another order)
+                assert sorted(map(key, got)) == sorted(map(key, expect))
+                seen += len(expect)
+    assert seen > 20

@@ -139,83 +139,119 @@ def _split(plane: Plane, poly: Polygon, co_front: list[Polygon], co_back: list[P
             back.append(Polygon(tuple(b), poly.plane, poly.tag))
 
 
-class _Node:
-    __slots__ = ("plane", "front", "back", "polygons")
+CLEAR = 4 * EPS  # a batch's box this far to one side of a plane: every point's own test (against EPS) says that side
 
-    def __init__(self) -> None:
+
+def _extent(polys: list[Polygon]) -> tuple[float, float, float, float, float, float]:
+    """The centre and half sizes of the polygons' box."""
+    if not polys:
+        return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    x0 = y0 = z0 = math.inf
+    x1 = y1 = z1 = -math.inf
+    for poly in polys:
+        for x, y, z in poly.points:
+            if x < x0:
+                x0 = x
+            if x > x1:
+                x1 = x
+            if y < y0:
+                y0 = y
+            if y > y1:
+                y1 = y
+            if z < z0:
+                z0 = z
+            if z > z1:
+                z1 = z
+    return ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2)
+
+
+class _Node:
+    """A BSP node, made when first reached: `pending` holds the polygons its subtree is built from until then."""
+
+    __slots__ = ("plane", "front", "back", "pending")
+
+    def __init__(self, pending: list[Polygon]) -> None:
         self.plane: Plane | None = None
         self.front: _Node | None = None
         self.back: _Node | None = None
-        self.polygons: list[Polygon] = []
+        self.pending: list[Polygon] | None = pending
 
-    def nodes(self) -> list[_Node]:
-        out, stack = [], [self]
-        while stack:
-            n = stack.pop()
-            out.append(n)
-            stack += [c for c in (n.front, n.back) if c is not None]
-        return out
+    def expand(self) -> None:
+        """This node's plane (its first polygon's) and its children, each holding its side's polygons."""
+        polys = self.pending
+        if polys is None:
+            return
+        self.pending = None
+        if not polys:
+            return
+        self.plane = polys[0].plane
+        on: list[Polygon] = []  # in the plane: they make no subtree
+        front: list[Polygon] = []
+        back: list[Polygon] = []
+        for p in polys:
+            _split(self.plane, p, on, on, front, back)
+        if front:
+            self.front = _Node(front)
+        if back:
+            self.back = _Node(back)
 
-    def build(self, polygons: list[Polygon]) -> None:
-        stack = [(self, polygons)]
-        while stack:
-            node, polys = stack.pop()
-            if not polys:
-                continue
-            if node.plane is None:
-                node.plane = polys[0].plane
-            front: list[Polygon] = []
-            back: list[Polygon] = []
-            for p in polys:
-                _split(node.plane, p, node.polygons, node.polygons, front, back)
-            if front:
-                node.front = node.front or _Node()
-                stack.append((node.front, front))
-            if back:
-                node.back = node.back or _Node()
-                stack.append((node.back, back))
 
-    def invert(self) -> None:
-        for n in self.nodes():
-            n.polygons = [p.flipped() for p in n.polygons]
-            assert n.plane is not None or not n.polygons
-            if n.plane is not None:
-                n.plane = n.plane.flipped()
-            n.front, n.back = n.back, n.front
+class _Tree:
+    """A solid's BSP tree (csg.js's Node), inside out if `inverted`. It is the tree a whole build would give, but only
+    the nodes a clip reaches are made (#214): joining a small part to a big solid reaches the few planes near the
+    part, not the solid's thousands, and what comes out is the same polygon for polygon."""
+
+    __slots__ = ("root", "inverted")
+
+    def __init__(self, polys: Sequence[Polygon], inverted: bool = False) -> None:
+        self.root = _Node(list(polys))
+        self.inverted = inverted
 
     def clip_polygons(self, polygons: list[Polygon]) -> list[Polygon]:
-        """The parts of `polygons` outside this BSP's solid."""
+        """The parts of `polygons` outside the solid. A plane the whole batch lies clear of on one side is passed
+        without a test per polygon: what each polygon's own test would say, since every point of the batch is
+        inside its box."""
         out: list[Polygon] = []
-        stack = [(self, polygons)]
+        inverted = self.inverted
+        stack = [(self.root, polygons, _extent(polygons))]
         while stack:
-            node, polys = stack.pop()
+            node, polys, extent = stack.pop()
+            if not polys:
+                continue  # nothing reaches the subtree
+            node.expand()
             if node.plane is None:
                 out += polys
                 continue
+            plane = node.plane.flipped() if inverted else node.plane
+            ahead, behind = (node.back, node.front) if inverted else (node.front, node.back)
+            n, (cx, cy, cz, hx, hy, hz) = plane.normal, extent
+            mid = n[0] * cx + n[1] * cy + n[2] * cz - plane.w
+            reach = abs(n[0]) * hx + abs(n[1]) * hy + abs(n[2]) * hz
+            if mid - reach > CLEAR:  # all in front
+                if ahead is not None:
+                    stack.append((ahead, polys, extent))
+                else:
+                    out += polys
+                continue
+            if mid + reach < -CLEAR:  # all behind
+                if behind is not None:
+                    stack.append((behind, polys, extent))
+                continue
             front: list[Polygon] = []
             back: list[Polygon] = []
             for p in polys:
-                _split(node.plane, p, front, back, front, back)
-            if node.front is not None:
-                stack.append((node.front, front))
+                _split(plane, p, front, back, front, back)
+            if ahead is not None:
+                stack.append((ahead, front, _extent(front)))
             else:
                 out += front
-            if node.back is not None:
-                stack.append((node.back, back))
+            if behind is not None:
+                stack.append((behind, back, _extent(back)))
         return out
 
-    def clip_to(self, other: _Node) -> None:
-        for n in self.nodes():
-            n.polygons = other.clip_polygons(n.polygons)
 
-    def all_polygons(self) -> list[Polygon]:
-        return [p for n in self.nodes() for p in n.polygons]
-
-
-def _tree(polys: list[Polygon]) -> _Node:
-    n = _Node()
-    n.build(list(polys))
-    return n
+def _tree(polys: list[Polygon]) -> _Tree:
+    return _Tree(polys)
 
 
 def _box(polys: Sequence[Polygon]) -> tuple[Array, Array]:
@@ -236,10 +272,8 @@ def _flip(polys: list[Polygon]) -> list[Polygon]:
     return [p.flipped() for p in polys]
 
 
-def _inverted_tree(polys: Solid) -> _Node:
-    t = _tree(polys)
-    t.invert()
-    return t
+def _inverted_tree(polys: Solid) -> _Tree:
+    return _Tree(polys, inverted=True)
 
 
 # The operations follow csg.js (clipTo, invert, build) with each side's tree built from its whole solid: a tree of
