@@ -17,6 +17,7 @@ import fast_simplification
 import numpy as np
 
 from kiln.sdf import Array, Field
+from kiln.usage import Progress
 
 if TYPE_CHECKING:
     from kiln.notation import Model
@@ -47,7 +48,7 @@ def grid_step(size: float, resolution: float, max_cells: int = MAX_CELLS) -> flo
     return max(resolution, size / (max_cells - 6))
 
 
-def sample(field: Field, lo: Array, step: float, dims: tuple[int, int, int]) -> Array:
+def sample(field: Field, lo: Array, step: float, dims: tuple[int, int, int], progress: Progress | None = None) -> Array:
     """Field values on the grid lo + index * step. Coarse first; fine values only in blocks near the surface,
     elsewhere the nearest coarse value (same sign, so no surface is lost)."""
     nx, ny, nz = dims
@@ -70,14 +71,19 @@ def sample(field: Field, lo: Array, step: float, dims: tuple[int, int, int]) -> 
     for combo in product((False, True), repeat=3):
         refine |= block[np.ix_(*[s if use else b for use, s, b in zip(combo, shifted, block_of, strict=True)])]
     # refined in slabs along x: the points' coordinates for a whole fine grid don't fit in memory
-    per_x = max(1, int(refine.sum()) // max(nx, 1))
+    total = int(refine.sum())
+    per_x = max(1, total // max(nx, 1))
     slab = max(1, REFINE_POINTS // max(per_x, 1))
+    done = 0
     for x0 in range(0, nx, slab):
         part = refine[x0 : x0 + slab]
         idx = np.argwhere(part)
         if len(idx):
             idx[:, 0] += x0
             values[x0 : x0 + slab][part] = field.distance(lo + idx * step)
+            done += len(idx)
+            if progress is not None:
+                progress("meshing: field samples", done, total)
     return values
 
 
@@ -128,7 +134,7 @@ def mesh_cells(field: Field, model: Model, style: Style) -> tuple[float, float, 
     return step, asked, why
 
 
-def _grid(field: Field, step: float) -> tuple[Array, tuple[int, int, int], Array]:
+def _grid(field: Field, step: float, progress: Progress | None = None) -> tuple[Array, tuple[int, int, int], Array]:
     """The sampling grid's corner, size and values: the parts' boxes plus a margin, grown on any side the surface
     reaches (smooth unions bulge out of their parts' boxes, by up to a quarter of the blend radius per join)."""
     lo, hi = field.bounds()
@@ -136,7 +142,7 @@ def _grid(field: Field, step: float) -> tuple[Array, tuple[int, int, int], Array
     for _ in range(GROW_TRIES):
         corner = lo - pad_lo
         dims = tuple(int(math.ceil(v)) + 1 for v in ((hi + pad_hi - corner) / step))
-        values = sample(field, corner, step, dims)  # type: ignore[arg-type]
+        values = sample(field, corner, step, dims, progress)  # type: ignore[arg-type]
         grown = False
         for axis in range(3):
             if (values.take([0, 1], axis=axis) < 0).any():
@@ -285,8 +291,8 @@ def _crossings(field: Field, start: Array, edge: Array, f0: Array, f1: Array, t:
     return start + t[:, None] * edge
 
 
-def dual_contour(field: Field, step: float) -> Mesh:
-    lo, dims, values = _grid(field, step)
+def dual_contour(field: Field, step: float, progress: Progress | None = None) -> Mesh:
+    lo, dims, values = _grid(field, step, progress)
     nx, ny, nz = dims
     inside = values < 0
     cell_dims = (nx - 1, ny - 1, nz - 1)

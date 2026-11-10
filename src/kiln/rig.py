@@ -15,6 +15,7 @@ import numpy as np
 from kiln.notation import ROOT_ID, Animation, Model, PartPose
 from kiln.retarget import HUMANOID_MAP, JOINTS, default_pivot, load_clip, retarget
 from kiln.sdf import IDENTITY, Array, Field, Geometry, rotation_matrix
+from kiln.usage import Progress
 
 MAX_INFLUENCES = 4
 
@@ -141,13 +142,15 @@ def build_skeleton(model: Model, field: Field) -> Skeleton:
     return Skeleton(bones)
 
 
-def soft_weights(points: Array, model: Model, field: Field, skeleton: Skeleton, step: float) -> tuple[Array, Array]:
+def soft_weights(points: Array, model: Model, field: Field, skeleton: Skeleton, step: float, progress: Progress | None = None) -> tuple[Array, Array]:
     """(joints (V, 4) int, weights (V, 4) float) from each bone's parts' distances: softmax with a temperature
     set by the parts' blend radius, so a smooth joint bends where it blends."""
     names = [b.name for b in skeleton.bones]
     d = np.full((len(names), len(points)), np.inf)
     blend = np.full(len(names), step)
     for i, part in enumerate(model.parts):
+        if progress is not None:
+            progress("skinning: parts done", i, len(model.parts))
         if part.geometry.op != "add":
             continue
         b = names.index(part.id)

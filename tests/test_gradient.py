@@ -150,8 +150,8 @@ def test_painting_reports_progress(project: Project) -> None:
     assert model is not None, findings
     field = field_of(model, 0.02)
     lines: list[str] = []
-    regions(dual_contour(field, 0.02), model, field, False, progress=lines.append)
-    assert lines[-1] == "painting: patterns of 1/1 parts" and "painting: borders of 1/2 colour groups" in lines
+    regions(dual_contour(field, 0.02), model, field, False, progress=lambda what, done, total: lines.append(f"{what} {done}/{total}"))
+    assert lines[-1] == "painting: patterns, parts done 1/1" and "painting: borders, colour groups done 1/2" in lines
 
 
 def test_progress_within_a_phase_is_throttled(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -236,3 +236,4 @@ def test_same_gradient_with_hard_parts_or_another_pattern_stays_own(project: Pro
     (c2, k2), (c1, k1) = colours
     nearest = np.argmin(np.linalg.norm(c2[:, None] - c1[None], axis=2), axis=1)
     assert (k2 == k1[nearest]).mean() > 0.9
+

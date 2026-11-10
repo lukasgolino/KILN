@@ -17,6 +17,7 @@ import numpy as np
 from kiln.mesher import Mesh
 from kiln.notation import Decal, Model, Part, Pattern
 from kiln.sdf import Array, Field, Geometry
+from kiln.usage import Progress
 
 ScalarFn = Callable[[Array], Array]
 
@@ -313,7 +314,7 @@ class Regions:
 
 
 def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[int] | None = None, protect: frozenset[int] = frozenset(),
-            progress: Callable[[str], None] | None = None) -> Regions:  # fmt: skip
+            progress: Progress | None = None) -> Regions:  # fmt: skip
     """Cut the mesh into paint groups (one per bone + colour + material) and patterns. Done on the full-resolution
     mesh, so the borders are smooth curves that decimation then keeps (mesher.decimate_regions). `protect`ed parts
     (thin ones the budget would erase) get their own group, so decimation keeps their outline too."""
@@ -368,7 +369,7 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
             margin = np.concatenate([margin, margins(group_distances(vertices[n_before:]))], axis=1)
         owner[(owner < 0) & negative] = g
         if progress is not None:
-            progress(f"painting: borders of {g + 1}/{len(groups)} colour groups")
+            progress("painting: borders, colour groups done", g + 1, len(groups))
     vertices, faces, owner, pattern_groups = _patterns(vertices, faces, owner, model, adding, groups, group_index, part_group,
                                                       lambda x: _project(field, x), progress=progress)  # fmt: skip
     # `under`: what a detachable (separate) part covers is painted (hair under a helmet), seen once it falls off
@@ -443,7 +444,7 @@ def hard_regions(mesh: Mesh, face_part: Array, model: Model, rigged: bool) -> Re
 
 def _patterns(
     vertices: Array, faces: Array, owner: Array, model: Model, adding: list[int], groups: list[PaintGroup], group_index: dict[PaintGroup, int],
-    part_group: dict[int, int], project: Callable[[Array], Array], flat: bool = False, progress: Callable[[str], None] | None = None,
+    part_group: dict[int, int], project: Callable[[Array], Array], flat: bool = False, progress: Progress | None = None,
 ) -> tuple[Array, Array, Array, dict[int, tuple[int, ...]]]:
     """Patterns: a second colour cut into each patterned part's own faces (several: in order, each over the last).
     `flat`: the faces are exact polygons (hard parts), so bands and stripes are cut along their border planes as they
@@ -454,7 +455,7 @@ def _patterns(
         part = model.parts[i]
         g = part_group[i]
         if progress is not None and part.patterns:
-            progress(f"painting: patterns of {patterned.index(i) + 1}/{len(patterned)} parts")
+            progress("painting: patterns, parts done", patterned.index(i), len(patterned))
         # this part's faces, followed through every cut: its patterns' colour groups are shared with other parts that
         # paint the same colours (every tuft with the same gradient), so "owner in own" would take theirs too (#131)
         mine = owner == g
@@ -495,6 +496,8 @@ def _patterns(
             vertices, faces, negative, parent = split(vertices, faces, _own_values(fn, vertices, faces, mine), mine)
             owner, mine = owner[parent], mine[parent]
             owner = _paint_alt(owner, own, mine & ~negative, pat, part, g, groups, group_index, pattern_groups)
+    if progress is not None and patterned:
+        progress("painting: patterns, parts done", len(patterned), len(patterned))
     return vertices, faces, owner, pattern_groups
 
 

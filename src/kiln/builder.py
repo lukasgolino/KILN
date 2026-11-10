@@ -35,7 +35,7 @@ from kiln.paint import Painted, PaintGroup, Regions, corner_normals, hard_region
 from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
 from kiln.sdf import Array, Field, part_thickness
 from kiln.style import Style
-from kiln.usage import Phases
+from kiln.usage import MANY_PARTS, Phases, Progress
 
 BUILDER_VERSION = 18  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
@@ -186,7 +186,8 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
             raise ValueError(f"{part.where} ({part.geometry.shape}) has no valid surface (its numbers give NaN); check its points")
     step, asked, reason = mesh_cells(field, model, style)
     with Phases(model.name) as phase:  # its heartbeat stops with the build, however it ends
-        phase(f"meshing at {step * 1000:.3g} mm cells ({reason})")
+        phase.loud = len(model.parts) >= MANY_PARTS  # a big model's build is rarely short: say each phase at once (#221)
+        phase(f"meshing {len(model.parts)} parts at {step * 1000:.3g} mm cells ({reason})")
         built = _build_meshed(model, style, budget, step, asked, phase)
         built.step_reason = reason
         return built
@@ -209,7 +210,11 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     kept = kept_parts(model, hard)
     groups_of = [[i for i in inc if i not in hard and i not in kept] for inc in all_pieces]
     pieces = [(include, field.only(include)) for include in groups_of if include]
-    meshes = [dual_contour(f, step) for _, f in pieces]
+    def hinted(hint: str) -> Progress:  # a phase's counter, with what would make it faster
+        return lambda what, done, total: phase.progress(what, done, total, hint)
+
+    meshing = hinted("a coarser resolution or fewer parts meshes faster")
+    meshes = [dual_contour(f, step, meshing) for _, f in pieces]
     phase(f"meshed at {step * 1000:.3g} mm: {sum(m.triangles for m in meshes)} triangles")
     kept_cut, kept_hidden = _kept(model, style, field, sorted(kept), step, target, meshes, rigged)
     kept_triangles = sum(len(p.faces) for p, _ in kept_cut)
@@ -234,10 +239,11 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
         total = sum(mesh.triangles for _, _, mesh in live)
         live = [(include, f, decimate(f, mesh, max(200, round(PRESHAPE * soft_target * mesh.triangles / total)), step)) for include, f, mesh in live]
         phase(f"painting {len(adding)} parts")
-        cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect, phase.within) for include, f, mesh in live])
+        cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect, hinted("fewer gradient or pattern parts paint faster")) for include, f, mesh in live])
         fields = [f for _, f, _ in live]
         phase(f"reducing to {soft_target} triangles")
-        painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, soft_target, [inc for inc, _, _ in live], full_areas)
+        painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, soft_target, [inc for inc, _, _ in live], full_areas,
+                                                   hinted("a coarser resolution (fewer raw triangles) reduces faster"))  # fmt: skip
     floating = 1
     if groups_of[0] and painted is not None and not per_bone:  # separate parts may float
         main_faces = np.flatnonzero(region_piece[painted.face_group] == 0)
@@ -264,7 +270,7 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     joints = weights = None
     if model.skin == "soft":
         phase("skinning")
-        joints, weights = soft_weights(painted.vertices, model, field, skeleton, step)
+        joints, weights = soft_weights(painted.vertices, model, field, skeleton, step, hinted("skin: rigid or fewer parts skins faster"))
         if len(painted.vertices) > n_soft:  # hard parts don't bend: each vertex follows its own part's bone
             names = [b.name for b in skeleton.bones]
             bone = np.zeros(len(painted.vertices), dtype=np.int64)
@@ -478,7 +484,7 @@ def _join(cuts: list[Regions]) -> tuple[Regions, Array]:
 
 def _decimate(
     model: Model, style: Style, fields: list[Field], cut: Regions, region_piece: Array, step: float, target: int, includes: list[list[int]],
-    full_areas: list[Array],
+    full_areas: list[Array], progress: Progress | None = None,
 ) -> tuple[Painted, Array, tuple[int, ...], tuple[int, ...]]:
     """Decimate every piece together to the budget, paint decals, and work out normals and hidden/lost parts per
     piece (each on its own surface)."""
@@ -496,6 +502,8 @@ def _decimate(
         return decimated, face_owner, painted
 
     for k, share in enumerate(BORDER_SCHEDULE):
+        if progress is not None:
+            progress("reducing: passes done", k, len(BORDER_SCHEDULE))
         mesh, owner = simplify_borders(mesh, owner, max(step * 0.15, edge * share))
         mesh, owner, painted = attempt(goal if k else goal * 3)
         if k >= 2 and len(painted.faces) <= target * 1.05:
