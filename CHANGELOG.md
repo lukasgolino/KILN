@@ -19,8 +19,9 @@ before 1.0).
 ### Changed
 
 - Docs: `kiln docs build` has a "What things cost" section (measured build times for cell size, budget, normal map,
-  noise, part count, gradients and patterns, hard parts); `kiln docs parts` says that a `mirror_id` copy's `blend_to` follows the
-  mirrored ids, so one side is enough (#224).
+  noise, part count, gradients and patterns, hard parts); `kiln docs parts` says that the copy of a part with
+  `mirror_id` melts into the mirrored ids of its `blend_to` (one side is enough there; a plain `mirror` part still
+  names both) (#224).
 - `kiln lint --fast` says in its summary which findings it didn't look for (those that need the built model: E009,
   E013 and most warnings; `--json`: `geometry: false`); the lint topic lists them and says how fast lint, plain lint
   and the build's lint relate (#186, #210).

@@ -122,13 +122,15 @@ are the real preview's. Not for terrains, scatters or imported models, nor with 
 
 ## What things cost
 
-Build time, measured on one 6-core machine with `kiln-gen[fast]` (yours will differ; the ratios hold). A 23-part
-soft-skinned character at 6 mm cells builds in 16 s; the same model with one thing changed:
+Build time, measured with KILN 0.22 on one 6-core machine with `kiln-gen[fast]`: read the ranking and the rough
+size, not the seconds (without the `fast` extra everything meshed is 2-3 times slower). A 23-part soft-skinned
+character at 6 mm cells builds in 16 s; the same model with one thing changed:
 
 | Change | Build | Why |
 |---|---|---|
 | cells 12 mm instead of 6 | 8 s | fewer field samples and raw triangles; the budget decides the final count either way |
-| cells 4.5 mm (3 mm asked, capped by `max_cells`) | 20 s | |
+| cells 3 mm (with `max_cells` raised so they aren't capped) | 31 s | halving the cells about doubles the build, and takes more memory |
+| 3 mm asked, `max_cells` left at 400 | 20 s | the cap gave 4.5 mm cells: lint W120 says when that happens |
 | `budget` doubled (30k -> 60k triangles) | 22 s | more left to place and paint |
 | `normal_map: 1024` | 35 s | the bake is a second pass over the surface |
 | `noise` on every part | 17 s | one more term per sample: nearly free |
@@ -136,21 +138,23 @@ soft-skinned character at 6 mm cells builds in 16 s; the same model with one thi
 
 What grows with the model:
 
-- **Parts**: about in step with their number. 23 parts 16 s, 94 parts 46 s, 536 parts (478 of them fur locks) 290 s.
+- **Parts**: about in step with their number. 23 parts 16 s, 94 parts 46 s, 536 parts (about 480 of them fur
+  locks) 290 s.
   `blend_to` costs no more than `blend`. If a look needs hundreds of small parts, ask whether it is surface detail
   instead (`detail: true` parts in a `normal_map`, a `pattern`, a `texture`).
-- **`gradient` and `pattern` parts**: each is painted on its own: about 0.6 s each on a big model (a gradient on each
-  of 481 locks took a build from 370 s to 672 s). On a few parts, nothing to worry about.
-- **Hard parts** (`hard`, `bevel`, `sides`): joined one by one as exact polygons, whatever the cell size: 82 of them
-  about 50 s. Bevels and more `sides` multiply their polygons. A model of hard parts only doesn't get faster with a
-  coarser `resolution`.
+- **`gradient` and `pattern` parts**: each is painted on its own: about 0.6 s each on a big model (a gradient on
+  every lock of that 536-part character added about 300 s). On a few parts, nothing to worry about.
+- **Hard parts** (`hard`, `bevel`, `sides`): joined one by one as exact polygons, whatever the cell size, and the
+  time follows their polygons more than their number: 82 mostly plain ones took 45 s of a 54 s build; 13 with many
+  sides and bevels, 18 s. Bevels and more `sides` multiply the polygons, and a model over its budget joins them
+  again with less detail. A model of hard parts only doesn't get faster with a coarser `resolution`.
 - **Size**: a style's resolution gets coarser for models over 1 m (`scale_with_size`) and `max_cells` caps the grid,
   so a big scene costs like a small model unless you force fine cells on it.
 
-What costs nothing after the first build: an edit of animations, variants, description or comments, or of the
+What stays cheap after the first build: an edit of animations, variants, description or comments, or of the
 style's `[look]` and `[materials]`, reuses the built meshes (seconds). While shapes are still moving,
-`kiln preview <model> --draft` shows a slow model in seconds (`kiln docs build`). `kiln lint --fast` checks the text
-without building.
+`kiln preview <model> --draft` shows a slow model in seconds (above). `kiln lint --fast` checks the text without
+building.
 
 ## Reporting
 
