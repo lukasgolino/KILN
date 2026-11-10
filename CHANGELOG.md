@@ -6,6 +6,14 @@ before 1.0).
 
 ## [Unreleased]
 
+### Changed
+
+- Build progress: joining hard parts is its own phase (`joining 82 hard parts`, then solids joined of the total over
+  all pieces, cuts included, and time left, estimated for a cost that grows with the square of the count) instead of
+  running under `meshing`; a detail level made again over budget says so. The meshing line counts the adding parts
+  meshed there (not hard parts, not cuts), and a model of hard parts only no longer says `meshing ...` and
+  `meshed at ...: 0 triangles` (#174).
+
 ### Performance
 
 - Reducing is a little faster (#199): the nearest part of every vertex is found in one compiled pass instead of one

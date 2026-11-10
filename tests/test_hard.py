@@ -638,9 +638,9 @@ def test_detail_levels_stop_when_nothing_changes(project: Project, monkeypatch: 
 
     calls: list[int] = []
     real = builder._hard_solid
-    def counted(m: object, st: object, inc: frozenset[int], level: int) -> object:
+    def counted(m: object, st: object, inc: frozenset[int], level: int, *more: object) -> object:
         calls.append(level)
-        return real(m, st, inc, level)  # type: ignore[arg-type]
+        return real(m, st, inc, level, *more)  # type: ignore[arg-type]
 
     monkeypatch.setattr(builder, "_hard_solid", counted)
     plain = built_of(project, "name: plain\nclass: prop\nparts:\n  - box: { at: [0, 0.05, 0], size: [0.1, 0.1, 0.1] }\n    color: red\n    hard: true\n", "plain")

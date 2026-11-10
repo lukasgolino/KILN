@@ -107,11 +107,12 @@ class Phases:
         if self.on:
             self._say(what)
 
-    def progress(self, label: str, done: int, total: int, hint: str = "") -> None:
+    def progress(self, label: str, done: int, total: int, hint: str = "", growth: float = 1.0) -> None:
         """How far a long step is (done of total) and roughly how long it has left, at most every QUIET_SECONDS. When
         the projection passes LONG_SECONDS the step says so at once (once), with `hint`: what would make it faster.
         Each counter has its own clock: it starts again when the label changes or the count goes back (the next mesh
-        piece, patterns after borders), so earlier work in the phase doesn't inflate the estimate."""
+        piece, patterns after borders), so earlier work in the phase doesn't inflate the estimate. `growth`: the time
+        spent grows with the count to this power (2: every item costs more than the last, as joining hard parts does)."""
         now = time.monotonic()
         if self._counter is None:  # the phase's first counter: timed from the phase's start
             self._counter = (label, done, self.phase_start, 0)
@@ -120,7 +121,8 @@ class Phases:
         else:
             self._counter = (label, done, self._counter[2], self._counter[3])
         spent, counted = now - self._counter[2], done - self._counter[3]
-        left = spent / counted * (total - done) if counted > 0 and done < total and spent > 1.0 else None
+        first = self._counter[3]
+        left = spent * (total**growth - done**growth) / (done**growth - first**growth) if counted > 0 and done < total and spent > 1.0 else None
         what = f"{label} {done}/{total}" + (f", about {duration(left)} left" if left is not None else "")
         self._eta = (label, done, total, now + left) if left is not None else None
         if self.on and left is not None and spent + left > LONG_SECONDS and label not in self._warned:

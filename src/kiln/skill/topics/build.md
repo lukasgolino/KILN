@@ -98,11 +98,18 @@ add_child(load("res://assets/kiln/looks/soft_toy.tscn").instantiate())   # once 
 
 ## Long builds
 
-Builds say nothing for their first 10 s, then a line per phase (meshing, painting, reducing, skinning) at least every
-10 s, with done/total and roughly how long is left: `kiln: bigfoot: reducing: passes done 2/5, about 9 min left (662 s)`.
-A step projected past 2 minutes says `a long build` at once with what would make it faster (meshing: a coarser
-`resolution` or fewer parts; painting: fewer gradient or pattern parts; reducing: a coarser resolution; skinning:
-`skin: rigid` or fewer parts); a model with 100 or more parts prints every phase line at once.
+Builds say nothing for their first 10 s, then a line per phase (joining hard parts, meshing, painting, reducing,
+skinning) at least every 10 s, with done/total and roughly how long is left:
+`kiln: bigfoot: reducing: passes done 2/5, about 9 min left (662 s)`. A step projected past 2 minutes says
+`a long build` at once with what would make it faster:
+
+- joining hard parts: fewer hard parts, or fewer `sides` on round ones (the cell size makes no difference to this phase);
+- meshing: a coarser `resolution` or fewer parts;
+- painting: fewer gradient or pattern parts;
+- reducing: a coarser resolution;
+- skinning: `skin: rigid` or fewer parts.
+
+A model with 100 or more parts prints every phase line at once.
 
 ## Reporting
 
