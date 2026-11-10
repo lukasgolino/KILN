@@ -26,6 +26,12 @@ W123 the built mesh dips 2 mm (or a tenth of a cell) or more below y = 0 (blends
 lifted onto y = 0. W124 a part shows only a sliver: 97% or more of its own surface is deeper inside other parts than
 their blend (clipped flat, nearly gone; W101 is all of it), with the covering parts named; not for hard, shell or
 separate parts. Partly floating details have no warning yet: check them in the previews.
+`kiln lint --fast` checks the text only (notation, fields, colours, materials, rig, animations) in about a second:
+use it while writing. It meshes nothing, so it can't find the geometric problems (W101-W103, W111, W120, E013 ...) and
+says so in its summary. Plain `kiln lint` builds each model for those; `kiln build` always runs the full lint first,
+on the same cached meshes, so a model that passes plain lint passes the build's lint. A build that fails on a
+geometric finding after a `--fast` pass is that difference, not a disagreement.
+
 Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`. Lint meshes models in parallel
 (`KILN_JOBS` processes, default: every core) and caches them for build and previews: a model is meshed again when
 its parts, paint, rig or skin, its palette, its style's `[shape]` or its triangle budget change. Not for an edit of

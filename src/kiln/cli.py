@@ -214,8 +214,9 @@ def cmd_lint(args: argparse.Namespace, out: Output) -> int:
     if meshed and len(meshed) <= MESH_LINES:  # what each model was meshed at, and why (#223)
         for n, b in meshed.items():
             out.say(f"{n}: {b.triangles} triangles, {b.step * 1000:.3g} mm mesh cells ({b.step_reason})")
-    out.say(f"{len(paths)} models: {len(result.errors)} errors, {len(result.warnings)} warnings ({cost_line(seconds)})")
-    data = {"models": len(paths), "errors": len(result.errors), "warnings": len(result.warnings),
+    skipped = "; text checks only (--fast): nothing was meshed, so no geometric findings (W101-W103, W111, E013 ...): kiln lint or kiln build runs them" if args.fast else ""
+    out.say(f"{len(paths)} models: {len(result.errors)} errors, {len(result.warnings)} warnings ({cost_line(seconds)}){skipped}")
+    data = {"models": len(paths), "errors": len(result.errors), "warnings": len(result.warnings), "geometry": not args.fast,
             "findings": [f.to_dict() for f in result.findings], "seconds": round(seconds, 1), "peak_memory_gb": peak_gb(),
             "cells": {n: {"step": b.step, "asked": b.asked_step, "capped": b.step > b.asked_step * (1 + 1e-9), "why": b.step_reason}
                       for n, b in meshed.items()}}  # fmt: skip
@@ -1124,7 +1125,7 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("library", parents=[common], help="KILN's templates: bodies, heads, helmets, armour")
     s = sub.add_parser("lint", parents=[common], help="check models (errors and warnings)")
     s.add_argument("paths", nargs="*")
-    s.add_argument("--fast", action="store_true", help="skip geometric checks (no meshing)")
+    s.add_argument("--fast", action="store_true", help="text checks only, in a second: notation, colours, rig, animations (no meshing, so no geometric findings)")
     s = sub.add_parser("build", parents=[common], help="build every model (or the ones named) into the output dir")
     s.add_argument("models", nargs="*", help="only these models; the others keep what the last build wrote")
     s.add_argument("--verify-godot", action="store_true", help="load everything in headless Godot afterwards")

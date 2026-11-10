@@ -92,8 +92,13 @@ def test_lint_reports_errors_and_warnings(in_project: Project, capsys: pytest.Ca
     assert e004["line"] == 3 and e004["where"] == "parts[0].color"  # the part's line
     code, result = run_json(["lint", "good"], capsys)
     assert code == 0 and result["warnings"] == 1
+    assert result["geometry"] is True
     code, result = run_json(["lint", "--fast", "good"], capsys)
-    assert code == 0 and result["warnings"] == 0
+    assert code == 0 and result["warnings"] == 0 and result["geometry"] is False  # (#186) it says nothing was meshed
+    assert main(["lint", "--fast", "good"]) == 0
+    assert "text checks only (--fast): nothing was meshed" in capsys.readouterr().out
+    assert main(["lint", "good"]) == 0
+    assert "--fast" not in capsys.readouterr().out
     code, result = run_json(["lint", "nope"], capsys)
     assert code == 1 and "no model 'nope'" in result["findings"][0]["message"]
 
