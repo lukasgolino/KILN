@@ -180,7 +180,8 @@ def gib_models(model: Model) -> list[tuple[str, Model]]:
         sub = replace(model, name=f"{model.name}.gib.{part_id}", parts=parts, rig={}, skin="none", animations={}, variants={}, lod=(),
                       effect=None, animation_library=None, animations_only=False, node_prefix="", source=None,
                       normal_map=0, bake_parts=None, detail=[], bake_index=[], detail_ids={},  # debris: no map of its own
-                      text=f"{model.text}\n# gib {part_id}: {' '.join(sorted(ids))}")  # fmt: skip
+                      text=f"{model.text}\n# gib {part_id}: {' '.join(sorted(ids))}",
+                      shape_text=f"{model.shape_text}\n# gib {part_id}: {' '.join(sorted(ids))}", motion_text="", library_text="")  # fmt: skip
         out.append((part_id, sub))
     return out
 

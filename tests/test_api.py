@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pytest
-from conftest import load, write_model
+from conftest import arms_text, load, ok_model, write_model
 from PIL import Image
 
 from kiln import api
@@ -104,3 +105,129 @@ def test_every_style_field_is_keyed_or_known_not_to_change_a_build() -> None:
     not_keyed = {"description", "notes", "materials", "look", "path", "text"}  # read at export or by people only
     fields = {f.name for f in dataclasses.fields(Style)}
     assert set(STYLE_KEYED) | not_keyed == fields and not set(STYLE_KEYED) & not_keyed
+
+
+@pytest.mark.parametrize("skin", ["rigid", "soft"])
+def test_animation_variant_and_comment_edits_keep_the_built_mesh(project: Project, monkeypatch: pytest.MonkeyPatch, skin: str) -> None:
+    """#185: the mesh cache follows the fields a mesh, its paint and its skin come from. An animation edit only makes
+    the tracks again (on the cached skeleton); variants, the model's card, comments and layout change nothing built.
+    A part or rig edit still builds."""
+    from kiln import builder
+
+    cache = project.root / ".kiln-cache"
+    calls: list[str] = []
+    real = builder.build_model
+
+    def counted(*a: Any, **k: Any) -> Any:
+        calls.append("built")
+        return real(*a, **k)
+
+    monkeypatch.setattr(builder, "build_model", counted)
+    text = arms_text("hero", skin)
+    model, style = ok_model(project, text, "hero")
+    first = builder.build_cached(model, style, {}, cache)
+    hold = {t.name: t for t in first.tracks}["hold"].rotation.copy()
+
+    moved, _ = ok_model(project, text.replace("rotate: [0, 0, -60]", "rotate: [0, 0, -80]"), "hero")
+    again = builder.build_cached(moved, style, {}, cache)
+    assert calls == ["built"] and again.model is moved
+    assert not np.array_equal({t.name: t for t in again.tracks}["hold"].rotation, hold)  # the new pose
+    np.testing.assert_array_equal(again.painted.vertices, first.painted.vertices)
+    fresh = real(moved, style, None, {})  # what a full build of the edited model gives
+    for got, want in zip(again.tracks, fresh.tracks, strict=True):
+        assert got.name == want.name
+        np.testing.assert_array_equal(got.rotation, want.rotation)
+        np.testing.assert_array_equal(got.translation, want.translation)
+    reread = builder.build_cached(moved, style, {}, cache)  # the cache file now holds the new tracks
+    np.testing.assert_array_equal({t.name: t for t in reread.tracks}["hold"].rotation, {t.name: t for t in fresh.tracks}["hold"].rotation)
+
+    dressed = "# a note\n" + text.replace("class: character", "class:   character") + "variants:\n  blue: { swap: { red: blue } }\ndescription: a hero\ntags: [crew]\nstatus: approved\n"
+    other, _ = ok_model(project, dressed, "hero")
+    assert builder.cache_key(other, style, {}) == builder.cache_key(model, style, {})
+    assert builder.build_cached(other, style, {}, cache).model.variants and calls == ["built"]
+
+    for edit in (("radius: 0.08", "radius: 0.09"), ("pivot: [0.3, 0.6, 0]", "pivot: [0.3, 0.62, 0]"), ("color: blue", "color: red"),
+                 (f"skin: {skin}", "skin: soft" if skin == "rigid" else "skin: rigid")):  # fmt: skip
+        assert edit[0] in text
+        changed, _ = ok_model(project, text.replace(*edit), "hero")
+        assert builder.cache_key(changed, style, {}) != builder.cache_key(model, style, {}), edit
+
+
+def test_a_clip_carriers_pose_edit_only_resamples_its_users(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#185: a model playing an animation_library's clips keeps its meshes when the carrier's poses change (its tracks
+    are made again); a part or comment edit in the carrier doesn't even do that."""
+    from kiln import builder
+
+    carrier = arms_text("anims") + "animations_only: true\n"
+    user = arms_text("user").split("animations:\n")[0] + "animation_library: anims\n"
+    write_model(project, carrier, "anims")
+    model, style = ok_model(project, user, "user")
+    cache = project.root / ".kiln-cache"
+    calls: list[str] = []
+    real = builder.build_model
+
+    def counted(*a: Any, **k: Any) -> Any:
+        calls.append("built")
+        return real(*a, **k)
+
+    monkeypatch.setattr(builder, "build_model", counted)
+    first = builder.build_cached(model, style, {}, cache)
+    hold = {t.name: t for t in first.tracks}["hold"].rotation.copy()
+    write_model(project, "# a note\n" + carrier.replace("radius: 0.08", "radius: 0.07"), "anims")
+    same, _ = ok_model(load_project(start=project.root), user, "user")
+    assert builder.cache_key(same, style, {}) == builder.cache_key(model, style, {}) and builder.motion_key(same) == builder.motion_key(model)
+    write_model(project, carrier.replace("rotate: [0, 0, -60]", "rotate: [0, 0, -80]"), "anims")
+    moved, _ = ok_model(load_project(start=project.root), user, "user")
+    assert builder.cache_key(moved, style, {}) == builder.cache_key(model, style, {}) and builder.motion_key(moved) != builder.motion_key(model)
+    again = builder.build_cached(moved, style, {}, cache)
+    assert calls == ["built"] and not np.array_equal({t.name: t for t in again.tracks}["hold"].rotation, hold)
+
+
+def test_retargeted_clip_files_and_imported_models_clips(project: Project) -> None:
+    """#185: a retargeted clip file's bytes are in what the tracks come from, not in the mesh key; an imported model's
+    clips stay in its key (its tracks come with the import)."""
+    from dataclasses import replace
+
+    from kiln import builder
+    from kiln.notation import Animation
+
+    model, style = ok_model(project, arms_text("hero"), "hero")
+    clip = project.root / "imports" / "clips.glb"
+    clip.write_bytes(b"one")
+    anim = next(iter(model.animations.values()))
+    assert isinstance(anim, Animation)
+    retargeted = replace(model, animations={"walk": replace(anim, source=(clip, "Walk", 1.0))})
+    mesh, motion = builder.cache_key(retargeted, style, {}), builder.motion_key(retargeted)
+    clip.write_bytes(b"two")
+    assert builder.cache_key(retargeted, style, {}) == mesh and builder.motion_key(retargeted) != motion
+
+    from test_importer import SOURCE, box_glb
+
+    box_glb(project.root / "imports" / "box.glb")
+    crate, cstyle = ok_model(project, SOURCE, "crate")
+    assert crate.source is not None
+    assert builder.cache_key(replace(crate, motion_text="other clips"), cstyle, {}) != builder.cache_key(crate, cstyle, {})
+
+
+def test_a_key_yaml_reads_as_a_date_is_a_finding_not_a_crash(project: Project) -> None:
+    """#185 review: the model's fields as one text take any key or value YAML gives (dates), so the usual findings come."""
+    from conftest import errors_of
+
+    assert errors_of(project, arms_text("hero").replace("  wave:", "  2024-01-01:"), "hero")
+    assert errors_of(project, arms_text("hero").replace("  arm_l: { pivot", "  2024-01-01: { pivot"), "hero")
+
+
+def test_gibs_keep_their_own_key_and_no_clips(project: Project) -> None:
+    """#185 review: a gib (a part meshed on its own as debris) has its part ids in its key and nothing to re-sample."""
+    from kiln import builder
+    from kiln.build import gib_models
+
+    text = arms_text("hero").replace("  arm_l: { pivot: [0.3, 0.6, 0] }", "  arm_l: { pivot: [0.3, 0.6, 0], gib: true }")
+    model, style = ok_model(project, text, "hero")
+    gibs = dict(gib_models(model))
+    assert gibs
+    keys = {builder.cache_key(g, style, {}) for g in gibs.values()}
+    assert len(keys) == len(gibs) and builder.cache_key(model, style, {}) not in keys
+    moved, _ = ok_model(project, text.replace("rotate: [0, 0, -60]", "rotate: [0, 0, -80]"), "hero")
+    for part_id, g in dict(gib_models(moved)).items():
+        assert builder.motion_key(g) == builder.motion_key(gibs[part_id]) and builder.cache_key(g, style, {}) == builder.cache_key(gibs[part_id], style, {})

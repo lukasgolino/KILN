@@ -44,6 +44,7 @@ class Built:
     step_reason: str = ""  # why `step` is what it is, in words (kiln lint / build print it)
     ao: Array | None = None  # per vertex: baked occlusion (atlas_ao) the previews multiply in, as the engine does
     bake: Any = None  # kiln.bake.Bake: the normal map with its UVs and tangents (model normal_map)
+    motion_key: str = ""  # what `tracks` were made from (builder.motion_key): a cached build re-samples them when it changes
 
     @property
     def triangles(self) -> int:
