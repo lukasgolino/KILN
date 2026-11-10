@@ -6,6 +6,8 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-11
+
 ### Added
 
 - `kiln preview <model> --draft` (#222): a quick look while shapes and placement are still moving. Mesh cells 3 times
@@ -791,7 +793,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/lukasgolino/kiln/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/lukasgolino/kiln/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/lukasgolino/kiln/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/lukasgolino/kiln/compare/v0.18.0...v0.19.0
