@@ -815,7 +815,7 @@ class Field:
         return out
 
     def _distance(self, p: Array) -> Array:
-        if jit.AVAILABLE and len(p) >= jit.MIN_POINTS:  # one compiled pass per point
+        if jit.AVAILABLE and len(p) >= jit.MIN_FIELD_POINTS:  # one compiled pass per point
             return jit.field_distance(self, p)
         f = np.full(len(p), 1e9)
         if not len(p):
