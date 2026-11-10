@@ -604,14 +604,18 @@ def decimate_regions(
             raise RuntimeError("fast-simplification's replay disagrees with its simplify; please report")
         progress = len(out_f) < len(f) * 0.97
         v, f = np.asarray(out_v, dtype=np.float64), np.asarray(out_f, dtype=np.int64)
-        mapping = np.asarray(step_map, dtype=np.int64)[mapping]
+        # a vertex whose whole piece collapsed away has no output vertex (-1); it stays -1 through later rounds
+        follow = np.asarray(step_map, dtype=np.int64)
+        mapping = np.where(mapping >= 0, follow[np.maximum(mapping, 0)], -1)
         if len(f) <= budget * 1.02 or not progress:
             break
+    alive = mapping >= 0  # vertices gone with their piece take no part in the regions or the weld
     out_region = np.zeros(len(v), dtype=np.int64)
-    out_region[mapping] = vregion
+    out_region[mapping[alive]] = vregion[alive]
     face_region = out_region[f[:, 0]]
     # weld: border vertices survive untouched, one per region copy; join the copies of each source vertex
-    kept = np.bincount(mapping, minlength=len(v))[mapping] == 1
+    kept = np.zeros(len(mapping), dtype=bool)
+    kept[alive] = np.bincount(mapping[alive], minlength=len(v))[mapping[alive]] == 1
     weld = np.arange(len(v))
     if kept.any():
         order = np.lexsort((mapping[kept], source[kept]))
