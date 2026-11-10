@@ -30,6 +30,7 @@ except ImportError:  # numpy only
 
 SHAPE_IDS = {"sphere": 0, "ellipsoid": 1, "box": 2, "cylinder": 3, "cone": 4, "capsule": 5, "tube": 6, "torus": 7, "wedge": 8, "lathe": 9, "lock": 10}
 MIN_POINTS = 64  # fewer points: numpy (the call costs more than it saves)
+CHUNK = 64  # points per parallel task in the field kernel (each task keeps its own target-union cache)
 
 
 @dataclass(frozen=True)
@@ -463,61 +464,68 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
 
     @njit(cache=True, inline="always")
     def target_distance(s: int, n: int, x: float, y: float, z: float, t: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any,
-                        set_off: Any, set_idx: Any, cache: Any) -> float:  # fmt: skip
-        """The union of target set s at the point (crisp), worked out once per point."""
-        if cache[s] == cache[s]:  # not NaN: done already
+                        set_off: Any, set_idx: Any, cache: Any, stamp: Any) -> float:  # fmt: skip
+        """The union of target set s at the point (crisp), worked out once per point (stamp[s] == n: cached)."""
+        if stamp[s] == n:
             return cache[s]
         best = math.inf
         for m in range(set_off[s], set_off[s + 1]):
             best = min(best, stood_in(set_idx[m], n, x, y, z, t, lo, hi, pad, pre, slot))
         cache[s] = best
+        stamp[s] = n
         return best
 
     @njit(cache=True, parallel=True)
     def field_kernel(p: Any, out: Any, t: Any, op: Any, counts: Any, blend: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any,
                      target_set: Any, set_off: Any, set_idx: Any, has_targets: Any) -> None:  # fmt: skip
-        n_sets = len(set_off) - 1
-        for n in prange(len(p)):
-            cache = np.full(max(n_sets, 1), np.nan)
-            x, y, z = p[n, 0], p[n, 1], p[n, 2]
-            f = 1e9
-            for i in range(len(op)):
-                if not counts[i]:
+        n_sets = max(len(set_off) - 1, 1)
+        chunks = (len(p) + CHUNK - 1) // CHUNK
+        for c in prange(chunks):  # the target-union cache is per chunk of points (one allocation, not one per point)
+            cache = np.empty(n_sets)
+            stamp = np.full(n_sets, -1, np.int64)
+            for n in range(c * CHUNK, min((c + 1) * CHUNK, len(p))):
+                out[n] = field_point(n, p, t, op, counts, blend, lo, hi, pad, pre, slot, target_set, set_off, set_idx, has_targets, cache, stamp)
+
+    @njit(cache=True, inline="always")
+    def field_point(n: int, p: Any, t: Any, op: Any, counts: Any, blend: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any,
+                    target_set: Any, set_off: Any, set_idx: Any, has_targets: Any, cache: Any, stamp: Any) -> float:  # fmt: skip
+        x, y, z = p[n, 0], p[n, 1], p[n, 2]
+        f = 1e9
+        for i in range(len(op)):
+            if not counts[i]:
+                continue
+            qx, qy, qz = max(lo[i, 0] - x, x - hi[i, 0]), max(lo[i, 1] - y, y - hi[i, 1]), max(lo[i, 2] - z, z - hi[i, 2])
+            ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
+            box = math.sqrt(ox * ox + oy * oy + oz * oz)
+            k = blend[i]
+            blended = target_set[i] >= 0
+            tt = math.inf
+            if op[i] != 2:  # out of reach: the part can't change f here (its distance is at least its box's)
+                gap = box - 1e-6
+                if gap > 0 and gap >= (f if op[i] == 0 else -f) + k:
+                    # a blend_to part too: it joins as min(f, smin(max(t, f), d, k)), and with d >= gap >= f + k
+                    # that is f whatever its targets' union t is (smin grows with both, smin(f, d, k) = f), #220
                     continue
-                qx, qy, qz = max(lo[i, 0] - x, x - hi[i, 0]), max(lo[i, 1] - y, y - hi[i, 1]), max(lo[i, 2] - z, z - hi[i, 2])
-                ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
-                box = math.sqrt(ox * ox + oy * oy + oz * oz)
-                k = blend[i]
-                blended = target_set[i] >= 0
-                tt = math.inf
-                if op[i] != 2:  # out of reach: the part can't change f here (its distance is at least its box's)
-                    gap = box - 1e-6
-                    if gap > 0 and gap >= (f if op[i] == 0 else -f) + k:
-                        if not blended:
-                            continue
-                        tt = target_distance(target_set[i], n, x, y, z, t, lo, hi, pad, pre, slot, set_off, set_idx, cache)
-                        if smin(max(tt, f), gap, k) >= f:  # d >= gap, smin grows with d: f stays (targets as cut so far)
-                            continue
-                if slot[i] >= 0:
-                    d = pre[slot[i], n]
-                elif qx > pad[i] or qy > pad[i] or qz > pad[i]:
-                    d = box + pad[i]
+            if slot[i] >= 0:
+                d = pre[slot[i], n]
+            elif qx > pad[i] or qy > pad[i] or qz > pad[i]:
+                d = box + pad[i]
+            else:
+                d = part_at(i, x, y, z, False, t)
+            if op[i] == 1:
+                f = -smin(-f, d, k)
+            elif op[i] == 2:
+                f = -smin(-f, -d, k)
+            elif has_targets[i]:  # blend_to: melts into its targets only; a crisp join with the rest
+                if blended:
+                    if tt == math.inf:
+                        tt = target_distance(target_set[i], n, x, y, z, t, lo, hi, pad, pre, slot, set_off, set_idx, cache, stamp)
+                    f = min(f, smin(max(tt, f), d, k))
                 else:
-                    d = part_at(i, x, y, z, False, t)
-                if op[i] == 1:
-                    f = -smin(-f, d, k)
-                elif op[i] == 2:
-                    f = -smin(-f, -d, k)
-                elif has_targets[i]:  # blend_to: melts into its targets only; a crisp join with the rest
-                    if blended:
-                        if tt == math.inf:
-                            tt = target_distance(target_set[i], n, x, y, z, t, lo, hi, pad, pre, slot, set_off, set_idx, cache)
-                        f = min(f, smin(max(tt, f), d, k))
-                    else:
-                        f = min(f, d)
-                else:
-                    f = smin(f, d, k)
-            out[n] = f
+                    f = min(f, d)
+            else:
+                f = smin(f, d, k)
+        return f
 
     _part_kernel: Any = part_kernel
     _field_kernel: Any = field_kernel

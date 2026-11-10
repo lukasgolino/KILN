@@ -6,6 +6,14 @@ before 1.0).
 
 ## [Unreleased]
 
+### Performance
+
+- Distance fields with many `blend_to` parts are fast again (#220): a part out of reach is skipped without working out
+  its targets' union (it can't change the field whatever that is), and the compiled kernel keeps that cache per chunk
+  of points instead of allocating it per point. A 536-part character (478 fur locks, each melting into its own set of
+  earlier parts) costs 7.6 us per point instead of 388, and its lint goes from over an hour to 14 minutes. Output is
+  byte-identical.
+
 ### Added
 
 - Long builds say how far they are and roughly how long is left in each phase (meshing samples, painting, reducing
