@@ -387,7 +387,7 @@ def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float
             continue
         share = _area(mesh.vertices, mesh.faces) / max(total, 1e-12)
         mesh = decimate(f, mesh, max(KEEP_MIN, round(2 * share * target)), fine)
-        painted = paint(regions(mesh, model, f, rigged, [i]), model)
+        painted = paint(regions(mesh, model, f, rigged, [i], draft=model.draft), model)
         out.append((painted, corner_normals(painted, f, fine, style.smooth, style.sharp_angle)))
     return out, hidden
 
@@ -562,6 +562,8 @@ def _decimate(
             break
     else:
         if model.draft:  # a quick look: one pass, borders as they are; over budget is fine
+            if progress is not None:
+                progress("reducing: passes done", 0, 1)
             mesh, owner, painted = attempt(goal)
         for _ in range(0 if model.draft else 2):
             goal = max(int(goal * target / len(painted.faces) * 0.95), int(target * 0.3))
@@ -633,7 +635,7 @@ def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int |
     if model.fit_to is not None:  # the character it's fitted to
         h.update(model.fit_to[0].read_bytes())
     if model.draft:
-        h.update(f"draft {model.resolution}".encode())  # a draft is its own build, at its own cell size
+        h.update(b"draft")  # a draft is its own build
     if model.source is not None:
         from kiln.importer import external_files
 

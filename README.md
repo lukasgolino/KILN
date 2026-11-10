@@ -88,6 +88,7 @@ kiln new model pilot --template bean      # a rigged bean character to edit
 kiln lint                                 # errors and warnings with line numbers
 kiln preview pilot                        # previews/pilot/turntable.png: 8 sides x 3 heights
 kiln preview pilot --pose walk --closeup arm_l
+kiln preview pilot --draft                # a quick coarse look while shapes are still moving (previews/pilot/draft/)
 kiln lineup                               # every model at one scale, with a 1 m bar
 kiln build                                # build/models/pilot.glb + manifest.json
 ```

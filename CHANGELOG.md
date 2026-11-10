@@ -11,8 +11,10 @@ before 1.0).
 - `kiln preview <model> --draft` (#222): a quick look while shapes and placement are still moving. Mesh cells 3 times
   coarser, each face in its nearest part's colour (no borders cut, no patterns on smooth parts), hard parts without
   bevels and made once, one reducing pass, no normal map or baked occlusion. A 536-part character: 14 s (its build:
-  294 s); a 23-part one: 5 s; an 82-hard-part scene: 21 s (80 s). Sheets go to `previews/<model>/draft/` and say
-  `(draft)`; drafts have their own cache. Not with `--engine`, `--vs`, `--fit` or `--effect`.
+  294 s); a 23-part one: 5 s; an 82-hard-part scene: 21 s (80 s). Sheets go to `previews/<model>/draft/`, each stamped
+  DRAFT (`--json`: `draft: true`; its triangle count is not the build's); drafts have their own cache. Not with
+  `--engine`, `--vs`, `--fit` or `--effect`, nor for terrains, scatters and imported models. The MCP `preview` tool
+  takes `draft` too.
 
 ### Changed
 

@@ -303,19 +303,14 @@ def _with_occlusion(project: Project, built: Any) -> Any:
     return built
 
 
-DRAFT_CELLS = 3.0  # preview --draft: mesh cells this many times coarser (27x fewer field samples)
-
-
-def _drafted(model: Any, style: Any) -> tuple[Any, Any]:
-    """The model and style for a draft (#222): cells DRAFT_CELLS times coarser than the build's, no normal map. Its
-    style is named apart, so the sheets say draft and its cached build is its own."""
+def _drafted(model: Any) -> Any:
+    """The model as a draft (#222): the builders take the quick paths (coarser cells, rough paint, plain hard parts);
+    no normal map."""
     from dataclasses import replace
 
-    from kiln.builder import field_of
-    from kiln.mesher import mesh_cells
-
-    step = mesh_cells(field_of(model, 0.01), model, style)[0]
-    return replace(model, resolution=step * DRAFT_CELLS, normal_map=0, lod=(), draft=True), replace(style, name=f"{style.name} (draft)")
+    if model.source is not None:
+        raise _usage(f"{model.name} is an imported model: nothing is meshed, so there is no draft of it (`kiln preview {model.name}`)")
+    return replace(model, normal_map=0, lod=(), draft=True)
 
 
 def _built(project: Project, name: str, draft: bool = False) -> Any:
@@ -333,7 +328,7 @@ def _built(project: Project, name: str, draft: bool = False) -> Any:
     palette, _ = project.palette(model.palette)
     try:
         if draft:  # its own cache folder: a draft never replaces the build's cached meshes
-            return build_cached(*_drafted(model, style), palette, project.root / ".kiln-cache" / "draft")
+            return build_cached(_drafted(model), style, palette, project.root / ".kiln-cache" / "draft")
         return _with_occlusion(project, build_cached(model, style, palette, project.root / ".kiln-cache"))
     except ValueError as exc:
         from kiln.builder import build_error
@@ -353,7 +348,7 @@ def _terrain_preview(project: Project, args: argparse.Namespace, out: Output) ->
     errors = [f for f in findings if f.severity == "error"]
     if style is None or errors:
         raise PaganError(errors or findings)
-    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at", "views", "pitch", "size")
+    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at", "views", "pitch", "size", "draft")
               if getattr(args, flag, None) is not None and getattr(args, flag) is not False]  # fmt: skip
     if others:
         raise _usage(f"{model.name} is a terrain: its preview is one sheet (from above and four sides); --{others[0]} doesn't apply")
@@ -381,7 +376,7 @@ def _scatter_preview(project: Project, args: argparse.Namespace, out: Output) ->
     errors = [f for f in findings if f.severity == "error"]
     if style is None or errors:
         raise PaganError(errors or findings)
-    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at", "views", "pitch", "size")
+    others = [flag for flag in ("closeup", "pose", "vs", "engine", "detach", "fit", "effect", "variant", "at", "views", "pitch", "size", "draft")
               if getattr(args, flag, None) is not None and getattr(args, flag) is not False]  # fmt: skip
     if others:
         raise _usage(f"{model.name} is a scatter: its preview is one sheet (from above, two sides, close up); --{others[0]} doesn't apply")
@@ -421,6 +416,30 @@ def _times(text: str) -> list[float]:
     if not times or not all(math.isfinite(t) and t >= 0 for t in times):
         raise _usage(f"--at takes times in seconds (>= 0) separated by commas, e.g. 0,0.1,0.25,0.5,1 (got {text!r})")
     return times
+
+
+def _stamp_drafts(outputs: Any) -> None:
+    """Every sheet of a draft says so, whatever its kind, and that its triangle count is not the build's."""
+    from PIL import Image, ImageDraw
+
+    from kiln.preview import _font
+
+    if isinstance(outputs, dict):
+        for value in outputs.values():
+            _stamp_drafts(value)
+        return
+    if not isinstance(outputs, str) or not outputs.endswith(".png") or not Path(outputs).is_file():
+        return
+    path = Path(outputs)  # as shown: relative to the working directory
+    image = Image.open(path).convert("RGB")
+    text = "DRAFT: coarse cells, rough colour edges, plain hard parts; triangles are not the build's"
+    font = _font(14)
+    draw = ImageDraw.Draw(image)
+    width = int(draw.textlength(text, font=font))
+    x = max(image.width - width - 14, 4)
+    draw.rectangle((x - 6, 6, image.width - 4, 30), fill=(120, 60, 10))
+    draw.text((x, 10), text, fill=(255, 236, 200), font=font)
+    image.save(path)
 
 
 def cmd_preview(args: argparse.Namespace, out: Output) -> int:
@@ -544,7 +563,10 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     if metrics is not None:
         for line in pv.compare_summary(metrics):
             out.say(f"{name} vs {metrics['file']}: {line}")
-    out.result({"model": name, "outputs": outputs, "triangles": built.triangles, **({"compare": metrics} if metrics else {})})
+    if args.draft:
+        _stamp_drafts(outputs)
+    out.result({"model": name, "outputs": outputs, "triangles": built.triangles, **({"draft": True} if args.draft else {}),
+                **({"compare": metrics} if metrics else {})})  # fmt: skip
     return 0
 
 
@@ -1182,7 +1204,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--engine", action="store_true", help="render through Godot, offscreen (needs a build; Linux: xvfb); --views/--pitch/--size pick its views")
     s.add_argument("--variant")
     s.add_argument("--draft", action="store_true",
-                   help="a quick coarse look while iterating: mesh cells 3x coarser, no normal map, no occlusion; shapes and placement, not the final surface")
+                   help="a quick coarse look while iterating (coarser mesh cells, rough colour edges, plain hard parts, no normal map): shapes and placement, not the final surface")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")
     s.add_argument("models", nargs="*")
     sub.add_parser("gallery", parents=[common], help="every model in one sheet")

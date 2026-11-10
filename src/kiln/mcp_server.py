@@ -333,10 +333,15 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
         at: list[float] | None = None,
         frames: list[int] | None = None,
         size: int | None = None,
+        draft: bool = False,
     ) -> list[Any]:
-        """A preview sheet as an image: turntable, closeup (`part`), pose (`animation`; `frames`: some frames only; `size`: tile px), vs (inspiration; or `reference`
-        .glb at `ref_height` m, with metrics), detach, effect (`at`: seconds), engine (Godot). docs topic "commands"."""
+        """A preview sheet as an image: turntable, closeup (`part`), pose (`animation`; `frames`; `size`: tile px), vs (inspiration; or `reference` .glb at
+        `ref_height` m, with metrics), detach, effect (`at`: seconds), engine (Godot). `draft`: a quick coarse look. docs topic "commands"."""
         argv = ["preview", model]
+        if draft:
+            if which in ("vs", "effect", "engine"):
+                return [{"ok": False, "findings": [{"rule": "E000", "message": "draft goes with which='turntable', 'closeup', 'pose' or 'detach'"}]}]
+            argv += ["--draft"]
         if (reference or ref_height is not None) and which != "vs":
             return [{"ok": False, "findings": [{"rule": "E000", "message": "reference and ref_height go with which='vs'"}]}]
         if at is not None and which != "effect":

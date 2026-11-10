@@ -87,6 +87,7 @@ def sample(field: Field, lo: Array, step: float, dims: tuple[int, int, int], pro
     return values
 
 
+DRAFT_CELLS = 3.0  # preview --draft: mesh cells this many times coarser than the build's (27x fewer field samples)
 GROW = 8  # cells added to a side of the grid the surface reaches
 GROW_TRIES = 6
 
@@ -131,6 +132,8 @@ def mesh_cells(field: Field, model: Model, style: Style) -> tuple[float, float, 
     if step > asked * (1 + 1e-9):
         source = "model" if model.max_cells else f"style {style.name}"
         why += f"; capped by max_cells {max_cells} ({source}) across {size:.3g} m, {asked * 1000:.3g} mm asked"
+    if model.draft:  # preview --draft: the build's cells, DRAFT_CELLS times coarser
+        return step * DRAFT_CELLS, asked, f"draft: {DRAFT_CELLS:g} x the build's {step * 1000:.3g} mm ({why})"
     return step, asked, why
 
 

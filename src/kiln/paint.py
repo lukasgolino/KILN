@@ -323,7 +323,9 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
     groups, group_index, part_group = _groups(model, adding, rigged, protect)
     members = [[i for i in adding if part_group[i] == g] for g in range(len(groups))]
     if draft and adding:  # a quick look (#222): each face takes its nearest part's paint; no borders cut, no patterns
-        nearest = field.nearest(adding, vertices[faces].mean(axis=1))[0]
+        # signed distances: a face on a cut's wall is deep inside the part that was cut (its paint), though a part
+        # the cut took away whole may lie nearer
+        nearest = field.nearest(adding, vertices[faces].mean(axis=1), absolute=False)[0]
         owner = np.array([part_group[i] for i in adding], dtype=np.int64)[nearest]
         return Regions(mesh, owner, groups, part_group, {})
 
