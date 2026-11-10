@@ -75,3 +75,32 @@ def test_compiled_blend_to_matches_numpy() -> None:
     p = np.random.default_rng(2).uniform(-0.6, 0.6, (50_000, 3))
     np.testing.assert_allclose(field.distance(p), numpy_path(lambda: field.distance(p)), atol=1e-12)
 
+
+def test_compiled_many_blend_to_parts_match_numpy() -> None:
+    """#220: hundreds of flush tufts melting into body parts by id, each into its own growing set (every earlier part
+    with that id, earlier tufts included), mirrored, with a cut and an intersect among them: compiled and numpy agree.
+    Tubes, not locks: a lock's distance underestimates away from it, where the two paths' box skips differ (#238)."""
+    from kiln import sdf
+
+    def geom(shape: str, params: dict[str, Any], **kw: Any) -> Geometry:
+        return Geometry(shape, {**sdf.SHAPES[shape].defaults, **params}, **kw)
+
+    rng = np.random.default_rng(5)
+    parts = [geom("ellipsoid", {"radii": [0.2, 0.4, 0.15]}, at=np.array([0.0, 1.0, 0.0])),
+             geom("capsule", {"from": [0.1, 0.6, 0], "to": [0.15, 0.1, 0], "radius": 0.07, "radius_to": 0.06}, blend=0.04, mirror=(0,))]
+    for k in range(120):
+        a, y = rng.uniform(0, 2 * np.pi), rng.uniform(0.2, 1.3)
+        r = 0.16 if y > 0.65 else 0.08
+        base = np.array([r * np.cos(a) + (0.12 if y < 0.65 else 0.0), y, r * np.sin(a)])
+        tip = base + np.array([0.0, -0.08, 0.0]) + rng.normal(0, 0.01, 3)
+        targets = frozenset(range(len(parts))) if k % 3 else frozenset({0, 1})
+        parts.append(geom("tube", {"points": [base.tolist(), ((base + tip) / 2).tolist(), tip.tolist()], "radius": 0.012, "radius_to": 0.004},
+                          blend=0.012, blend_to=targets, mirror=(0,) if k % 2 else ()))
+        if k == 60:
+            parts.append(geom("sphere", {"radius": 0.05}, at=np.array([0.0, 1.2, 0.15]), op="cut", blend=0.01))
+    parts.append(geom("box", {"size": [2.0, 1.5, 2.0], "round": 0.0}, at=np.array([0.0, 0.8, 0.0]), op="intersect"))
+    field = Field(parts, margin=0.03)
+    p = rng.uniform([-0.4, 0.0, -0.3], [0.4, 1.5, 0.3], (20_000, 3))
+    full = field.evaluate(p, with_parts=False)[0]  # no part skipped at all: the skip rule's meaning, not only agreement
+    np.testing.assert_allclose(field.distance(p), full, atol=1e-12)
+    np.testing.assert_allclose(numpy_path(lambda: field.distance(p)), full, atol=1e-12)

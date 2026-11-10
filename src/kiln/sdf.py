@@ -829,10 +829,9 @@ class Field:
                 lo, hi = self.boxes[i]
                 gap = float(np.linalg.norm(np.maximum(np.maximum(lo - hi_p, lo_p - hi), 0.0))) - 1e-6  # <= its distance
                 if gap > 0 and gap >= (float(f.max()) if g.op == "add" else float((-f).max())) + g.blend:
-                    # a blend_to part changes f only within its blend of its targets: out of reach of those too?
-                    t = self._target_field(i, p, f, cache) if g.blend_to is not None else None
-                    if t is None or (smooth_min(t, np.full(len(p), gap), g.blend) >= f).all():  # d >= gap, smin grows with d
-                        continue
+                    # out of reach; a blend_to part too: it joins as min(f, smooth_min(max(t, f), d, k)), and with
+                    # d >= gap >= f + k that is f whatever its targets' union t is (#220)
+                    continue
             f = self._join(i, f, self.part_distance(i, p), p, cache)
         return f
 
