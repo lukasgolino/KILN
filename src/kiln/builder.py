@@ -151,7 +151,7 @@ def hard_joins(model: Model, pieces: list[frozenset[int]]) -> int:
     return sum(len(_hard_steps(model, include)) for include in pieces)
 
 
-HARD_GROWTH = 2.0  # each join clips against everything joined so far: the time grows with the square of the count (#214)
+HARD_GROWTH = 1.0  # time against joins done, as a power: about linear since trees are made where clips reach (#214; 2 before)
 ROUND_SHAPES = frozenset({"cylinder", "cone", "capsule", "tube", "lathe", "torus", "sphere", "ellipsoid"})
 
 

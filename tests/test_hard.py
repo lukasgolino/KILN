@@ -707,7 +707,8 @@ parts:
 
 
 class _EagerNode:
-    """The whole-tree BSP the lazy one replaced (#214), as a reference: built at once, clipped one polygon at a time."""
+    """The whole-tree BSP the lazy one replaced (#214), as a reference: every node built at once (csg.js's build),
+    clipped with the same walk (front pushed first, so the back side's pieces come out first)."""
 
     def __init__(self, polys: list[Any]) -> None:
         from kiln.hard import _split
@@ -733,23 +734,44 @@ class _EagerNode:
                 child.invert()
         self.front, self.back = self.back, self.front
 
-    def clip(self, polys: list[Any]) -> list[Any]:
+    def clip(self, polygons: list[Any]) -> list[Any]:
         from kiln.hard import _split
 
-        if self.plane is None:
-            return list(polys)
-        front: list[Any] = []
-        back: list[Any] = []
-        for p in polys:
-            _split(self.plane, p, front, back, front, back)
-        front = self.front.clip(front) if self.front is not None else front
-        back = self.back.clip(back) if self.back is not None else []
-        return front + back
+        out: list[Any] = []
+        stack = [(self, polygons)]
+        while stack:
+            node, polys = stack.pop()
+            if node.plane is None:
+                out += polys
+                continue
+            front: list[Any] = []
+            back: list[Any] = []
+            for p in polys:
+                _split(node.plane, p, front, back, front, back)
+            if node.front is not None:
+                stack.append((node.front, front))
+            else:
+                out += front
+            if node.back is not None:
+                stack.append((node.back, back))
+        return out
+
+
+def _made(tree: Any) -> int:
+    """How many nodes of a lazy tree have been made."""
+    count, stack = 0, [tree.root]
+    while stack:
+        node = stack.pop()
+        if node.pending is None:
+            count += 1
+            stack += [c for c in (node.front, node.back) if c is not None]
+    return count
 
 
 def test_lazy_bsp_tree_clips_as_the_whole_tree_does() -> None:
     """#214: the tree made only where a clip reaches, with planes a whole batch is clear of passed at once, keeps and
-    cuts exactly what the whole tree does (inside out too): the same polygons, point for point."""
+    cuts exactly what the whole tree does (inside out too): the same polygons and planes in the same order (builds
+    are byte-identical by that). And it is lazy: a part far away makes a handful of nodes, no clip makes them all."""
     from kiln.hard import _inverted_tree, _tree
 
     rng = np.random.default_rng(11)
@@ -764,17 +786,32 @@ def test_lazy_bsp_tree_clips_as_the_whole_tree_does() -> None:
         at = [0.3 * int(rng.integers(0, 4)), 0.1 * int(rng.integers(0, 3)), 0.25 * int(rng.integers(0, 3))] if i % 3 else rng.uniform(0, 1, 3)
         big = union(big, part("box" if i % 2 else "cylinder", at, i))
     assert len(big) > 60
+    whole = _made_whole(big)
     seen = 0
     for k, at in enumerate([[0.3, 0.1, 0.25], [0.45, 0.15, 0.3], [2.0, 2.0, 2.0], [0.1, 0.05, 0.0], [0.6, 0.2, 0.5]]):
         small = part("cylinder" if k % 2 else "box", at, 99)
         for inverted in (False, True):
             lazy = (_inverted_tree if inverted else _tree)(big)
+            assert _made(lazy) == 0  # nothing until a clip asks
             eager = _EagerNode(list(big))
             if inverted:
                 eager.invert()
             for batch in (small, [p.flipped() for p in small], small[:1]):
                 got, expect = lazy.clip_polygons(list(batch)), eager.clip(list(batch))
-                key = lambda p: (p.points, p.tag)  # noqa: E731 (the lazy tree walks its stack in another order)
-                assert sorted(map(key, got)) == sorted(map(key, expect))
+                assert [(p.points, p.plane, p.tag) for p in got] == [(p.points, p.plane, p.tag) for p in expect]
                 seen += len(expect)
+            assert 0 < _made(lazy) < whole / 2
+            if at[0] == 2.0:
+                assert _made(lazy) <= 8  # far from everything: a few planes say so
     assert seen > 20
+    assert _tree([]).clip_polygons(list(small)) == small  # no solid: everything is outside it
+
+
+def _made_whole(polys: list[Any]) -> int:
+    """How many nodes the whole tree of a solid has."""
+    count, stack = 0, [_EagerNode(list(polys))]
+    while stack:
+        node = stack.pop()
+        count += 1
+        stack += [c for c in (node.front, node.back) if c is not None]
+    return count

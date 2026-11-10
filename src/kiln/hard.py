@@ -139,7 +139,10 @@ def _split(plane: Plane, poly: Polygon, co_front: list[Polygon], co_back: list[P
             back.append(Polygon(tuple(b), poly.plane, poly.tag))
 
 
-CLEAR = 4 * EPS  # a batch's box this far to one side of a plane: every point's own test (against EPS) says that side
+# A batch's box this far to one side of a plane: every point's own test (against EPS) says that side. The box test and
+# the point tests round differently (by ~1e-15 at these sizes), so the margin must stay well over EPS: with less, a
+# point within rounding of EPS could be passed to a side its own test wouldn't give, and the output would change.
+CLEAR = 4 * EPS
 
 
 def _extent(polys: list[Polygon]) -> tuple[float, float, float, float, float, float]:
@@ -279,6 +282,8 @@ def _inverted_tree(polys: Solid) -> _Tree:
 # The operations follow csg.js (clipTo, invert, build) with each side's tree built from its whole solid: a tree of
 # only some of a solid's polygons classifies points by planes that no longer close it, which drops or keeps the
 # wrong pieces (cracks). Only the polygons near the other solid are clipped: the rest can't touch it.
+# The tree is still the whole solid's (_Tree gets every polygon); it is only *made* where a clip reaches (#214), which
+# gives the same nodes there. Don't turn that into a tree of the nearby polygons: that is the mistake above.
 
 
 def _boxes_meet(box_a: tuple[Array, Array], box_b: tuple[Array, Array]) -> bool:

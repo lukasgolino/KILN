@@ -16,11 +16,13 @@ before 1.0).
 
 ### Performance
 
-- Joining hard parts is 2-4x faster on scenes (#214): a solid's BSP tree is made only where a clip reaches it, not whole
-  for every join (joining a small part to a big solid reaches the few planes near the part), and planes a whole
-  batch of polygons lies clear of are passed without a test per polygon. An 82-hard-part desk scene: 187 -> 54 s; its
-  110-part smooth variant: 177 -> 80 s; a 94-part character: 55 -> 46 s. Output is byte-identical (the demo and five
-  larger models): the same planes cut the same polygons.
+- Joining hard parts is 2-3.5x faster on scenes of many hard parts (#214): a solid's BSP tree is made only where a clip
+  reaches it, not whole for every join (joining a small part to a big solid reaches the few planes near the part),
+  and planes a whole batch of polygons lies clear of are passed without a test per polygon. An 82-hard-part desk
+  scene: 187 -> 54 s; the same desk modelled with 30 of its 110 parts smooth: 177 -> 80 s; a 94-part character with
+  hard props: 55 -> 46 s; little on models of mostly smooth parts (a 536-part character: 310 -> 294 s). Output is
+  byte-identical (the demo and five larger models): the same planes cut the same polygons. The joining phase's time
+  left is now estimated as linear in the joins done.
 - A look-only style edit no longer rebuilds the meshes (#174): the mesh cache follows a style's `[shape]` and
   the triangle budget that applies to the model (not the whole `[budgets]` table), not its `[look]`, `[materials]`,
   description or notes; the cached build is exported with the style as
