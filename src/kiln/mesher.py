@@ -104,31 +104,28 @@ def mesh_steps(field: Field, model: Model, style: Style) -> tuple[float, float]:
     """(step, asked): the grid step a model is meshed at, and the one its model or style asked for. A model's own
     `resolution` is used as is; the style's is scaled by size unless scale_with_size is off. The cap (max_cells
     across the model's longest side) wins when it's coarser."""
+    step, asked, _ = mesh_cells(field, model, style)
+    return step, asked
+
+
+def mesh_cells(field: Field, model: Model, style: Style) -> tuple[float, float, str]:
+    """`mesh_steps` and why, in words (#223): the model's or the style's resolution, the size scaling, and the
+    max_cells cap (and whose) when it decides."""
     max_cells = model.max_cells or style.max_cells
-    if model.resolution is not None:
-        asked = model.resolution
-    else:
-        asked = asked_step(field, style.resolution, style.scale_with_size)
-    lo, hi = field.bounds()
-    return grid_step(float((hi - lo).max()), asked, max_cells), asked
-
-
-def cell_reason(field: Field, model: Model, style: Style) -> str:
-    """Why a model is meshed at its cell size, in words (#223): the model's or the style's resolution, the size
-    scaling, and the max_cells cap when it decides."""
-    step, asked = mesh_steps(field, model, style)
     lo, hi = field.bounds()
     size = float((hi - lo).max())
     if model.resolution is not None:
+        asked = model.resolution
         why = f"model resolution {model.resolution * 1000:.3g} mm"
-    elif style.scale_with_size and size > 1.0:
-        why = f"style {style.name} resolution {style.resolution * 1000:.3g} mm x sqrt({size:.2g} m, scale_with_size)"
     else:
-        why = f"style {style.name} resolution {style.resolution * 1000:.3g} mm"
+        asked = asked_step(field, style.resolution, style.scale_with_size)
+        scaled = style.scale_with_size and size > 1.0
+        why = f"style {style.name} resolution {style.resolution * 1000:.3g} mm" + (f" x sqrt({size:.3g} m, scale_with_size)" if scaled else "")
+    step = grid_step(size, asked, max_cells)
     if step > asked * (1 + 1e-9):
         source = "model" if model.max_cells else f"style {style.name}"
-        why += f"; capped by max_cells {model.max_cells or style.max_cells} ({source}) across {size:.2g} m, {asked * 1000:.3g} mm asked"
-    return why
+        why += f"; capped by max_cells {max_cells} ({source}) across {size:.3g} m, {asked * 1000:.3g} mm asked"
+    return step, asked, why
 
 
 def _grid(field: Field, step: float) -> tuple[Array, tuple[int, int, int], Array]:

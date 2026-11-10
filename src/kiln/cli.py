@@ -217,7 +217,8 @@ def cmd_lint(args: argparse.Namespace, out: Output) -> int:
     out.say(f"{len(paths)} models: {len(result.errors)} errors, {len(result.warnings)} warnings ({cost_line(seconds)})")
     data = {"models": len(paths), "errors": len(result.errors), "warnings": len(result.warnings),
             "findings": [f.to_dict() for f in result.findings], "seconds": round(seconds, 1), "peak_memory_gb": peak_gb(),
-            "cells": {n: {"step": b.step, "asked": b.asked_step, "why": b.step_reason} for n, b in meshed.items()}}  # fmt: skip
+            "cells": {n: {"step": b.step, "asked": b.asked_step, "capped": b.step > b.asked_step * (1 + 1e-9), "why": b.step_reason}
+                      for n, b in meshed.items()}}  # fmt: skip
     if result.errors:
         if out.as_json:  # human output: the findings are printed above already
             out.failure(result.findings, data)

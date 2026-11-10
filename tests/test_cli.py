@@ -425,3 +425,26 @@ def test_lint_says_the_cell_size_and_why(in_project: Project, capsys: pytest.Cap
     write_model(in_project, sphere_text("fine").replace("parts:", "resolution: 0.02\nparts:"), "fine")
     assert main(["lint", "fine"]) == 0
     assert "mm mesh cells (model resolution 20 mm)" in capsys.readouterr().out
+
+
+def test_cell_size_reason_from_a_style_cap_a_stale_cache_and_build(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#223: a style's max_cells cap is named as the style's; a build cached before builds kept the reason still says
+    it; kiln build's per-model line says it too."""
+    import pickle
+
+    (in_project.root / "styles" / "capped.style.toml").write_text('extends = "fast"\n\n[shape]\nmax_cells = 64\n')
+    big = sphere_text("big").replace("radius: 0.3", "radius: 2").replace("at: [0, 0.3, 0]", "at: [0, 2, 0]")
+    write_model(in_project, big.replace("parts:", "style: capped\nparts:"), "big")
+    code, result = run_json(["lint", "big"], capsys)
+    assert code == 0 and result["cells"]["big"]["capped"]
+    assert "capped by max_cells 64 (style capped) across 4 m" in result["cells"]["big"]["why"]
+    cached = list((in_project.root / ".kiln-cache").glob("big.*.pickle"))
+    assert cached
+    for path in cached:  # as cached by an older build
+        built = pickle.loads(path.read_bytes())
+        built.step_reason = ""
+        path.write_bytes(pickle.dumps(built))
+    code, result = run_json(["lint", "big"], capsys)
+    assert "capped by max_cells 64 (style capped)" in result["cells"]["big"]["why"]
+    assert main(["build", "big"]) == 0
+    assert "mm mesh cells (style capped resolution 30 mm x sqrt(4 m, scale_with_size); capped by" in capsys.readouterr().out
