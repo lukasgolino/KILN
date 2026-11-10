@@ -150,8 +150,8 @@ def test_painting_reports_progress(project: Project) -> None:
     assert model is not None, findings
     field = field_of(model, 0.02)
     lines: list[str] = []
-    regions(dual_contour(field, 0.02), model, field, False, progress=lines.append)
-    assert lines[-1] == "painting: patterns of 1/1 parts" and "painting: borders of 1/2 colour groups" in lines
+    regions(dual_contour(field, 0.02), model, field, False, progress=lambda what, done, total: lines.append(f"{what} {done}/{total}"))
+    assert lines[-1] == "painting: patterns, parts done 0/1" and "painting: borders, colour groups done 1/2" in lines
 
 
 def test_progress_within_a_phase_is_throttled(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -236,3 +236,59 @@ def test_same_gradient_with_hard_parts_or_another_pattern_stays_own(project: Pro
     (c2, k2), (c1, k1) = colours
     nearest = np.argmin(np.linalg.norm(c2[:, None] - c1[None], axis=2), axis=1)
     assert (k2 == k1[nearest]).mean() > 0.9
+
+
+def test_progress_has_an_eta_and_a_long_phase_says_so_at_once(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """#221: done/total with the time left, and a phase projected past LONG_SECONDS says so at once (once), with what
+    would make it faster, even before QUIET_SECONDS."""
+    from kiln import usage
+
+    now = [100.0]
+    monkeypatch.setattr("kiln.usage.time.monotonic", lambda: now[0])
+    monkeypatch.setenv(usage.PROGRESS_ENV, "1")
+    phase = usage.Phases("thing")
+    phase("meshing")
+    now[0] = 102.0
+    phase.progress("meshing: samples", 1, 100, "coarser cells")  # 2 s for 1 %: about 198 s left
+    now[0] = 104.0
+    phase.progress("meshing: samples", 2, 100, "coarser cells")  # said already: quiet until QUIET_SECONDS
+    now[0] = 115.0
+    phase.progress("meshing: samples", 10, 100, "coarser cells")
+    lines = [line.split(": ", 2)[2] for line in capsys.readouterr().err.splitlines()]
+    assert lines == ["meshing: samples 1/100, about 3 min left: a long build; coarser cells (2 s)",
+                     "meshing: samples 10/100, about 2 min left (15 s)"]
+
+
+def test_short_phases_stay_quiet_and_big_models_speak_at_once(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from kiln import usage
+
+    now = [100.0]
+    monkeypatch.setattr("kiln.usage.time.monotonic", lambda: now[0])
+    monkeypatch.setenv(usage.PROGRESS_ENV, "1")
+    small = usage.Phases("small")
+    small("meshing")
+    now[0] = 103.0
+    small.progress("meshing: samples", 50, 100)  # 6 s in all: nothing
+    assert capsys.readouterr().err == ""
+    big = usage.Phases("big")
+    big.loud = True
+    big("meshing 536 parts")
+    assert capsys.readouterr().err == "kiln: big: meshing 536 parts (0 s)\n"
+
+
+def test_the_heartbeat_counts_the_time_left_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#221: between progress calls the heartbeat repeats the last count with the time left from now, not a stale one."""
+    from kiln import usage
+
+    now = [100.0]
+    monkeypatch.setattr("kiln.usage.time.monotonic", lambda: now[0])
+    phase = usage.Phases("thing")
+    phase("reducing")
+    now[0] = 160.0
+    phase.progress("reducing: passes done", 1, 5)  # 60 s a pass: 240 s left
+    now[0] = 220.0
+    assert phase._counted() == "reducing: passes done 1/5, about 3 min left"
+    now[0] = 500.0
+    assert phase._counted() == "reducing: passes done 1/5, past the estimate"
+    phase("skinning")
+    assert phase._counted() is None

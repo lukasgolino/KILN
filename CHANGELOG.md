@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- Long builds say how far they are and roughly how long is left in each phase (meshing samples, painting, reducing
+  passes, skinning), the heartbeat counting it down; a phase projected past 2 minutes says so at once with what would
+  make it faster, and a model with 100 or more parts prints every phase line at once (#221).
 - `kiln lint` and `kiln build` say each meshed model's cell size and what set it: the model's or the style's
   resolution, the size scaling (`scale_with_size`), a `max_cells` cap (#223). Long builds' meshing phase line says it
   too; `kiln lint --json` has it under `cells`.
