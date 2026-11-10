@@ -149,7 +149,7 @@ class Project:
                        "by id, so add them, or leave them out of the carrier's clips (ids nothing animates may differ)")  # fmt: skip
         mine = set(model.ids)
         model.animations = {k: replace(a, poses=[{i: p for i, p in pose.items() if i in mine} for pose in a.poses]) for k, a in lib.animations.items()}
-        model.library_text = lib.text
+        model.library_text = lib.motion_text or lib.text  # its clips: a part or comment edit there moves nothing here
         return []
 
 

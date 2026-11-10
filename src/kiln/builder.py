@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import pickle
 import traceback
 from pathlib import Path
@@ -642,7 +643,8 @@ def motion_key(model: Model) -> str:
     """What a build's animation tracks come from, besides its skeleton: the model's animations (or its clip
     carrier's) and the clip files they are retargeted from."""
     h = hashlib.sha256()
-    h.update(json.dumps([__version__, BUILDER_VERSION, model.motion_text or model.text, model.library_text]).encode())
+    own = model.motion_text if model.shape_text else model.text  # a model made without its parsed fields: its text
+    h.update(json.dumps([__version__, BUILDER_VERSION, own, model.library_text]).encode())
     for anim in model.animations.values():  # retargeted clips
         if anim.source is not None:
             h.update(anim.source[0].read_bytes())
@@ -663,23 +665,28 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
     key = cache_key(model, style, palette, budget)
     prefix = f"{model.name}.{budget or 'base'}."
     path = cache_dir / f"{prefix}{key}.pickle"
+    cached_build: Built | None = None
     if path.is_file():
         try:
             with path.open("rb") as fh:
-                built = pickle.load(fh)  # noqa: S301 - our own cache file
-            if isinstance(built, Built):
-                built.model = model  # fresh paths/text; geometry is identical by the key
-                built.style = style  # and today's look and materials: the key leaves them out
-                motion = motion_key(model)
-                if built.motion_key != motion and model.source is None:  # an animation edit: only the tracks (#185)
-                    built.tracks = tracks(model, built.skeleton) if model.skin != "none" else []
-                    built.motion_key = motion
-                    _store(built, path)
-                if not built.step_reason and model.source is None:  # cached before builds kept it
-                    built.step_reason = mesh_cells(field_of(model, built.step), model, style)[2]
-                return built
+                loaded = pickle.load(fh)  # noqa: S301 - our own cache file
+            if isinstance(loaded, Built) and isinstance(loaded.motion_key, str):
+                cached_build = loaded
         except (OSError, pickle.UnpicklingError, EOFError, AttributeError, TypeError):
-            pass
+            pass  # an unreadable cache file: build again
+    if cached_build is not None:
+        built = cached_build
+        built.model = model  # fresh paths/text; geometry is identical by the key
+        built.style = style  # and today's look and materials: the key leaves them out
+        if model.source is None and model.skin != "none":  # an animation edit: only the tracks are made again (#185)
+            motion = motion_key(model)
+            if built.motion_key != motion:
+                built.tracks = tracks(model, built.skeleton)
+                built.motion_key = motion
+                _store(built, path)
+        if not built.step_reason and model.source is None:  # cached before builds kept it
+            built.step_reason = mesh_cells(field_of(model, built.step), model, style)[2]
+        return built
     built = build_model(model, style, budget, palette)
     built.motion_key = motion_key(model)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -690,7 +697,7 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
 
 
 def _store(built: Built, path: Path) -> None:
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")  # its own: lint's processes may store the same model at once
     with tmp.open("wb") as fh:
         pickle.dump(built, fh, protocol=pickle.HIGHEST_PROTOCOL)
     tmp.replace(path)

@@ -56,6 +56,21 @@ SCATTER_TOP = {"name", "description", "tags", "status", "style_version", "class"
 # Fields no mesh, paint or skin depends on (#185): the clips (sampled onto the built skeleton), the variants' colour
 # swaps (applied at export) and the model's card. A field a builder reads must not be listed here.
 NOT_SHAPE = ("animations", "animation_library", "variants", "description", "tags", "status")
+
+
+def _as_text(value: Any) -> str:
+    """Parsed YAML as one text, whatever it holds (a key or value YAML read as a date, say: findings report those)."""
+
+    def plain(v: Any) -> Any:
+        if isinstance(v, dict):
+            return {str(k): plain(x) for k, x in v.items()}
+        if isinstance(v, list | tuple):
+            return [plain(x) for x in v]
+        return v if v is None or isinstance(v, bool | int | float | str) else str(v)
+
+    return json.dumps(plain(value))
+
+
 OWN_FIELDS = ("name", "description", "tags", "status", "style_version", "template", "extends", "remove")  # never inherited
 
 
@@ -1428,9 +1443,9 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     elif expected is not None and name != expected:
         ctx.error("E003", f"name {name!r} must match the file name ({expected}{MODEL_SUFFIX})", _line(data, "name"), "name")
     model = Model(name=str(name), path=path, text=text)
-    if isinstance(data, dict):  # after `extends`: what the model is made of, whatever its comments and layout
-        model.shape_text = json.dumps({k: v for k, v in data.items() if k not in NOT_SHAPE}, default=str)
-        model.motion_text = json.dumps(data.get("animations"), default=str)
+    # after `extends`: what the model is made of, whatever its comments and layout
+    model.shape_text = _as_text({k: v for k, v in data.items() if k not in NOT_SHAPE})
+    model.motion_text = _as_text(data.get("animations"))
     template = data.get("template", False)
     if not isinstance(template, bool):
         ctx.error("E003", "template is true or false (true: a base other models extend; it isn't built itself)", _line(data, "template"), "template")
