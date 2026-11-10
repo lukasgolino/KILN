@@ -26,11 +26,15 @@ W123 the built mesh dips 2 mm (or a tenth of a cell) or more below y = 0 (blends
 lifted onto y = 0. W124 a part shows only a sliver: 97% or more of its own surface is deeper inside other parts than
 their blend (clipped flat, nearly gone; W101 is all of it), with the covering parts named; not for hard, shell or
 separate parts. Partly floating details have no warning yet: check them in the previews.
-`kiln lint --fast` checks the text only (notation, fields, colours, materials, rig, animations) in about a second:
-use it while writing. It meshes nothing, so it can't find the geometric problems (W101-W103, W111, W120, E013 ...) and
-says so in its summary. Plain `kiln lint` builds each model for those; `kiln build` always runs the full lint first,
-on the same cached meshes, so a model that passes plain lint passes the build's lint. A build that fails on a
-geometric finding after a `--fast` pass is that difference, not a disagreement.
+
+`kiln lint --fast` runs only the checks that need no built model (YAML, fields, values, names, the rig's and
+animations' structure): quick while writing. It can't give the findings that come from the built model, and its
+summary lists them: E009 (nothing to mesh, a build failure), E013, W101-W104, W106, W108-W111, W113, W120-W124. That
+includes some that read like text checks (W104 a colour outside the palette, W109 an animated part without a pivot).
+A scatter's surface model is still built. Plain `kiln lint` builds each model named (all without names) for the full
+list; `kiln build` runs that full lint first on every model, on the same cached meshes, so a model that passes plain
+lint passes the build's lint. The build can still stop on what only exporting finds (a clip carrier's users, emitters,
+the Godot export).
 
 Disable in `kiln.toml` `[lint] disable` or per model `lint: { disable: [...] }`. Lint meshes models in parallel
 (`KILN_JOBS` processes, default: every core) and caches them for build and previews: a model is meshed again when

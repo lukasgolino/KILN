@@ -96,7 +96,12 @@ def test_lint_reports_errors_and_warnings(in_project: Project, capsys: pytest.Ca
     code, result = run_json(["lint", "--fast", "good"], capsys)
     assert code == 0 and result["warnings"] == 0 and result["geometry"] is False  # (#186) it says nothing was meshed
     assert main(["lint", "--fast", "good"]) == 0
-    assert "text checks only (--fast): nothing was meshed" in capsys.readouterr().out
+    assert "--fast: the findings that need the built model were not looked for (E009, E013, W101-W104, W106, W108-W111, W113, W120-W124)" \
+        in capsys.readouterr().out  # fmt: skip
+    code, result = run_json(["lint", "--fast", "bad"], capsys)  # a failing fast lint says so too
+    assert code == 1 and result["ok"] is False and result["geometry"] is False
+    assert main(["lint", "--fast", "bad"]) == 1
+    assert "--fast: the findings that need the built model" in capsys.readouterr().out
     assert main(["lint", "good"]) == 0
     assert "--fast" not in capsys.readouterr().out
     code, result = run_json(["lint", "nope"], capsys)
@@ -453,3 +458,14 @@ def test_cell_size_reason_from_a_style_cap_a_stale_cache_and_build(in_project: P
     assert "capped by max_cells 64 (style capped)" in result["cells"]["big"]["why"]
     assert main(["build", "big"]) == 0
     assert "mm mesh cells (style capped resolution 30 mm x sqrt(4 m, scale_with_size); capped by" in capsys.readouterr().out
+
+
+def test_the_fast_lints_list_of_skipped_rules_is_the_built_checks_rules() -> None:
+    """#186: every rule geometry_warnings can give is in BUILT_RULES (what --fast says it skipped), plus E009."""
+    import inspect
+    import re
+
+    from kiln import lint
+
+    given = set(re.findall(r'"([EW]\d{3})"', inspect.getsource(lint.geometry_warnings)))
+    assert given and given | {"E009"} == set(lint.BUILT_RULES)

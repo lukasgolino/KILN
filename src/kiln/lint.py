@@ -79,6 +79,10 @@ class LintResult:
 
 GROUND_DIP = 0.002  # W123: metres below y = 0 a grounded model's built mesh may reach unremarked (or a tenth of a cell)
 CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than asked
+# The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
+# geometry_warnings): E009 is the build itself failing.
+BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
+               "W124")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -454,4 +458,4 @@ def lint_project(project: Project, geometry: bool = True) -> LintResult:
     return lint_paths(project, project.model_paths(), geometry)
 
 
-__all__ = ["CLASS_SIZES", "LintResult", "WARNING_RULES", "geometry_warnings", "lint_paths", "lint_project"]
+__all__ = ["BUILT_RULES", "CLASS_SIZES", "LintResult", "WARNING_RULES", "geometry_warnings", "lint_paths", "lint_project"]

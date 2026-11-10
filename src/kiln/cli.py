@@ -200,8 +200,22 @@ def _progress_on(out: Output) -> float:
     return time.monotonic()
 
 
+def _rule_ranges(rules: tuple[str, ...]) -> str:
+    """Rule codes with runs joined: E009, E013, W101-W104, W106 ..."""
+    out: list[str] = []
+    run: list[str] = []
+    for r in [*sorted(rules), ""]:
+        if run and r and r[0] == run[-1][0] and int(r[1:]) == int(run[-1][1:]) + 1:
+            run.append(r)
+            continue
+        if run:
+            out.append(run[0] if len(run) == 1 else f"{run[0]}-{run[-1]}" if len(run) > 2 else f"{run[0]}, {run[1]}")
+        run = [r]
+    return ", ".join(out)
+
+
 def cmd_lint(args: argparse.Namespace, out: Output) -> int:
-    from kiln.lint import lint_paths
+    from kiln.lint import BUILT_RULES, lint_paths
 
     project = load_project(start=Path(args.paths[0]) if args.paths else None)
     paths = [_model_path(project, p) for p in args.paths] if args.paths else project.model_paths()
@@ -214,7 +228,7 @@ def cmd_lint(args: argparse.Namespace, out: Output) -> int:
     if meshed and len(meshed) <= MESH_LINES:  # what each model was meshed at, and why (#223)
         for n, b in meshed.items():
             out.say(f"{n}: {b.triangles} triangles, {b.step * 1000:.3g} mm mesh cells ({b.step_reason})")
-    skipped = "; text checks only (--fast): nothing was meshed, so no geometric findings (W101-W103, W111, E013 ...): kiln lint or kiln build runs them" if args.fast else ""
+    skipped = f"; --fast: the findings that need the built model were not looked for ({_rule_ranges(BUILT_RULES)}): kiln lint or kiln build gives them" if args.fast else ""
     out.say(f"{len(paths)} models: {len(result.errors)} errors, {len(result.warnings)} warnings ({cost_line(seconds)}){skipped}")
     data = {"models": len(paths), "errors": len(result.errors), "warnings": len(result.warnings), "geometry": not args.fast,
             "findings": [f.to_dict() for f in result.findings], "seconds": round(seconds, 1), "peak_memory_gb": peak_gb(),
@@ -1125,7 +1139,7 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("library", parents=[common], help="KILN's templates: bodies, heads, helmets, armour")
     s = sub.add_parser("lint", parents=[common], help="check models (errors and warnings)")
     s.add_argument("paths", nargs="*")
-    s.add_argument("--fast", action="store_true", help="text checks only, in a second: notation, colours, rig, animations (no meshing, so no geometric findings)")
+    s.add_argument("--fast", action="store_true", help="only the checks that need no built model: notation, fields, names (skips E009, E013 and most warnings; the summary lists them)")
     s = sub.add_parser("build", parents=[common], help="build every model (or the ones named) into the output dir")
     s.add_argument("models", nargs="*", help="only these models; the others keep what the last build wrote")
     s.add_argument("--verify-godot", action="store_true", help="load everything in headless Godot afterwards")
