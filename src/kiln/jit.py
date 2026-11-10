@@ -30,7 +30,6 @@ except ImportError:  # numpy only
 
 SHAPE_IDS = {"sphere": 0, "ellipsoid": 1, "box": 2, "cylinder": 3, "cone": 4, "capsule": 5, "tube": 6, "torus": 7, "wedge": 8, "lathe": 9, "lock": 10}
 MIN_POINTS = 64  # fewer points: numpy for one part's distance (the call costs more than it saves)
-MIN_FIELD_POINTS = 1  # the whole field is compiled at any size: numpy loops every part in Python per call (#154)
 SERIAL_POINTS = 8192  # a part's distance at fewer points runs on one thread: a parallel call costs ~3 ms however small (#154)
 SERIAL_FIELD = 1024  # the same for the whole field (a few us a point, so the pool pays off sooner)
 CHUNK = 64  # points per parallel task in the field kernel (each task keeps its own target-union cache)

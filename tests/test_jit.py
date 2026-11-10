@@ -113,8 +113,10 @@ def test_serial_and_parallel_kernels_agree_exactly(monkeypatch: pytest.MonkeyPat
              Geometry("sphere", {"radius": 0.1}, at=np.array([0.0, 0.3, 0.1]), op="cut", blend=0.02)]
     field = Field(parts, margin=0.02)
     p = np.random.default_rng(3).uniform(-0.6, 0.6, (3000, 3))
-    serial_field, serial_part = field.distance(p), field.part_distance(1, p)
+    few = p[:500]  # under SERIAL_FIELD, over one CHUNK: the serial field kernel and its one cache; 3000 < SERIAL_POINTS
+    assert len(few) < jit.SERIAL_FIELD and len(few) > jit.CHUNK and len(p) < jit.SERIAL_POINTS
+    serial_field, serial_part = field.distance(few), field.part_distance(1, p)
     monkeypatch.setattr(jit, "SERIAL_POINTS", 0)
     monkeypatch.setattr(jit, "SERIAL_FIELD", 0)
-    np.testing.assert_array_equal(field.distance(p), serial_field)
+    np.testing.assert_array_equal(field.distance(few), serial_field)
     np.testing.assert_array_equal(field.part_distance(1, p), serial_part)

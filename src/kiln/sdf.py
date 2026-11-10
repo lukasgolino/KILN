@@ -815,11 +815,11 @@ class Field:
         return out
 
     def _distance(self, p: Array) -> Array:
-        if jit.AVAILABLE and len(p) >= jit.MIN_FIELD_POINTS:  # one compiled pass per point
-            return jit.field_distance(self, p)
         f = np.full(len(p), 1e9)
         if not len(p):
             return f
+        if jit.AVAILABLE:  # one compiled pass per point, at any size (numpy loops every part in Python, #154)
+            return jit.field_distance(self, p)
         lo_p, hi_p = p.min(axis=0), p.max(axis=0)
         cache: dict[tuple[int, ...], Array] = {}  # blend_to target unions, once per batch
         for i, g in enumerate(self.parts):

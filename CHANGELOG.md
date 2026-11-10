@@ -8,12 +8,12 @@ before 1.0).
 
 ### Performance
 
-- Painting many-part models is several times faster (#154): small point sets (a split's new vertices, one part's
+- Painting many-part models is about 3x faster (#154): small point sets (a split's new vertices, one part's
   distance at a few hundred points) run the compiled kernels on one thread (a parallel call cost ~3 ms however small),
   and the whole field is compiled at any size instead of looping every part in Python below 64 points. The 536-part
   character's lint: 838 -> 370 s; with a gradient on each of its 481 locks: 1231 -> 672 s (painting patterns 805 ->
   224 s). Meshes of models with patterns or gradients can move by rounding (the compiled and numpy distances agree to
-  ~1e-15, which can flip a decimation choice): a few vertices of one round-0 test model; the demo is byte-identical.
+  ~1e-15, which can flip a decimation choice): on a 26k-triangle character, 30 vertices moved; the demo is byte-identical.
 - Distance fields with many `blend_to` parts no longer cost quadratically in their number (#220; since #116): a part out of reach is skipped without working out
   its targets' union (it can't change the field whatever that is), and the compiled kernel keeps that cache per chunk
   of points instead of allocating it per point. A 536-part character (478 fur locks, each melting into its own set of
