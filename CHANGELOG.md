@@ -6,15 +6,27 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-11
+
+Speed and the iteration loop. Built output is the same as 0.21.0's except: the generator string in every glb and
+the manifest; meshes of models with patterns or gradients, which can move by rounding (30 vertices of a 26k-triangle
+character, see Performance). Mesh caches from earlier versions are rebuilt once.
+
 ### Added
 
 - `kiln preview <model> --draft` (#222): a quick look while shapes and placement are still moving. Mesh cells 3 times
   coarser, each face in its nearest part's colour (no borders cut, no patterns on smooth parts), hard parts without
   bevels and made once, one reducing pass, no normal map or baked occlusion. A 536-part character: 14 s (its build:
-  294 s); a 23-part one: 5 s; an 82-hard-part scene: 21 s (80 s). Sheets go to `previews/<model>/draft/`, each stamped
+  about 290 s); a 23-part one: 5 s; an 82-hard-part scene: 21 s (80 s). Sheets go to `previews/<model>/draft/`, each stamped
   DRAFT (`--json`: `draft: true`; its triangle count is not the build's); drafts have their own cache. Not with
   `--engine`, `--vs`, `--fit` or `--effect`, nor for terrains, scatters and imported models. The MCP `preview` tool
   takes `draft` too.
+- Long builds say how far they are and roughly how long is left in each phase (meshing samples, painting, reducing
+  passes, skinning), the heartbeat counting it down; a phase projected past 2 minutes says so at once with what would
+  make it faster, and a model with 100 or more parts prints every phase line at once (#221).
+- `kiln lint` and `kiln build` say each meshed model's cell size and what set it: the model's or the style's
+  resolution, the size scaling (`scale_with_size`), a `max_cells` cap (#223). Long builds' meshing phase line says it
+  too; `kiln lint --json` has it under `cells`.
 
 ### Changed
 
@@ -30,6 +42,7 @@ before 1.0).
   running under `meshing`; a detail level made again over budget says so. The meshing line counts the adding parts
   meshed there (not hard parts, not cuts), and a model of hard parts only no longer says `meshing ...` and
   `meshed at ...: 0 triangles` (#174).
+- The vendored PAGAN pieces are Apache 2.0 like the rest of KILN (same author); the separate MIT file is gone.
 
 ### Performance
 
@@ -42,7 +55,8 @@ before 1.0).
   reaches it, not whole for every join (joining a small part to a big solid reaches the few planes near the part),
   and planes a whole batch of polygons lies clear of are passed without a test per polygon. An 82-hard-part desk
   scene: 187 -> 54 s; the same desk modelled with 30 of its 110 parts smooth: 177 -> 80 s; a 94-part character with
-  hard props: 55 -> 46 s; little on models of mostly smooth parts (a 536-part character: 310 -> 294 s). Output is
+  hard props: 55 -> 46 s; nothing to speak of on models of mostly smooth parts (the 536-part character stays at
+  about 290 s). Output is
   byte-identical (the demo and five larger models): the same planes cut the same polygons. The joining phase's time
   left is now estimated as linear in the joins done.
 - A look-only style edit no longer rebuilds the meshes (#174): the mesh cache follows a style's `[shape]` and
@@ -52,7 +66,7 @@ before 1.0).
   written by earlier versions are rebuilt once.)
 - Reducing is a little faster (#199): the nearest part of every vertex is found in one compiled pass instead of one
   pass per part (a 94-part character: 2.7 -> 0.3 s), and the colour-border simplifier does its fold test in plain
-  floats instead of numpy on a handful of points (6 -> 1.8 s). The 536-part character builds in 287 s instead of 310.
+  floats instead of numpy on a handful of points (6 -> 1.8 s). The 536-part character's build: 310 -> about 290 s.
   Output is byte-identical (the demo and five larger models). What is left of "reducing" on models with hard parts is
   mostly the hard parts' union (#214); reduced meshes cached on geometry alone come with #185.
 - Painting many-part models is about 3x faster (#154): small point sets (a split's new vertices, one part's
@@ -66,19 +80,6 @@ before 1.0).
   of points instead of allocating it per point. A 536-part character (478 fur locks, each melting into its own set of
   earlier parts) costs 7.6 us per point instead of 388, and its lint goes from over an hour to 14 minutes. Output is
   byte-identical.
-
-### Added
-
-- Long builds say how far they are and roughly how long is left in each phase (meshing samples, painting, reducing
-  passes, skinning), the heartbeat counting it down; a phase projected past 2 minutes says so at once with what would
-  make it faster, and a model with 100 or more parts prints every phase line at once (#221).
-- `kiln lint` and `kiln build` say each meshed model's cell size and what set it: the model's or the style's
-  resolution, the size scaling (`scale_with_size`), a `max_cells` cap (#223). Long builds' meshing phase line says it
-  too; `kiln lint --json` has it under `cells`.
-
-### Changed
-
-- The vendored PAGAN pieces are Apache 2.0 like the rest of KILN (same author); the separate MIT file is gone.
 
 ### Fixed
 
@@ -791,7 +792,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/lukasgolino/kiln/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/lukasgolino/kiln/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/lukasgolino/kiln/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/lukasgolino/kiln/compare/v0.18.0...v0.19.0
