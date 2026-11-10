@@ -41,7 +41,9 @@ y = 0**. Angles are degrees. Colours are palette names.
    W106 not on the ground, W108 size wrong for the class).
 6. **Look:** `kiln preview <name>` (turntable: 8 sides x below / eye level / above), `--closeup <part>` for faces
    and hit zones, `--pose <animation>` for animations, `kiln lineup` against the rest of the set. You will
-   misjudge proportions without looking. Iterate until it's right.
+   misjudge proportions without looking. Iterate until it's right. While shapes and placement are still moving,
+   `kiln preview <name> --draft` is the quick look (seconds, even on models that build in minutes; rough surface
+   and colour edges); check the real preview before reporting.
 7. Report to the owner with the preview paths (and triangles if relevant). On approval: `kiln mark <name>
    --approved`, tick it in BRIEF.md, `kiln build` (`build` for what to tell the game side).
 

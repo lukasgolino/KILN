@@ -8,7 +8,7 @@ from importlib.resources import files
 from pathlib import Path
 
 import pytest
-from conftest import arms_text, make_project, run_json, sphere_text, write_model
+from conftest import arms_text, make_project, ok_model, run_json, sphere_text, write_model
 from test_importer import box_glb
 
 from kiln import __version__
@@ -148,6 +148,98 @@ def test_preview(in_project: Project, capsys: pytest.CaptureFixture[str]) -> Non
     assert outputs["pose"] == {"hold": "previews/hero/pose_hold.blue.png"}  # in the variant's colours (#219)
     for rel in ("previews/hero/turntable.blue.png", "previews/hero/closeup_arm_l.png", "previews/hero/pose_hold.blue.png"):
         assert (in_project.root / rel).is_file()
+
+
+def test_preview_draft(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#222: a quick look: its own stamped sheets (previews/<name>/draft/), its own cached build (coarser cells, rough
+    paint, plain hard parts), the real build's cache untouched; not where it means nothing."""
+    import pickle
+
+    from PIL import Image
+
+    text = arms_text("hero", "soft").replace("rig:\n", "  - cylinder: { at: [0, 0.95, 0], radius: 0.1, height: 0.1 }\n    color: blue\n    bevel: 0.01\n"
+                                             "  - sphere: { at: [0, 0.3, 0.3], radius: 0.12 }\n    color: red\n    pattern: { type: stripes, color: blue, size: 0.03 }\nrig:\n")  # fmt: skip
+    write_model(in_project, text, "hero")
+    cache = in_project.root / ".kiln-cache"
+    code, result = run_json(["preview", "hero", "--draft", "--pose", "hold", "--turntable", "--closeup", "arm_l"], capsys)
+    assert code == 0, result
+    assert result["draft"] is True and result["outputs"]["turntable"] == "previews/hero/draft/turntable.png"
+    assert result["outputs"]["pose"] == {"hold": "previews/hero/draft/pose_hold.png"}
+    assert not (in_project.root / "previews/hero/turntable.png").exists()
+    stamp = (120, 60, 10)  # every sheet of a draft is stamped, whatever its kind
+    sheets = [result["outputs"]["turntable"], result["outputs"]["pose"]["hold"], result["outputs"]["closeup"]["arm_l"]]
+    for rel in sheets:
+        image = Image.open(in_project.root / rel).convert("RGB")
+        assert image.getpixel((image.width - 6, 8)) == stamp, rel
+    (first,) = list((cache / "draft").glob("hero.base.*.pickle"))
+    assert not list(cache.glob("hero.base.*.pickle"))  # the build's cache: nothing written
+    made = first.stat().st_mtime_ns
+    code, result = run_json(["preview", "hero", "--draft"], capsys)  # again: the cached draft
+    assert code == 0 and first.stat().st_mtime_ns == made
+    with first.open("rb") as fh:
+        draft = pickle.load(fh)  # noqa: S301 (our own cache file)
+    code, result = run_json(["preview", "hero"], capsys)
+    assert code == 0 and result["outputs"]["turntable"] == "previews/hero/turntable.png" and "draft" not in result
+    real = Image.open(in_project.root / "previews/hero/turntable.png").convert("RGB")
+    assert real.getpixel((real.width - 6, 8)) != stamp
+    (full,) = list(cache.glob("hero.base.*.pickle"))
+    with full.open("rb") as fh:
+        built = pickle.load(fh)  # noqa: S301
+    assert draft.model.draft and not built.model.draft and first.is_file()  # the full preview left the draft's
+    assert draft.step == pytest.approx(built.step * 3) and draft.step_reason.startswith("draft: 3 x the build's")
+    names = [{g.color_name for g in b.painted.groups} for b in (draft, built)]
+    assert draft.triangles > 0 and {n.split("#")[0] for n in names[0]} == {n.split("#")[0] for n in names[1]}  # the same colours
+    top = [int((b.painted.vertices[:, 1] > 0.89).sum()) for b in (draft, built)]  # the cylinder on top: bevelled in the build
+    assert 0 < top[0] < top[1]
+    write_model(in_project, text.replace("radius: 0.08", "radius: 0.09"), "hero")  # an edit: a new draft replaces the old one
+    code, result = run_json(["preview", "hero", "--draft"], capsys)
+    assert code == 0 and not first.exists() and len(list((cache / "draft").glob("hero.base.*.pickle"))) == 1
+    for flags in (["--engine"], ["--vs"], ["--fit"], ["--effect"]):
+        code, result = run_json(["preview", "hero", "--draft", *flags], capsys)
+        assert code == 1 and "--draft is a quick look" in result["findings"][0]["message"], flags
+
+
+def test_no_draft_of_an_imported_model(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#222 review: nothing is meshed for an imported model, so --draft says so instead of writing the same sheet."""
+    from test_importer import SOURCE, box_glb
+
+    box_glb(in_project.root / "imports" / "box.glb")
+    write_model(in_project, SOURCE, "crate")
+    code, result = run_json(["preview", "crate", "--draft"], capsys)
+    assert code == 1 and "imported model" in result["findings"][0]["message"]
+    assert not (in_project.root / "previews" / "crate" / "draft" / "turntable.png").exists()
+
+
+def test_draft_paint_cuts_no_patterns(project: Project) -> None:
+    """#222: a draft's smooth parts get no pattern cut into them (the build's do)."""
+    from kiln.builder import field_of
+    from kiln.mesher import dual_contour
+    from kiln.paint import regions
+
+    text = "name: ball\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: red\n    pattern: { type: stripes, color: blue, size: 0.05 }\n"
+    model, _ = ok_model(project, text, "ball")
+    field = field_of(model, 0.03)
+    mesh = dual_contour(field, 0.03)
+    full, quick = regions(mesh, model, field, False), regions(mesh, model, field, False, draft=True)
+    assert full.pattern_groups and len(set(full.owner.tolist())) > 1
+    assert not quick.pattern_groups and len(set(quick.owner.tolist())) == 1 and quick.mesh is mesh  # nothing cut
+
+
+def test_draft_paint_keeps_a_cut_walls_colour(project: Project) -> None:
+    """#222 review: in a draft each face takes its nearest part's paint, by signed distance: the wall of a cut is
+    its solid's colour though a part the cut took away whole lies nearer."""
+    from dataclasses import replace
+
+    from kiln.builder import build_model
+
+    text = "name: pit\nparts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.5 }\n    color: red\n" \
+           "  - sphere: { at: [0, 0.9, 0], radius: 0.08 }\n    color: blue\n" \
+           "  - sphere: { at: [0, 0.95, 0], radius: 0.2 }\n    cut: true\n"
+    model, style = ok_model(project, text, "pit")
+    for m in (model, replace(model, draft=True)):
+        built = build_model(m, style, None, {})
+        used = {built.painted.groups[g].color_name for g in set(built.painted.face_group.tolist())}
+        assert used == {"red"}, (m.draft, used)
 
 
 def test_preview_errors(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
@@ -369,7 +461,7 @@ def test_preview_views_pitch_and_size(in_project: Project, capsys: pytest.Captur
 def test_preview_views_flags_on_terrains_and_config(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
     land = "name: land\nterrain:\n  size: [8, 8]\n  cell: 0.5\n  chunk: 8\n  lod: []\n  splat:\n    - grass: { color: green }\n  shapes:\n    - hill: { at: [0, 0], radius: 3, height: 1 }\n"
     write_model(in_project, land, "land")
-    for argv in (["--views", "front"], ["--pitch", "5"], ["--size", "200"]):
+    for argv in (["--views", "front"], ["--pitch", "5"], ["--size", "200"], ["--draft"]):
         code, result = run_json(["preview", "land", *argv], capsys)
         assert code == 1 and "doesn't apply" in result["findings"][0]["message"], result
     code, result = run_json(["config", "set", "preview_size", "500"], capsys)

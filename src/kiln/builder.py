@@ -152,6 +152,7 @@ def hard_joins(model: Model, pieces: list[frozenset[int]]) -> int:
     return sum(len(_hard_steps(model, include)) for include in pieces)
 
 
+DRAFT_HARD_LEVEL = 2  # preview --draft: hard parts without bevels or bands (hard_spec levels), made once
 HARD_GROWTH = 1.0  # time against joins done, as a power: about linear since trees are made where clips reach (#214; 2 before)
 ROUND_SHAPES = frozenset({"cylinder", "cone", "capsule", "tube", "lathe", "torus", "sphere", "ellipsoid"})
 
@@ -169,7 +170,7 @@ def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[
     specs = None
     total = hard_joins(model, pieces)
     tries = 0
-    for level in range(5):
+    for level in ((DRAFT_HARD_LEVEL,) if model.draft else range(5)):  # a draft: plain shapes at once, whatever the budget
         level_specs = [_spec_key(p, hard_spec(p, style, level)) for p in model.parts]
         if level_specs == specs:  # this level details nothing less: same meshes, try the next (#207)
             continue
@@ -286,9 +287,11 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
         # First shape the surface freely (triangles go where the shape needs them: wheels stay round), then cut the colour
         # borders into that and keep them through the rest (seams stay clean)
         total = sum(mesh.triangles for _, _, mesh in live)
-        live = [(include, f, decimate(f, mesh, max(200, round(PRESHAPE * soft_target * mesh.triangles / total)), step)) for include, f, mesh in live]
+        if not model.draft:
+            live = [(include, f, decimate(f, mesh, max(200, round(PRESHAPE * soft_target * mesh.triangles / total)), step)) for include, f, mesh in live]
         phase(f"painting {len(adding)} parts")
-        cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect, hinted("fewer gradient or pattern parts paint faster")) for include, f, mesh in live])
+        cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect, hinted("fewer gradient or pattern parts paint faster"), model.draft)
+                                   for include, f, mesh in live])  # fmt: skip
         fields = [f for _, f, _ in live]
         phase(f"reducing to {soft_target} triangles")
         painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, soft_target, [inc for inc, _, _ in live], full_areas,
@@ -384,7 +387,7 @@ def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float
             continue
         share = _area(mesh.vertices, mesh.faces) / max(total, 1e-12)
         mesh = decimate(f, mesh, max(KEEP_MIN, round(2 * share * target)), fine)
-        painted = paint(regions(mesh, model, f, rigged, [i]), model)
+        painted = paint(regions(mesh, model, f, rigged, [i], draft=model.draft), model)
         out.append((painted, corner_normals(painted, f, fine, style.smooth, style.sharp_angle)))
     return out, hidden
 
@@ -550,7 +553,7 @@ def _decimate(
         painted = paint(Regions(decimated, face_owner, cut.groups, cut.part_group, cut.pattern_groups), model)
         return decimated, face_owner, painted
 
-    for k, share in enumerate(BORDER_SCHEDULE):
+    for k, share in enumerate(() if model.draft else BORDER_SCHEDULE):
         if progress is not None:
             progress("reducing: passes done", k, len(BORDER_SCHEDULE))
         mesh, owner = simplify_borders(mesh, owner, max(step * 0.15, edge * share))
@@ -558,7 +561,11 @@ def _decimate(
         if k >= 2 and len(painted.faces) <= target * 1.05:
             break
     else:
-        for _ in range(2):
+        if model.draft:  # a quick look: one pass, borders as they are; over budget is fine
+            if progress is not None:
+                progress("reducing: passes done", 0, 1)
+            mesh, owner, painted = attempt(goal)
+        for _ in range(0 if model.draft else 2):
             goal = max(int(goal * target / len(painted.faces) * 0.95), int(target * 0.3))
             mesh, owner, painted = attempt(goal)
             if len(painted.faces) <= target * 1.05 or goal <= target * 0.3:
@@ -627,6 +634,8 @@ def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int |
             h.update(json.dumps([part.geometry.params.get("points"), part.geometry.params.get("holes")]).encode())
     if model.fit_to is not None:  # the character it's fitted to
         h.update(model.fit_to[0].read_bytes())
+    if model.draft:
+        h.update(b"draft")  # a draft is its own build
     if model.source is not None:
         from kiln.importer import external_files
 

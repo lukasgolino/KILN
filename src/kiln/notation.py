@@ -212,6 +212,7 @@ class Model:
     animation_library: str | None = None  # plays this clip carrier's animations (copied in at load); its glb has none
     animations_only: bool = False  # a clip carrier: Godot imports its glb as an AnimationLibrary (no scene)
     library_text: str = ""  # the carrier's source (cache key)
+    draft: bool = False  # preview --draft: built for a quick look (rough colour borders, plain hard parts, one reducing pass)
     shape_text: str = ""  # the fields a build's mesh, paint and skin come from, as one text (the mesh cache's key)
     motion_text: str = ""  # the animations, as one text (the cached build's tracks are made again when it changes)
     effect: Effect | None = None  # a burst of other models' meshes (models/<name>.effect.json)

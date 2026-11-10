@@ -314,7 +314,7 @@ class Regions:
 
 
 def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[int] | None = None, protect: frozenset[int] = frozenset(),
-            progress: Progress | None = None) -> Regions:  # fmt: skip
+            progress: Progress | None = None, draft: bool = False) -> Regions:  # fmt: skip
     """Cut the mesh into paint groups (one per bone + colour + material) and patterns. Done on the full-resolution
     mesh, so the borders are smooth curves that decimation then keeps (mesher.decimate_regions). `protect`ed parts
     (thin ones the budget would erase) get their own group, so decimation keeps their outline too."""
@@ -322,6 +322,12 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
     adding = [i for i, part in enumerate(model.parts) if part.geometry.op == "add" and (include is None or i in include)]
     groups, group_index, part_group = _groups(model, adding, rigged, protect)
     members = [[i for i in adding if part_group[i] == g] for g in range(len(groups))]
+    if draft and adding:  # a quick look (#222): each face takes its nearest part's paint; no borders cut, no patterns
+        # signed distances: a face on a cut's wall is deep inside the part that was cut (its paint), though a part
+        # the cut took away whole may lie nearer
+        nearest = field.nearest(adding, vertices[faces].mean(axis=1), absolute=False)[0]
+        owner = np.array([part_group[i] for i in adding], dtype=np.int64)[nearest]
+        return Regions(mesh, owner, groups, part_group, {})
 
     later = {i: [j for j in range(i + 1, len(model.parts)) if model.parts[j].geometry.op != "add" and _cuts(model, j, i)] for i in adding}
     # borders between parts follow their smooth shapes: noise roughens the surface, not the colour edges on it (#100)
