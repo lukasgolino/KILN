@@ -32,6 +32,7 @@ SHAPE_IDS = {"sphere": 0, "ellipsoid": 1, "box": 2, "cylinder": 3, "cone": 4, "c
 MIN_POINTS = 64  # fewer points: numpy for one part's distance (the call costs more than it saves)
 SERIAL_POINTS = 8192  # a part's distance at fewer points runs on one thread: a parallel call costs ~3 ms however small (#154)
 SERIAL_FIELD = 1024  # the same for the whole field (a few us a point, so the pool pays off sooner)
+NEAREST_PASSED = 2_000_000  # nearest(): distances passed in per block of points (16 MB), whatever the number of such parts
 CHUNK = 64  # points per parallel task in the field kernel (each task keeps its own target-union cache)
 
 
@@ -241,6 +242,31 @@ def field_distance(field: Field, p: Array) -> Array:
     kernel = _field_serial if len(p) < SERIAL_FIELD else _field_kernel
     kernel(p, out, t.table, t.op, t.counts, t.blend, t.lo, t.hi, t.pad, pre, slot, t.target_set, t.set_off, t.set_idx, t.has_targets)
     return out
+
+
+def nearest(field: Field, parts: list[int], p: Array, absolute: bool = True) -> tuple[Array, Array]:
+    """Field.nearest in one compiled pass (#199): per point, the position in `parts` of the part whose
+    part_distance (absolute, unless not) is smallest, ties to the earlier one, and that distance."""
+    t = field_table(field)
+    p = np.ascontiguousarray(p, dtype=float)
+    idx = np.asarray(parts, np.int64)
+    numpy_here = [i for i in dict.fromkeys(parts) if i in t.numpy_parts]
+    slot = np.full(len(field.parts), -1, np.int64)
+    for k, i in enumerate(numpy_here):
+        slot[i] = k
+    which = np.zeros(len(p), np.int64)
+    best = np.full(len(p), np.inf)
+    # parts the kernel can't do are worked out first and passed in, a block of points at a time: memory stays
+    # O(points), not parts x points (#110)
+    block = max(MIN_POINTS, NEAREST_PASSED // len(numpy_here)) if numpy_here else max(len(p), 1)
+    for at in range(0, len(p), block):
+        q = p[at : at + block]
+        pre = np.zeros((max(len(numpy_here), 1), len(q)))
+        for k, i in enumerate(numpy_here):
+            pre[k] = field.part_distance(i, q)
+        kernel = _nearest_serial if len(q) < SERIAL_FIELD else _nearest_kernel
+        kernel(q, idx, absolute, t.table, t.lo, t.hi, t.pad, pre, slot, which[at : at + block], best[at : at + block])
+    return which, best
 
 
 if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones it compiles again every run)
@@ -546,9 +572,37 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                 f = smin(f, d, k)
         return f
 
+    @njit(cache=True, inline="always")
+    def nearest_point(n: int, p: Any, idx: Any, absolute: bool, t: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any, which: Any,
+                      best: Any) -> None:  # fmt: skip
+        x, y, z = p[n, 0], p[n, 1], p[n, 2]
+        least, at = math.inf, 0
+        for k in range(len(idx)):
+            d = stood_in(idx[k], n, x, y, z, t, lo, hi, pad, pre, slot)
+            if absolute:
+                d = abs(d)
+            if d < least:  # ties: the earlier part (as argmin)
+                least, at = d, k
+        best[n] = least
+        which[n] = at
+
+    @njit(cache=True, parallel=True)
+    def nearest_kernel(p: Any, idx: Any, absolute: bool, t: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any, which: Any,
+                       best: Any) -> None:  # fmt: skip
+        for n in prange(len(p)):
+            nearest_point(n, p, idx, absolute, t, lo, hi, pad, pre, slot, which, best)
+
+    @njit(cache=True)
+    def nearest_serial(p: Any, idx: Any, absolute: bool, t: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any, which: Any,
+                       best: Any) -> None:  # fmt: skip
+        for n in range(len(p)):
+            nearest_point(n, p, idx, absolute, t, lo, hi, pad, pre, slot, which, best)
+
     _part_kernel: Any = part_kernel
+    _nearest_kernel: Any = nearest_kernel
+    _nearest_serial: Any = nearest_serial
     _part_serial: Any = part_serial
     _field_serial: Any = field_serial
     _field_kernel: Any = field_kernel
 
-__all__ = ["AVAILABLE", "MIN_POINTS", "SHAPE_IDS", "distance", "field_distance", "field_table", "pack", "set_threads", "supported"]
+__all__ = ["AVAILABLE", "MIN_POINTS", "SHAPE_IDS", "distance", "field_distance", "field_table", "nearest", "pack", "set_threads", "supported"]

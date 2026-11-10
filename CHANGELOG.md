@@ -8,6 +8,11 @@ before 1.0).
 
 ### Performance
 
+- Reducing is a little faster (#199): the nearest part of every vertex is found in one compiled pass instead of one
+  pass per part (a 94-part character: 2.7 -> 0.3 s), and the colour-border simplifier does its fold test in plain
+  floats instead of numpy on a handful of points (6 -> 1.8 s). The 536-part character builds in 287 s instead of 310.
+  Output is byte-identical (the demo and five larger models). What is left of "reducing" on models with hard parts is
+  mostly the hard parts' union (#214); reduced meshes cached on geometry alone come with #185.
 - Painting many-part models is about 3x faster (#154): small point sets (a split's new vertices, one part's
   distance at a few hundred points) run the compiled kernels on one thread (a parallel call cost ~3 ms however small),
   and the whole field is compiled at any size instead of looping every part in Python below 64 points. The 536-part

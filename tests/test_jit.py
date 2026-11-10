@@ -120,3 +120,32 @@ def test_serial_and_parallel_kernels_agree_exactly(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(jit, "SERIAL_FIELD", 0)
     np.testing.assert_array_equal(field.distance(few), serial_field)
     np.testing.assert_array_equal(field.part_distance(1, p), serial_part)
+
+
+@pytest.mark.parametrize("absolute", [True, False])
+@pytest.mark.parametrize("count", [500, 30_000])  # the one-thread kernel and the parallel one
+def test_compiled_nearest_matches_the_part_loop(absolute: bool, count: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#199: Field.nearest in one compiled pass gives the same parts and distances as one part_distance at a time
+    (ties to the earlier part), for a subset in any order with a part twice, and extrudes among them (parts the kernel
+    can't do: passed in, a block of points at a time)."""
+    square = {"points": [[0, 0], [0.3, 0], [0.3, 0.2], [0, 0.2]], "height": 0.2, "round": 0.0, "holes": []}
+    parts = [Geometry(*SHAPES[n]) for n in ("sphere", "capsule", "lock", "box", "torus")]
+    parts.append(Geometry("extrude", square, at=np.array([0.1, 0.0, -0.1])))
+    parts.append(Geometry("sphere", {"radius": 0.4}))  # the same as the first: ties
+    parts.append(Geometry("extrude", square, at=np.array([-0.4, 0.2, 0.3])))
+    field = Field(parts, margin=0.02)
+    assert jit.MIN_POINTS <= 500 < jit.SERIAL_FIELD <= 30_000
+    monkeypatch.setattr(jit, "NEAREST_PASSED", 2 * 200)  # blocks of 200 points (64 at least): several, and a short last one
+    p = np.random.default_rng(4).uniform(-1, 1, (count, 3))
+    chosen = [6, 7, 3, 5, 0, 2, 3, 4]  # not in order, the extrudes not first, the box twice, the capsule left out
+    which, best = field.nearest(chosen, p, absolute)
+    expect = numpy_path(lambda: Field(parts, margin=0.02).nearest(chosen, p, absolute))
+    ref = np.full(len(p), np.inf), np.zeros(len(p), np.int64)
+    for k, i in enumerate(chosen):  # the reference: compiled per-part distances, the old loop
+        d = field.part_distance(i, p)
+        d = np.abs(d) if absolute else d
+        better = d < ref[0]
+        ref[0][better], ref[1][better] = d[better], k
+    np.testing.assert_array_equal(which, ref[1])
+    np.testing.assert_array_equal(best, ref[0])
+    assert (which == expect[0]).mean() > 0.999  # numpy's own shapes agree to rounding

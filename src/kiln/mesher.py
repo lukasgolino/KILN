@@ -459,6 +459,9 @@ def simplify_borders(mesh: Mesh, region: Array, tolerance: float) -> tuple[Mesh,
     both sides stay joined. Junctions of three regions and anything that would fold a triangle stay."""
     v, f, region = mesh.vertices, mesh.faces.copy(), region.copy()
     alive = np.ones(len(f), dtype=bool)
+    # plain floats in the loop below (#199): numpy on a handful of 3-vectors costs microseconds a call. The same
+    # products and sums in the same order as np.cross on float64 (what meshes hold), so the same verdicts
+    pts = np.asarray(v, dtype=np.float64).tolist()
     for _ in range(12):
         live = np.flatnonzero(alive)
         e = np.concatenate([f[live][:, [0, 1]], f[live][:, [1, 2]], f[live][:, [2, 0]]])
@@ -495,27 +498,27 @@ def simplify_borders(mesh: Mesh, region: Array, tolerance: float) -> tuple[Mesh,
         def faces_of(x: int) -> list[int]:
             return [int(i) for i in live[by_vertex[first[x] : first[x + 1]] // 3]]  # noqa: B023 (used in this pass)
 
+        tri = f.tolist()
         locked: set[int] = set()
         removed = 0
-        for i in np.lexsort((cand, dev)):
+        for i in np.lexsort((cand, dev)).tolist():
             x, into = int(cand[i]), int(a[i])
             if x in locked or into in locked:
                 continue
             fan = faces_of(x)
-            ring = {int(y) for fi in fan for y in f[fi]}
-            shared = [fi for fi in fan if into in f[fi]]
+            ring = {y for fi in fan for y in tri[fi]}
+            shared = [fi for fi in fan if into in tri[fi]]
             # link condition: x and `into` share exactly the two vertices opposite their edge (no pinching)
-            ring_into = {int(y) for fi in faces_of(into) for y in f[fi]}
+            ring_into = {y for fi in faces_of(into) for y in tri[fi]}
             if len(shared) != 2 or len((ring & ring_into) - {x, into}) != 2:
                 continue
             moved = [fi for fi in fan if fi not in shared]
-            before = np.cross(v[f[moved, 1]] - v[f[moved, 0]], v[f[moved, 2]] - v[f[moved, 0]])
-            after_f = np.where(f[moved] == x, into, f[moved])
-            after = np.cross(v[after_f[:, 1]] - v[after_f[:, 0]], v[after_f[:, 2]] - v[after_f[:, 0]])
-            norm = np.linalg.norm(before, axis=1) * np.linalg.norm(after, axis=1)
-            if np.any((before * after).sum(1) <= 0.2 * norm):
+            after_f = [[into if y == x else y for y in tri[fi]] for fi in moved]
+            if any(_folds(pts, tri[fi], g) for fi, g in zip(moved, after_f, strict=True)):
                 continue  # would fold or squash a triangle
-            f[moved] = after_f
+            for fi, g in zip(moved, after_f, strict=True):
+                f[fi] = g
+                tri[fi] = g
             alive[shared] = False
             locked |= ring | ring_into
             removed += 1
@@ -524,6 +527,21 @@ def simplify_borders(mesh: Mesh, region: Array, tolerance: float) -> tuple[Mesh,
     keep = np.flatnonzero(alive)
     used, inverse = np.unique(f[keep], return_inverse=True)
     return Mesh(v[used], inverse.reshape(-1, 3).astype(np.int64)), region[keep]
+
+
+def _cross(p: list[float], q: list[float], r: list[float]) -> tuple[float, float, float]:
+    """(q - p) x (r - p), as np.cross computes it."""
+    a0, a1, a2 = q[0] - p[0], q[1] - p[1], q[2] - p[2]
+    b0, b1, b2 = r[0] - p[0], r[1] - p[1], r[2] - p[2]
+    return a1 * b2 - a2 * b1, a2 * b0 - a0 * b2, a0 * b1 - a1 * b0
+
+
+def _folds(pts: list[list[float]], before: list[int], after: list[int]) -> bool:
+    """A face turned from `before` to `after` flips or squashes: its normal turns more than ~78 degrees."""
+    n = _cross(pts[before[0]], pts[before[1]], pts[before[2]])
+    m = _cross(pts[after[0]], pts[after[1]], pts[after[2]])
+    norm = math.sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]) * math.sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2])
+    return n[0] * m[0] + n[1] * m[1] + n[2] * m[2] <= 0.2 * norm
 
 
 def nearest_part(field: Field, points: Array) -> Array:
