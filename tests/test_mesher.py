@@ -313,3 +313,25 @@ def test_relax_retesting_only_moved_faces_gives_the_same_mesh(jitter: float, ite
     assert not np.array_equal(new.vertices, jittered.vertices)
     held = relax(fld, jittered, np.ones(len(mesh.vertices), dtype=bool), 0.02, iterations)  # nothing free: the first round stops
     assert np.array_equal(held.vertices, jittered.vertices)
+
+
+def test_pieces_the_simplifier_removes_whole_do_not_crash(project: Any) -> None:
+    """#144: 120 thin tufts on a ball at a low budget: the simplifier collapses some tufts away entirely, so their
+    vertices map to -1 in the next round. They must stay -1 (not wrap round to the last vertex) and stay out of the
+    regions and the weld; the build used to fail with numpy's "'list' argument must have no negative elements"."""
+    import math
+
+    from conftest import write_model
+
+    from kiln.lint import lint_paths
+
+    lines = ["name: tufts", "style: soft_toy", "parts:", "  - sphere: { radius: 0.3, at: [0, 0.3, 0] }", "    color: red"]
+    for k in range(120):
+        z = 1 - 2 * (k + 0.5) / 120
+        a, s = k * 2.399963, math.sqrt(1 - z * z)
+        n = (s * math.cos(a), z, s * math.sin(a))
+        pts = [[round((0.29 + 0.15 * t) * n[i] + (0.3 if i == 1 else 0), 4) for i in range(3)] for t in (0, 0.5, 1)]
+        lines += [f"  - lock: {{ points: {pts}, width: 0.04, thickness: 0.01, width_to: 0 }}", "    color: red", "    blend: 0.02"]
+    result = lint_paths(project, [write_model(project, "\n".join(lines) + "\n", "tufts")])
+    assert not [f for f in result.findings if f.severity == "error"], [f.message for f in result.findings if f.severity == "error"]
+    assert result.built["tufts"].painted.faces.shape[0] > 0
