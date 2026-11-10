@@ -120,3 +120,26 @@ def test_serial_and_parallel_kernels_agree_exactly(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(jit, "SERIAL_FIELD", 0)
     np.testing.assert_array_equal(field.distance(few), serial_field)
     np.testing.assert_array_equal(field.part_distance(1, p), serial_part)
+
+
+@pytest.mark.parametrize("absolute", [True, False])
+def test_compiled_nearest_matches_the_part_loop(absolute: bool) -> None:
+    """#199: Field.nearest in one compiled pass gives the same parts and distances as one part_distance at a time
+    (ties to the earlier part), with an extrude among them (a part the kernel can't do: passed in)."""
+    parts = [Geometry(*SHAPES[n]) for n in ("sphere", "capsule", "lock", "box", "torus")]
+    parts.append(Geometry("extrude", {"points": [[0, 0], [0.3, 0], [0.3, 0.2], [0, 0.2]], "height": 0.2, "round": 0.0, "holes": []},
+                          at=np.array([0.1, 0.0, -0.1])))
+    parts.append(Geometry("sphere", {"radius": 0.4}))  # the same as the first: ties
+    field = Field(parts, margin=0.02)
+    p = np.random.default_rng(4).uniform(-1, 1, (30_000, 3))
+    which, best = field.nearest(list(range(len(parts))), p, absolute)
+    expect = numpy_path(lambda: Field(parts, margin=0.02).nearest(list(range(len(parts))), p, absolute))
+    ref = np.full(len(p), np.inf), np.zeros(len(p), np.int64)
+    for k in range(len(parts)):  # the reference: compiled per-part distances, the old loop
+        d = field.part_distance(k, p)
+        d = np.abs(d) if absolute else d
+        better = d < ref[0]
+        ref[0][better], ref[1][better] = d[better], k
+    np.testing.assert_array_equal(which, ref[1])
+    np.testing.assert_array_equal(best, ref[0])
+    assert (which == expect[0]).mean() > 0.999  # numpy's own shapes agree to rounding
