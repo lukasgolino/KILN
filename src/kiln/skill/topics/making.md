@@ -9,6 +9,9 @@ Making a model: plan in metres, scaffold, parts, lint, look, fit with the rest; 
    y = 0, face +Z (their front), +X is their left.
 2. **Scaffold:** `kiln new model <name> --template bean|prop|empty --class character|prop|building|...`.
 3. **Write the parts** (`kiln docs parts`). Big shapes first, details after. Rules of thumb:
+   - Know what is slow before a model gets big (`kiln docs build`, "What things cost"): hundreds of parts, a
+     `gradient` or `pattern` on each of many parts, many bevelled hard parts. `kiln preview <name> --draft` while
+     shapes are moving.
    - Join body parts with `blend` (0.02-0.06 m in soft styles); give crisp seams (`blend: 0`, the default) to things
      that sit ON a surface: eyes, buttons, belts, trims.
    - Symmetric things: write the left one (+X) with `mirror: x`; if it must move separately (arms, legs) add

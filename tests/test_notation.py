@@ -501,3 +501,16 @@ def test_texture_rejects_cylindrical_with_mirror_or_array_and_unreadable_images(
     assert [f.rule for f in errors_of(project, cyl + "    array: { count: 3, step: [0, 0, 0.3] }\n" + tex)] == ["E003"]
     assert not errors_of(project, cyl + "    mirror: x\n    texture: { image: textures/tile.png, project: box, texel: 0.01 }\n")
     assert [f.rule for f in errors_of(project, cyl + "    texture: { image: textures/bad.png, texel: 0.01 }\n")] == ["E011"]
+
+
+def test_a_mirrored_copys_blend_to_follows_the_mirrored_ids(project: Project) -> None:
+    """#224: blend_to on a part with mirror_id: the copy melts into the twins of the ids named (ids without a twin stay)."""
+    text = "name: thing\nparts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.3 }\n    id: torso\n    color: red\n" \
+           "  - capsule: { from: [0.3, 0.6, 0], to: [0.5, 0.3, 0], radius: 0.08 }\n    id: arm_l\n    mirror: x\n    mirror_id: arm_r\n    color: blue\n" \
+           "  - sphere: { at: [0.42, 0.45, 0.06], radius: 0.05 }\n    id: tuft_l\n    mirror: x\n    mirror_id: tuft_r\n    color: red\n    blend: 0.03\n" \
+           "    blend_to: [arm_l, torso]\n"
+    model, _ = ok_model(project, text)
+    index = {p.id: i for i, p in enumerate(model.parts)}
+    targets = {p.id: p.geometry.blend_to for p in model.parts}
+    assert targets["tuft_l"] == frozenset({index["arm_l"], index["torso"]})
+    assert targets["tuft_r"] == frozenset({index["arm_r"], index["torso"]})
