@@ -19,7 +19,8 @@ before 1.0).
 - A model can have a baked normal map and baked ambient occlusion together. In a project with `atlas = true`, a model
   with `normal_map:` is no longer a lint error: it keeps a material per colour (the palette atlas and the normal
   map both need the first UV set), carries its normal map, and gets `atlas_ao`'s occlusion in its vertex colours
-  like the atlas models. Its variants recolour materials as they do without the atlas (#148).
+  like the atlas models. Its variants recolour materials as they do without the atlas. Its manifest entry has
+  `ao` and `ao_strength` and no `atlas` (#148).
 - Lint W125: the mesh's UV charts don't fit the normal map (many separate pieces in a small map, where the padding
   between charts alone fills it). The packer now stops trying when the atlas stops shrinking and squeezes its
   smallest try into the map; the warning says by how much and what size to ask for.

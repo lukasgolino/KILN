@@ -14,7 +14,7 @@ Building for the game: glb, Godot scenes, look kits, colour modes, the manifest,
   that recolours it (and a `swap` table in the manifest for other engines).
 - Crowds (many instances): `vertex_colors = true` puts colours in the vertices, one surface per material preset,
   so a character costs 2-4 draw calls instead of one per colour.
-- Crowds, best: `atlas = true` gives every model one material (colours and presets in a small palette texture): 1 draw
+- Crowds, best: `atlas = true` gives every model without a `normal_map` one material (colours and presets in a small palette texture): 1 draw
   call per mesh (+1 per decal or texture), and team colours become a texture swap on one shared mesh. `atlas_ao = true` adds
   baked ambient occlusion (a number 0..1 sets its strength). Use it instead of `vertex_colors`.
 - Warnings W111 (a part lost to the triangle budget) and W112 (a LOD well over its target) mean: raise the budget.
@@ -70,7 +70,7 @@ dents) into COLOR_0 (a number sets its strength: the darkest corner is x (1 - st
 (`vertex_color_use_as_albedo`). Previews (`kiln preview`, `kiln gallery`, scatters) show it too. When the output is inside a Godot project (with "godot" or
 not), KILN writes the palette textures' `.import` settings (lossless, no mipmaps, no VRAM compression on first 3D use: 4x4 cells stay exact); settings Godot adds
 later (uid, imported files) are kept. A model with `normal_map:` stays out of the atlas (both need the first UV set): a material per colour,
-its normal map, and `atlas_ao`'s occlusion in COLOR_0 all the same.
+its normal map, and `atlas_ao`'s occlusion in COLOR_0 all the same (manifest: `ao`, `ao_strength` on the model, no `atlas`).
 
 **Shared clips**: `animations_only: true` makes a model a clip carrier (its animations are what counts; give it the
 same rig as the models that use it); `animation_library: <carrier>` on another model plays the carrier's animations

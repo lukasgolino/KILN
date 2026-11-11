@@ -538,6 +538,9 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         names = attr_names(built)
         if names:  # per-vertex numbers (parts' attr:): custom glTF attributes, the first also in COLOR_0's alpha
             entry["attributes"] = {name: {"gltf": f"_{name.upper()}", "color_alpha": k == 0} for k, name in enumerate(names)}
+        if ao > 0:  # outside the atlas (a normal map), with its occlusion: COLOR_0 is a grey multiplier
+            entry["ao"] = True
+            entry["ao_strength"] = _f(ao)
         if atlas is not None:
             entry["atlas"] = atlas_entry(atlas.atlas, {k: f"models/{v}" for k, v in sorted(atlas_files[""].items())}, atlas.ao)
         variants: dict[str, dict[str, Any]] = {}

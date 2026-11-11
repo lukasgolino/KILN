@@ -44,7 +44,7 @@ variant_glbs = true            # false: no .glb per variant; Godot gets <name>.<
 merge_rigid = false            # true: a rigid skin is one skinned mesh (one draw call; every vertex 100% on its part's bone;
                                #   separate parts stay nodes; hide a part by scaling its bone to 0); manifest merged_rigid
 vertex_colors = false          # true: colours in the vertices, one surface per material preset (fewer draw calls)
-atlas = false                  # true: one material per model from small palette textures (1 surface, +1 per decal or texture)
+atlas = false                  # true: one material per model from small palette textures (1 surface, +1 per decal or texture; normal_map models keep a material per colour)
 atlas_ao = false               # true or a strength 0..1 (with atlas): ambient occlusion baked into the vertex colours (normal_map models too)
 godot_bonemap = false          # true: humanoids get models/<name>.bonemap.tres in their glb's .import; Godot RENAMES
                                #   their bones to SkeletonProfileHumanoid's (see Humanoids)
