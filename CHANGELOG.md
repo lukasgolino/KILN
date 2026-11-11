@@ -16,6 +16,12 @@ before 1.0).
 
 ### Added
 
+- Shade paint: `shade: { cavity, top, under }` on a model, or `[shade]` in a style (the model's fields go over the
+  style's): darker in crevices (`cavity` x the occlusion `atlas_ao` uses), the top keeps its colour while the rest
+  darkens towards the bottom (`top`), the underside darker still (`under`). It is one grey multiplier per vertex corner in
+  COLOR_0 in every colour mode (per-colour materials, vertex colours, the atlas, colour maps), shown by previews and
+  Godot alike; manifest `shade` on the model. `top` is relative (vertex colours can't go above 1). With the atlas,
+  `atlas_ao` is a cavity strength (with both, the larger). Off by default: output is unchanged without it (#231).
 - `color_blend` on a part: its colour fades into its neighbours' over that distance either side of their border
   (mixed in OKLab, half and half on the border), instead of meeting in a crisp line. The fade is painted in the base
   colour map (`<name>.color.png`, which comes on for the model as it does for relief); the mesh is unchanged, and

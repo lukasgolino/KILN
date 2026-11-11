@@ -229,8 +229,8 @@ def render(
                 lin = np.array([[c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in row] for row in texel[:, :3]])
                 albedo[m] = albedo[m] * (1 - texel[:, 3:4]) + lin * texel[:, 3:4]
         lit_albedo = albedo  # what glows: Godot's EMISSION doesn't take COLOR, so no occlusion there
-        if built.ao is not None:  # baked occlusion (atlas_ao): a multiplier per vertex, as COLOR_0 (decals too) in the engine
-            albedo = albedo * (built.ao[p.faces[T]] * bary).sum(axis=1)[:, None]
+        if built.ao is not None:  # shade paint / occlusion: a multiplier per corner, as COLOR_0 (decals too) in the engine
+            albedo = albedo * (built.ao[T] * bary).sum(axis=1)[:, None]
         presets = [built.style.materials.get(gr.material, built.style.materials["default"]) for gr in groups]
         rough = np.array([pr.roughness for pr in presets])[g]
         metal = np.array([pr.metallic for pr in presets])[g]

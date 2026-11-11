@@ -25,6 +25,8 @@ from kiln.packs import LOCK_NAME, locked_pack
 from kiln.project import Project
 from kiln.retarget import HUMANOID, OPTIONAL
 from kiln.rig import animation_poses
+from kiln.shade import FIELDS as SHADE_FIELDS
+from kiln.shade import effective as effective_shade
 from kiln.style import Style
 from kiln.vendor.findings import Finding
 from kiln.vendor.gltf import read_glb
@@ -339,7 +341,8 @@ def scatter_files(project: Project, model: Model, style: Style, models: dict[str
         sources = {src: (files[src]["godot_scene"], [res_path(out / lod, godot_root) for lod in files[src].get("lods", [])][: max((len(p.lod) for p in s.places if src in p.models), default=0)],
                          frames[src]) for src in s.sources}  # fmt: skip
         scene_path = out / "models" / f"{model.name}.tscn"
-        coloured = project.config.vertex_colors and not project.config.atlas or project.config.atlas and project.config.atlas_ao > 0
+        coloured = project.config.vertex_colors and not project.config.atlas or project.config.atlas and project.config.atlas_ao > 0 \
+            or any("shade" in models.get(src.partition(".")[0], {}) for src in s.sources)  # a source with shade paint has COLOR_0
         write(scene_path, sc.godot_scene(model.name, placed, sources, coloured).encode())
         entry_out["godot_scene"] = res_path(scene_path, godot_root)
     return entry_out
@@ -548,6 +551,9 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         if ao > 0:  # outside the atlas (a normal map), with its occlusion: COLOR_0 is a grey multiplier
             entry["ao"] = True
             entry["ao_strength"] = _f(ao)
+        shade = effective_shade(built)
+        if shade.on:  # shade paint: a multiplier per vertex in COLOR_0 (x the colours)
+            entry["shade"] = {k: _f(getattr(shade, k)) for k in SHADE_FIELDS if getattr(shade, k) > 0}
         if atlas is not None:
             entry["atlas"] = atlas_entry(atlas.atlas, {k: f"models/{v}" for k, v in sorted(atlas_files[""].items())}, atlas.ao)
         variants: dict[str, dict[str, Any]] = {}
@@ -609,7 +615,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             rim = {"rim_texture": res_path(models_dir / atlas_files[""]["rim"], godot_root)} if "rim" in atlas_files.get("", {}) else {}
             revealed = [f"{model.node_prefix}{pid}" for pid, e in sorted(model.rig.items()) if e.revealed]
             mapped_normals = built.bake is not None
-            coloured = project.config.vertex_colors or project.config.atlas_ao > 0  # COLOR_0: colours, or baked occlusion
+            coloured = project.config.vertex_colors or project.config.atlas_ao > 0 or shade.on  # COLOR_0: colours, occlusion or shade
             write(scene, model_scene(name, res_path(glb, godot_root), style, None, rim if atlas else None, revealed, mapped_normals,
                                      coloured, textured).encode())  # fmt: skip
             entry["godot_scene"] = res_path(scene, godot_root)

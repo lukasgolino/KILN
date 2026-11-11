@@ -295,11 +295,11 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
 
 
 def _with_occlusion(project: Project, built: Any) -> Any:
-    """Previews show the occlusion the build bakes in (kiln.toml atlas_ao), as the engine does."""
-    if project.config.atlas_ao > 0 and built.ao is None:
-        from kiln.atlas import ambient_occlusion
+    """Previews show the shade paint and occlusion the build bakes in (shade, kiln.toml atlas_ao), as the engine does."""
+    if built.ao is None:
+        from kiln.shade import shading
 
-        built.ao = ambient_occlusion(built, project.config.atlas_ao)
+        built.ao = shading(built, project.config.atlas_ao)
     return built
 
 

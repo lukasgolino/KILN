@@ -102,7 +102,7 @@ def test_every_style_field_is_keyed_or_known_not_to_change_a_build() -> None:
 
     from kiln.builder import STYLE_KEYED
 
-    not_keyed = {"description", "notes", "materials", "look", "path", "text"}  # read at export or by people only
+    not_keyed = {"description", "notes", "materials", "look", "shade", "path", "text"}  # read at export or by people only
     fields = {f.name for f in dataclasses.fields(Style)}
     assert set(STYLE_KEYED) | not_keyed == fields and not set(STYLE_KEYED) & not_keyed
 
