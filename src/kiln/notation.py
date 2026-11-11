@@ -43,7 +43,7 @@ UNIONS = ("whole", "per_bone")
 CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "chain")
 INTERPOLATIONS = ("linear", "step")
 
-PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
+PART_FIELDS = {"id", "color", "material", "blend", "color_blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
                "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
@@ -120,6 +120,7 @@ class Part:
     blend_to: tuple[str, ...] | None = None  # blends only into the earlier parts with these ids (crisp against the rest)
     texture: Decal | None = None  # an image tiled over the whole part (project box | cylindrical), under its decal
     detail: bool = False  # only in the baked normal map (grooves, wrinkles, strands), never in the mesh
+    color_blend: float = 0.0  # metres: its colour fades into its neighbours' over this distance from their border (base colour map)
     keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
     uv: UVSpec | None = None  # texture coordinates projected from its shape (kiln.uv)
     patterns: tuple[Pattern, ...] = ()  # painted in order (a later one paints over earlier ones)
@@ -488,6 +489,12 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if not _num(blend) or blend < 0 or blend > 1:
         ctx.error("E003", "blend is the smooth-join radius in metres (0 = a crisp seam), e.g. 0.04, or none (a hard part: exact polygons)", line, f"{where}.blend")
         ok = False
+    color_blend = raw.get("color_blend", 0.0)
+    if not _num(color_blend) or not 0 <= float(color_blend) <= 0.5:
+        ctx.error("E003", "color_blend is the distance in metres over which the part's colour fades into its neighbours' (0 to 0.5; 0: a crisp "
+                  "border), e.g. 0.05", line, f"{where}.color_blend")  # fmt: skip
+        ok = False
+        color_blend = 0.0
     detail = raw.get("detail", False)
     if not isinstance(detail, bool):
         ctx.error("E003", "detail is true (the part only shapes the baked normal map: model normal_map) or false", line, f"{where}.detail")
@@ -695,7 +702,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
-                   "texture": texture}  # fmt: skip
+                   "texture": texture, "color_blend": float(color_blend)}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
@@ -888,6 +895,16 @@ def _parse_relief(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
         if ok:
             model.relief.append(layer)
     if model.relief and not model.normal_map:
+        model.normal_map = RELIEF_MAP
+
+
+def _soft_colours(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
+    """Parts with color_blend need the base colour map (the fade is per texel): the baked maps come on."""
+    if not any(p.color_blend > 0 for p in model.parts):
+        return
+    if model.source is not None:
+        return
+    if not model.normal_map:
         model.normal_map = RELIEF_MAP
 
 
@@ -1611,7 +1628,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     if not _num(strength) or not 0 <= float(strength) <= 4:
         ctx.error("E003", "normal_strength scales the baked normal map's tilt: 0 (flat) to 4, 1 as baked (0.5: softer grooves)",
                   _line(data, "normal_strength"), "normal_strength")  # fmt: skip
-    elif "normal_strength" in data and not model.normal_map and "relief" not in data:
+    elif "normal_strength" in data and not model.normal_map and "relief" not in data and "color_blend" not in str(data.get("parts")):
         ctx.error("E003", "normal_strength goes with normal_map (the map it scales)", _line(data, "normal_strength"), "normal_strength")
     else:
         model.normal_strength = float(strength)
@@ -1741,6 +1758,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
             if any(p.detail for p in model.parts):
                 _split_detail(ctx, model)
     _parse_relief(ctx, data, model)
+    _soft_colours(ctx, data, model)
     ids = set(model.ids) if model.parts else {ROOT_ID}
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig"), model.template), model.parts)
     skeleton = data.get("skeleton")

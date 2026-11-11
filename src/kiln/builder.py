@@ -39,7 +39,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 20  # bump when meshing/painting changes output
+BUILDER_VERSION = 21  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -377,8 +377,26 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
         soft = (face_field >= 0) & ~glows & (p.face_decal < 0)  # not hard parts, glowing materials (their own material) or decals
         on = [np.isin(ids, layer.on) & soft for layer in model.relief]
         patches = relief.scatter(p.vertices, p.faces, built.normals, on, model.relief)
+    fading = None
+    if adding and any(model.parts[i].color_blend > 0 for i in adding):  # colours that fade across part borders (#230)
+        from kiln.fade import Fade
+
+        hues: dict[str, int] = {}
+        colour = np.array([hues.setdefault(g.color, len(hues)) for g in p.groups])[p.face_group]
+        edges = np.sort(np.concatenate([p.faces[:, [0, 1]], p.faces[:, [1, 2]], p.faces[:, [2, 0]]]), axis=1)
+        face_of = np.tile(np.arange(len(p.faces)), 3)
+        order = np.lexsort((face_of, edges[:, 1], edges[:, 0]))
+        edges, face_of = edges[order], face_of[order]
+        pair = np.flatnonzero((edges[1:] == edges[:-1]).all(axis=1))  # an edge and its twin, next to each other
+        f1, f2 = face_of[pair], face_of[pair + 1]
+        blend = np.array([part.color_blend for part in model.parts])
+        reach = np.maximum(blend[owner[f1]], blend[owner[f2]])  # the wider of the two parts' fades
+        keep = (colour[f1] != colour[f2]) & (reach > 0) & (face_field[f1] >= 0) & (face_field[f2] >= 0)
+        if keep.any():
+            fading = Fade(p.vertices[edges[pair[keep]]], np.stack([p.face_group[f1[keep]], p.face_group[f2[keep]]], axis=1), reach[keep],
+                          [g.color for g in p.groups])  # fmt: skip
     return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
-                     np.array(on) if model.relief else None)  # fmt: skip
+                     np.array(on) if model.relief else None, fading)  # fmt: skip
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],

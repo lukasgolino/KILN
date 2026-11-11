@@ -69,20 +69,9 @@ class Patches:
 
     def touches(self, points: Array) -> Array:
         """Whether each point is near enough to some patch to be under it (by grid cell: a quick, generous test)."""
-        if not len(self) or not len(points):
-            return np.zeros(len(points), dtype=bool)
-        cell = self.reach
-        shifts = np.stack(np.meshgrid([-1, 0, 1], [-1, 0, 1], [-1, 0, 1], indexing="ij"), axis=-1).reshape(-1, 3)
-        mine = (np.floor(self.centre / cell).astype(np.int64)[:, None, :] + shifts[None, :, :]).reshape(-1, 3)
-        theirs = np.floor(points / cell).astype(np.int64)
-        low = np.minimum(mine.min(axis=0), theirs.min(axis=0))
-        dims = np.maximum(mine.max(axis=0), theirs.max(axis=0)) - low + 1
+        from kiln.fade import near_cells
 
-        def key(ijk: Array) -> Array:
-            rel = ijk - low
-            return np.asarray((rel[:, 0] * dims[1] + rel[:, 1]) * dims[2] + rel[:, 2])
-
-        return np.asarray(np.isin(key(theirs), np.unique(key(mine))))
+        return near_cells(points, self.centre, self.reach) if len(self) else np.zeros(len(points), dtype=bool)
 
 
 @dataclass

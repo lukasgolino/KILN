@@ -137,3 +137,22 @@ relief:
   `normal_strength` scales the layer's shading with the rest of the map. `preview --draft` shows no relief.
 - The model's colours are then in `<name>.color.png` on the normal map's UVs (one material per preset; a variant has
   its own map and glb). Manifest: `color_map` (`png`, `size`, `patches`). Example: `examples/demo/models/cub.kiln.yaml`.
+
+## Soft colour borders: `color_blend`
+
+A part's colour meets its neighbours' in a crisp border by default. `color_blend: 0.05` on a part (metres, 0 to
+0.5) fades its colour into theirs over that distance either side of the border: a pale belly or muzzle melting into
+the fur, a tan chest, a sunburnt nose.
+
+```yaml
+  - ellipsoid: { at: [0, 0.4, 0.13], radii: [0.17, 0.2, 0.12] }
+    id: belly
+    color: rope
+    blend: 0.05
+    color_blend: 0.04    # the wider of two neighbours' values is used on their border
+```
+
+- The fade is painted in the base colour map (the same map relief uses, `<name>.color.png`; it comes on with a 1024
+  map unless `normal_map:` sets the size; needs `kiln-gen[bake]`). The mesh and its border don't change.
+- Colours mix in OKLab, half and half on the border. Relief fur keeps its shading through the fade.
+- Borders with hard parts, glowing materials and decals stay crisp; so does every border where neither part asks.
