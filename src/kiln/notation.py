@@ -44,7 +44,7 @@ UNIONS = ("whole", "per_bone")
 CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "chain")
 INTERPOLATIONS = ("linear", "step")
 
-PART_FIELDS = {"id", "color", "material", "blend", "color_blend", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
+PART_FIELDS = {"id", "color", "material", "blend", "color_blend", "density", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
                "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
@@ -122,6 +122,7 @@ class Part:
     texture: Decal | None = None  # an image tiled over the whole part (project box | cylindrical), under its decal
     detail: bool = False  # only in the baked normal map (grooves, wrinkles, strands), never in the mesh
     color_blend: float = 0.0  # metres: its colour fades into its neighbours' over this distance from their border (base colour map)
+    density: float = 1.0  # weight on the triangle budget in its surface (3: three times the triangles per area of the rest)
     keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
     uv: UVSpec | None = None  # texture coordinates projected from its shape (kiln.uv)
     patterns: tuple[Pattern, ...] = ()  # painted in order (a later one paints over earlier ones)
@@ -497,9 +498,18 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                   "border), e.g. 0.05", line, f"{where}.color_blend")  # fmt: skip
         ok = False
         color_blend = 0.0
+    density = raw.get("density", 1.0)
+    if not _num(density) or not 0.25 <= float(density) <= 8:
+        ctx.error("E003", "density weighs the triangle budget on the part's surface: 0.25 to 8 (1 as the rest; 3: three times the "
+                  "triangles per area, e.g. a face; 0.5: coarser)", line, f"{where}.density")  # fmt: skip
+        ok = False
+        density = 1.0
     detail = raw.get("detail", False)
     if not isinstance(detail, bool):
         ctx.error("E003", "detail is true (the part only shapes the baked normal map: model normal_map) or false", line, f"{where}.detail")
+        ok = False
+    if detail is True and density != 1:
+        ctx.error("E003", "density spends mesh triangles: a detail part is only in the normal map and has none", line, f"{where}.density")
         ok = False
     if detail is True and color_blend:
         ctx.error("E003", "color_blend fades a part's colour: a detail part is only in the normal map and has none", line, f"{where}.color_blend")
@@ -707,7 +717,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
-                   "texture": texture, "color_blend": float(color_blend)}  # fmt: skip
+                   "texture": texture, "color_blend": float(color_blend), "density": float(density)}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
