@@ -128,13 +128,13 @@ def model_entry(built: Built, out: Path, glb: Path, merged: bool = False) -> dic
         **({"normal_map": {"png": f"models/{glb.stem}.normal.png", "size": [built.bake.width, built.bake.height]}}
            if built.bake is not None else {}),
         **({"color_map": {"png": f"models/{glb.stem}.color.png", "size": [built.bake.width, built.bake.height],
-                          "patches": built.bake.layers.patches}} if built.bake is not None and built.bake.layers is not None else {}),
+                          "patches": sum(built.bake.layers.patches)}} if built.bake is not None and built.bake.layers is not None else {}),
         "bounds": {"min": [_f(v) for v in lo], "max": [_f(v) for v in hi]},
         "size": [_f(v) for v in hi - lo],
         "skin": built.skin,
         "parts": parts,
         "animations": animations,
-        "colors": sorted({g.color for g in built.painted.groups}),
+        "colors": sorted({g.color for g in built.painted.groups} | {c for layer in m.relief for c in (layer.color, layer.color_to) if c}),
     }
     if m.source is not None:
         entry["source"] = {"file": (m.source.original or m.source.file).name, "licence": m.source.licence, "author": m.source.author, "url": m.source.url}
@@ -560,7 +560,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             vcolor = f"{name}.{vname}.color.png" if textured else None
             if vcolor is not None:  # a variant's colours are in its own map
                 write(out / "models" / vcolor, built.bake.color_png(group_colors, swap))
-                variants[vname]["color_map"] = f"models/{vcolor}"
+                variants[vname]["color_map"] = {"png": f"models/{vcolor}", "size": [built.bake.width, built.bake.height]}
             if project.config.variant_glbs or textured:  # (a mapped model's variant scene needs the glb that names its map)
                 vpath = out / "models" / f"{name}.{vname}.glb"
                 write(vpath, to_glb(built, generator, swap, project.config.vertex_colors, vatlas, merge_rigid=project.config.merge_rigid,
@@ -613,7 +613,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             write(scene, model_scene(name, res_path(glb, godot_root), style, None, rim if atlas else None, revealed, mapped_normals,
                                      coloured, textured).encode())  # fmt: skip
             entry["godot_scene"] = res_path(scene, godot_root)
-            recolourable = project.config.variant_glbs or not project.config.vertex_colors  # vertex colours: swap table only
+            recolourable = project.config.variant_glbs or not project.config.vertex_colors or textured  # vertex colours: swap table only
             for vname, swap in sorted(model.variants.items()) if recolourable else ():  # a scene per variant: its glb, or the base recoloured
                 vscene = out / "models" / f"{name}.{vname}.tscn"
                 if atlas is not None:  # the base glb with the variant's textures

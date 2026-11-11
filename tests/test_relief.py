@@ -159,7 +159,7 @@ def test_build_writes_the_maps_and_one_mapped_material(project: Project, tmp_pat
     assert sorted(i["uri"] for i in other["images"]) == ["thing.normal.png", "thing.other.color.png"]
     entry = result.manifest["models"]["thing"]
     assert entry["color_map"]["png"] == "models/thing.color.png" and entry["color_map"]["size"] == [256, 256]
-    assert entry["color_map"]["patches"] > 10 and entry["variants"]["other"]["color_map"] == "models/thing.other.color.png"
+    assert entry["color_map"]["patches"] > 10 and entry["variants"]["other"]["color_map"]["png"] == "models/thing.other.color.png"
     colour = np.asarray(Image.open(io.BytesIO(files["thing.color.png"])).convert("RGB")).reshape(-1, 3).astype(int)
     swapped = np.asarray(Image.open(io.BytesIO(files["thing.other.color.png"])).convert("RGB")).reshape(-1, 3).astype(int)
     wood, red, blue = np.array([0xA0, 0x66, 0x3A]), np.array([0xE8, 0x41, 0x3C]), np.array([0x2F, 0x6F, 0xD0])
@@ -212,3 +212,95 @@ def test_godot_scene_reads_the_colour_map_in_the_toon_shader(tmp_path: Path) -> 
     assert not build(project).errors
     models = project.output_dir / "models"
     assert "color_texture" in (models / "thing.tscn").read_text() and "color_texture" not in (models / "plain.tscn").read_text()
+
+
+def test_patches_stay_on_the_parts_they_are_on(project: Project) -> None:
+    """A head next to a furred body, not in `on`: no patch, no shade, on any of its texels (roots apart, the tiles
+    themselves must not spill over)."""
+    from kiln.lint import lint_paths
+
+    text = MODEL.replace("    density: 1.5\n", "    density: 1.5\n    fade: 0\n    color: blue\n")
+    result = lint_paths(project, [write_model(project, text)])
+    built = result.built["thing"]
+    lay = built.bake.layers
+    face, texel, _ = bk._texels(built.bake.uv, built.bake.size, built.bake.size)
+    red = np.array([g.color == "#e8413c" for g in built.painted.groups])[built.painted.face_group[face]]
+    entry, shade = lay.entry.reshape(-1)[texel], lay.shade.reshape(-1)[texel]
+    assert red.sum() > 500 and (entry[red] == -1).all() and (shade[red] == 255).all()
+    assert (entry[~red] == 0).mean() > 0.5  # and the body is furred
+    assert lay.patches == [sum(lay.patches)] and lay.patches[0] > 10 and not [f for f in result.findings if f.rule == "W126"]
+
+
+def test_a_layer_with_no_surface_warns_and_glowing_parts_stay_bare(project: Project) -> None:
+    from kiln.lint import lint_paths
+
+    style = project.root / "styles" / "fast.style.toml"
+    style.write_text(style.read_text() + "\n[materials.lamp]\nemission = 2.0\n")
+    from kiln.project import load_project
+
+    proj = load_project(project.root)
+    text = MODEL.replace("    id: head\n    color: red\n", "    id: head\n    color: red\n    material: lamp\n")
+    text += "  - on: [head]\n    length: 0.05\n    width: 0.03\n"
+    result = lint_paths(proj, [write_model(proj, text)])
+    assert result.built["thing"].bake.layers.patches[1] == 0
+    assert [f.rule for f in result.findings if f.rule == "W126"] == ["W126"]
+
+
+def test_normal_strength_goes_with_relief_and_scales_it(project: Project, tmp_path: Path) -> None:
+    def tilt(strength: str, root: Path) -> float:
+        proj = make_project(root)
+        write_model(proj, MODEL.replace("normal_map: 256\n", "normal_map: 256\n" + strength))
+        result = build(proj)
+        assert not result.errors, result.findings
+        png = (proj.output_dir / "models" / "thing.normal.png").read_bytes()
+        return float(np.abs(np.asarray(Image.open(io.BytesIO(png))).astype(int)[:, :, :2] - 128).mean())
+
+    full, half = tilt("", tmp_path / "a"), tilt("normal_strength: 0.5\n", tmp_path / "b")
+    assert half < 0.8 * full
+    model, _, findings = load(project, MODEL.replace("normal_map: 256\n", "normal_strength: 0.5\n"))  # relief brings the map
+    assert model is not None and not findings and model.normal_strength == 0.5
+
+
+def test_variant_scenes_whatever_the_colour_mode(tmp_path: Path) -> None:
+    (tmp_path / "project.godot").write_text("config_version=5\n")
+    config = ('default_style = "fast"\ndefault_palette = "main"\noutput_dir = "../assets/kiln"\nexport = ["glb", "godot"]\n'
+              "vertex_colors = true\nvariant_glbs = false\n")  # fmt: skip
+    project = make_project(tmp_path / "art", config)
+    write_model(project, MODEL + "variants:\n  other: { swap: { wood: blue } }\n")
+    result = build(project)
+    assert not result.errors, result.findings
+    models = project.output_dir / "models"
+    assert (models / "thing.other.tscn").is_file() and "thing.other.glb" in (models / "thing.other.tscn").read_text()
+    assert result.manifest["models"]["thing"]["variants"]["other"]["color_map"]["png"] == "models/thing.other.color.png"
+
+
+def test_darken_outlines_take_the_colour_from_the_map() -> None:
+    from dataclasses import replace
+
+    from kiln.godot import model_scene
+    from kiln.style import load_style
+
+    style, _ = load_style("soft_toy")
+    assert style is not None
+    style = replace(style, look=replace(style.look, shader="toon", outline=0.01, outline_color="darken"))
+    scene = model_scene("thing", "res://thing.glb", style, color_map=True)
+    assert scene.count("texture(color_texture, UV)") == 2 and scene.count("color_texture") == 6  # toon and outline: uniform, sample, set
+    assert "color_texture" not in model_scene("thing", "res://thing.glb", style)
+
+
+def test_too_many_patches_is_an_error() -> None:
+    v, f, n = egg()
+    with pytest.raises(ValueError, match="patches"):
+        rl.scatter(v, f, n, [np.ones(len(f), dtype=bool)], [Relief(["body"], length=0.005, width=0.005, density=6.0)])
+
+
+def test_layers_pack_small_in_the_cache(project: Project) -> None:
+    import pickle
+
+    from kiln.lint import lint_paths
+
+    lay = lint_paths(project, [write_model(project, MODEL)]).built["thing"].bake.layers
+    packed = pickle.dumps(lay)
+    back = pickle.loads(packed)  # noqa: S301
+    assert len(packed) < 0.5 * (lay.group.nbytes + lay.entry.nbytes + lay.along.nbytes + lay.shade.nbytes)
+    assert all(np.array_equal(getattr(lay, k), getattr(back, k)) for k in ("group", "entry", "along", "shade")) and back.patches == lay.patches

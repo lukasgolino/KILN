@@ -133,5 +133,7 @@ relief:
   part's size), a pale belly or muzzle its own short layer with `fade`.
 - Model the body as a few big blended parts first; the silhouette stays the mesh's (relief does not move it).
 - A patch is flat: on a thin limb lying across the flow it wraps badly; point `flow` along the limb there.
+- Patches stay on the parts in `on`: eyes, a nose, claws and glowing or hard parts next to them stay clean.
+  `normal_strength` scales the layer's shading with the rest of the map. `preview --draft` shows no relief.
 - The model's colours are then in `<name>.color.png` on the normal map's UVs (one material per preset; a variant has
   its own map and glb). Manifest: `color_map` (`png`, `size`, `patches`). Example: `examples/demo/models/cub.kiln.yaml`.

@@ -34,6 +34,7 @@ SHRINK = 0.5  # a patch at the very edge of its region is this size (`fade`)
 FACING = 0.2  # a patch shows only where the surface faces its own way (dot of the normals): not on the far side of a thin limb
 ANGLE = 25.0  # degrees a patch's flow turns either way at jitter 1
 FLOWS = {"down": (0.0, -1.0, 0.0), "up": (0.0, 1.0, 0.0)}
+MAX_PATCHES = 60_000  # per model: each patch is one pass over the texels near it (20 000 take about 15 s)
 
 
 @dataclass
@@ -58,9 +59,13 @@ class Patches:
     @property
     def reach(self) -> float:
         """No patch touches a point further than this from its root."""
-        if not len(self):
+        return self.reach_of(np.arange(len(self)))
+
+    def reach_of(self, which: Array) -> float:
+        """... for the patches at these indices."""
+        if not len(which):
             return 0.0
-        return float(np.sqrt((self.length * (1 + SHADOW)) ** 2 + self.half**2).max())
+        return float(np.sqrt((self.length[which] * (1 + SHADOW)) ** 2 + self.half[which] ** 2).max())
 
     def touches(self, points: Array) -> Array:
         """Whether each point is near enough to some patch to be under it (by grid cell: a quick, generous test)."""
@@ -96,6 +101,7 @@ def scatter(vertices: Array, faces: Array, normals: Array, face_on: list[Array],
     seeded by the entry, so a model builds the same patches everywhere."""
     parts: list[list[Array]] = [[] for _ in range(10)]
     colors: list[tuple[str | None, str | None]] = []
+    asked = 0
     for k, (on, r) in enumerate(zip(face_on, entries, strict=True)):
         colors.append((r.color, r.color_to))
         idx = np.flatnonzero(on)
@@ -107,6 +113,9 @@ def scatter(vertices: Array, faces: Array, normals: Array, face_on: list[Array],
         total = float(area.sum())
         each = COVER * r.length * r.width / r.density  # surface per patch
         want = max(1, round(total / each))
+        asked += want
+        if asked > MAX_PATCHES:
+            raise ValueError(f"relief: {asked} patches or more (at most {MAX_PATCHES}): make the patches longer or wider, or lower the density")
         pick = np.searchsorted(np.cumsum(area) / total, rng.random_sample(want * CANDIDATES)).clip(0, len(idx) - 1)
         a, b = rng.random_sample(len(pick)), rng.random_sample(len(pick))
         flip = a + b > 1
@@ -216,9 +225,10 @@ class Index:
         return np.concatenate(spans) if spans else np.zeros(0, dtype=np.int64)
 
 
-def stamp(patches: Patches, points: Array, normals: Array, offsets: Array | None = None) -> tuple[Stamp, Array]:
+def stamp(patches: Patches, points: Array, normals: Array, offsets: Array | None = None, allowed: Array | None = None) -> tuple[Stamp, Array]:
     """The layer at `points` (M, 3) on a surface with unit `normals` there, and its height at each of the points
-    moved by `offsets` (K, M, 3) (for slopes; small against a patch): (K, M)."""
+    moved by `offsets` (K, M, 3) (for slopes; small against a patch): (K, M). `allowed` (entries, M): the points each
+    entry's patches may touch (the faces of the parts it is `on`); default: all."""
     m = len(points)
     height = np.zeros(m)
     shade = np.zeros(m)
@@ -227,10 +237,15 @@ def stamp(patches: Patches, points: Array, normals: Array, offsets: Array | None
     moved = np.zeros((0 if offsets is None else len(offsets), m))
     if not len(patches) or not m:
         return Stamp(height, 1.0 - shade, entry, along), moved
-    reach = patches.reach
-    index = Index(points, reach)
-    for i in range(len(patches)):
-        near = index.near(patches.centre[i])
+    reach, index, last, mine = 0.0, None, -1, np.zeros(0, dtype=np.int64)
+    for i in np.argsort(patches.entry, kind="stable"):  # entry by entry: each with its own reach, over its own points
+        k = int(patches.entry[i])
+        if index is None or k != last:
+            last = k
+            mine = np.flatnonzero(allowed[k]) if allowed is not None else np.arange(m)
+            reach = patches.reach_of(np.flatnonzero(patches.entry == k))
+            index = Index(points[mine], reach)
+        near = mine[index.near(patches.centre[i])]
         if not len(near):
             continue
         d = points[near] - patches.centre[i]

@@ -1611,7 +1611,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     if not _num(strength) or not 0 <= float(strength) <= 4:
         ctx.error("E003", "normal_strength scales the baked normal map's tilt: 0 (flat) to 4, 1 as baked (0.5: softer grooves)",
                   _line(data, "normal_strength"), "normal_strength")  # fmt: skip
-    elif "normal_strength" in data and not model.normal_map:
+    elif "normal_strength" in data and not model.normal_map and "relief" not in data:
         ctx.error("E003", "normal_strength goes with normal_map (the map it scales)", _line(data, "normal_strength"), "normal_strength")
     else:
         model.normal_strength = float(strength)

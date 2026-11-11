@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import io
 import math
+import zlib
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from typing import Any
 
 import numpy as np
@@ -37,7 +39,20 @@ class Layers:
     along: Array  # uint8: 0 at that patch's root .. 255 at its tip
     shade: Array  # uint8: 255 x the colour multiplier (darker under tips)
     colors: list[tuple[str | None, str | None]]  # per relief entry: (root colour, tip colour) hex; None: the surface's own
-    patches: int = 0  # how many patches the layers hold
+    patches: list[int] = dataclass_field(default_factory=list)  # how many patches each relief entry has
+
+    def __getstate__(self) -> dict[str, Any]:  # in the mesh cache: mostly runs of one value, so packed (84 MB -> a few at 4096)
+        state = dict(self.__dict__)
+        for k in ("group", "entry", "along", "shade"):
+            a = state[k]
+            state[k] = (a.shape, a.dtype.str, zlib.compress(np.ascontiguousarray(a).tobytes(), 1))
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        for k in ("group", "entry", "along", "shade"):
+            shape, dtype, data = state[k]
+            state[k] = np.frombuffer(zlib.decompress(data), dtype=dtype).reshape(shape).copy()
+        self.__dict__.update(state)
 
 
 NO_GROUP = 65535
@@ -230,14 +245,15 @@ SUPERSAMPLE = ((-0.25, -0.25), (0.25, -0.25), (-0.25, 0.25), (0.25, 0.25))  # te
 
 
 def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, normals: Array, size: int, step: float,
-         strength: float = 1.0, patches: Any = None, face_group: Array | None = None) -> Bake:  # fmt: skip
+         strength: float = 1.0, patches: Any = None, face_group: Array | None = None, face_on: Array | None = None) -> Bake:  # fmt: skip
     """Unwrap the mesh and bake into its tangent frames the normals of each face's own field (`face_field`: an index
     into `fields`, -1: the mesh normal as it is, e.g. exact hard parts). Each texel is filtered (#125): the normals
     at four points a quarter texel around its centre, averaged, each with a gradient step of half a texel, so detail
     finer than a texel blurs out instead of aliasing into streaks and speckles. `strength` scales the map's tilt
     away from the mesh normal (model normal_strength: 0.5 halves it). `patches` (kiln.relief.Patches, with each
-    face's paint group in `face_group`): a relief layer over the surface, tilting the map by the slope of its height
-    and kept per texel in `Bake.layers` for the base colour map."""
+    face's paint group in `face_group` and the faces each relief entry covers in `face_on` (entries, F)): a relief
+    layer over the surface, tilting the map by the slope of its height (scaled by `strength` too) and kept per texel
+    in `Bake.layers` for the base colour map."""
     uv, fit = unwrap(vertices, faces, size)
     width = height = size
     tan = tangents(vertices, faces, uv, normals)
@@ -254,7 +270,7 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     face, texel, bary = face[keep], texel[keep], bary[keep]
     out = np.zeros((width * height, 3), dtype=np.float32)
     out[:, 2] = 1.0
-    reliefs: list[tuple[Array, ...]] = []  # texels a patch may touch: (texel, point, normal, tangent, up, metres per texel)
+    reliefs: list[tuple[Array, ...]] = []  # texels a patch may touch: (texel, point, normal, tangent, up, metres per texel, face)
     owner = np.asarray(face_field)[face]
     for k, field in enumerate(fields):
         mine = np.flatnonzero(owner == k)
@@ -286,12 +302,12 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
             out[texel[rows]] = local
             if patches is not None and len(patches):
                 near = patches.touches(centre) & (off <= step)
-                reliefs.append((texel[rows][near], centre[near], n[near], t[near], up[near], size_m[near]))
+                reliefs.append((texel[rows][near], centre[near], n[near], t[near], up[near], size_m[near], f[near]))
     filled = np.zeros(width * height, dtype=bool)
     filled[texel] = True
     layers = None
     if patches is not None and face_group is not None:
-        layers = _relief(patches, reliefs, out, face_group[face], texel, width * height)
+        layers = _relief(patches, reliefs, out, face_group[face], texel, width * height, strength, face_on)
         layers = replace(layers, **{k: getattr(layers, k).reshape(height, width) for k in ("group", "entry", "along", "shade")})
     image = np.round((out * 0.5 + 0.5) * 255).clip(0, 255).astype(np.uint8).reshape(height, width, 3)
     del out
@@ -301,21 +317,25 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     return Bake(uv, tan, buf.getvalue(), size, fit, layers)
 
 
-def _relief(patches: Any, reliefs: list[tuple[Array, ...]], out: Array, group: Array, texel: Array, count: int) -> Layers:
+def _relief(patches: Any, reliefs: list[tuple[Array, ...]], out: Array, group: Array, texel: Array, count: int, strength: float,
+            face_on: Array | None) -> Layers:  # fmt: skip
     """Lay the relief over the baked normals `out` (tangent space, per texel, changed in place) and return what the
     colour map needs. The layer's height tilts each normal by its slope along the tangent and the bitangent (central
-    differences one texel apart)."""
+    differences between the points a texel either side), scaled by `strength` as the rest of the map is. An entry's
+    patches touch only texels of the faces it covers (`face_on`)."""
     from kiln import relief
 
     lay = Layers(np.full(count, NO_GROUP, dtype=np.uint16), np.full(count, -1, dtype=np.int8), np.zeros(count, dtype=np.uint8),
-                 np.full(count, 255, dtype=np.uint8), list(patches.colors), len(patches))  # fmt: skip
+                 np.full(count, 255, dtype=np.uint8), list(patches.colors),
+                 [int((patches.entry == k).sum()) for k in range(len(patches.colors))])  # fmt: skip
     lay.group[texel] = np.minimum(group, NO_GROUP - 1).astype(np.uint16)
     if not reliefs or not len(patches):
         return lay
-    tex, point, normal, tangent, up, metres = (np.concatenate([r[k] for r in reliefs]) for k in range(6))
+    tex, point, normal, tangent, up, metres, face = (np.concatenate([r[k] for r in reliefs]) for k in range(7))
     d = metres[:, None]
-    stamped, moved = relief.stamp(patches, point, normal, np.stack([tangent * d, -tangent * d, up * d, -up * d]))
-    slope = np.stack([moved[0] - moved[1], moved[2] - moved[3]], axis=1) / (2 * d)
+    allowed = face_on[:, face] if face_on is not None else None
+    stamped, moved = relief.stamp(patches, point, normal, np.stack([tangent * d, -tangent * d, up * d, -up * d]), allowed)
+    slope = np.stack([moved[0] - moved[1], moved[2] - moved[3]], axis=1) / (2 * d) * strength
     local = out[tex].astype(np.float64)
     local[:, :2] = local[:, :2] / np.maximum(local[:, 2:3], 0.05) - slope
     local[:, 2] = 1.0

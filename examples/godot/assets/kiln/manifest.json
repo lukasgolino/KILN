@@ -307,6 +307,7 @@
       "colors": [
         "#141414",
         "#6b4a2f",
+        "#a0663a",
         "#c9a66b"
       ],
       "description": "bear cub mascot with relief fur (patches in the baked maps, not parts)",
@@ -361,7 +362,13 @@
       "triangles": 7978,
       "variants": {
         "polar": {
-          "color_map": "models/cub.polar.color.png",
+          "color_map": {
+            "png": "models/cub.polar.color.png",
+            "size": [
+              1024,
+              1024
+            ]
+          },
           "glb": "models/cub.polar.glb",
           "godot_scene": "res://assets/kiln/models/cub.polar.tscn",
           "swap": {

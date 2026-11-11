@@ -585,8 +585,19 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
     toon = toon_shader(look, atlas)
     if normal_map:
         script, toon = _script_normal_map(script), with_normal_map(toon)
+    outline = outline_shader(look, atlas)
     if color_map and not atlas:  # (the standard material keeps the glb's own texture)
         script, toon = _script_color_map(script), with_color_map(toon)
+        if look.outline_color == "darken":  # the part's colour is in the map
+            outline = _swap_lines(outline, [
+                ("void fragment() {\n", "uniform sampler2D color_texture : source_color, filter_linear_mipmap, hint_default_white;\nvoid fragment() {\n"),
+                ("\tALBEDO = color.rgb * COLOR.rgb", "\tALBEDO = color.rgb * texture(color_texture, UV).rgb * COLOR.rgb"),
+            ])  # fmt: skip
+            script = _swap_lines(script, [
+                ('\t\t\t\tedge.set_shader_parameter("color", albedo)  # outline_color = "darken": the part\'s colour\n',
+                 '\t\t\t\tedge.set_shader_parameter("color", albedo)  # outline_color = "darken": the part\'s colour\n'
+                 '\t\t\t\tedge.set_shader_parameter("color_texture", source.albedo_texture)\n'),
+            ])  # fmt: skip
     if vertex_colours:
         script = _with_compat_colours(script)
     rim = look.rim_light > 0
@@ -602,7 +613,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         f"code = {_quote(toon)}",
         "",
         '[sub_resource type="Shader" id="Shader_outline"]',
-        f"code = {_quote(outline_shader(look, atlas))}",
+        f"code = {_quote(outline)}",
         "",
         *(['[sub_resource type="Shader" id="Shader_rim"]', f"code = {_quote(RIM_SHADER)}", ""] if rim else []),
         '[sub_resource type="GDScript" id="GDScript_apply"]',
