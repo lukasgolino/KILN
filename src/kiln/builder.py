@@ -593,8 +593,13 @@ def _decimate(
     mesh, owner = cut.mesh, cut.owner
     goal = target
 
+    weight = np.ones(len(cut.groups))  # parts' density: their regions' weight on the budget (own regions, paint._groups)
+    for i, g in cut.part_group.items():
+        if model.parts[i].density != 1:
+            weight[g] = model.parts[i].density
+
     def attempt(goal: int) -> tuple[Mesh, Array, Painted]:
-        decimated, face_owner = decimate_regions(fields[0], mesh, owner, goal, step, 0, fields, region_piece)
+        decimated, face_owner = decimate_regions(fields[0], mesh, owner, goal, step, 0, fields, region_piece, weight)
         painted = paint(Regions(decimated, face_owner, cut.groups, cut.part_group, cut.pattern_groups), model)
         return decimated, face_owner, painted
 
