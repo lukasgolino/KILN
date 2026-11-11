@@ -417,9 +417,6 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
         model, style, findings = project.load(path)
         keep = list(findings)
         palette: dict[str, str] = {}
-        if model is not None and model.normal_map and project.config.atlas:
-            keep.append(Finding("E003", "normal_map and kiln.toml atlas = true both need the first UV set (Godot samples both on UV1): "
-                                "turn one off", path, None, "normal_map"))  # fmt: skip
         if model is not None and style is not None and not any(f.severity == "error" for f in keep):
             if model.style_version is not None and model.style_version < project.config.style_version:
                 keep.append(Finding("W107", f"made under style_version {model.style_version}; the project is at {project.config.style_version}: "

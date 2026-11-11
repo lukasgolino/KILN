@@ -69,7 +69,8 @@ pixels. `atlas_ao = true` bakes ambient occlusion from the model's distance fiel
 dents) into COLOR_0 (a number sets its strength: the darkest corner is x (1 - strength); true = 0.65), a grey multiplier glTF viewers apply; in Godot only KILN's .tscn scenes use it
 (`vertex_color_use_as_albedo`). Previews (`kiln preview`, `kiln gallery`, scatters) show it too. When the output is inside a Godot project (with "godot" or
 not), KILN writes the palette textures' `.import` settings (lossless, no mipmaps, no VRAM compression on first 3D use: 4x4 cells stay exact); settings Godot adds
-later (uid, imported files) are kept.
+later (uid, imported files) are kept. A model with `normal_map:` stays out of the atlas (both need the first UV set): a material per colour,
+its normal map, and `atlas_ao`'s occlusion in COLOR_0 all the same.
 
 **Shared clips**: `animations_only: true` makes a model a clip carrier (its animations are what counts; give it the
 same rig as the models that use it); `animation_library: <carrier>` on another model plays the carrier's animations
