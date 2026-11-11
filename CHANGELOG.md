@@ -16,6 +16,9 @@ before 1.0).
 
 ### Added
 
+- Lint W128: a round part (sphere, ellipsoid, capsule, torus) that shows most of its surface on fewer than 48
+  triangles (per copy) reads as a polygon. A prop of many small parts shares one class budget; the warning names
+  the budget and `density` (#167).
 - `density` on a part: its weight on the triangle budget (0.25 to 8, default 1). Faces are classed by the density
   of the part they're on; each class gets what a plain reduction to the budget would give it, x its density, at the
   same total (a face at 3 gets about three times the share it had), reduced on its own with its border locked and
