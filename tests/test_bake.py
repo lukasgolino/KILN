@@ -63,7 +63,7 @@ def test_baked_normals_round_trip() -> None:
 
 def test_tangents_are_square_unit_and_signed() -> None:
     v, f, n = ball_mesh()
-    uv, _, _ = bk.unwrap(v, f, 256)
+    uv = bk.unwrap(v, f, 256)
     t = bk.tangents(v, f, uv, n)
     assert t.shape == (len(f), 3, 4)
     np.testing.assert_allclose(np.linalg.norm(t[..., :3], axis=-1), 1.0, atol=1e-9)
@@ -195,8 +195,9 @@ def test_glb_carries_the_bake_uvs_and_tangents(project: Project) -> None:
     doc, binary = read_glb((project.output_dir / "models" / "thing.glb").read_bytes())
     uv = np.concatenate([read_accessor(doc, binary, pr["attributes"]["TEXCOORD_0"]) for pr in doc["meshes"][0]["primitives"]])
     tan = np.concatenate([read_accessor(doc, binary, pr["attributes"]["TANGENT"]) for pr in doc["meshes"][0]["primitives"]])
-    baked = {tuple(np.round(x, 4)) for x in built.bake.uv.reshape(-1, 2)}
-    assert {tuple(np.round(x, 4)) for x in uv.astype(float)} <= baked
+    baked = np.unique(built.bake.uv.reshape(-1, 2), axis=0)
+    for corner in np.unique(uv.astype(float), axis=0):  # float32 in the file: every one is a baked UV, to 1e-6
+        assert np.abs(baked - corner).max(axis=1).min() < 1e-6
     assert set(np.unique(tan[:, 3])) <= {-1.0, 1.0} and result.manifest["models"]["thing"]["normal_map"]["size"][0] > 0
 
 
@@ -273,10 +274,24 @@ def test_normal_strength_scales_the_tilt(project: Project) -> None:
     for strength in ("", "normal_strength: 0.5\n"):
         built = lint_paths(project, [write_model(project, text.format(strength=strength))]).built["thing"]
         assert built.bake is not None
-        tilts.append(np.abs(np.asarray(Image.open(io.BytesIO(built.bake.png))).astype(float)[:, :, :2] - 128).sum(axis=2))
-    groove = tilts[0] > 20  # where the groove tilts the map
-    assert groove.sum() > 20 and tilts[1][groove].mean() < tilts[0][groove].mean() * 0.75
+        n = np.asarray(Image.open(io.BytesIO(built.bake.png))).astype(float) / 255 * 2 - 1
+        tilts.append(np.hypot(n[:, :, 0], n[:, :, 1]) / np.maximum(n[:, :, 2], 1e-3))  # the tangent of the tilt
+    groove = (tilts[0] > 0.2) & (tilts[0] < 5)  # where the groove tilts the map (not the near-vertical clamped texels)
+    ratio = tilts[1][groove] / tilts[0][groove]
+    assert groove.sum() > 20 and 0.45 < np.median(ratio) < 0.55  # the slope halves (the pixel values don't, on steep walls)
     _, _, findings = load(project, text.format(strength="normal_strength: 9\n"))
     assert any(f.where == "normal_strength" for f in findings)
     _, _, findings = load(project, text.format(strength="normal_strength: 0.5\n").replace("normal_map: 256\n", "").replace("    detail: true\n", ""))
     assert any(f.where == "normal_strength" for f in findings)
+
+
+@pytest.mark.parametrize("size", [128, 256, 500])
+def test_the_map_is_exactly_the_size_asked_for(size: int) -> None:
+    """#151: normal_map: 2048 wrote a 2140x2138 texture. The map is size x size, every chart inside it."""
+    v, f, n = ball_mesh()
+    b = bk.bake([GROOVED], np.zeros(len(f), dtype=int), v, f, n, size, 0.02)
+    assert Image.open(io.BytesIO(b.png)).size == (size, size)
+    assert (b.width, b.height) == (size, size)
+    assert b.uv.min() >= 0.0 and b.uv.max() <= 1.0
+    _, texel, _ = bk._texels(b.uv, size, size)
+    assert len(np.unique(texel)) > 0.25 * size * size  # and the charts still fill a good part of it

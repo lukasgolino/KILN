@@ -6,6 +6,13 @@ before 1.0).
 
 ## [Unreleased]
 
+### Fixed
+
+- `normal_map: 2048` wrote a 2140x2138 texture: the packer's atlas came out up to 10% over the size asked for and
+  was written as it was. The map is now exactly the size asked for, square, with the charts and their padding
+  inside it (packed again, a little smaller, until they fit). Texel density drops by a few per cent for the same
+  number; cached builds with a normal map are rebuilt once (#151).
+
 ## [0.22.0] - 2026-11-11
 
 Speed and the iteration loop. Built output is the same as 0.21.0's except: the generator string in every glb and

@@ -32,9 +32,15 @@ class Bake:
     uv: Array  # (F, 3, 2) per face corner, 0..1
     tangent: Array  # (F, 3, 4) per face corner: xyz along +u, w = handedness
     png: bytes  # the normal map (RGB)
-    size: int  # the size asked for
-    width: int = 0  # the map's own size (xatlas packs to about `size`; it may come out a little off square)
-    height: int = 0
+    size: int  # the map is size x size texels, as asked for
+
+    @property
+    def width(self) -> int:
+        return self.size
+
+    @property
+    def height(self) -> int:
+        return self.size
 
 
 def available() -> bool:
@@ -45,21 +51,23 @@ def available() -> bool:
     return True
 
 
-PACK_TRIES = 6  # xatlas packs again with fewer texels per metre while the atlas overshoots the size asked for
+PACK_TRIES = 8  # xatlas packs again with fewer texels per metre while the atlas overshoots the size asked for
+SHRINK = 0.97  # ... aiming this far under the size: the packed size doesn't follow the texel density exactly
 
 
-def unwrap(vertices: Array, faces: Array, size: int) -> tuple[Array, int, int]:
-    """Unique UVs (F, 3, 2) and the atlas' width and height: charts cut and packed by xatlas into one atlas of about
-    size x size, PADDING texels apart (packed again, smaller, while it comes out more than 10% too big)."""
+def unwrap(vertices: Array, faces: Array, size: int) -> Array:
+    """Unique UVs (F, 3, 2) in a size x size map: charts cut and packed by xatlas into one atlas, PADDING texels
+    apart, packed again with fewer texels per metre while it comes out bigger than the map (#151). The atlas sits in
+    the map's corner, texel for texel, so the padding between charts stays whole and what is left over is empty."""
     import xatlas
 
     atlas = xatlas.Atlas()
     atlas.add_mesh(np.ascontiguousarray(vertices, dtype=np.float32), np.ascontiguousarray(faces, dtype=np.uint32))
     atlas.generate(pack_options=_pack(xatlas, size, 0.0))
     for _ in range(PACK_TRIES):
-        if atlas.atlas_count == 1 and max(atlas.width, atlas.height) <= size * 1.1:
+        if atlas.atlas_count == 1 and max(atlas.width, atlas.height) <= size:
             break
-        tpu = float(atlas.texels_per_unit) * 0.9 * size / max(atlas.width, atlas.height, 1)
+        tpu = float(atlas.texels_per_unit) * SHRINK * size / max(atlas.width, atlas.height, 1)
         atlas = xatlas.Atlas()
         atlas.add_mesh(np.ascontiguousarray(vertices, dtype=np.float32), np.ascontiguousarray(faces, dtype=np.uint32))
         atlas.generate(pack_options=_pack(xatlas, 0, tpu))
@@ -68,7 +76,9 @@ def unwrap(vertices: Array, faces: Array, size: int) -> tuple[Array, int, int]:
     vmap, index, uvs = atlas[0]
     if not np.array_equal(vmap[index], faces):  # xatlas keeps the faces in order: corners map back one to one
         raise ValueError("xatlas reordered the faces; the normal map can't be matched to the mesh")
-    return np.asarray(uvs, dtype=np.float64)[index], int(atlas.width), int(atlas.height)
+    uv = np.asarray(uvs, dtype=np.float64)[index]  # 0..1 across the atlas
+    # an atlas still bigger than the map after every try is squeezed into it (the padding shrinks with it)
+    return uv * np.minimum(np.array([atlas.width, atlas.height]) / size, 1.0)
 
 
 def _pack(xatlas: Any, size: int, texels_per_unit: float) -> Any:
@@ -169,7 +179,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     at four points a quarter texel around its centre, averaged, each with a gradient step of half a texel, so detail
     finer than a texel blurs out instead of aliasing into streaks and speckles. `strength` scales the map's tilt
     away from the mesh normal (model normal_strength: 0.5 halves it)."""
-    uv, width, height = unwrap(vertices, faces, size)
+    uv = unwrap(vertices, faces, size)
+    width = height = size
     tan = tangents(vertices, faces, uv, normals)
     corners = vertices[faces]
     area = np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1)
@@ -220,7 +231,7 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     image = _grow(image, filled.reshape(height, width), GROW)
     buf = io.BytesIO()
     Image.fromarray(image, "RGB").save(buf, format="PNG", optimize=False)
-    return Bake(uv, tan, buf.getvalue(), size, width, height)
+    return Bake(uv, tan, buf.getvalue(), size)
 
 
 def _grow(image: Array, filled: Array, steps: int) -> Array:
