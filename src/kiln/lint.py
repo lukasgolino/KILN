@@ -26,7 +26,7 @@ from kiln.notation import Model
 from kiln.packs import lock_findings
 from kiln.project import Project
 from kiln.retarget import JOINTS
-from kiln.sdf import Array, Field, part_thickness
+from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import Style
 from kiln.vendor.findings import Finding
 
@@ -57,6 +57,7 @@ WARNING_RULES = {
     "W125": "the normal map is too small for the mesh's UV charts: they were squeezed in (blurrier detail, less padding)",
     "W126": "a relief layer has no patches: the parts it is on show no smooth, non-glowing surface",
     "W127": "color_blend fades nothing: the part has no border it blends across with a part of another colour",
+    "W128": "a round part got so few triangles that it reads as a polygon (many small parts share one budget)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -85,7 +86,7 @@ CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than a
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
 BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127")  # fmt: skip
+               "W124", "W125", "W126", "W127", "W128")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -165,6 +166,16 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             if t is not None and t < 2 * built.step:
                 warn("W102", f"this {part.geometry.shape} is {t:.3g} m thick but the mesh resolution here is {built.step:.3g} m: it may break "
                      f"into bits; make it at least {2 * built.step:.3g} m thick", part.line, part.where)  # fmt: skip
+        budget = m.budget or built.style.budget(m.cls)
+        for k, n, copies in few_triangles(m, built, field, hard | kept) if field else ():
+            part = m.parts[k]
+            each = f" in each of its {copies} copies" if copies > 1 else ""
+            need = FEW_TRIANGLES / max(n, 1)  # how many times the triangles it has
+            dense = min(8.0, math.ceil(part.density * need * 2) / 2)
+            more = f"give it density: {dense:g}" + (f" (now {part.density:g})" if part.density != 1 else "") if part.density < 8 else ""
+            raise_to = f"budget: {int(math.ceil(budget * need / 100) * 100)} (now {budget})"
+            warn("W128", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is {n} triangles{each}: it reads as a polygon; "
+                 f"{more + ', or ' if more else ''}{raise_to}", part.line, part.where)  # fmt: skip
         if m.detail:
             details = m.detail
             lo, hi = built.bounds()
@@ -472,5 +483,64 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
 def lint_project(project: Project, geometry: bool = True) -> LintResult:
     return lint_paths(project, project.model_paths(), geometry)
 
+
+
+FEW_TRIANGLES = 48  # a round part's visible surface with fewer reads as a polygon (a sphere: about 8 sides)
+MOSTLY_SHOWN = 0.5  # ... when at least this much of its own surface shows (a pupil inside an eye needs few)
+
+
+def _round_area(g: Geometry) -> float | None:
+    """The surface area of a round shape as written (None: not round, or stretched)."""
+    if g.scale is not None or g.shell:
+        return None
+    s = g.params
+    if g.shape == "sphere":
+        return 4 * math.pi * float(s["radius"]) ** 2
+    if g.shape == "ellipsoid":
+        a, b, c = (float(x) for x in s["radii"])
+        q = 1.6075  # Knud Thomsen's approximation (within about 1%)
+        return float(4 * math.pi * (((a * b) ** q + (a * c) ** q + (b * c) ** q) / 3) ** (1 / q))
+    if g.shape == "capsule":  # a cone frustum's side and two half spheres (radius_to defaults to radius)
+        r1, r2 = float(s["radius"]), float(s.get("radius_to", s["radius"]))
+        h = float(np.linalg.norm(np.subtract(s["to"], s["from"])))
+        return float(math.pi * (r1 + r2) * math.hypot(h, r1 - r2) + 2 * math.pi * (r1**2 + r2**2))
+    if g.shape == "torus":
+        return 4 * math.pi**2 * float(s["radius"]) * float(s["thickness"])
+    return None
+
+
+def _copies(g: Geometry, area: float) -> int:
+    """How many separate copies a part makes: its array's, x 2 per mirror axis it doesn't straddle (a centred part
+    mirrored is one shape)."""
+    size = math.sqrt(area / (4 * math.pi))  # its radius, roughly
+    apart = sum(1 for axis in g.mirror if abs(float(g.at[axis])) > size)
+    return int(len(g.copies) * 2**apart)
+
+
+def few_triangles(m: Model, built: Built, field: Field, exact: frozenset[int] | set[int]) -> list[tuple[int, int, int]]:
+    """Round soft parts that show most of their surface on too few triangles (#167): (part, triangles per copy, copies)."""
+    p = built.painted
+    adding = [i for i, part in enumerate(m.parts) if part.geometry.op == "add" and not part.detail]
+    round_parts = {i: a for i in adding if i not in exact and i not in built.hidden and i not in built.lost
+                   and (a := _round_area(m.parts[i].geometry)) is not None}  # fmt: skip
+    if not round_parts or not len(p.faces):
+        return []
+    corners = p.vertices[p.faces]
+    area = np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1) / 2
+    # a coarse triangle's centre sits well inside the round surface it cuts across: allow half its longest edge
+    longest = np.linalg.norm(corners - np.roll(corners, 1, axis=1), axis=2).max(axis=1)
+    owner, dist = field.nearest(adding, corners.mean(axis=1))
+    on = dist < np.maximum(built.step, longest / 2)
+    count = np.bincount(owner[on], minlength=len(adding))
+    shown = np.bincount(owner[on], weights=area[on], minlength=len(adding))
+    out = []
+    for j, i in enumerate(adding):
+        if i not in round_parts:
+            continue
+        copies = _copies(m.parts[i].geometry, round_parts[i])
+        per = int(count[j]) // copies
+        if 0 < per < FEW_TRIANGLES and shown[j] / copies >= MOSTLY_SHOWN * round_parts[i]:
+            out.append((i, per, copies))
+    return out
 
 __all__ = ["BUILT_RULES", "CLASS_SIZES", "LintResult", "WARNING_RULES", "geometry_warnings", "lint_paths", "lint_project"]
