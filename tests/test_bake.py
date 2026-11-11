@@ -63,7 +63,7 @@ def test_baked_normals_round_trip() -> None:
 
 def test_tangents_are_square_unit_and_signed() -> None:
     v, f, n = ball_mesh()
-    uv, _, _ = bk.unwrap(v, f, 256)
+    uv, _ = bk.unwrap(v, f, 256)
     t = bk.tangents(v, f, uv, n)
     assert t.shape == (len(f), 3, 4)
     np.testing.assert_allclose(np.linalg.norm(t[..., :3], axis=-1), 1.0, atol=1e-9)
@@ -195,8 +195,9 @@ def test_glb_carries_the_bake_uvs_and_tangents(project: Project) -> None:
     doc, binary = read_glb((project.output_dir / "models" / "thing.glb").read_bytes())
     uv = np.concatenate([read_accessor(doc, binary, pr["attributes"]["TEXCOORD_0"]) for pr in doc["meshes"][0]["primitives"]])
     tan = np.concatenate([read_accessor(doc, binary, pr["attributes"]["TANGENT"]) for pr in doc["meshes"][0]["primitives"]])
-    baked = {tuple(np.round(x, 4)) for x in built.bake.uv.reshape(-1, 2)}
-    assert {tuple(np.round(x, 4)) for x in uv.astype(float)} <= baked
+    baked = np.unique(built.bake.uv.reshape(-1, 2), axis=0)
+    for corner in np.unique(uv.astype(float), axis=0):  # float32 in the file: every one is a baked UV, to 1e-6
+        assert np.abs(baked - corner).max(axis=1).min() < 1e-6
     assert set(np.unique(tan[:, 3])) <= {-1.0, 1.0} and result.manifest["models"]["thing"]["normal_map"]["size"][0] > 0
 
 
@@ -273,10 +274,76 @@ def test_normal_strength_scales_the_tilt(project: Project) -> None:
     for strength in ("", "normal_strength: 0.5\n"):
         built = lint_paths(project, [write_model(project, text.format(strength=strength))]).built["thing"]
         assert built.bake is not None
-        tilts.append(np.abs(np.asarray(Image.open(io.BytesIO(built.bake.png))).astype(float)[:, :, :2] - 128).sum(axis=2))
-    groove = tilts[0] > 20  # where the groove tilts the map
-    assert groove.sum() > 20 and tilts[1][groove].mean() < tilts[0][groove].mean() * 0.75
+        n = np.asarray(Image.open(io.BytesIO(built.bake.png))).astype(float) / 255 * 2 - 1
+        tilts.append(np.hypot(n[:, :, 0], n[:, :, 1]) / np.maximum(n[:, :, 2], 1e-3))  # the tangent of the tilt
+    groove = (tilts[0] > 0.2) & (tilts[0] < 5)  # where the groove tilts the map (not the near-vertical clamped texels)
+    ratio = tilts[1][groove] / tilts[0][groove]
+    assert groove.sum() > 20 and 0.45 < np.median(ratio) < 0.55  # the slope halves (the pixel values don't, on steep walls)
     _, _, findings = load(project, text.format(strength="normal_strength: 9\n"))
     assert any(f.where == "normal_strength" for f in findings)
     _, _, findings = load(project, text.format(strength="normal_strength: 0.5\n").replace("normal_map: 256\n", "").replace("    detail: true\n", ""))
     assert any(f.where == "normal_strength" for f in findings)
+
+
+def _charts_apart(uv: np.ndarray, faces: np.ndarray, size: int, gap: int) -> bool:
+    """Whether every two UV charts (faces joined through a shared (vertex, uv) corner) are at least `gap` texels apart."""
+    key = np.concatenate([faces.reshape(-1, 1).astype(float), np.round(uv.reshape(-1, 2), 7)], axis=1)
+    _, slot = np.unique(key, axis=0, return_inverse=True)
+    slot = slot.reshape(-1, 3)
+    label = np.arange(int(slot.max()) + 1)
+    while True:  # every corner takes its face's smallest label until nothing changes
+        low = label[slot].min(axis=1)
+        new = label.copy()
+        np.minimum.at(new, slot.reshape(-1), np.repeat(low, 3))
+        if np.array_equal(new, label):
+            break
+        label = new
+    chart = label[slot[:, 0]]
+    face, texel, _ = bk._texels(uv, size, size)
+    flat = np.full(size * size, -1)
+    flat[texel] = chart[face]
+    owner = flat.reshape(size, size)
+    assert len(np.unique(chart)) > 1
+    for c in np.unique(chart):
+        mine = owner == c
+        near = np.zeros_like(mine)
+        for d in range(-(gap - 1), gap):  # grown by gap - 1 texels along the rows, then the columns
+            near[max(d, 0) : size + min(d, 0)] |= mine[max(-d, 0) : size + min(-d, 0)]
+        wide = np.zeros_like(mine)
+        for d in range(-(gap - 1), gap):
+            wide[:, max(d, 0) : size + min(d, 0)] |= near[:, max(-d, 0) : size + min(-d, 0)]
+        if (wide & (owner >= 0) & ~mine).any():
+            return False
+    return True
+
+
+@pytest.mark.parametrize("size", [128, 256, 500])
+def test_the_map_is_exactly_the_size_asked_for(size: int) -> None:
+    """#151: normal_map: 2048 wrote a 2140x2138 texture. The map is size x size, the charts inside it from its corner,
+    still PADDING texels apart."""
+    v, f, n = ball_mesh()
+    b = bk.bake([GROOVED], np.zeros(len(f), dtype=int), v, f, n, size, 0.02)
+    assert Image.open(io.BytesIO(b.png)).size == (size, size)
+    assert (b.width, b.height) == (size, size) and b.fit == 1.0
+    face, texel, _ = bk._texels(b.uv, size, size)
+    assert len(face) and texel.min() >= 0 and texel.max() < size * size
+    assert len(np.unique(texel)) > 0.25 * size * size  # the charts fill a good part of it
+    assert b.uv.reshape(-1, 2).min(axis=0).max() * size < PADDING_EDGE  # packed from the corner
+    assert _charts_apart(b.uv, f, size, bk.PADDING) and not _charts_apart(b.uv, f, size, 64)
+
+
+PADDING_EDGE = 4  # texels: the atlas starts this close to the map's corner
+
+
+def test_charts_that_cannot_fit_are_squeezed_in_and_lint_says_so(project: Project) -> None:
+    """Many separate pieces in a small map: the padding between charts alone overfills it, at any texel density."""
+    boxes = "".join(f"  - box: {{ at: [{0.3 * (k % 8)}, {0.1 + 0.3 * (k // 8)}, 0], size: [0.2, 0.2, 0.2] }}\n    color: red\n" for k in range(64))
+    text = "name: thing\nnormal_map: 256\nresolution: 0.03\nparts:\n" + boxes
+    result = lint_paths(project, [write_model(project, text)])
+    b = result.built["thing"].bake
+    assert b is not None and b.fit < 1.0
+    assert Image.open(io.BytesIO(b.png)).size == (256, 256)
+    assert b.uv.min() >= 0.0 and b.uv.max() <= 1.0
+    assert [f.rule for f in result.findings if f.rule == "W125"] == ["W125"]
+    roomy = lint_paths(project, [write_model(project, MODEL)])
+    assert not [f for f in roomy.findings if f.rule == "W125"]

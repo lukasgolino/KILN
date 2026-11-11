@@ -6,6 +6,20 @@ before 1.0).
 
 ## [Unreleased]
 
+### Fixed
+
+- `normal_map: 2048` wrote a 2140x2138 texture: the packer's atlas came out up to 10% over the size asked for and
+  was written as it was. The map is now exactly the size asked for, square, with the charts and their padding
+  inside it (packed again at a lower texel density until they fit). Texel density changes with it: about 20% lower
+  at 256 and 512, where the old maps overshot most, and a few per cent higher from 1024 up. Cached builds with a
+  normal map are rebuilt once (#151).
+
+### Added
+
+- Lint W125: the mesh's UV charts don't fit the normal map (many separate pieces in a small map, where the padding
+  between charts alone fills it). The packer now stops trying when the atlas stops shrinking and squeezes its
+  smallest try into the map; the warning says by how much and what size to ask for.
+
 ## [0.22.0] - 2026-11-11
 
 Speed and the iteration loop. Built output is the same as 0.21.0's except: the generator string in every glb and
