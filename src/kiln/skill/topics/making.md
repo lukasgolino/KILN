@@ -57,6 +57,7 @@ resolution: 0.004              # optional: metres per mesh cell for this model, 
 normal_map: 1024               # optional: bake a normal map (256-4096 texels, the texture is exactly that size, square; needs kiln-gen[bake]; not with source:; under atlas = true the model keeps a material per colour): detail from the shapes, not triangles
 normal_strength: 1             # optional: scales the map's tilt (0.5 softer grooves, 0 flat), up to 4 (steep slopes cap)
 relief: [...]                  # optional: fur as patches in the baked maps, not parts (Relief, below)
+shade: { cavity: 0.3, top: 0.12, under: 0.1 }  # optional: shade paint in the vertex colours, over the style's [shade] (kiln docs styles)
 max_cells: 640                 # optional: mesh cells across at most (64-1024, style default 256); W120 says when it decides
 lod: [2500, 800]               # optional: extra lower-detail .glb files
 origin: center                 # optional: the .glb's origin: base (bottom centre of the box) | center (spinning debris) | ground

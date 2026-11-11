@@ -17,7 +17,7 @@ marked *(check)* has to be checked in your version.
 | Glow | `emissiveFactor`, strength in `KHR_materials_emissive_strength` (optional extension) | importers without the extension show it at strength 1 |
 | `vertex_colors = true` | `COLOR_0` (linear RGB) on white materials, one per preset (glowing and decal faces keep their own material) | the engine's material must multiply vertex colour into base colour, or everything is white |
 | `atlas = true` | one material: `baseColorTexture` = `<name>.palette.png`, `metallicRoughnessTexture` = `<name>.material.png` (G roughness, B metallic), `emissiveTexture` = `<name>.glow.png` when something glows; UVs in `TEXCOORD_0` at each cell's centre | the PNGs are **referenced by URI**, not embedded: ship them next to the glb. Samplers are NEAREST, clamp, no mipmaps |
-| `atlas_ao` | grey multiplier in `COLOR_0` | only shows where the material uses vertex colour |
+| `atlas_ao`, `shade` | grey multiplier in `COLOR_0` (times the colours with `vertex_colors`) | only shows where the material uses vertex colour; manifest `shade` on the model |
 | `relief:`, `color_blend:` | colours in `<name>.color.png` (`baseColorTexture`, sRGB) on the normal map's UVs in `TEXCOORD_0`; one material per preset (`<preset>_mapped`), `baseColorFactor` white | linear filtering with mipmaps, like the normal map; a variant has its own map and glb |
 | `atlas = true` and `normal_map:` | that model is outside the atlas: a material per colour with `normalTexture`, the normal map's UVs in `TEXCOORD_0`, `atlas_ao`'s grey in `COLOR_0` | manifest: `ao` and `ao_strength` on the model, no `atlas` |
 | Decals | embedded PNG over the part's colour, own material, UVs in `TEXCOORD_0` | NEAREST sampler for images up to 256 px, else linear with mipmaps |

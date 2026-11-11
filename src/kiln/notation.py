@@ -23,6 +23,7 @@ from kiln.retarget import REQUIRED, JointMap
 from kiln.scatter import Scatter
 from kiln.scatter import parse as parse_scatter
 from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
+from kiln.shade import parse as parse_shade
 from kiln.terrain import Terrain
 from kiln.terrain import parse as parse_terrain
 from kiln.uv import AXES as UV_AXES
@@ -48,14 +49,14 @@ PART_FIELDS = {"id", "color", "material", "blend", "color_blend", "cut", "inters
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "parts",
+TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts",
               "rig", "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
 SCATTER_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "scatter"}  # a scatter's model fields
 # Fields no mesh, paint or skin depends on (#185): the clips (sampled onto the built skeleton), the variants' colour
 # swaps (applied at export) and the model's card. A field a builder reads must not be listed here.
-NOT_SHAPE = ("animations", "animation_library", "variants", "description", "tags", "status")
+NOT_SHAPE = ("animations", "animation_library", "variants", "description", "tags", "status", "shade")
 
 
 def _as_text(value: Any) -> str:
@@ -214,6 +215,7 @@ class Model:
     bake_index: list[int] = field(default_factory=list)  # part i is bake_parts[bake_index[i]]
     detail_ids: dict[int, str] = field(default_factory=dict)  # bake_parts index of each detail part -> its id
     relief: list[Relief] = field(default_factory=list)  # surface layers (fur patches) in the baked maps
+    shade: dict[str, float] = field(default_factory=dict)  # shade paint over the style's [shade] (kiln.shade), at export
     parts: list[Part] = field(default_factory=list)
     rig: dict[str, RigEntry] = field(default_factory=dict)
     skin: str = "none"
@@ -1644,6 +1646,11 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         ctx.error("E003", "normal_strength goes with normal_map (the map it scales)", _line(data, "normal_strength"), "normal_strength")
     else:
         model.normal_strength = float(strength)
+    if "shade" in data:
+        shade, shade_error = parse_shade(data["shade"])
+        if shade_error:
+            ctx.error("E003", shade_error, _line(data, "shade"), "shade")
+        model.shade = shade
     prefix = data.get("node_prefix")
     if prefix is not None:
         if isinstance(prefix, str) and PREFIX_RE.match(prefix):

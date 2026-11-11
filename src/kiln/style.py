@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from kiln.mesher import CELL_LIMIT, MAX_CELLS
+from kiln.shade import Shade
+from kiln.shade import parse as parse_shade
 from kiln.vendor.findings import Finding
 
 STYLE_SUFFIX = ".style.toml"
@@ -90,6 +92,7 @@ class Style:
     hard_sides: int = 12  # sides of round hard shapes that don't say
     max_cells: int = MAX_CELLS  # mesh grid cells per axis at most: big models get coarser cells past this
     scale_with_size: bool = True  # models over 1 m get coarser cells (resolution x sqrt(size)); off: resolution as is
+    shade: Shade = Shade()  # [shade]: shade paint baked into the vertex colours (kiln.shade); off by default
 
     def budget(self, cls: str) -> int:
         return self.budgets.get(cls, self.budgets.get("default", 4000))
@@ -161,9 +164,12 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
     def bad(message: str, where: str) -> None:
         findings.append(Finding("E006", message, path, None, where))
 
-    unknown = [k for k in data if k not in ("description", "notes", "shape", "budgets", "materials", "look")]
+    unknown = [k for k in data if k not in ("description", "notes", "shape", "budgets", "materials", "look", "shade")]
     if unknown:
-        bad(f"unknown field(s) {', '.join(unknown)}; allowed: description, notes, extends, [shape], [budgets], [materials], [look]", unknown[0])
+        bad(f"unknown field(s) {', '.join(unknown)}; allowed: description, notes, extends, [shape], [budgets], [materials], [look], [shade]", unknown[0])
+    shade_values, shade_error = parse_shade(data.get("shade", {}), toml=True)
+    if shade_error:
+        bad(shade_error, "shade")
     shape = data.get("shape", {})
     for key in shape:
         if key not in SHAPE_KEYS:
@@ -240,7 +246,7 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
     if any(f.severity == "error" for f in findings):
         return None, findings
     style = Style(name, str(data.get("description", "")), bool(smooth), float(sharp), float(resolution), dict(budgets), materials, look,
-                  str(data.get("notes", "")), path, text, str(hard_surface), int(hard_sides), int(max_cells), bool(scale_with_size))  # fmt: skip
+                  str(data.get("notes", "")), path, text, str(hard_surface), int(hard_sides), int(max_cells), bool(scale_with_size), Shade().over(shade_values))  # fmt: skip
     return style, findings
 
 
@@ -270,6 +276,7 @@ def style_summary(style: Style) -> dict[str, Any]:
         "materials": sorted(style.materials),
         "shader": style.look.shader,
         "outline": style.look.outline,
+        "shade": {k: v for k, v in style.shade.__dict__.items() if v > 0},
         "notes": style.notes,
         "path": str(style.path) if style.path else None,
     }

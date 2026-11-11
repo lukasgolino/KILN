@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from kiln.atlas import AtlasUse, ambient_occlusion
+from kiln.atlas import AtlasUse
 from kiln.notation import ROOT_ID, Model
 from kiln.paint import Painted, corner_uv, decal_uv
 from kiln.rig import Skeleton, Track
@@ -43,7 +43,7 @@ class Built:
     lost: tuple[int, ...] = ()  # adding parts visible at full resolution that decimation removed (lint W111)
     asked_step: float = 0.0  # the mesh step the style or model asked for; above it, the grid cap decided `step` (lint W120)
     step_reason: str = ""  # why `step` is what it is, in words (kiln lint / build print it)
-    ao: Array | None = None  # per vertex: baked occlusion (atlas_ao) the previews multiply in, as the engine does
+    ao: Array | None = None  # per vertex: shade paint / baked occlusion (kiln.shade) the previews multiply in, as the engine does
     bake: Any = None  # kiln.bake.Bake: the normal map with its UVs and tangents (model normal_map)
     motion_key: str = ""  # what `tracks` were made from (builder.motion_key): a cached build re-samples them when it changes
 
@@ -140,8 +140,10 @@ class _Writer:
         self.atlas_material: int | None = None
         if built.bake is not None and atlas is not None:
             raise ValueError("normal_map and atlas = true both need the first UV set: a model with a normal map keeps its own materials")
+        from kiln.shade import shading
+
         strength = atlas.ao if atlas is not None else ao
-        self.ao: Array | None = ambient_occlusion(built, strength) if strength > 0 else None
+        self.ao: Array | None = shading(built, strength)  # shade paint and/or atlas_ao: a multiplier per vertex in COLOR_0
         self.normal_texture: int | None = None
         self.normal_uri = normal_uri  # the normal map as a file next to the glb (shared by variants), else embedded
         self.doc = Document(generator)
@@ -325,8 +327,9 @@ class _Writer:
             if shared:
                 assert self.atlas is not None
                 attributes["TEXCOORD_0"] = self.doc.accessor(self.atlas.atlas.uvs(unique[:, 4]).astype(np.float32), target=ARRAY_BUFFER)
-            if self.ao is not None:  # baked occlusion: a grey multiplier (glTF multiplies COLOR_0 into the base colour)
-                color = np.repeat(self.ao[vidx][:, None], 3, axis=1).astype(np.float32)
+            if self.ao is not None:  # shade / occlusion: a multiplier (glTF multiplies COLOR_0 into the base colour), x the colours
+                shade = np.repeat(self.ao[vidx][:, None], 3, axis=1).astype(np.float32)
+                color = shade if color is None else (color * shade).astype(np.float32)
                 if not self.face_attr:
                     attributes["COLOR_0"] = self.doc.accessor(color, target=ARRAY_BUFFER)
             if self.b.bake is not None:
