@@ -25,11 +25,12 @@ W120 the grid cap (`max_cells`), not the resolution, set the mesh cell size: rai
 W123 the built mesh dips 2 mm (or a tenth of a cell) or more below y = 0 (blends push feet under the ground): `origin: ground` exports it
 lifted onto y = 0. W124 a part shows only a sliver: 97% or more of its own surface is deeper inside other parts than
 their blend (clipped flat, nearly gone; W101 is all of it), with the covering parts named; not for hard, shell or
-separate parts. Partly floating details have no warning yet: check them in the previews.
+separate parts. W125 the mesh's UV charts don't fit the `normal_map` size (many separate pieces in a small map: the
+padding between charts alone fills it) and were squeezed in: use a bigger map. Partly floating details have no warning yet: check them in the previews.
 
 `kiln lint --fast` runs only the checks that need no built model (YAML, fields, values, names, the rig's and
 animations' structure): quick while writing. It can't give the findings that come from the built model, and its
-summary lists them: E009 (nothing to mesh, a build failure), E013, W101-W104, W106, W108-W111, W113, W120-W124. That
+summary lists them: E009 (nothing to mesh, a build failure), E013, W101-W104, W106, W108-W111, W113, W120-W125. That
 includes some that read like text checks (W104 a colour outside the palette, W109 an animated part without a pivot).
 A scatter's surface model is still built. Plain `kiln lint` builds each model named (all without names) for the full
 list; `kiln build` runs that full lint first on every model, on the same cached meshes, so a model that passes plain

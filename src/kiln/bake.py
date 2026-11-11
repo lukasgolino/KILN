@@ -33,6 +33,7 @@ class Bake:
     tangent: Array  # (F, 3, 4) per face corner: xyz along +u, w = handedness
     png: bytes  # the normal map (RGB)
     size: int  # the map is size x size texels, as asked for
+    fit: float = 1.0  # under 1: the charts didn't fit the map and were squeezed in by this much (lint W125)
 
     @property
     def width(self) -> int:
@@ -52,33 +53,49 @@ def available() -> bool:
 
 
 PACK_TRIES = 8  # xatlas packs again with fewer texels per metre while the atlas overshoots the size asked for
+STALLED = 2  # tries in a row that came out no smaller: the charts' padding alone is that big, lower density won't help
 SHRINK = 0.97  # ... aiming this far under the size: the packed size doesn't follow the texel density exactly
 
 
-def unwrap(vertices: Array, faces: Array, size: int) -> Array:
-    """Unique UVs (F, 3, 2) in a size x size map: charts cut and packed by xatlas into one atlas, PADDING texels
-    apart, packed again with fewer texels per metre while it comes out bigger than the map (#151). The atlas sits in
-    the map's corner, texel for texel, so the padding between charts stays whole and what is left over is empty."""
+def unwrap(vertices: Array, faces: Array, size: int) -> tuple[Array, float]:
+    """Unique UVs (F, 3, 2) in a size x size map, and how the atlas fits it (1: it does). Charts are cut and packed by
+    xatlas into one atlas, PADDING texels apart, packed again with fewer texels per metre while it comes out bigger
+    than the map (#151). The atlas sits in the map's corner, texel for texel, so the padding between charts stays
+    whole and what is left over is empty. Many small charts can't fit a small map at any density (their padding
+    alone fills it): the tries stop when the atlas stops shrinking, and the smallest one is squeezed into the map
+    (fit < 1: the padding and the detail shrink with it; lint W125)."""
     import xatlas
 
-    atlas = xatlas.Atlas()
-    atlas.add_mesh(np.ascontiguousarray(vertices, dtype=np.float32), np.ascontiguousarray(faces, dtype=np.uint32))
-    atlas.generate(pack_options=_pack(xatlas, size, 0.0))
-    for _ in range(PACK_TRIES):
-        if atlas.atlas_count == 1 and max(atlas.width, atlas.height) <= size:
-            break
-        tpu = float(atlas.texels_per_unit) * SHRINK * size / max(atlas.width, atlas.height, 1)
+    def packed(resolution: int, texels_per_unit: float) -> Any:
         atlas = xatlas.Atlas()
         atlas.add_mesh(np.ascontiguousarray(vertices, dtype=np.float32), np.ascontiguousarray(faces, dtype=np.uint32))
-        atlas.generate(pack_options=_pack(xatlas, 0, tpu))
-    if atlas.atlas_count != 1:
+        atlas.generate(pack_options=_pack(xatlas, resolution, texels_per_unit))
+        return atlas
+
+    def extent(atlas: Any) -> float:
+        return float(max(atlas.width, atlas.height, 1)) if atlas.atlas_count == 1 else math.inf
+
+    best = atlas = packed(size, 0.0)
+    if extent(best) == math.inf:  # several atlases: start from one of any size
+        best = atlas = packed(0, 0.0)
+    density, misses = float(atlas.texels_per_unit), 0
+    for _ in range(PACK_TRIES):
+        if extent(best) <= size or misses == STALLED:
+            break
+        density *= SHRINK * min(1.0, size / extent(atlas))  # always down: the packed size is noisy in the density
+        atlas = packed(0, density)
+        if extent(atlas) < extent(best):
+            best, misses = atlas, 0
+        else:
+            misses += 1
+    if best.atlas_count != 1:
         raise ValueError(f"the mesh's UV charts didn't fit one {size} map; use a bigger normal_map")
-    vmap, index, uvs = atlas[0]
+    vmap, index, uvs = best[0]
     if not np.array_equal(vmap[index], faces):  # xatlas keeps the faces in order: corners map back one to one
         raise ValueError("xatlas reordered the faces; the normal map can't be matched to the mesh")
     uv = np.asarray(uvs, dtype=np.float64)[index]  # 0..1 across the atlas
-    # an atlas still bigger than the map after every try is squeezed into it (the padding shrinks with it)
-    return uv * np.minimum(np.array([atlas.width, atlas.height]) / size, 1.0)
+    scale = np.minimum(np.array([best.width, best.height]) / size, 1.0)
+    return uv * scale, min(1.0, size / extent(best))
 
 
 def _pack(xatlas: Any, size: int, texels_per_unit: float) -> Any:
@@ -179,7 +196,7 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     at four points a quarter texel around its centre, averaged, each with a gradient step of half a texel, so detail
     finer than a texel blurs out instead of aliasing into streaks and speckles. `strength` scales the map's tilt
     away from the mesh normal (model normal_strength: 0.5 halves it)."""
-    uv = unwrap(vertices, faces, size)
+    uv, fit = unwrap(vertices, faces, size)
     width = height = size
     tan = tangents(vertices, faces, uv, normals)
     corners = vertices[faces]
@@ -231,7 +248,7 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     image = _grow(image, filled.reshape(height, width), GROW)
     buf = io.BytesIO()
     Image.fromarray(image, "RGB").save(buf, format="PNG", optimize=False)
-    return Bake(uv, tan, buf.getvalue(), size)
+    return Bake(uv, tan, buf.getvalue(), size, fit)
 
 
 def _grow(image: Array, filled: Array, steps: int) -> Array:
