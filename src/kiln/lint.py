@@ -56,6 +56,7 @@ WARNING_RULES = {
     "W124": "a part shows only a sliver: nearly all of it is inside other parts (clipped flat or nearly gone)",
     "W125": "the normal map is too small for the mesh's UV charts: they were squeezed in (blurrier detail, less padding)",
     "W126": "a relief layer has no patches: the parts it is on show no smooth, non-glowing surface",
+    "W127": "color_blend fades nothing: the part has no border it blends across with a part of another colour",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -84,7 +85,7 @@ CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than a
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
 BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126")  # fmt: skip
+               "W124", "W125", "W126", "W127")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -185,6 +186,12 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                 if count == 0 and k < len(m.relief):
                     warn("W126", f"relief layer {k + 1} (on {', '.join(m.relief[k].on)}) has no patches: those parts show no smooth surface of "
                          "their own (covered by other parts, hard, glowing or under a decal)")  # fmt: skip
+        if any(part.color_blend > 0 for part in m.parts):
+            lay = built.bake.layers if built.bake is not None else None
+            if lay is None or lay.mix is None or not (lay.mix > 0).any():
+                first = next(part for part in m.parts if part.color_blend > 0)
+                warn("W127", "color_blend fades nothing here (and still bakes the maps): a fade needs a neighbour of another colour that "
+                     "the part joins with a blend (not a crisp seam, a hard or glowing part, or a decal)", first.line, f"{first.where}.color_blend")  # fmt: skip
         if built.asked_step and built.step > built.asked_step * CAPPED:
             cells = m.max_cells or built.style.max_cells
             need = math.ceil(built.step * (cells - 6) / built.asked_step) + 6  # the step is the model's size / (cells - 6)

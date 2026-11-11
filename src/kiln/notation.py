@@ -499,6 +499,9 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if not isinstance(detail, bool):
         ctx.error("E003", "detail is true (the part only shapes the baked normal map: model normal_map) or false", line, f"{where}.detail")
         ok = False
+    if detail is True and color_blend:
+        ctx.error("E003", "color_blend fades a part's colour: a detail part is only in the normal map and has none", line, f"{where}.color_blend")
+        ok = False
         detail = False
     blend_to = None
     if "blend_to" in raw:
@@ -898,8 +901,17 @@ def _parse_relief(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
         model.normal_map = RELIEF_MAP
 
 
+def _fades(raw_parts: Any) -> bool:
+    """Whether some part asks for a colour fade (which brings the baked maps), before the parts are parsed."""
+    return isinstance(raw_parts, list) and any(isinstance(p, dict) and _num(p.get("color_blend")) and float(p["color_blend"]) > 0 for p in raw_parts)
+
+
 def _soft_colours(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
     """Parts with color_blend need the base colour map (the fade is per texel): the baked maps come on."""
+    for p in model.parts:
+        if p.color_blend > 0 and (p.geometry.op != "add" or p.hard or p.crisp):
+            what = "a cut has no colour of its own" if p.geometry.op != "add" else "a hard part keeps crisp borders"
+            ctx.error("E003", f"color_blend fades a smooth adding part's colour into its neighbours': {what}", p.line, f"{p.where}.color_blend")
     if not any(p.color_blend > 0 for p in model.parts):
         return
     if model.source is not None:
@@ -1628,7 +1640,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     if not _num(strength) or not 0 <= float(strength) <= 4:
         ctx.error("E003", "normal_strength scales the baked normal map's tilt: 0 (flat) to 4, 1 as baked (0.5: softer grooves)",
                   _line(data, "normal_strength"), "normal_strength")  # fmt: skip
-    elif "normal_strength" in data and not model.normal_map and "relief" not in data and "color_blend" not in str(data.get("parts")):
+    elif "normal_strength" in data and not model.normal_map and "relief" not in data and not _fades(data.get("parts")):
         ctx.error("E003", "normal_strength goes with normal_map (the map it scales)", _line(data, "normal_strength"), "normal_strength")
     else:
         model.normal_strength = float(strength)

@@ -153,6 +153,11 @@ the fur, a tan chest, a sunburnt nose.
 ```
 
 - The fade is painted in the base colour map (the same map relief uses, `<name>.color.png`; it comes on with a 1024
-  map unless `normal_map:` sets the size; needs `kiln-gen[bake]`). The mesh and its border don't change.
-- Colours mix in OKLab, half and half on the border. Relief fur keeps its shading through the fade.
-- Borders with hard parts, glowing materials and decals stay crisp; so does every border where neither part asks.
+  map unless `normal_map:` sets the size; needs `kiln-gen[bake]`; under `atlas = true` the model leaves the atlas).
+  The mesh and its border don't change. `preview --draft` shows no fade.
+- A border fades when one of its two parts asks and the later of them joins the other with a `blend`: a nose or an
+  eye set on with a crisp seam (`blend: 0`) stays sharp next to a fading muzzle. The wider of the two values is used.
+- Colours mix in OKLab, half and half on the border, toward what the neighbour looks like (its fur, if it has
+  relief). A part's own pattern stripes and gradient bands stay crisp.
+- Borders with hard parts, glowing materials and decals stay crisp. Lint W127: a `color_blend` that fades nothing.
+- Where three colours meet, each point fades toward the nearest border only.

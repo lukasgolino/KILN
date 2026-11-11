@@ -99,7 +99,10 @@ class Bake:
             w = lay.mix[filled] / 255.0
             fading = np.flatnonzero(w > 0)
             toward = np.minimum(lay.other[filled][fading].astype(np.int64), len(table) - 1)
-            there = _oklab(table)[toward] * (stamped.shade[fading, None] ** (1 / 3))  # (the shade under a tip stays)
+            # toward what the neighbour looks like, fur and all: the mean colour of its group's texels (not its bare paint)
+            count = np.maximum(np.bincount(own, minlength=len(table)), 1)[:, None]
+            seen = np.stack([np.bincount(own, weights=linear[:, c], minlength=len(table)) for c in range(3)], axis=1) / count
+            there = _oklab(seen)[toward]
             linear[fading] = _from_oklab(_oklab(linear[fading]) * (1 - w[fading, None]) + there * w[fading, None])
         srgb = np.where(linear <= 0.0031308, linear * 12.92, 1.055 * np.maximum(linear, 1e-12) ** (1 / 2.4) - 0.055)
         image = np.zeros((self.size, self.size, 3), dtype=np.uint8)
@@ -283,7 +286,7 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     face, texel, bary = face[keep], texel[keep], bary[keep]
     out = np.zeros((width * height, 3), dtype=np.float32)
     out[:, 2] = 1.0
-    fades: list[tuple[Array, ...]] = []  # texels near a colour border: (texel, point, face)
+    fades: list[tuple[Array, ...]] = []  # texels near a colour border: (texel, point, face, normal)
     reliefs: list[tuple[Array, ...]] = []  # texels a patch may touch: (texel, point, normal, tangent, up, metres per texel, face)
     owner = np.asarray(face_field)[face]
     for k, field in enumerate(fields):
@@ -316,7 +319,7 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
             out[texel[rows]] = local
             if fade is not None:
                 near = fade.touches(centre) & (off <= step)
-                fades.append((texel[rows][near], centre[near], f[near]))
+                fades.append((texel[rows][near], centre[near], f[near], n[near]))
             if patches is not None and len(patches):
                 near = patches.touches(centre) & (off <= step)
                 reliefs.append((texel[rows][near], centre[near], n[near], t[near], up[near], size_m[near], f[near]))
@@ -329,8 +332,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
             layers.other = np.zeros(width * height, dtype=np.uint16)
             layers.mix = np.zeros(width * height, dtype=np.uint8)
             if fades:
-                tex, point, fface = (np.concatenate([r[k] for r in fades]) for k in range(3))
-                toward, weight = fade.mix(point, face_group[fface])
+                tex, point, fface, fnormal = (np.concatenate([r[k] for r in fades]) for k in range(4))
+                toward, weight = fade.mix(point, fface, fnormal)
                 layers.other[tex] = toward.astype(np.uint16)
                 layers.mix[tex] = np.round(weight * 255).astype(np.uint8)
         layers = replace(layers, **{k: getattr(layers, k).reshape(height, width) for k in PACKED if getattr(layers, k) is not None})

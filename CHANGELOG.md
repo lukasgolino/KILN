@@ -19,7 +19,9 @@ before 1.0).
 - `color_blend` on a part: its colour fades into its neighbours' over that distance either side of their border
   (mixed in OKLab, half and half on the border), instead of meeting in a crisp line. The fade is painted in the base
   colour map (`<name>.color.png`, which comes on for the model as it does for relief); the mesh is unchanged, and
-  without `color_blend` so is all output. The demo cub's belly and muzzle use it (#230).
+  without `color_blend` so is all output. A border fades where the later part joins with a `blend` (a nose set on
+  with a crisp seam stays sharp); hard and glowing parts and decals stay crisp; lint W127 says when a `color_blend`
+  fades nothing. The demo cub's belly and muzzle use it (#230).
 - Relief layers: fur as patches in the baked maps, not parts. `relief:` on a model scatters shallow, overlapping,
   flame-tipped patches over the parts it names (`on`, `length`, `width`, `lift`, `density`, `flow`, `tips`, `jitter`,
   `color`/`color_to`, `under`, `fade`, `seed`). They tilt the baked normal map and are painted into a new base colour
