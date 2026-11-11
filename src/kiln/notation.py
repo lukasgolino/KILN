@@ -459,6 +459,10 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         elif "at" in spec or "at" in raw or aim_raw is not None:
             ctx.error("E003", "a part placed with on has no at or aim (on puts it on the surface at near)", line, f"{where}.on")
             ok = False
+        elif "array" in raw:
+            ctx.error("E003", "on places one part: its array copies wouldn't follow the surface; write a part per spot (or mirror_id)",
+                      line, f"{where}.on")  # fmt: skip
+            ok = False
     missing = [k for k in sdef.required if k not in params and k not in spec]  # a bad value was reported already
     if missing:
         ctx.error("E003", f"{kind} needs {', '.join(missing)} ({sdef.help})", line, swhere)
@@ -870,17 +874,21 @@ def _parse_on(raw: Any) -> OnSurface | None:
     return OnSurface(tuple(ids), (float(near[0]), float(near[1]), float(near[2])), float(offset), float(roll), align)
 
 
-def _place_on(ctx: _Ctx, model: Model) -> None:
-    """Resolve `on:` in order (a part may sit on one placed before it): snap `near` onto the blended surface of the
-    named earlier parts (cuts before it apply), then move and turn the part; its mirror_id twin follows."""
+def _place_on(ctx: _Ctx, model: Model, done: set[int]) -> None:
+    """Resolve `on:` in order (a part may sit on one placed before it): walk `near` onto the blended surface of the
+    named earlier parts (cuts before it apply; detail parts are only in the normal map, so not), then move and turn
+    the part; its mirror_id twin follows. Parts in `done` were placed already (before a hardware part read them)."""
     for k, part in enumerate(model.parts):
         on = part.on
-        if on is None or part.twin_of is not None:
+        if on is None or part.twin_of is not None or k in done:
             continue
-        earlier = model.parts[:k]
-        active = frozenset(j for j, q in enumerate(earlier) if q.id in on.ids and q.geometry.op == "add" and not q.detail)
+        done.add(k)
+        earlier = [q for q in model.parts[:k] if not q.detail]
+        active = frozenset(j for j, q in enumerate(earlier) if q.id in on.ids and q.geometry.op == "add")
         if not active:
-            ctx.error("E003", f"on: no earlier part has id {', '.join(on.ids)} (a part sits on parts listed before it)", part.line, f"{part.where}.on")
+            if not model.template:  # a template may sit its parts on another template's (a helmet's spikes on a head)
+                ctx.error("E003", f"on: no earlier part has id {', '.join(on.ids)} (a part sits on parts listed before it)", part.line,
+                          f"{part.where}.on")  # fmt: skip
             continue
         field = Field([q.geometry for q in earlier], 0.05, active)
         p = np.array([on.near], dtype=float)
@@ -893,7 +901,8 @@ def _place_on(ctx: _Ctx, model: Model) -> None:
                 break
         normal = field.gradient(p, eps)[0]
         if abs(float(field.distance(p)[0])) > 1e-4 or not np.isfinite(normal).all():
-            ctx.error("E003", f"on: near {list(on.near)} doesn't lead onto the surface of {', '.join(on.ids)}; put it closer", part.line, f"{part.where}.on")
+            ctx.error("E003", f"on: the walk from near {list(on.near)} along the field doesn't settle on the surface of {', '.join(on.ids)}; "
+                      "start it just outside the spot", part.line, f"{part.where}.on")  # fmt: skip
             continue
         g = part.geometry
         g.at = p[0] + normal * on.offset
@@ -1804,6 +1813,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         if not isinstance(raw_parts, list) or not raw_parts:
             ctx.error("E003", "parts must be a non-empty list, e.g. - sphere: { at: [0, 0.5, 0], radius: 0.5 }", _line(data, "parts"), "parts")
         else:
+            placed: set[int] = set()  # parts placed with on: already
             for i, raw in enumerate(raw_parts):
                 pline = _line(raw) or _line(data, "parts")
                 kinds = [k for k in raw if k in HARDWARE] if isinstance(raw, dict) else []
@@ -1813,6 +1823,11 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 if len(kinds) > 1 or any(k in SHAPES for k in raw):
                     ctx.error("E003", f"each part needs exactly one shape: {', '.join(SHAPES)}, or one hardware part: {', '.join(HARDWARE)}", pline, f"parts[{i}]")
                     continue
+                if "on" in raw or True in raw:
+                    ctx.error("E003", f"on places shapes, not hardware: give the {kinds[0]} its at (or put it on a shape placed with on)",
+                              pline, f"parts[{i}].on")  # fmt: skip
+                    continue
+                _place_on(ctx, model, placed)  # hardware reads the parts before it: place them first
                 earlier = [(p.id, p.geometry) for p in model.parts if p.geometry.op == "add"]
                 subs, problem = expand(kinds[0], raw[kinds[0]], dict(raw), earlier)
                 if problem is not None:
@@ -1839,7 +1854,6 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
             for part in model.parts:
                 if part.cut_only is not None:
                     part.geometry.cut_only = frozenset(i for i, q in enumerate(model.parts) if q.id == part.cut_only and q.geometry.op == "add")
-            _place_on(ctx, model)
             for part in model.parts:
                 if part.fit is None:
                     continue
@@ -1863,6 +1877,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                                   f"{part.where}.fit")  # fmt: skip
                     continue
                 part.geometry.fit = (targets, part.fit[1])
+            _place_on(ctx, model, placed)  # after fit: a part may sit on a fitted shell
             if any(p.detail for p in model.parts):
                 _split_detail(ctx, model)
     _parse_relief(ctx, data, model)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from conftest import load, write_model
 
 from kiln.lint import lint_paths
@@ -64,3 +65,53 @@ def test_errors(project: Project) -> None:
         text = BODY + "  - sphere: { radius: 0.03 }\n    color: gold\n    " + bad + "\n"
         _, _, findings = load(project, text)
         assert any(f.where == where for f in findings), (bad, findings)
+
+
+def test_cuts_detail_and_fitted_shells(project: Project) -> None:
+    near = "[0.25, 0.55, 0.0]"
+    _, plain, _ = placed(project, near)
+    cut = BODY + "  - box: { at: [0.3, 0.55, 0], size: [0.1, 0.1, 0.1] }\n    cut: true\n" + TUFT.format(near=near, extra="")
+    model, _, findings = load(project, cut)
+    assert model is not None and not [f for f in findings if f.severity == "error"], findings
+    assert model.parts[3].geometry.at[0] < plain[0] - 0.02  # a cut listed before it applies
+    detail = "normal_map: 256\n" + BODY + "  - box: { at: [0.3, 0.55, 0], size: [0.1, 0.1, 0.1] }\n    cut: true\n    detail: true\n" \
+        + TUFT.format(near=near, extra="")
+    model, _, findings = load(project, detail)
+    assert model is not None and not [f for f in findings if f.severity == "error"], findings
+    tuft = next(p for p in model.parts if p.id == "tuft")
+    assert np.allclose(tuft.geometry.at, plain, atol=1e-6)  # a detail cut is only in the normal map: no effect
+    shell = BODY + "  - sphere: { at: [0, 1.0, 0], radius: 0.35 }\n    id: hood\n    color: gold\n    shell: 0.01\n    fit: { to: head, gap: 0.05 }\n" \
+        + "  - cone: { radius: 0.02, height: 0.05 }\n    color: wood\n    on: { part: hood, near: [0, 1.4, 0] }\n"
+    model, _, findings = load(project, shell)
+    assert model is not None and not [f for f in findings if f.severity == "error"], findings
+    assert model.parts[3].geometry.at[1] > 1.2 + 0.03  # on the fitted shell (gap 0.05 over the head), not the unfitted sphere
+
+
+def test_chained_rotated_rolled_and_mirrored(project: Project) -> None:
+    chain = TUFT.format(near="[0.25, 0.8, 0.0]", extra="") + "  - sphere: { radius: 0.01 }\n    color: wood\n    on: { part: tuft, near: [0.4, 0.9, 0] }\n"
+    model, _, findings = load(project, BODY + chain)
+    assert model is not None and not [f for f in findings if f.severity == "error"], findings
+    tip = Field([p.geometry for p in model.parts[:3]], 0.05, frozenset({2}))
+    assert abs(float(tip.distance(model.parts[3].geometry.at[None])[0])) < 1e-4  # on the tuft placed before it
+    _, _, up = placed(project, "[0.25, 0.8, 0.0]", ", roll: 90", "    rotate: [0, 45, 0]\n")
+    _, _, up0 = placed(project, "[0.25, 0.8, 0.0]")
+    assert np.allclose(up, up0, atol=1e-6)  # rotate and roll spin about the shape's y: y stays on the normal
+    folded, at, _ = placed(project, "[0.25, 0.8, 0.0]", "", "    mirror: x\n")
+    assert folded.parts[2].geometry.mirror == (0,) and at[0] > 0.2  # type: ignore[attr-defined]
+
+
+def test_more_errors_and_templates(project: Project) -> None:
+    arr = BODY + TUFT.format(near="[0.25, 0.8, 0.0]", extra="") + "    array: { count: 3, around: y }\n"
+    _, _, findings = load(project, arr)
+    assert any(f.where == "parts[2].on" for f in findings), findings
+    bolt = BODY + "  - bolt: { size: 0.02 }\n    on: { part: body, near: [0.3, 0.5, 0] }\n"
+    _, _, findings = load(project, bolt)
+    assert any(f.where == "parts[2].on" for f in findings), findings
+    with pytest.MonkeyPatch.context() as mp:  # a field with no way out (flat: the walk can't move)
+        mp.setattr(Field, "gradient", lambda self, p, eps: np.zeros_like(p))
+        _, _, findings = load(project, BODY + TUFT.format(near="[0.25, 0.8, 0.0]", extra=""))
+    assert any(f.where == "parts[2].on" and "settle" in f.message for f in findings), findings
+    template = "template: true\n" + BODY.replace("name: thing\n", "name: thing\n", 1) + "  - sphere: { radius: 0.01 }\n    color: gold\n" \
+        "    on: { part: helmet, near: [0, 1.3, 0] }\n"
+    _, _, findings = load(project, template)
+    assert not any(f.where == "parts[2].on" for f in findings), findings  # the ids may come from another template

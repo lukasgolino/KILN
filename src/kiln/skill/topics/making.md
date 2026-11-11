@@ -119,11 +119,14 @@ Clumps, straps, scales, spikes and tufts belong on the body's blended surface, w
     mirror: x
 ```
 
-`near` is walked onto the surface made by the earlier parts with those ids (blends included; cuts listed before it
-apply), the part's own y axis turns to the surface normal there (`rotate` turns it in its own frame first; `align:
+`near` is walked along the field onto the surface made by the earlier parts with those ids (blends and fitted shells
+included; cuts listed before it apply; detail parts don't): start it just outside the spot, since from deep inside
+the walk takes the field's way out, not the nearest point. The part's own y axis turns to the surface normal there (`rotate` turns it in its own frame first; `align:
 false` keeps its turn and only moves it), `roll` spins it about the normal, `offset` moves it along the normal
 (negative sinks it in: a cone's `at` is its middle). A part may sit on one placed this way before it; a `mirror_id`
-twin is placed as its mirror image. A `near` too far from the surface to reach is an error (E003).
+twin is placed as its mirror image (`mirror: x` folds it as usual). A walk that doesn't settle on the surface is an
+error (E003), as are `on` with `array` (the copies wouldn't follow the surface: a part per spot) and on hardware
+parts (give them `at`). Hardware after a placed part sees it placed.
 
 ## Relief: fur without parts
 
