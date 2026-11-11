@@ -429,7 +429,7 @@ def _groups(model: Model, adding: list[int], rigged: bool, protect: frozenset[in
         part = model.parts[i]
         key = PaintGroup(part.id if rigged else "root", part.color, part.color_name, part.material)
         own_data = part.uv is not None or bool(part.attr)
-        if part.pattern is not None or part.decal is not None or part.texture is not None or own_data or i in protect or part.density != 1:
+        if part.pattern is not None or part.decal is not None or part.texture is not None or own_data or i in protect:
             key = PaintGroup(key.bone, key.color, f"{key.color_name}#{i}", key.material, i if own_data else -1)  # its own group
         if key not in group_index:
             group_index[key] = len(groups)

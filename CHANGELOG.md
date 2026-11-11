@@ -16,10 +16,12 @@ before 1.0).
 
 ### Added
 
-- `density` on a part: its weight on the triangle budget (0.25 to 8, default 1). The budget is split by surface area
-  x density, so a face at `density: 3` gets three times the triangles per area of the body at the same total; 0.5
-  is coarser. A part with a density is its own paint region, reduced on its own to its share. Without `density`
-  meshes are unchanged (#232).
+- `density` on a part: its weight on the triangle budget (0.25 to 8, default 1). Faces are classed by the density
+  of the part they're on; each class gets what a plain reduction to the budget would give it, x its density, at the
+  same total (a face at 3 gets about three times the share it had), reduced on its own with its border locked and
+  welded back (no paint border, no shading crease). A class can't go past its full-resolution mesh: the shaping pass
+  keeps the max density x its usual triangles. Hard and kept parts ignore it. Without `density` meshes are unchanged
+  (#232).
 - Shade paint: `shade: { cavity, top, under }` on a model, or `[shade]` in a style (the model's fields go over the
   style's): darker in crevices (`cavity` x the occlusion `atlas_ao` uses), the top keeps its colour while the rest
   darkens towards the bottom (`top`), the underside darker still (`under`). It is one grey multiplier per vertex corner in

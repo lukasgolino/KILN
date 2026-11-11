@@ -31,6 +31,7 @@ from kiln.mesher import (
     dual_contour,
     mesh_cells,
     simplify_borders,
+    simplify_plain,
 )
 from kiln.notation import ROOT_ID, Decal, Model, Part
 from kiln.paint import Painted, PaintGroup, Regions, corner_normals, hard_regions, paint, regions
@@ -288,7 +289,9 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
         # borders into that and keep them through the rest (seams stay clean)
         total = sum(mesh.triangles for _, _, mesh in live)
         if not model.draft:
-            live = [(include, f, decimate(f, mesh, max(200, round(PRESHAPE * soft_target * mesh.triangles / total)), step)) for include, f, mesh in live]
+            dense = max((model.parts[i].density for i in adding), default=1.0)  # dense parts (#232) need the triangles to take
+            preshape = PRESHAPE * max(dense, 1.0)
+            live = [(include, f, decimate(f, mesh, max(200, round(preshape * soft_target * mesh.triangles / total)), step)) for include, f, mesh in live]
         phase(f"painting {len(adding)} parts")
         cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect, hinted("fewer gradient or pattern parts paint faster"), model.draft)
                                    for include, f, mesh in live])  # fmt: skip
@@ -592,16 +595,41 @@ def _decimate(
     edge = math.sqrt(4 * _area(cut.mesh.vertices, cut.mesh.faces) / (math.sqrt(3) * target))  # a typical edge at the budget
     mesh, owner = cut.mesh, cut.owner
     goal = target
+    # parts' density (#232): faces are split by the density of the part they're on into classes, each reduced to its
+    # share of the budget: its faces now (the shaping pass put them where the shape needs them) x density. The labels
+    # are group x class for the reducing only; paint groups (and so normals) stay as they are.
+    n_classes, labels, region_piece_l, region_class, class_share = 1, owner, region_piece, None, None
+    densities = sorted({1.0, *(model.parts[i].density for i in cut.part_group)})
+    if len(densities) > 1:
 
-    weight = np.ones(len(cut.groups))  # parts' density: their regions' weight on the budget (own regions, paint._groups)
-    for i, g in cut.part_group.items():
-        if model.parts[i].density != 1:
-            weight[g] = model.parts[i].density
+        def density_at(points: Array) -> Array:
+            """The density of the part nearest each point (over every piece)."""
+            best, out = np.full(len(points), np.inf), np.ones(len(points))
+            for field, include in zip(fields, includes, strict=True):
+                if include:
+                    nearest, dist = field.nearest(include, points)
+                    closer = dist < best
+                    best[closer] = dist[closer]
+                    out[closer] = np.array([model.parts[include[int(j)]].density for j in nearest])[closer]
+            return out
+
+        n_classes = len(densities)
+        face_class = np.searchsorted(densities, density_at(cut.mesh.vertices[cut.mesh.faces].mean(axis=1)))
+        labels = owner * n_classes + face_class
+        region_piece_l = np.repeat(region_piece, n_classes)
+        region_class = np.tile(np.arange(n_classes), len(cut.groups))
+        # each class's share: what a plain reduction to the budget gives it (triangles go where the shape needs them),
+        # x its density
+        v, f, _ = simplify_plain(cut.mesh.vertices.astype(np.float64), cut.mesh.faces.astype(np.int64), target)
+        plain = np.searchsorted(densities, density_at(v[f].mean(axis=1)))
+        class_share = np.bincount(plain, minlength=n_classes).astype(np.float64) * np.array(densities)
+        class_share /= max(float(class_share.sum()), 1e-12)
+    mesh, owner = cut.mesh, labels
 
     def attempt(goal: int) -> tuple[Mesh, Array, Painted]:
-        decimated, face_owner = decimate_regions(fields[0], mesh, owner, goal, step, 0, fields, region_piece, weight)
-        painted = paint(Regions(decimated, face_owner, cut.groups, cut.part_group, cut.pattern_groups), model)
-        return decimated, face_owner, painted
+        decimated, face_label = decimate_regions(fields[0], mesh, owner, goal, step, 0, fields, region_piece_l, region_class, class_share)
+        painted = paint(Regions(decimated, face_label // n_classes, cut.groups, cut.part_group, cut.pattern_groups), model)
+        return decimated, face_label, painted
 
     for k, share in enumerate(() if model.draft else BORDER_SCHEDULE):
         if progress is not None:

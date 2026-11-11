@@ -49,7 +49,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `material` | style preset: default, plastic, paint, fabric, skin, leather, rubber, wood, stone, metal, gold, leaf, glass, glow |
 | `blend` | smooth-union radius in metres with everything before it (cuts/intersects: smooth edge) |
 | `color_blend` | metres its colour fades into blended neighbours' (`making`) |
-| `density: 3` | weight on the triangle budget in its surface (0.25-8, default 1): 3 = three times the triangles per area at the same total (a face); 0.5 coarser |
+| `density: 3` | triangle budget weight (0.25-8, default 1): ~3x its usual share at the same total (a face); 0.5 coarser. Not past full resolution; hard and kept parts ignore it |
 | `cut: true` | remove this shape from everything before it (holes, slits, windows, eye sockets) |
 | `intersect: true` | keep only what's inside this shape (trim) |
 | `mirror: x` | also on the other side of 0 (x, y, z or a list); same id |

@@ -604,7 +604,7 @@ def relax(field: Field, mesh: Mesh, fixed: Array, step: float, iterations: int =
     return Mesh(v, f)
 
 
-def _simplify(cut_v: Array, cut_f: Array, budget: int) -> tuple[Array, Array, Array]:
+def simplify_plain(cut_v: Array, cut_f: Array, budget: int) -> tuple[Array, Array, Array]:
     """fast-simplification with open borders locked, down to `budget` faces: the vertices, faces and which output
     vertex each input vertex became (-1: its piece collapsed away)."""
     # The simplifier stops after a fixed number of rounds, which isn't always enough (a hat's flat brim): run it
@@ -630,17 +630,16 @@ def _simplify(cut_v: Array, cut_f: Array, budget: int) -> tuple[Array, Array, Ar
     return v, f, mapping
 
 
-def _simplify_weighted(cut_v: Array, cut_f: Array, face_weight: Array, budget: int) -> tuple[Array, Array, Array]:
-    """`_simplify` per weight class: each class's faces reduced on their own to budget x its area x weight / the sum
-    over classes. The classes' vertices are disjoint (one copy per region), so the results stack."""
-    p = cut_v[cut_f]
-    area = np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=1) / 2
-    classes = np.unique(face_weight)
-    want = np.array([area[face_weight == w].sum() * w for w in classes])
-    have = np.array([(face_weight == w).sum() for w in classes])
+def _simplify_shared(cut_v: Array, cut_f: Array, face_class: Array, class_share: Array, budget: int) -> tuple[Array, Array, Array]:
+    """`simplify_plain` per class: each class's faces reduced on their own to its share of the budget (`class_share`,
+    fractions); a class with fewer faces than its share keeps them all and the rest share what's left. The classes'
+    vertices are disjoint (one copy per region), so the results stack."""
+    classes = np.unique(face_class)
+    want = class_share[classes].astype(np.float64)
+    have = np.array([(face_class == c).sum() for c in classes])
     target = np.zeros(len(classes))
     free = np.ones(len(classes), dtype=bool)
-    for _ in range(len(classes)):  # a class that needs fewer than its share keeps all it has; the rest share what's left
+    for _ in range(len(classes)):
         left = budget - target[~free].sum()
         target[free] = left * want[free] / max(float(want[free].sum()), 1e-12)
         full = free & (target >= have)
@@ -651,13 +650,12 @@ def _simplify_weighted(cut_v: Array, cut_f: Array, face_weight: Array, budget: i
     vs, fs = [], []
     mapping = np.full(len(cut_v), -1, dtype=np.int64)
     base = 0
-    for w, goal in zip(classes, target, strict=True):
-        faces = cut_f[face_weight == w]
-        used, local = np.unique(faces, return_inverse=True)
-        target_count = max(int(round(goal)), 4)
+    for c, goal in zip(classes, target, strict=True):
+        used, local = np.unique(cut_f[face_class == c], return_inverse=True)
         sub_v, sub_f = cut_v[used], local.reshape(-1, 3).astype(np.int64)
+        target_count = max(int(round(goal)), 4)
         if len(sub_f) > target_count:
-            sub_v, sub_f, sub_map = _simplify(sub_v, sub_f, target_count)
+            sub_v, sub_f, sub_map = simplify_plain(sub_v, sub_f, target_count)
         else:
             sub_map = np.arange(len(used))
         mapping[used] = np.where(sub_map >= 0, sub_map + base, -1)
@@ -676,15 +674,17 @@ def decimate_regions(
     border_tolerance: float = BORDER_TOLERANCE,
     fields: list[Field] | None = None,
     region_piece: Array | None = None,
-    weight: Array | None = None,
+    region_class: Array | None = None,
+    class_share: Array | None = None,
 ) -> tuple[Mesh, Array]:
     """Like `decimate`, but the borders between regions (paint groups, cut on the full-resolution mesh) are kept
     exactly: the mesh is pulled apart along them, simplified with its open borders locked, and welded back.
     Collapsing edges across a border is what makes seams jagged, pupils polygonal and blends streaky.
     With `fields` and `region_piece` (region -> index into fields) the mesh is several pieces (a body and its
     `separate` helmet) decimated together, each pulled back onto its own surface.
-    With `weight` (region -> triangle budget weight, parts' `density`), regions of each weight are reduced on their
-    own, to their share of the budget by area x weight (their borders are open edges, locked, so the welds still match).
+    With `region_class` (region -> class) and `class_share` (class -> fraction of the budget; parts' `density`), each
+    class's regions are reduced on their own to their share (their borders are open edges, locked, so the welds still
+    match); a class with fewer faces than its share keeps them and the others share the rest.
     Returns the mesh and every face's region."""
     if mesh.triangles <= budget or mesh.triangles == 0:
         return mesh, region
@@ -697,10 +697,10 @@ def decimate_regions(
     source, vregion = unique // n_regions, unique % n_regions
     cut_v = mesh.vertices[source].astype(np.float64)
     cut_f = inverse.reshape(-1, 3).astype(np.int32)
-    if weight is None or bool((weight[region] == 1).all()):
-        v, f, mapping = _simplify(cut_v, cut_f.astype(np.int64), budget)
+    if region_class is None or class_share is None or len(np.unique(region_class[region])) < 2:
+        v, f, mapping = simplify_plain(cut_v, cut_f.astype(np.int64), budget)
     else:
-        v, f, mapping = _simplify_weighted(cut_v, cut_f.astype(np.int64), weight[region], budget)
+        v, f, mapping = _simplify_shared(cut_v, cut_f.astype(np.int64), region_class[region], class_share, budget)
     alive = mapping >= 0  # vertices gone with their piece take no part in the regions or the weld
     out_region = np.zeros(len(v), dtype=np.int64)
     out_region[mapping[alive]] = vregion[alive]
