@@ -5,6 +5,13 @@
     "models/archer.tscn",
     "models/barrel.glb",
     "models/barrel.tscn",
+    "models/cub.color.png",
+    "models/cub.glb",
+    "models/cub.normal.png",
+    "models/cub.polar.color.png",
+    "models/cub.polar.glb",
+    "models/cub.polar.tscn",
+    "models/cub.tscn",
     "models/knight.glb",
     "models/knight.tscn",
     "models/passenger.glb",
@@ -273,6 +280,104 @@
         "cabin"
       ],
       "triangles": 2886
+    },
+    "cub": {
+      "animations": {},
+      "bounds": {
+        "max": [
+          0.43482,
+          1.13465,
+          0.32353
+        ],
+        "min": [
+          -0.43406,
+          0.00253,
+          -0.22979
+        ]
+      },
+      "class": "character",
+      "color_map": {
+        "patches": 2361,
+        "png": "models/cub.color.png",
+        "size": [
+          1024,
+          1024
+        ]
+      },
+      "colors": [
+        "#141414",
+        "#6b4a2f",
+        "#a0663a",
+        "#c9a66b"
+      ],
+      "description": "bear cub mascot with relief fur (patches in the baked maps, not parts)",
+      "glb": "models/cub.glb",
+      "glb_res": "res://assets/kiln/models/cub.glb",
+      "godot_scene": "res://assets/kiln/models/cub.tscn",
+      "normal_map": {
+        "png": "models/cub.normal.png",
+        "size": [
+          1024,
+          1024
+        ]
+      },
+      "parts": {
+        "root": {
+          "aabb": {
+            "max": [
+              0.43482,
+              1.13465,
+              0.32353
+            ],
+            "min": [
+              -0.43406,
+              0.00253,
+              -0.22979
+            ]
+          },
+          "meta": {},
+          "node_path": "root",
+          "parent": "",
+          "pivot": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "separate": false
+        }
+      },
+      "size": [
+        0.86888,
+        1.13213,
+        0.55332
+      ],
+      "skin": "none",
+      "status": "draft",
+      "step": 0.00852,
+      "style": "soft_toy",
+      "style_version": 1,
+      "tags": [
+        "mascot"
+      ],
+      "triangles": 7978,
+      "variants": {
+        "polar": {
+          "color_map": {
+            "png": "models/cub.polar.color.png",
+            "size": [
+              1024,
+              1024
+            ]
+          },
+          "glb": "models/cub.polar.glb",
+          "godot_scene": "res://assets/kiln/models/cub.polar.tscn",
+          "swap": {
+            "#6b4a2f": "#b8b2a7",
+            "#a0663a": "#f4f4f0",
+            "#c9a66b": "#f4f4f0"
+          }
+        }
+      }
     },
     "knight": {
       "animations": {

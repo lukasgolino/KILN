@@ -20,6 +20,7 @@ from kiln.vendor.gltf import ARRAY_BUFFER, CLAMP_TO_EDGE, ELEMENT_ARRAY_BUFFER, 
 
 LINEAR = 9729
 WHITE = "#ffffff"
+MAPPED = "mapped"  # the material name of faces coloured by the base colour map
 LINEAR_MIPMAP_LINEAR = 9987
 
 
@@ -124,14 +125,17 @@ def uv_channel(built: Built, atlas: AtlasUse | None) -> int:
 
 class _Writer:
     def __init__(self, built: Built, swap: dict[str, str], generator: str, vertex_colors: bool = False, atlas: AtlasUse | None = None,
-                 origin: Array | None = None, normal_uri: str | None = None, ao: float = 0.0) -> None:
+                 origin: Array | None = None, normal_uri: str | None = None, ao: float = 0.0, color_uri: str | None = None) -> None:
         self.origin = np.zeros(3) if origin is None else origin
         self.b = built
         self.face_uv = face_uvs(built)
         self.face_attr = face_attrs(built)
         self.uv_set = uv_channel(built, atlas)
         self.swap = swap
-        self.vertex_colors = vertex_colors
+        self.mapped = built.bake is not None and built.bake.layers is not None  # colours in a base colour map on the bake's UVs (relief)
+        self.vertex_colors = vertex_colors and not self.mapped
+        self.color_uri = color_uri  # the colour map as a file next to the glb, else embedded
+        self.color_texture: int | None = None
         self.atlas = atlas
         self.atlas_material: int | None = None
         if built.bake is not None and atlas is not None:
@@ -162,6 +166,8 @@ class _Writer:
             pbr["baseColorFactor"] = [1.0, 1.0, 1.0, 1.0]
             pbr["baseColorTexture"] = {"index": self.texture(decal, color)}
             mat["name"] += f"_decal{decal}"
+        elif self.mapped and color_name == MAPPED:
+            pbr["baseColorTexture"] = {"index": self.color_map()}
         mat["name"] += color
         if self.b.bake is not None and decal < 0:
             mat["normalTexture"] = {"index": self.normal_map()}
@@ -238,6 +244,17 @@ class _Writer:
             self.normal_texture = self.doc.add("textures", {"sampler": sampler, "source": img})
         return self.normal_texture
 
+    def color_map(self) -> int:
+        """The base colour map of a model with relief as a glTF texture (one per glb, shared by its materials)."""
+        if self.color_texture is None:
+            sampler = self.doc.add("samplers", {"magFilter": LINEAR, "minFilter": LINEAR_MIPMAP_LINEAR, "wrapS": CLAMP_TO_EDGE, "wrapT": CLAMP_TO_EDGE})
+            if self.color_uri is not None:
+                img = self.doc.add("images", {"uri": self.color_uri, "mimeType": "image/png", "name": "color_map"})
+            else:
+                img = self.doc.image_png(self.b.bake.color_png([g.color for g in self.b.painted.groups], self.swap), "color_map")
+            self.color_texture = self.doc.add("textures", {"sampler": sampler, "source": img})
+        return self.color_texture
+
     def primitives(self, faces_idx: Array, origin: Array, skinned: bool) -> list[dict[str, Any]]:
         """Primitives for a subset of faces (one per material), positions relative to `origin`."""
         p = self.b.painted
@@ -256,6 +273,9 @@ class _Writer:
                     for g, dec in zip(p.face_group[faces_idx], p.face_decal[faces_idx], strict=True)]  # fmt: skip
             face_color = [str(atlas.index(groups[g].color, groups[g].material)) if int(dec) < 0 else "" for g, dec in
                           zip(p.face_group[faces_idx], p.face_decal[faces_idx], strict=True)]  # fmt: skip
+        elif self.mapped:  # colours in the base colour map: one primitive per material preset (glowing ones keep their own)
+            presets = self.b.style.materials
+            keys = [k if k[3] >= 0 or presets.get(k[2], presets["default"]).emission > 0 else (WHITE, MAPPED, k[2], -1) for k in keys]
         elif self.vertex_colors:  # colours in the vertices: one primitive per material preset (fewer draw calls)
             presets = self.b.style.materials
             keys = [k if k[3] >= 0 or presets.get(k[2], presets["default"]).emission > 0 else (WHITE, "vertex", k[2], -1) for k in keys]
@@ -272,6 +292,8 @@ class _Writer:
             corners = p.faces[sel].reshape(-1)
             normals = self.b.normals[sel].reshape(-1, 3)
             colors = np.repeat(color_id[mask], 3).astype(float)[:, None]
+            if self.mapped and key[1] == MAPPED:  # the map carries the colours: no vertex split along colour borders
+                colors = np.zeros_like(colors)
             rows = np.concatenate([corners[:, None].astype(float), np.round(normals, 5), colors], axis=1)
             if self.face_uv is not None:  # projected UVs split vertices along their seams
                 rows = np.concatenate([rows, np.round(self.face_uv[sel].reshape(-1, 2), 6)], axis=1)
@@ -433,7 +455,8 @@ class _Writer:
 
 
 def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, vertex_colors: bool = False, atlas: AtlasUse | None = None,
-           origin: Array | None = None, merge_rigid: bool = False, normal_uri: str | None = None, ao: float = 0.0) -> bytes:
+           origin: Array | None = None, merge_rigid: bool = False, normal_uri: str | None = None, ao: float = 0.0,
+           color_uri: str | None = None) -> bytes:
     """`atlas`: one material from the palette textures it names (kiln.toml atlas = true); `swap` then only recolours
     decals (the palette texture carries the variant's colours). `ao`: without an atlas, the strength of the occlusion
     baked into COLOR_0 (a model with a normal map in an atlas project: its own materials, #148). `origin`: the model-space point at the glb's origin
@@ -442,7 +465,7 @@ def to_glb(built: Built, generator: str, swap: dict[str, str] | None = None, ver
     origin = built.origin() if origin is None else origin
     if merge_rigid and built.skin == "rigid":
         built = rigid_as_one(built)
-    return _Writer(built, swap or {}, generator, vertex_colors, atlas, origin, normal_uri, ao).write()
+    return _Writer(built, swap or {}, generator, vertex_colors, atlas, origin, normal_uri, ao, color_uri).write()
 
 
 def rigid_as_one(built: Built) -> Built:

@@ -39,7 +39,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 19  # bump when meshing/painting changes output
+BUILDER_VERSION = 20  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -367,7 +367,18 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
     owner = np.asarray(adding)[field_of(model, step).nearest(adding, centres)[0]] if adding else np.zeros(len(p.faces), np.int64)
     piece_of = {i: k for k, inc in enumerate(pieces) for i in inc}
     face_field = np.array([piece_of.get(int(i), -1) for i in owner], dtype=np.int64)  # hard parts: -1
-    return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength)
+    patches, on = None, []
+    if model.relief:  # patches over the faces of the parts each layer names (a face is its nearest adding part's)
+        from kiln import relief
+
+        ids = np.array([model.parts[int(i)].id for i in owner]) if adding else np.zeros(len(p.faces), dtype=str)
+        presets = built.style.materials
+        glows = np.array([presets.get(g.material, presets["default"]).emission > 0 for g in p.groups] or [False])[p.face_group]
+        soft = (face_field >= 0) & ~glows & (p.face_decal < 0)  # not hard parts, glowing materials (their own material) or decals
+        on = [np.isin(ids, layer.on) & soft for layer in model.relief]
+        patches = relief.scatter(p.vertices, p.faces, built.normals, on, model.relief)
+    return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
+                     np.array(on) if model.relief else None)  # fmt: skip
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],

@@ -1,0 +1,115 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/kiln/models/cub.glb" id="1_glb"]
+
+[sub_resource type="Shader" id="Shader_toon"]
+code = "shader_type spatial;
+render_mode specular_disabled;
+uniform vec4 albedo : source_color = vec4(1.0);
+uniform vec3 emission = vec3(0.0);
+uniform int bands = 3;
+uniform sampler2D normal_texture : hint_normal, filter_linear_mipmap_anisotropic;
+uniform sampler2D color_texture : source_color, filter_linear_mipmap_anisotropic, hint_default_white;
+void fragment() {
+	NORMAL_MAP = texture(normal_texture, UV).rgb;  // baked from the distance field (model normal_map)
+	ALBEDO = albedo.rgb * texture(color_texture, UV).rgb * COLOR.rgb;  // COLOR: white unless the glb has vertex colours (vertex_colors = true)
+	EMISSION = emission;
+}
+void light() {
+	float n = clamp((dot(NORMAL, LIGHT) + 0.15) / 1.15, 0.0, 0.999);
+	float lit = floor(n * float(bands)) / float(bands - 1);
+	DIFFUSE_LIGHT += vec3(lit) * ATTENUATION * LIGHT_COLOR * 0.9;
+}
+"
+
+[sub_resource type="Shader" id="Shader_outline"]
+code = "shader_type spatial;
+render_mode cull_front, unshaded;
+uniform float width = 0.012;
+uniform vec4 color : source_color = vec4(0.1, 0.08, 0.12, 1.0);
+void vertex() {
+	VERTEX += NORMAL * width;
+}
+void fragment() {
+	ALBEDO = color.rgb;
+}
+"
+
+[sub_resource type="GDScript" id="GDScript_apply"]
+script/source = "@tool
+extends Node3D
+# Written by `kiln build`: gives every surface the style's material (toon bands, outlines, rim light).
+@export var shader_kind := \"standard\"
+@export var toon_shader: Shader
+@export var outline_shader: Shader
+@export var bands := 3
+@export var outline := 0.0
+@export var outline_color := Color(0.1, 0.08, 0.12)
+@export var rims: Dictionary = {}
+@export var swap: Dictionary = {}  # variant: \"rrggbb\" (a material's colour, from its name) -> new colour
+
+# Materials are made once and shared by every instance (and every model) with the same source and settings.
+static var _shared: Dictionary = {}
+
+func _ready() -> void:
+	for node in find_children(\"*\", \"MeshInstance3D\", true, false):
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh == null:
+			continue
+		for i in mesh_instance.mesh.get_surface_count():
+			var source := mesh_instance.mesh.surface_get_material(i) as BaseMaterial3D
+			if source == null or mesh_instance.get_surface_override_material(i) != null:
+				continue  # the game's own override (a team colour set before add_child) wins
+			var albedo := source.albedo_color
+			var hex := source.resource_name.get_slice(\"#\", 1)
+			if swap.has(hex) and source.albedo_texture == null:
+				albedo = swap[hex]
+			var key := \"%d|%s|%s|%d|%s|%s|%s\" % [source.get_instance_id(), shader_kind, albedo.to_html(), bands, outline, outline_color.to_html(), rims]
+			if _shared.has(key):
+				mesh_instance.set_surface_override_material(i, _shared[key])
+				continue
+			var material: Material
+			if shader_kind == \"toon\":
+				var toon := ShaderMaterial.new()
+				toon.shader = toon_shader
+				toon.set_shader_parameter(\"albedo\", albedo)
+				toon.set_shader_parameter(\"emission\", Vector3(source.emission.r, source.emission.g, source.emission.b) * source.emission_energy_multiplier if source.emission_enabled else Vector3.ZERO)
+				toon.set_shader_parameter(\"bands\", bands)
+				if source.albedo_texture != null:
+					toon.set_shader_parameter(\"color_texture\", source.albedo_texture)
+				if source.normal_enabled and source.normal_texture != null:
+					toon.set_shader_parameter(\"normal_texture\", source.normal_texture)
+				material = toon
+			else:
+				var standard := source.duplicate() as BaseMaterial3D
+				standard.albedo_color = albedo
+				if mesh_instance.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_COLOR:
+					standard.vertex_color_use_as_albedo = true  # vertex_colors = true: glTF colours are linear
+				if source.emission_enabled and swap.has(hex):
+					standard.emission = albedo
+				var rim: float = rims.get(source.resource_name.get_slice(\"_\", 0), 0.0)
+				if rim > 0.0:
+					standard.rim_enabled = true
+					standard.rim = rim
+					standard.rim_tint = 0.6
+				material = standard
+			if outline > 0.0:
+				var edge := ShaderMaterial.new()
+				edge.shader = outline_shader
+				edge.set_shader_parameter(\"width\", outline)
+				edge.set_shader_parameter(\"color\", outline_color)
+				material.next_pass = edge
+			_shared[key] = material
+			mesh_instance.set_surface_override_material(i, material)
+"
+
+[node name="cub" instance=ExtResource("1_glb")]
+script = SubResource("GDScript_apply")
+shader_kind = "standard"
+toon_shader = SubResource("Shader_toon")
+outline_shader = SubResource("Shader_outline")
+bands = 3
+outline = 0
+outline_color = Color(0.101961, 0.0784314, 0.12549, 1)
+rims = {"skin": 0.2}
+metadata/kiln_style = "soft_toy"

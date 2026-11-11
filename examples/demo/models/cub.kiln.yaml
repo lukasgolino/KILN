@@ -1,0 +1,84 @@
+name: cub
+description: bear cub mascot with relief fur (patches in the baked maps, not parts)
+class: character
+tags: [mascot]
+status: draft
+style_version: 1
+normal_map: 1024
+parts:
+  - ellipsoid: { at: [0, 0.42, 0], radii: [0.27, 0.3, 0.23] }
+    id: body
+    color: bark
+    material: fabric
+  - ellipsoid: { at: [0, 0.4, 0.13], radii: [0.17, 0.2, 0.12] }
+    id: belly
+    color: rope
+    material: fabric
+    blend: 0.05
+  - sphere: { at: [0, 0.86, 0.02], radius: 0.24 }
+    id: head
+    color: bark
+    material: fabric
+    blend: 0.04
+  - ellipsoid: { at: [0, 0.81, 0.21], radii: [0.11, 0.085, 0.09] }
+    id: snout
+    color: rope
+    material: fabric
+    blend: 0.03
+  - ellipsoid: { at: [0, 0.85, 0.3], radii: [0.04, 0.028, 0.025] }
+    id: nose
+    color: black
+    material: plastic
+  - sphere: { at: [0.09, 0.93, 0.21], radius: 0.026 }
+    id: eye_l
+    mirror: x
+    mirror_id: eye_r
+    color: black
+    material: plastic
+  - sphere: { at: [0.17, 1.06, 0], radius: 0.075 }
+    id: ear_l
+    mirror: x
+    mirror_id: ear_r
+    color: bark
+    material: fabric
+    blend: 0.02
+  - capsule: { from: [0.27, 0.56, 0.02], to: [0.36, 0.27, 0.06], radius: 0.075 }
+    id: arm_l
+    mirror: x
+    mirror_id: arm_r
+    color: bark
+    material: fabric
+    blend: 0.04
+  - capsule: { from: [0.13, 0.2, 0.02], to: [0.14, 0.097, 0.04], radius: 0.095 }
+    id: leg_l
+    mirror: x
+    mirror_id: leg_r
+    color: bark
+    material: fabric
+    blend: 0.04
+relief:
+  - on: [body, arm_l, arm_r, leg_l, leg_r]   # long fur on the body and limbs
+    length: 0.08
+    width: 0.045
+    lift: 0.007
+    density: 1.6
+    color: bark
+    color_to: wood
+    under: 0.4
+  - on: [head, ear_l, ear_r]                 # shorter on the head
+    length: 0.045
+    width: 0.03
+    lift: 0.004
+    density: 1.5
+    color: bark
+    color_to: wood
+    fade: 0.04
+  - on: [belly, snout]                       # short pale fur, thinning toward its edge
+    length: 0.04
+    width: 0.03
+    lift: 0.003
+    density: 1.4
+    under: 0.25
+    fade: 0.05
+variants:
+  polar: { swap: { bark: stone, wood: white, rope: white } }
