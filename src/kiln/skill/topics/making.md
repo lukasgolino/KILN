@@ -137,3 +137,27 @@ relief:
   `normal_strength` scales the layer's shading with the rest of the map. `preview --draft` shows no relief.
 - The model's colours are then in `<name>.color.png` on the normal map's UVs (one material per preset; a variant has
   its own map and glb). Manifest: `color_map` (`png`, `size`, `patches`). Example: `examples/demo/models/cub.kiln.yaml`.
+
+## Soft colour borders: `color_blend`
+
+A part's colour meets its neighbours' in a crisp border by default. `color_blend: 0.05` on a part (metres, 0 to
+0.5) fades its colour into theirs over that distance either side of the border: a pale belly or muzzle melting into
+the fur, a tan chest, a sunburnt nose.
+
+```yaml
+  - ellipsoid: { at: [0, 0.4, 0.13], radii: [0.17, 0.2, 0.12] }
+    id: belly
+    color: rope
+    blend: 0.05
+    color_blend: 0.04    # the wider of two neighbours' values is used on their border
+```
+
+- The fade is painted in the base colour map (the same map relief uses, `<name>.color.png`; it comes on with a 1024
+  map unless `normal_map:` sets the size; needs `kiln-gen[bake]`; under `atlas = true` the model leaves the atlas).
+  The mesh and its border don't change. `preview --draft` shows no fade.
+- A border fades when one of its two parts asks and the later of them joins the other with a `blend`: a nose or an
+  eye set on with a crisp seam (`blend: 0`) stays sharp next to a fading muzzle. The wider of the two values is used.
+- Colours mix in OKLab, half and half on the border, toward what the neighbour looks like (its fur, if it has
+  relief). A part's own pattern stripes and gradient bands stay crisp.
+- Borders with hard parts, glowing materials and decals stay crisp. Lint W127: a `color_blend` that fades nothing.
+- Where three colours meet, each point fades toward the nearest border only.

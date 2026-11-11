@@ -39,7 +39,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 20  # bump when meshing/painting changes output
+BUILDER_VERSION = 22  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -341,6 +341,15 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     return built
 
 
+def soft_faces(built: Built, face_field: Array) -> Array:
+    """The faces relief and colour fades may touch: not hard parts, glowing materials (they keep their own material)
+    or decals."""
+    p = built.painted
+    presets = built.style.materials
+    glows = np.array([presets.get(g.material, presets["default"]).emission > 0 for g in p.groups] or [False])[p.face_group]
+    return np.asarray((face_field >= 0) & ~glows & (p.face_decal < 0))
+
+
 def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int], size: int) -> Any:
     """The model's normal map. Each face is baked with its own piece's field, as it was meshed (a separate helmet's
     opening, a bone's own surface), plus the detail parts: those with the id of one of the piece's parts, and every
@@ -372,13 +381,38 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
         from kiln import relief
 
         ids = np.array([model.parts[int(i)].id for i in owner]) if adding else np.zeros(len(p.faces), dtype=str)
-        presets = built.style.materials
-        glows = np.array([presets.get(g.material, presets["default"]).emission > 0 for g in p.groups] or [False])[p.face_group]
-        soft = (face_field >= 0) & ~glows & (p.face_decal < 0)  # not hard parts, glowing materials (their own material) or decals
+        soft = soft_faces(built, face_field)
         on = [np.isin(ids, layer.on) & soft for layer in model.relief]
         patches = relief.scatter(p.vertices, p.faces, built.normals, on, model.relief)
+    fading = None
+    if adding and any(model.parts[i].color_blend > 0 for i in adding):  # colours that fade across part borders (#230)
+        from kiln.fade import Fade
+
+        hues: dict[str, int] = {}
+        colour = np.array([hues.setdefault(g.color, len(hues)) for g in p.groups])[p.face_group]
+        edges = np.sort(np.concatenate([p.faces[:, [0, 1]], p.faces[:, [1, 2]], p.faces[:, [2, 0]]]), axis=1)
+        face_of = np.tile(np.arange(len(p.faces)), 3)
+        order = np.lexsort((face_of, edges[:, 1], edges[:, 0]))
+        edges, face_of = edges[order], face_of[order]
+        pair = np.flatnonzero((edges[1:] == edges[:-1]).all(axis=1))  # an edge and its twin, next to each other
+        f1, f2 = face_of[pair], face_of[pair + 1]
+        asked = np.array([part.color_blend for part in model.parts])
+        joins = np.array([part.geometry.blend for part in model.parts])
+        reach = np.maximum(asked[owner[f1]], asked[owner[f2]])  # the wider of the two parts' fades ...
+        smooth = joins[np.maximum(owner[f1], owner[f2])] > 0  # ... where the later part blends into the earlier (a crisp seam stays crisp)
+        plain = soft_faces(built, face_field)
+        keep = (colour[f1] != colour[f2]) & (owner[f1] != owner[f2]) & (reach > 0) & smooth & plain[f1] & plain[f2]
+        if keep.any():
+            f1, f2 = f1[keep], f2[keep]
+            tri = p.vertices[p.faces]
+            face_normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+            face_normal /= np.maximum(np.linalg.norm(face_normal, axis=1, keepdims=True), 1e-18)
+            normal = face_normal[f1] + face_normal[f2]
+            normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-18)
+            fading = Fade(p.vertices[edges[pair[keep]]], np.stack([p.face_group[f1], p.face_group[f2]], axis=1),
+                          np.stack([owner[f1], owner[f2]], axis=1), normal, reach[keep], owner)  # fmt: skip
     return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
-                     np.array(on) if model.relief else None)  # fmt: skip
+                     np.array(on) if model.relief else None, fading)  # fmt: skip
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],

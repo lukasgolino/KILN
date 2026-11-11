@@ -48,6 +48,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `color` | palette colour name (required for adding parts) |
 | `material` | style preset: default, plastic, paint, fabric, skin, leather, rubber, wood, stone, metal, gold, leaf, glass, glow |
 | `blend` | smooth-union radius in metres with everything before it (cuts/intersects: smooth edge) |
+| `color_blend` | metres its colour fades into blended neighbours' (`making`) |
 | `cut: true` | remove this shape from everything before it (holes, slits, windows, eye sockets) |
 | `intersect: true` | keep only what's inside this shape (trim) |
 | `mirror: x` | also on the other side of 0 (x, y, z or a list); same id |
@@ -58,7 +59,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `shell: { thickness: 0.02, open: -y }` | a wall inside the surface (the outside stays put), one side cut open at the shape's centre: helmets, bowls, pots, shields with a visible rim (`side: both` centres it) |
 | `fit: head` or `fit: { to: head, gap: 0.01 }` | with `shell`: the wall wraps the parts with that id, `gap` away from them, wherever this part's own shape reaches (its shape is the coverage: a sphere around the head, `open: -y` and placed low enough to cover the cheeks). Helmets that sit on the head instead of perching on it; cut a face opening after it (before the head, so the cut doesn't take the face) |
 | `twist: 90` | degrees per metre about the shape's y axis |
-| `blend_to: torso` (or a list of ids) | with `blend`: melt only into those earlier parts, meet every other part crisply: fur locks that melt into the body but keep a groove between each other. If this part has `mirror_id`, its copy melts into the mirrored ids (name one side); with plain `mirror`, name both |
+| `blend_to: torso` (or a list of ids) | with `blend`: melt only into those earlier parts, meet every other part crisply. If this part has `mirror_id`, its copy melts into the mirrored ids (name one side); with plain `mirror`, name both |
 | `detail: true` | only in the model's baked normal map (`normal_map:`), never in the mesh: grooves between fur strands (a thin `cut: true` tube), wrinkles, knuckle creases, scratches, fine `noise` on a coarse, light mesh. Lint W121: no map, or thinner than two texels. A texel is about sqrt(2 x surface area) / map size (a 2.4 m character, about 4 m² of surface, at 2048: ~1.5 mm): grooves read when about 4 texels wide or more; finer ones blur out (each texel is filtered), and deep narrow ones make bright specular lines: shallower and wider, or `normal_strength: 0.5` |
 | `scale: [1, 1, 0.4]` | stretch the shape in its own frame (or one number); soft parts only |
 | `noise: { amount: 0.01, scale: 0.2, seed: 3 }` | lumpy surface (rocks, bark, clay): amount in metres, scale = bump size. Colour borders with other parts follow the smooth shapes, so a patch on a noisy part keeps a clean edge |

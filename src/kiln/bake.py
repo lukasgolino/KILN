@@ -40,22 +40,27 @@ class Layers:
     shade: Array  # uint8: 255 x the colour multiplier (darker under tips)
     colors: list[tuple[str | None, str | None]]  # per relief entry: (root colour, tip colour) hex; None: the surface's own
     patches: list[int] = dataclass_field(default_factory=list)  # how many patches each relief entry has
+    other: Array | None = None  # uint16: the paint group whose colour the texel fades toward (part color_blend); None: no fades
+    mix: Array | None = None  # uint8: 255 x how much of that colour (0..0.5)
 
     def __getstate__(self) -> dict[str, Any]:  # in the mesh cache: mostly runs of one value, so packed (84 MB -> a few at 4096)
         state = dict(self.__dict__)
-        for k in ("group", "entry", "along", "shade"):
+        for k in PACKED:
             a = state[k]
-            state[k] = (a.shape, a.dtype.str, zlib.compress(np.ascontiguousarray(a).tobytes(), 1))
+            if a is not None:
+                state[k] = (a.shape, a.dtype.str, zlib.compress(np.ascontiguousarray(a).tobytes(), 1))
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
-        for k in ("group", "entry", "along", "shade"):
-            shape, dtype, data = state[k]
-            state[k] = np.frombuffer(zlib.decompress(data), dtype=dtype).reshape(shape).copy()
+        for k in PACKED:
+            if state.get(k) is not None:
+                shape, dtype, data = state[k]
+                state[k] = np.frombuffer(zlib.decompress(data), dtype=dtype).reshape(shape).copy()
         self.__dict__.update(state)
 
 
 NO_GROUP = 65535
+PACKED = ("group", "entry", "along", "shade", "other", "mix")  # the per-texel arrays of Layers
 
 
 @dataclass
@@ -86,10 +91,19 @@ class Bake:
         lay = self.layers
         filled = lay.group != NO_GROUP
         table = np.array([list(srgb_to_linear(swap.get(c, c))) for c in group_colors] or [[1.0, 1.0, 1.0]])
-        base = table[np.minimum(lay.group[filled].astype(np.int64), len(table) - 1)]
+        own = np.minimum(lay.group[filled].astype(np.int64), len(table) - 1)
         stamped = relief.Stamp(np.zeros(0), lay.shade[filled] / 255.0, lay.entry[filled].astype(np.int64), lay.along[filled] / 255.0)
         colors = [(swap.get(a, a) if a else a, swap.get(b, b) if b else b) for a, b in lay.colors]
-        linear = relief.colour(stamped, base, colors)
+        linear = relief.colour(stamped, table[own], colors)
+        if lay.other is not None and lay.mix is not None:  # colours fading across part borders: mixed in OKLab, fur and all
+            w = lay.mix[filled] / 255.0
+            fading = np.flatnonzero(w > 0)
+            toward = np.minimum(lay.other[filled][fading].astype(np.int64), len(table) - 1)
+            # toward what the neighbour looks like, fur and all: the mean colour of its group's texels (not its bare paint)
+            count = np.maximum(np.bincount(own, minlength=len(table)), 1)[:, None]
+            seen = np.stack([np.bincount(own, weights=linear[:, c], minlength=len(table)) for c in range(3)], axis=1) / count
+            there = _oklab(seen)[toward]
+            linear[fading] = _from_oklab(_oklab(linear[fading]) * (1 - w[fading, None]) + there * w[fading, None])
         srgb = np.where(linear <= 0.0031308, linear * 12.92, 1.055 * np.maximum(linear, 1e-12) ** (1 / 2.4) - 0.055)
         image = np.zeros((self.size, self.size, 3), dtype=np.uint8)
         image[filled] = np.round(srgb * 255).clip(0, 255).astype(np.uint8)
@@ -245,7 +259,8 @@ SUPERSAMPLE = ((-0.25, -0.25), (0.25, -0.25), (-0.25, 0.25), (0.25, 0.25))  # te
 
 
 def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, normals: Array, size: int, step: float,
-         strength: float = 1.0, patches: Any = None, face_group: Array | None = None, face_on: Array | None = None) -> Bake:  # fmt: skip
+         strength: float = 1.0, patches: Any = None, face_group: Array | None = None, face_on: Array | None = None,
+         fade: Any = None) -> Bake:  # fmt: skip
     """Unwrap the mesh and bake into its tangent frames the normals of each face's own field (`face_field`: an index
     into `fields`, -1: the mesh normal as it is, e.g. exact hard parts). Each texel is filtered (#125): the normals
     at four points a quarter texel around its centre, averaged, each with a gradient step of half a texel, so detail
@@ -253,7 +268,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     away from the mesh normal (model normal_strength: 0.5 halves it). `patches` (kiln.relief.Patches, with each
     face's paint group in `face_group` and the faces each relief entry covers in `face_on` (entries, F)): a relief
     layer over the surface, tilting the map by the slope of its height (scaled by `strength` too) and kept per texel
-    in `Bake.layers` for the base colour map."""
+    in `Bake.layers` for the base colour map. `fade` (kiln.fade.Fade): colours fading across part borders, kept in
+    the layers too."""
     uv, fit = unwrap(vertices, faces, size)
     width = height = size
     tan = tangents(vertices, faces, uv, normals)
@@ -270,6 +286,7 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     face, texel, bary = face[keep], texel[keep], bary[keep]
     out = np.zeros((width * height, 3), dtype=np.float32)
     out[:, 2] = 1.0
+    fades: list[tuple[Array, ...]] = []  # texels near a colour border: (texel, point, face, normal)
     reliefs: list[tuple[Array, ...]] = []  # texels a patch may touch: (texel, point, normal, tangent, up, metres per texel, face)
     owner = np.asarray(face_field)[face]
     for k, field in enumerate(fields):
@@ -300,15 +317,26 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
             local[:, 2] = np.maximum(local[:, 2], 0.05)  # never facing away from the surface
             local /= np.linalg.norm(local, axis=1, keepdims=True)
             out[texel[rows]] = local
+            if fade is not None:
+                near = fade.touches(centre) & (off <= step)
+                fades.append((texel[rows][near], centre[near], f[near], n[near]))
             if patches is not None and len(patches):
                 near = patches.touches(centre) & (off <= step)
                 reliefs.append((texel[rows][near], centre[near], n[near], t[near], up[near], size_m[near], f[near]))
     filled = np.zeros(width * height, dtype=bool)
     filled[texel] = True
     layers = None
-    if patches is not None and face_group is not None:
+    if (patches is not None or fade is not None) and face_group is not None:
         layers = _relief(patches, reliefs, out, face_group[face], texel, width * height, strength, face_on)
-        layers = replace(layers, **{k: getattr(layers, k).reshape(height, width) for k in ("group", "entry", "along", "shade")})
+        if fade is not None:
+            layers.other = np.zeros(width * height, dtype=np.uint16)
+            layers.mix = np.zeros(width * height, dtype=np.uint8)
+            if fades:
+                tex, point, fface, fnormal = (np.concatenate([r[k] for r in fades]) for k in range(4))
+                toward, weight = fade.mix(point, fface, fnormal)
+                layers.other[tex] = toward.astype(np.uint16)
+                layers.mix[tex] = np.round(weight * 255).astype(np.uint8)
+        layers = replace(layers, **{k: getattr(layers, k).reshape(height, width) for k in PACKED if getattr(layers, k) is not None})
     image = np.round((out * 0.5 + 0.5) * 255).clip(0, 255).astype(np.uint8).reshape(height, width, 3)
     del out
     image = _grow(image, filled.reshape(height, width), GROW)
@@ -325,11 +353,12 @@ def _relief(patches: Any, reliefs: list[tuple[Array, ...]], out: Array, group: A
     patches touch only texels of the faces it covers (`face_on`)."""
     from kiln import relief
 
+    colors = list(patches.colors) if patches is not None else []
     lay = Layers(np.full(count, NO_GROUP, dtype=np.uint16), np.full(count, -1, dtype=np.int8), np.zeros(count, dtype=np.uint8),
-                 np.full(count, 255, dtype=np.uint8), list(patches.colors),
-                 [int((patches.entry == k).sum()) for k in range(len(patches.colors))])  # fmt: skip
+                 np.full(count, 255, dtype=np.uint8), colors,
+                 [int((patches.entry == k).sum()) for k in range(len(colors))])  # fmt: skip
     lay.group[texel] = np.minimum(group, NO_GROUP - 1).astype(np.uint16)
-    if not reliefs or not len(patches):
+    if patches is None or not reliefs or not len(patches):
         return lay
     tex, point, normal, tangent, up, metres, face = (np.concatenate([r[k] for r in reliefs]) for k in range(7))
     d = metres[:, None]
@@ -346,6 +375,22 @@ def _relief(patches: Any, reliefs: list[tuple[Array, ...]], out: Array, group: A
     lay.along[tex] = np.round(stamped.along * 255).astype(np.uint8)
     lay.shade[tex] = np.round(stamped.shade * 255).astype(np.uint8)
     return lay
+
+
+def _oklab(linear: Array) -> Array:
+    """Linear RGB (N, 3) -> OKLab."""
+    lms = np.cbrt(linear @ np.array([[0.4122214708, 0.2119034982, 0.0883024619], [0.5363325363, 0.6806995451, 0.2817188376],
+                                     [0.0514459929, 0.1073969566, 0.6299787005]]))  # fmt: skip
+    return np.asarray(lms @ np.array([[0.2104542553, 1.9779984951, 0.0259040371], [0.7936177850, -2.4285922050, 0.7827717662],
+                                      [-0.0040720468, 0.4505937099, -0.8086757660]]))  # fmt: skip
+
+
+def _from_oklab(lab: Array) -> Array:
+    """OKLab (N, 3) -> linear RGB, clipped to the gamut."""
+    lms = (lab @ np.array([[1.0, 1.0, 1.0], [0.3963377774, -0.1055613458, -0.0894841775], [0.2158037573, -0.0638541728, -1.2914855480]])) ** 3
+    rgb = lms @ np.array([[4.0767416621, -1.2684380046, -0.0041960863], [-3.3077115913, 2.6097574011, -0.7034186147],
+                          [0.2309699292, -0.3413193965, 1.7076147010]])  # fmt: skip
+    return np.asarray(np.clip(rgb, 0.0, 1.0))
 
 
 def _grow(image: Array, filled: Array, steps: int, empty: tuple[int, int, int] = FLAT) -> Array:

@@ -15,6 +15,7 @@ parts:
     color: rope
     material: fabric
     blend: 0.05
+    color_blend: 0.04     # the pale fur fades into the brown
   - sphere: { at: [0, 0.86, 0.02], radius: 0.24 }
     id: head
     color: bark
@@ -25,6 +26,7 @@ parts:
     color: rope
     material: fabric
     blend: 0.03
+    color_blend: 0.025
   - ellipsoid: { at: [0, 0.85, 0.3], radii: [0.04, 0.028, 0.025] }
     id: nose
     color: black
