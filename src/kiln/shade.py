@@ -62,17 +62,18 @@ def effective(built: Built, atlas_ao: float = 0.0) -> Shade:
 
 
 def shading(built: Built, atlas_ao: float = 0.0) -> Array | None:
-    """(V,) multipliers in (0, 1] per painted vertex (unused vertices get 1), or None when the model has no shade."""
-    from kiln.atlas import ambient_occlusion, vertex_normals
+    """(F, 3) multipliers in (0, 1] per face corner, or None when the model has no shade. Per corner, not per vertex:
+    `top` and `under` follow the corner's normal, so a hard edge keeps a flat top at its colour right to the edge."""
+    from kiln.atlas import ambient_occlusion
 
     shade = effective(built, atlas_ao)
     if not shade.on:
         return None
-    mult = ambient_occlusion(built, shade.cavity) if shade.cavity > 0 else np.ones(len(built.painted.vertices))
+    faces = built.painted.faces
+    mult = ambient_occlusion(built, shade.cavity)[faces] if shade.cavity > 0 else np.ones(faces.shape)
     if shade.top > 0 or shade.under > 0:
-        used = np.unique(built.painted.faces)
-        ny = vertex_normals(built)[used, 1]
-        mult[used] *= (1.0 - shade.top * (1.0 - np.maximum(ny, 0.0))) * (1.0 - shade.under * np.maximum(-ny, 0.0))
+        ny = built.normals[..., 1] / np.maximum(np.linalg.norm(built.normals, axis=2), 1e-12)
+        mult = mult * (1.0 - shade.top * (1.0 - np.maximum(ny, 0.0))) * (1.0 - shade.under * np.maximum(-ny, 0.0))
     return np.round(mult, 4)
 
 

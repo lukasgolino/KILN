@@ -8,9 +8,6 @@ before 1.0).
 
 ### Fixed
 
-- `atlas_ao` on a normal-map model in a project with `vertex_colors = true` replaced its vertex colours with the grey
-  multiplier; the colours are now multiplied by it.
-
 - `normal_map: 2048` wrote a 2140x2138 texture: the packer's atlas came out up to 10% over the size asked for and
   was written as it was. The map is now exactly the size asked for, square, with the charts and their padding
   inside it (packed again at a lower texel density until they fit). Texel density changes with it: about 20% lower

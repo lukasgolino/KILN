@@ -158,10 +158,10 @@ def detach(built: Built, size: int = 220) -> Image.Image:
 
 
 def _merged_ao(builts: list[Built]) -> Array | None:
-    """The occlusion of meshes merged in this order (builder._merge: vertices concatenated); None if none has any."""
+    """The shade of meshes merged in this order (builder._merge: faces concatenated); None if none has any."""
     if all(b.ao is None for b in builts):
         return None
-    return np.concatenate([b.ao if b.ao is not None else np.ones(len(b.painted.vertices)) for b in builts])
+    return np.concatenate([b.ao if b.ao is not None else np.ones(b.painted.faces.shape) for b in builts])
 
 
 def fitted(built: Built, size: int = 240) -> Image.Image:
@@ -466,8 +466,8 @@ def corner_colors(built: Built, swap: dict[str, str] | None = None) -> Array:
     swap = swap or {}
     table = np.array([srgb_to_linear(swap.get(g.color, g.color)) for g in built.painted.groups])
     out = np.repeat(table[built.painted.face_group][:, None, :], 3, axis=1)
-    if built.ao is not None:  # baked occlusion (atlas_ao), as the engine shows it
-        out = out * built.ao[built.painted.faces][:, :, None]
+    if built.ao is not None:  # shade paint / occlusion per corner, as the engine shows it
+        out = out * built.ao[:, :, None]
     return out
 
 

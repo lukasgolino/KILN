@@ -23,7 +23,7 @@ parts:
 def test_render_multiplies_in_the_baked_occlusion(project: Project) -> None:
     built = lint_paths(project, [write_model(project, NOOK)]).built["thing"]
     plain = np.asarray(render(built, View(30, 20), 96)).astype(float)
-    built.ao = ambient_occlusion(built, 0.65)
+    built.ao = ambient_occlusion(built, 0.65)[built.painted.faces]
     shaded = np.asarray(render(built, View(30, 20), 96)).astype(float)
     lit = plain[..., 3] > 0
     assert shaded[lit][:, :3].mean() < plain[lit][:, :3].mean() - 0.2  # the nook darkens
@@ -48,6 +48,6 @@ def test_fitted_and_effect_merges_carry_the_occlusion(project: Project) -> None:
 
     built = lint_paths(project, [write_model(project, NOOK)]).built["thing"]
     assert _merged_ao([built, built]) is None
-    built.ao = ambient_occlusion(built, 0.5)
+    built.ao = ambient_occlusion(built, 0.5)[built.painted.faces]
     merged = _merged_ao([built, built])
-    assert merged is not None and len(merged) == 2 * len(built.painted.vertices)
+    assert merged is not None and len(merged) == 2 * len(built.painted.faces)

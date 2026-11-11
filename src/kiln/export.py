@@ -43,7 +43,7 @@ class Built:
     lost: tuple[int, ...] = ()  # adding parts visible at full resolution that decimation removed (lint W111)
     asked_step: float = 0.0  # the mesh step the style or model asked for; above it, the grid cap decided `step` (lint W120)
     step_reason: str = ""  # why `step` is what it is, in words (kiln lint / build print it)
-    ao: Array | None = None  # per vertex: shade paint / baked occlusion (kiln.shade) the previews multiply in, as the engine does
+    ao: Array | None = None  # (F, 3) per corner: shade paint / baked occlusion (kiln.shade) the previews multiply in, as the engine does
     bake: Any = None  # kiln.bake.Bake: the normal map with its UVs and tangents (model normal_map)
     motion_key: str = ""  # what `tracks` were made from (builder.motion_key): a cached build re-samples them when it changes
 
@@ -306,6 +306,9 @@ class _Writer:
             decal_col = rows.shape[1]
             if key[3] >= 0 and p.decals[key[3]].project != "planar":  # a texture's UVs per corner: split along its seam
                 rows = np.concatenate([rows, np.round(corner_uv(p.decals[key[3]], p.vertices[p.faces[sel]]).reshape(-1, 2), 6)], axis=1)
+            ao_col = rows.shape[1]
+            if self.ao is not None:  # the shade multiplier per corner (it only differs where the normal does: no new splits)
+                rows = np.concatenate([rows, self.ao[sel].reshape(-1, 1)], axis=1)
             attr_col = rows.shape[1]
             for name in self.face_attr:  # and attributes along part borders
                 rows = np.concatenate([rows, np.repeat(self.face_attr[name][sel], 3)[:, None]], axis=1)
@@ -328,7 +331,7 @@ class _Writer:
                 assert self.atlas is not None
                 attributes["TEXCOORD_0"] = self.doc.accessor(self.atlas.atlas.uvs(unique[:, 4]).astype(np.float32), target=ARRAY_BUFFER)
             if self.ao is not None:  # shade / occlusion: a multiplier (glTF multiplies COLOR_0 into the base colour), x the colours
-                shade = np.repeat(self.ao[vidx][:, None], 3, axis=1).astype(np.float32)
+                shade = np.repeat(unique[:, ao_col : ao_col + 1], 3, axis=1).astype(np.float32)
                 color = shade if color is None else (color * shade).astype(np.float32)
                 if not self.face_attr:
                     attributes["COLOR_0"] = self.doc.accessor(color, target=ARRAY_BUFFER)

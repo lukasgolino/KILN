@@ -83,12 +83,15 @@ top = 0.12                     # the top keeps its colour; sides darker by this,
 under = 0.1                    # undersides darker still
 ```
 
-**Shade paint** is the hand-painted look: dark crevices, bright tops, shaded bellies, in any colour mode. It is a
-grey multiplier per vertex in COLOR_0 (glTF multiplies it into the base colour; KILN's Godot scenes and the previews
+**Shade paint** is the hand-painted look: dark crevices, tops at full colour, shaded sides and bellies, in any colour
+mode. It is a grey multiplier per vertex corner in COLOR_0 (glTF multiplies it into the base colour; KILN's Godot scenes and the previews
 use it), so it follows the mesh's resolution. A model's `shade: { cavity: 0.3 }` goes over its style's fields. Vertex
 colours can't go above 1, so `top` darkens everything that doesn't face up rather than lighten the top: pick base
 colours for the lit top. Typical: `cavity` 0.2-0.4 for creatures and props with grooves, `top` 0.1-0.15, `under`
-0.1. Without the atlas `atlas_ao` doesn't apply; `shade.cavity` is the same occlusion.
+0.1. Without the atlas `atlas_ao` doesn't apply; `shade.cavity` is the same occlusion. Gibs get their own shade, from the piece's own shape (a
+crevice where it was attached is open once it comes off). With `vertex_colors = true` and `variant_glbs = false`,
+COLOR_0 holds the colours times the shade, so an engine recolouring from the manifest's `swap` table matches by
+colour within a tolerance, or turns `variant_glbs` on (each variant its own shaded glb).
 
 Every toon key is off by default (today's plain cel look). Wind Waker / Sable-style: `toon_softness = 0.2`,
 `toon_shadow_color` a cool mid tone, `toon_specular = 0.6` on glossy materials, `toon_shadows = "band"`,
