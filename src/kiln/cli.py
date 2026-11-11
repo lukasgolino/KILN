@@ -37,8 +37,8 @@ SETTINGS = {
     "style_version": "the look's version; models made under an older one are flagged (W107)",
     "variant_glbs": "true: a .glb per variant; false: variants are swap tables (Godot: <name>.<variant>.tscn recolours the base)",
     "vertex_colors": "true: colours in the vertices, one surface per material preset (fewer draw calls); needs variant_glbs",
-    "atlas": "true: one material per model (palette textures; variants swap the texture): 1 surface, 2 with decals",
-    "atlas_ao": "true or a strength 0..1 (with atlas): bake ambient occlusion into the vertex colours",
+    "atlas": "true: one material per model (palette textures; variants swap the texture): 1 surface, 2 with decals; not normal_map models",
+    "atlas_ao": "true or a strength 0..1 (with atlas): bake ambient occlusion into the vertex colours (normal_map models too)",
 }
 
 
@@ -588,13 +588,14 @@ def _compare(project: Project, built: Any, ref_path: Path, ref_height: float | N
     except (ImportError_, ValueError, KeyError, IndexError, OSError) as exc:
         raise _usage(f"can't read {ref_path}: {exc}") from None
     atlas = None
-    if project.config.atlas:  # count what `kiln build` writes: with the atlas, one material (file names don't matter here)
+    ao = project.config.atlas_ao if built.bake is not None else 0.0
+    if project.config.atlas and built.bake is None:  # count what `kiln build` writes: with the atlas, one material (file names don't matter here)
         from kiln.atlas import AtlasUse, layout
 
         cells = layout([built])
         glow = cells.glow_strength(built)
         atlas = AtlasUse(cells, "palette.png", "material.png", "glow.png" if glow > 0 else None, project.config.atlas_ao, glow)
-    counts = gltf_counts(to_glb(built, "kiln", None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid))
+    counts = gltf_counts(to_glb(built, "kiln", None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid, ao=ao))
     metrics = {"file": display_path(ref_path), "ref_height": ref_height, **pv.compare(built, ref, counts, ref_counts, ref_joints)}
     path = folder / f"vs_{ref_path.stem}.png"
     pv.versus_reference(built, ref, metrics, ref_path.name).save(path)

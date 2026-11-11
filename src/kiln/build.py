@@ -487,7 +487,9 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         lod_builts = [(k, budget, build_cached(model, style, palette, cache, budget)) for k, budget in enumerate(model.lod, start=1) if budget < built.triangles]
         atlas: AtlasUse | None = None
         atlas_files: dict[str, dict[str, str]] = {}  # "" (base) or variant -> texture kind -> path in models/
-        if project.config.atlas:  # one layout for the model and its LODs; a texture set per variant
+        # a model with a normal map keeps its own materials (Godot samples the palette and the normal map on the same UVs)
+        ao = project.config.atlas_ao if built.bake is not None else 0.0  # ... and still gets the occlusion (#148)
+        if project.config.atlas and built.bake is None:  # one layout for the model and its LODs; a texture set per variant
             cells = layout([built, *(b for _, _, b in lod_builts)])
             glow = cells.glow_strength(built)
             for vname, swap in [("", {}), *sorted(model.variants.items())]:
@@ -508,7 +510,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         if normal_png is not None:
             write(out / "models" / normal_png, built.bake.png)
         glb_data = to_glb(built, generator, None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid,
-                          normal_uri=normal_png)  # fmt: skip
+                          normal_uri=normal_png, ao=ao)  # fmt: skip
         write(glb, glb_data)
         merged = project.config.merge_rigid and built.skin == "rigid"
         entry = model_entry(built, out, glb, merged)
@@ -536,6 +538,9 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         names = attr_names(built)
         if names:  # per-vertex numbers (parts' attr:): custom glTF attributes, the first also in COLOR_0's alpha
             entry["attributes"] = {name: {"gltf": f"_{name.upper()}", "color_alpha": k == 0} for k, name in enumerate(names)}
+        if ao > 0:  # outside the atlas (a normal map), with its occlusion: COLOR_0 is a grey multiplier
+            entry["ao"] = True
+            entry["ao_strength"] = _f(ao)
         if atlas is not None:
             entry["atlas"] = atlas_entry(atlas.atlas, {k: f"models/{v}" for k, v in sorted(atlas_files[""].items())}, atlas.ao)
         variants: dict[str, dict[str, Any]] = {}
@@ -548,7 +553,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             if project.config.variant_glbs:
                 vpath = out / "models" / f"{name}.{vname}.glb"
                 write(vpath, to_glb(built, generator, swap, project.config.vertex_colors, vatlas, merge_rigid=project.config.merge_rigid,
-                                    normal_uri=normal_png))  # fmt: skip
+                                    normal_uri=normal_png, ao=ao))  # fmt: skip
                 variants[vname]["glb"] = vpath.relative_to(out).as_posix()
         if variants:
             entry["variants"] = variants
@@ -567,7 +572,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             if lod_png is not None:
                 write(out / "models" / lod_png, lod_built.bake.png)
             write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors, atlas, built.origin(), project.config.merge_rigid,
-                                normal_uri=lod_png))  # fmt: skip
+                                normal_uri=lod_png, ao=ao))  # fmt: skip
             lods.append({"glb": lpath.relative_to(out).as_posix(), "triangles": lod_built.triangles})
         if lods:
             entry["lods"] = lods
@@ -590,7 +595,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             rim = {"rim_texture": res_path(models_dir / atlas_files[""]["rim"], godot_root)} if "rim" in atlas_files.get("", {}) else {}
             revealed = [f"{model.node_prefix}{pid}" for pid, e in sorted(model.rig.items()) if e.revealed]
             mapped_normals = built.bake is not None
-            coloured = project.config.vertex_colors and atlas is None or atlas is not None and project.config.atlas_ao > 0  # COLOR_0
+            coloured = project.config.vertex_colors or project.config.atlas_ao > 0  # COLOR_0: colours, or baked occlusion
             write(scene, model_scene(name, res_path(glb, godot_root), style, None, rim if atlas else None, revealed, mapped_normals,
                                      coloured).encode())  # fmt: skip
             entry["godot_scene"] = res_path(scene, godot_root)

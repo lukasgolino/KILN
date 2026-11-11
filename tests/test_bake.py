@@ -233,14 +233,47 @@ def test_detail_parts_are_not_targets(project: Project) -> None:
     assert any(f.rule == "E003" and f.where == "parts[2].blend_to" for f in findings), findings
 
 
-def test_atlas_and_normal_map_is_a_lint_error(project: Project) -> None:
-    cfg = project.root / "kiln.toml"
-    cfg.write_text(cfg.read_text() + "\natlas = true\n")
+def test_a_normal_map_model_in_an_atlas_project_keeps_its_materials_and_gets_the_occlusion(project: Project) -> None:
+    """#148: baked occlusion and a baked normal map on one model. The palette atlas and the normal map both need the
+    first UV set, so the model with the map stays out of the atlas; atlas_ao still darkens its vertex colours."""
     from kiln.project import load_project
+    from kiln.vendor.gltf import read_accessor
 
+    cfg = project.root / "kiln.toml"
+    cfg.write_text(cfg.read_text() + "\natlas = true\natlas_ao = true\nexport = [\"glb\", \"godot\"]\n")
+    (project.root / "project.godot").write_text("config_version=5\n")
     proj = load_project(project.root)
-    result = lint_paths(proj, [write_model(proj, MODEL)])
-    assert any(f.rule == "E003" and f.where == "normal_map" for f in result.findings)
+    two = MODEL.replace("    color: red\n", "    color: red\n  - sphere: { at: [0, 0.75, 0], radius: 0.2 }\n    color: blue\n", 1)
+    write_model(proj, two.replace("normal_map: 256\n", "normal_map: 512\nbudget: 3000\nlod: [800]\n") + "variants:\n  other: { swap: { red: blue } }\n")
+    write_model(proj, two.replace("name: thing", "name: plain").replace("normal_map: 256\n", "").replace("    detail: true\n", ""), "plain")
+    result = build(proj)
+    assert not result.errors and not [f for f in result.findings if f.rule == "E003"], result.findings
+    models = proj.output_dir / "models"
+    doc, binary = read_glb((models / "thing.glb").read_bytes())
+    assert not check_glb((models / "thing.glb").read_bytes())
+    names = [m["name"] for m in doc["materials"]]
+    assert "atlas" not in names and len(names) == 2 and all("normalTexture" in m for m in doc["materials"])
+    prims = doc["meshes"][0]["primitives"]
+    assert all({"TEXCOORD_0", "TANGENT", "COLOR_0"} <= set(pr["attributes"]) for pr in prims)
+    grey = np.concatenate([read_accessor(doc, binary, pr["attributes"]["COLOR_0"]) for pr in prims])
+    assert np.allclose(grey[:, 0], grey[:, 1]) and grey.min() < 0.9 and grey.max() <= 1.0  # occlusion: darker in the crease
+    entry = result.manifest["models"]["thing"]
+    assert "atlas" not in entry and "normal_map" in entry and not (models / "thing.palette.png").exists()
+    assert entry["ao"] is True and 0 < entry["ao_strength"] <= 1 and "ao" not in result.manifest["models"]["plain"]
+    assert "swap" in entry["variants"]["other"] and "palette" not in entry["variants"]["other"]
+    scene, atlas_scene = (models / "thing.tscn").read_text(), (models / "plain.tscn").read_text()
+    assert "palette" in atlas_scene and "palette" not in scene  # the plain script and shader, with the normal map
+    assert "normal_texture" in scene and "_encode_colours(mesh_instance.mesh)" in scene  # the map, and COLOR_0 handled
+    variant_scene = (models / "thing.other.tscn").read_text()
+    assert "_encode_colours(mesh_instance.mesh)" in variant_scene and "palette" not in variant_scene
+    for other in ("thing.other.glb", "thing.lod1.glb"):  # the variant's glb and the LOD: the same materials and occlusion
+        d, _ = read_glb((models / other).read_bytes())
+        assert all("normalTexture" in m and m["name"] != "atlas" for m in d["materials"])
+        assert all("COLOR_0" in pr["attributes"] for pr in d["meshes"][0]["primitives"])
+    lod, _ = read_glb((models / "thing.lod1.glb").read_bytes())
+    assert [i["uri"] for i in lod["images"]] == ["thing.lod1.normal.png"]  # its own UVs: its own map
+    plain, _ = read_glb((models / "plain.glb").read_bytes())  # the model without a map is in the atlas as before
+    assert [m["name"] for m in plain["materials"]] == ["atlas"] and "atlas" in result.manifest["models"]["plain"]
 
 
 def test_lods_bake_smaller_maps(project: Project) -> None:
