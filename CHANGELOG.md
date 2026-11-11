@@ -16,6 +16,13 @@ before 1.0).
 
 ### Added
 
+- Relief layers: fur as patches in the baked maps, not parts. `relief:` on a model scatters shallow, overlapping,
+  flame-tipped patches over the parts it names (`on`, `length`, `width`, `lift`, `density`, `flow`, `tips`, `jitter`,
+  `color`/`color_to`, `under`, `fade`, `seed`). They tilt the baked normal map and are painted into a new base colour
+  map on the same UVs (`<name>.color.png`: each patch lighter toward its tip, the surface darker just under it), so a
+  furry character is a handful of blended parts and builds in seconds, with nothing added to the mesh. Previews and
+  the Godot scenes (standard and toon) show both maps; variants get their own colour map; the manifest has
+  `color_map`. The demo has a cub (#229).
 - A model can have a baked normal map and baked ambient occlusion together. In a project with `atlas = true`, a model
   with `normal_map:` is no longer a lint error: it keeps a material per colour (the palette atlas and the normal
   map both need the first UV set), carries its normal map, and gets `atlas_ao`'s occlusion in its vertex colours

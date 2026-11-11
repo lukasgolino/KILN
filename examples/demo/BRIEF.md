@@ -20,6 +20,7 @@ KILN's demo: two toy worlds in one style, to show what text-made models look lik
   (hit zone head), sword and shield; walk, attack, hop.
 - **Trebuchet** (`models/trebuchet.kiln.yaml`): rigid arm on an axle; fire.
 - **Wall**, **tree**, **barrel**: set dressing.
+- **Cub** (`models/cub.kiln.yaml`): bear cub mascot; its fur is three `relief` layers on a dozen parts (draft). Variant `polar`.
 
 ## Done
 

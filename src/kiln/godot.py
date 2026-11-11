@@ -545,6 +545,23 @@ def with_normal_map(shader: str) -> str:
     ])  # fmt: skip
 
 
+def with_color_map(shader: str) -> str:
+    """A toon shader that also reads the glb's base colour map (a model with relief: colours on the bake's UVs)."""
+    return _swap_lines(shader, [
+        ("void fragment() {\n", "uniform sampler2D color_texture : source_color, filter_linear_mipmap_anisotropic, hint_default_white;\nvoid fragment() {\n"),
+        ("\tALBEDO = albedo.rgb * COLOR.rgb;", "\tALBEDO = albedo.rgb * texture(color_texture, UV).rgb * COLOR.rgb;"),
+    ])  # fmt: skip
+
+
+def _script_color_map(script: str) -> str:
+    return _swap_lines(script, [
+        ('\t\t\t\ttoon.set_shader_parameter("bands", bands)\n',
+         '\t\t\t\ttoon.set_shader_parameter("bands", bands)\n'
+         "\t\t\t\tif source.albedo_texture != null:\n"
+         '\t\t\t\t\ttoon.set_shader_parameter("color_texture", source.albedo_texture)\n'),
+    ])  # fmt: skip
+
+
 def _script_normal_map(script: str) -> str:
     return _swap_lines(script, [
         ('\t\t\t\ttoon.set_shader_parameter("bands", bands)\n',
@@ -555,7 +572,7 @@ def _script_normal_map(script: str) -> str:
 
 
 def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | None = None, textures: dict[str, str] | None = None,
-                revealed: list[str] | None = None, normal_map: bool = False, vertex_colours: bool = False) -> str:
+                revealed: list[str] | None = None, normal_map: bool = False, vertex_colours: bool = False, color_map: bool = False) -> str:
     """`<name>.tscn`: the .glb with the style's materials applied by a small built-in tool script. With `swap`
     (a variant, when variant_glbs is false) the script also recolours: the base glb, other colours. `textures`
     (atlas = true): res:// paths by script property (`palette` and `glow` for a variant, `rim_texture`). `revealed`:
@@ -568,6 +585,8 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
     toon = toon_shader(look, atlas)
     if normal_map:
         script, toon = _script_normal_map(script), with_normal_map(toon)
+    if color_map and not atlas:  # (the standard material keeps the glb's own texture)
+        script, toon = _script_color_map(script), with_color_map(toon)
     if vertex_colours:
         script = _with_compat_colours(script)
     rim = look.rim_light > 0

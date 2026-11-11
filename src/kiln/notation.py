@@ -48,7 +48,7 @@ PART_FIELDS = {"id", "color", "material", "blend", "cut", "intersect", "mirror",
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "parts",
+TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "parts",
               "rig", "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
@@ -173,6 +173,26 @@ class Source:
 
 
 @dataclass
+class Relief:
+    """A layer of shallow overlapping patches on the surface of some parts, in the baked maps only (kiln.relief)."""
+
+    on: list[str]  # part ids it covers
+    kind: str = "fur"
+    length: float = 0.09  # metres along the flow
+    width: float = 0.05  # metres across
+    lift: float = 0.008  # metres the tip stands off the surface
+    density: float = 1.0  # 1: the patches just cover the surface; more: they overlap like roof tiles
+    flow: str | tuple[float, float, float] = "down"  # down | up | a direction
+    tips: int = 3  # pointed tips along a patch's lower edge
+    jitter: float = 0.3  # 0..1 variation of size and angle
+    color: str | None = None  # hex; None: the surface's own colour
+    color_to: str | None = None  # hex at the tip
+    under: float = 0.3  # 0..1: how much darker the surface is just below a tip
+    seed: int = 1
+    fade: float = 0.06  # metres: patches thin out and shrink over this distance toward the edge of `on`
+
+
+@dataclass
 class Model:
     name: str
     path: Path | None
@@ -192,6 +212,7 @@ class Model:
     detail: list[Geometry] = field(default_factory=list)  # the `detail` parts (only in bake_parts)
     bake_index: list[int] = field(default_factory=list)  # part i is bake_parts[bake_index[i]]
     detail_ids: dict[int, str] = field(default_factory=dict)  # bake_parts index of each detail part -> its id
+    relief: list[Relief] = field(default_factory=list)  # surface layers (fur patches) in the baked maps
     parts: list[Part] = field(default_factory=list)
     rig: dict[str, RigEntry] = field(default_factory=dict)
     skin: str = "none"
@@ -785,6 +806,89 @@ def _parse_aim(raw: Any) -> tuple[tuple[float, ...], np.ndarray, float, float] |
         turn = axis_rotation(d, float(roll)) @ turn
     mid = tuple(float(v) for v in (np.add(a, b) / 2))
     return mid, np.round(turn, 12), float(roll), length
+
+
+RELIEF_FIELDS = {"on", "kind", "length", "width", "lift", "density", "flow", "tips", "jitter", "color", "color_to", "under", "seed", "fade"}
+RELIEF_RANGES = {"length": (0.005, 2.0, "metres along the flow"), "width": (0.005, 2.0, "metres across the flow"),
+                 "lift": (0.0005, 0.1, "metres the tip stands off the surface"), "density": (0.1, 6.0, "1 just covers the surface, more overlaps"),
+                 "jitter": (0.0, 1.0, "variation of size and angle"), "under": (0.0, 1.0, "how much darker the surface is under a tip"),
+                 "fade": (0.0, 2.0, "metres over which patches thin out toward the edge of `on`")}  # fmt: skip
+RELIEF_MAP = 1024  # the baked maps' size when a model has relief but no normal_map
+
+
+def _parse_relief(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
+    """`relief:` a list of surface layers; each needs `on` (ids of parts it covers). Turns the baked maps on."""
+    raw = data.get("relief")
+    if raw is None:
+        return
+    line = _line(data, "relief")
+    example = "relief:\n  - { on: [body], length: 0.09, width: 0.05, lift: 0.008 }"
+    if model.source is not None or not model.parts:
+        ctx.error("E003", "relief lies on a KILN model's parts: an imported mesh (source) has none", line, "relief")
+        return
+    if not isinstance(raw, list) or not raw or not all(isinstance(r, dict) for r in raw):
+        ctx.error("E003", f"relief is a list of layers, e.g.\n{example}", line, "relief")
+        return
+    ids = {p.id for p in model.parts if not p.hard}
+    for k, entry in enumerate(raw):
+        where = f"relief[{k}]"
+        eline = _line(entry) or line
+        ok = True
+        if True in entry and "on" not in entry:  # YAML 1.1 reads a bare `on` key as the boolean true
+            entry["on"] = entry.pop(True)
+        for key in sorted(str(key) for key in set(entry) - RELIEF_FIELDS):
+            ctx.error("E003", f"unknown relief field {key!r}: a layer has {', '.join(sorted(RELIEF_FIELDS))}", eline, f"{where}.{key}")
+            ok = False
+        on = entry.get("on")
+        on = [on] if isinstance(on, str) else on
+        if not isinstance(on, list) or not on or not all(isinstance(i, str) for i in on):
+            ctx.error("E003", "relief on: the ids of the parts the layer covers, e.g. on: [body, upperleg_l, upperleg_r]", eline, f"{where}.on")
+            continue
+        missing = [i for i in on if i not in ids]
+        if missing:
+            ctx.error("E003", f"relief on: no smooth part has id {', '.join(missing)} (ids: {', '.join(sorted(ids)) or 'none'}; a mirrored "
+                      "part's twin has its own mirror_id)", eline, f"{where}.on")  # fmt: skip
+            ok = False
+        if entry.get("kind", "fur") != "fur":
+            ctx.error("E003", "relief kind is fur (flat patches with notched, pointed tips)", eline, f"{where}.kind")
+            ok = False
+        layer = Relief(list(on))
+        for key, (lo, hi, what) in RELIEF_RANGES.items():
+            value = entry.get(key, getattr(layer, key))
+            if not _num(value) or not lo <= float(value) <= hi:
+                ctx.error("E003", f"relief {key} is {what}: {lo:g} to {hi:g} (default {getattr(layer, key):g})", eline, f"{where}.{key}")
+                ok = False
+            else:
+                setattr(layer, key, float(value))
+        for key, lo, hi, what in (("tips", 1, 12, "pointed tips along a patch's lower edge"), ("seed", 0, 2**31 - 1, "a whole number: another seed, other patches")):
+            value = entry.get(key, getattr(layer, key))
+            if not isinstance(value, int) or isinstance(value, bool) or not lo <= value <= hi:
+                ctx.error("E003", f"relief {key} is {what} ({lo} to {hi})", eline, f"{where}.{key}")
+                ok = False
+            else:
+                setattr(layer, key, value)
+        flow = entry.get("flow", "down")
+        if flow in ("down", "up"):
+            layer.flow = flow
+        elif isinstance(flow, list) and len(flow) == 3 and all(_num(v) for v in flow) and any(float(v) != 0 for v in flow):
+            layer.flow = (float(flow[0]), float(flow[1]), float(flow[2]))
+        else:
+            ctx.error("E003", "relief flow is the way the patches point, root to tip: down, up, or a direction [x, y, z]", eline, f"{where}.flow")
+            ok = False
+        for key in ("color", "color_to"):
+            if key in entry:
+                found = _color(ctx, entry[key], eline, f"{where}.{key}")
+                if found is None:
+                    ok = False
+                else:
+                    setattr(layer, key, found[0])
+        if layer.color_to is not None and layer.color is None:
+            ctx.error("E003", "relief color_to (the tip colour) goes with color (the root colour)", eline, f"{where}.color_to")
+            ok = False
+        if ok:
+            model.relief.append(layer)
+    if model.relief and not model.normal_map:
+        model.normal_map = RELIEF_MAP
 
 
 def _split_detail(ctx: _Ctx, model: Model) -> None:
@@ -1636,6 +1740,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 part.geometry.fit = (targets, part.fit[1])
             if any(p.detail for p in model.parts):
                 _split_detail(ctx, model)
+    _parse_relief(ctx, data, model)
     ids = set(model.ids) if model.parts else {ROOT_ID}
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig"), model.template), model.parts)
     skeleton = data.get("skeleton")

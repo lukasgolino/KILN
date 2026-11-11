@@ -14,7 +14,7 @@ You check your work by LOOKING at the previews. This page is the core. Everythin
 | Topic | When |
 |---|---|
 | `setup` | a new project, what to ask the owner, `kiln.toml` and the layout |
-| `making` | the full model loop and the model file |
+| `making` | the full model loop and the model file; fur (`relief:` layers, never clump parts) |
 | `parts` | every shape and part field (read before writing parts) |
 | `rigs`, `animations`, `humanoids`, `templates` | characters: rigs, skins, cycles, CC0 clips, the template library |
 | `styles` | presets, inspirations, the look kit |

@@ -367,7 +367,14 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
     owner = np.asarray(adding)[field_of(model, step).nearest(adding, centres)[0]] if adding else np.zeros(len(p.faces), np.int64)
     piece_of = {i: k for k, inc in enumerate(pieces) for i in inc}
     face_field = np.array([piece_of.get(int(i), -1) for i in owner], dtype=np.int64)  # hard parts: -1
-    return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength)
+    patches = None
+    if model.relief:  # patches over the faces of the parts each layer names (a face is its nearest adding part's)
+        from kiln import relief
+
+        ids = np.array([model.parts[int(i)].id for i in owner]) if adding else np.zeros(len(p.faces), dtype=str)
+        on = [np.isin(ids, layer.on) & (face_field >= 0) for layer in model.relief]
+        patches = relief.scatter(p.vertices, p.faces, built.normals, on, model.relief)
+    return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group)
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],

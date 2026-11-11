@@ -127,6 +127,8 @@ def model_entry(built: Built, out: Path, glb: Path, merged: bool = False) -> dic
         "step": _f(built.step),
         **({"normal_map": {"png": f"models/{glb.stem}.normal.png", "size": [built.bake.width, built.bake.height]}}
            if built.bake is not None else {}),
+        **({"color_map": {"png": f"models/{glb.stem}.color.png", "size": [built.bake.width, built.bake.height],
+                          "patches": built.bake.layers.patches}} if built.bake is not None and built.bake.layers is not None else {}),
         "bounds": {"min": [_f(v) for v in lo], "max": [_f(v) for v in hi]},
         "size": [_f(v) for v in hi - lo],
         "skin": built.skin,
@@ -509,8 +511,13 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         normal_png = f"{name}.normal.png" if built.bake is not None else None  # one file for the glb and its variants
         if normal_png is not None:
             write(out / "models" / normal_png, built.bake.png)
+        textured = built.bake is not None and built.bake.layers is not None  # relief: colours in a base colour map on the bake's UVs
+        group_colors = [g.color for g in built.painted.groups]
+        color_png = f"{name}.color.png" if textured else None
+        if color_png is not None:
+            write(out / "models" / color_png, built.bake.color_png(group_colors))
         glb_data = to_glb(built, generator, None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid,
-                          normal_uri=normal_png, ao=ao)  # fmt: skip
+                          normal_uri=normal_png, ao=ao, color_uri=color_png)  # fmt: skip
         write(glb, glb_data)
         merged = project.config.merge_rigid and built.skin == "rigid"
         entry = model_entry(built, out, glb, merged)
@@ -550,10 +557,14 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             if atlas is not None:  # a texture swap: same mesh, same cells, other colours
                 vatlas = AtlasUse(atlas.atlas, atlas_files[vname]["palette"], atlas.material, atlas_files[vname].get("glow"), atlas.ao, atlas.glow_strength)
                 variants[vname].update({k: f"models/{v}" for k, v in sorted(atlas_files[vname].items())})
-            if project.config.variant_glbs:
+            vcolor = f"{name}.{vname}.color.png" if textured else None
+            if vcolor is not None:  # a variant's colours are in its own map
+                write(out / "models" / vcolor, built.bake.color_png(group_colors, swap))
+                variants[vname]["color_map"] = f"models/{vcolor}"
+            if project.config.variant_glbs or textured:  # (a mapped model's variant scene needs the glb that names its map)
                 vpath = out / "models" / f"{name}.{vname}.glb"
                 write(vpath, to_glb(built, generator, swap, project.config.vertex_colors, vatlas, merge_rigid=project.config.merge_rigid,
-                                    normal_uri=normal_png, ao=ao))  # fmt: skip
+                                    normal_uri=normal_png, ao=ao, color_uri=vcolor))  # fmt: skip
                 variants[vname]["glb"] = vpath.relative_to(out).as_posix()
         if variants:
             entry["variants"] = variants
@@ -571,8 +582,11 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             lod_png = f"{name}.lod{k}.normal.png" if lod_built.bake is not None else None  # its own UVs: its own (smaller) map
             if lod_png is not None:
                 write(out / "models" / lod_png, lod_built.bake.png)
+            lod_color = f"{name}.lod{k}.color.png" if lod_built.bake is not None and lod_built.bake.layers is not None else None
+            if lod_color is not None:
+                write(out / "models" / lod_color, lod_built.bake.color_png([g.color for g in lod_built.painted.groups]))
             write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors, atlas, built.origin(), project.config.merge_rigid,
-                                normal_uri=lod_png, ao=ao))  # fmt: skip
+                                normal_uri=lod_png, ao=ao, color_uri=lod_color))  # fmt: skip
             lods.append({"glb": lpath.relative_to(out).as_posix(), "triangles": lod_built.triangles})
         if lods:
             entry["lods"] = lods
@@ -597,7 +611,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             mapped_normals = built.bake is not None
             coloured = project.config.vertex_colors or project.config.atlas_ao > 0  # COLOR_0: colours, or baked occlusion
             write(scene, model_scene(name, res_path(glb, godot_root), style, None, rim if atlas else None, revealed, mapped_normals,
-                                     coloured).encode())  # fmt: skip
+                                     coloured, textured).encode())  # fmt: skip
             entry["godot_scene"] = res_path(scene, godot_root)
             recolourable = project.config.variant_glbs or not project.config.vertex_colors  # vertex colours: swap table only
             for vname, swap in sorted(model.variants.items()) if recolourable else ():  # a scene per variant: its glb, or the base recoloured
@@ -608,7 +622,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 else:
                     vglb = out / variants[vname]["glb"] if "glb" in variants[vname] else glb
                     write(vscene, model_scene(name, res_path(vglb, godot_root), style, None if "glb" in variants[vname] else swap, None, revealed,
-                                              mapped_normals, coloured).encode())  # fmt: skip
+                                              mapped_normals, coloured, textured).encode())  # fmt: skip
                 variants[vname]["godot_scene"] = res_path(vscene, godot_root)
             entry["glb_res"] = res_path(glb, godot_root)
         styles_used[style.name] = style

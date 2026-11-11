@@ -206,6 +206,8 @@ def render(
         g = p.face_group[T]
         albedo_table = np.array([srgb_to_linear(swap.get(gr.color, gr.color)) for gr in groups])
         albedo = albedo_table[g] if colors is None else (colors[T] * bary[:, :, None]).sum(axis=1)
+        if colors is None and built.bake is not None and built.bake.layers is not None:  # relief: the base colour map, as the engine samples it
+            albedo = _mapped_colours(built.bake, T, bary, [gr.color for gr in groups], swap)
         dec = p.face_decal[T]
         if (dec >= 0).any():
             world = (corners[T] * bary[:, :, None]).sum(axis=1)
@@ -332,6 +334,23 @@ def _bloom(image: Array, glow: Array, radius: int) -> Array:
     out[..., :3] = _to_srgb(premult / np.maximum(out_alpha, 1e-6))
     out[..., 3:4] = out_alpha
     return out
+
+
+def _mapped_colours(bake: Any, faces: Array, bary: Array, group_colors: list[str], swap: dict[str, str]) -> Array:
+    """Per pixel: the base colour map's colour (linear) at the interpolated UV, nearest texel."""
+    from io import BytesIO
+
+    key = tuple(sorted(swap.items()))
+    cache = bake.__dict__.setdefault("_colours", {})
+    if key not in cache:
+        cache.clear()  # one decoded map at a time
+        cache[key] = np.asarray(Image.open(BytesIO(bake.color_png(group_colors, swap))).convert("RGB"), dtype=np.uint8)
+    image = cache[key]
+    uv = (bake.uv[faces] * bary[:, :, None]).sum(axis=1)
+    h, w = image.shape[:2]
+    px = np.clip((uv * [w, h]).astype(np.int64), 0, [w - 1, h - 1])
+    c = image[px[:, 1], px[:, 0]].astype(np.float64) / 255.0
+    return np.asarray(np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4))
 
 
 def _mapped_normals(bake: Any, faces: Array, bary: Array, n: Array) -> Array:

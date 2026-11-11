@@ -56,6 +56,7 @@ budget: 6000                   # optional: triangles (overrides the style's budg
 resolution: 0.004              # optional: metres per mesh cell for this model, as is (not scaled by size): finer detail
 normal_map: 1024               # optional: bake a normal map (256-4096 texels, the texture is exactly that size, square; needs kiln-gen[bake]; not with source:; under atlas = true the model keeps a material per colour): detail from the shapes, not triangles
 normal_strength: 1             # optional: scales the map's tilt (0.5 softer grooves, 0 flat), up to 4 (steep slopes cap)
+relief: [...]                  # optional: fur as patches in the baked maps, not parts (Relief, below)
 max_cells: 640                 # optional: mesh cells across at most (64-1024, style default 256); W120 says when it decides
 lod: [2500, 800]               # optional: extra lower-detail .glb files
 origin: center                 # optional: the .glb's origin: base (bottom centre of the box) | center (spinning debris) | ground
@@ -103,3 +104,34 @@ style_version, template). Templates can extend templates.
 
 Size classes in the built-in styles: prop, character, hero, creature, vehicle, machine, building, nature (and
 `default` for anything else). Size sanity (W108, largest side): character 0.2-4 m, prop 0.02-6 m, building 1-200 m...
+
+## Relief: fur without parts
+
+Fur, and any coat of small overlapping tufts, is a `relief:` layer on one smooth body, never hundreds of clump
+parts: the patches live in the baked normal map and a base colour map, so they cost no parts, no cells and no
+triangles (a 12-part cub with three layers builds in 30 s). Needs `kiln-gen[bake]`; turns on a 1024 map unless
+`normal_map:` sets the size.
+
+```yaml
+relief:
+  - on: [body, arm_l, arm_r, leg_l, leg_r]   # ids of the smooth parts it covers (a mirror twin by its own mirror_id)
+    length: 0.08      # metres, root to tip along the flow (default 0.09)
+    width: 0.045      # metres across (0.05)
+    lift: 0.007       # metres the tip stands off the surface (0.008): the depth of the shading
+    density: 1.6      # 1 just covers the surface; more overlaps like roof tiles (1)
+    flow: down        # down | up | [x, y, z]: the way the tips point (down)
+    tips: 3           # pointed tips along a patch's lower edge (3)
+    jitter: 0.3       # 0..1 variation of size and angle (0.3)
+    color: bark       # optional root colour and tip colour; without them a patch has the colour of the surface
+    color_to: wood
+    under: 0.4        # 0..1: how much darker the surface is just below each tip (0.3)
+    fade: 0.06        # metres over which patches thin out and shrink toward the edge of `on`: no hard bib (0.06)
+    seed: 1
+```
+
+- Layers apply in order; give the body long patches, the head and hands shorter ones (`length` about a tenth of the
+  part's size), a pale belly or muzzle its own short layer with `fade`.
+- Model the body as a few big blended parts first; the silhouette stays the mesh's (relief does not move it).
+- A patch is flat: on a thin limb lying across the flow it wraps badly; point `flow` along the limb there.
+- The model's colours are then in `<name>.color.png` on the normal map's UVs (one material per preset; a variant has
+  its own map and glb). Manifest: `color_map` (`png`, `size`, `patches`). Example: `examples/demo/models/cub.kiln.yaml`.
