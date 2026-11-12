@@ -207,3 +207,30 @@ def test_eye_errors(project: Project) -> None:
     for hw in ("eye: { radius: 0.03 }", "eye: { at: [0, 0, 0.3], facing: [0, 0, 0] }", "eye: { at: [0, 0, 0.3], rim: 2 }", "eye: { at: [0, 0, 0.3], iris: 1 }"):
         errs = errors_of(project, base.replace("{hw}", hw))
         assert any("E003" in f.format() for f in errs), (hw, [f.format() for f in errs])
+
+
+def test_a_belt_hugs_hips_and_belly(project: Project) -> None:
+    """#316: band fit round a surface that isn't round (hips and a belly in front) hugs it as a fitted shell, not a
+    cylinder sized to the farthest point (a flange at the back); a barrel keeps its exact iron band."""
+    text = """\
+name: thing
+parts:
+  - ellipsoid: { at: [0, 0.5, 0], radii: [0.2, 0.25, 0.14] }
+    id: hips
+    color: wood
+  - sphere: { at: [0, 0.55, 0.08], radius: 0.13 }
+    id: belly
+    color: wood
+  - band: { fit: [hips, belly], at: [0, 0.55, 0], width: 0.05, thickness: 0.012 }
+    color: black
+"""
+    model, style = ok_model(project, text)
+    belt = model.parts[2]
+    assert belt.geometry.fit is not None and belt.geometry.shell == 0.012 and not belt.hard
+    built = build_model(model, style, palette=project.palette(None)[0])
+    p = built.painted
+    black = np.isin(p.face_group, [g for g, grp in enumerate(p.groups) if grp.color == "#141414"])
+    v = p.vertices[np.unique(p.faces[black])]
+    assert float(v[:, 2].min()) > -0.14 - 0.012 - 0.02  # no flange at the back
+    model, _ = ok_model(project, BARREL)
+    assert model.parts[1].geometry.shape == "cylinder" and model.parts[1].hard

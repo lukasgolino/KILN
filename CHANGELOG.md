@@ -39,6 +39,9 @@ before 1.0).
 
 ### Fixed
 
+- `band: { fit: ... }` round a surface that isn't round (a belt round hips and belly) hugs it as a fitted shell
+  instead of a cylinder sized to its farthest point (a flange at the back); `fit` takes a list of ids. Round ones
+  (barrels, posts) keep their exact hard ring (#316).
 - Lint W113 no longer flags intended overlaps with clothing: parts passing through a garment's hem, neck or
   openings or an open shell's open side, and body parts another garment wraps (an arm through an armhole, the chest
   under a sleeve) (#313).

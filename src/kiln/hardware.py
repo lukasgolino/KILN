@@ -15,7 +15,7 @@ HARDWARE = ("rivets", "band", "planks", "bolt", "slit", "garment", "hand", "foot
 AXES = {"x": 0, "y": 1, "z": 2}
 HELP = {
     "rivets": "rivets: { count: 8, along: [[x, y, z], ...] (a path, model space) or around: { center: [x, y, z], radius, axis: y }, size: 0.03 }",
-    "band": "band: { at: [x, y, z], radius (or fit: <part id>: its surface there), width, thickness, axis: y, sides }",
+    "band": "band: { at: [x, y, z], radius (or fit: <part id> or [ids]: their surface there; hugs it where it isn't round), width, thickness, axis: y, sides }",
     "planks": "planks: { size: [x, y, z], count, gap, axis: x (side by side along it), jitter: 0.1, seed: 1 } (with at, rotate)",
     "bolt": "bolt: { at: [x, y, z], radius, length, sides: 6 } (a hex head along y; rotate it)",
     "slit": "slit: { at: [x, y, z], size: [w, h, d] } (a cut: visors, arrow slits)",
@@ -52,10 +52,16 @@ def _axis_rotate(axis: str) -> list[float]:
 def _surface_radius(parts: list[Geometry], centre: np.ndarray, axis: int, half_width: float) -> float:
     """How far the parts' surface is from the axis line through `centre`: the most, over a ring of directions and
     the band's width (so a band sits on a barrel's bulge)."""
+    return max(_surface_radii(parts, centre, axis, half_width), default=0.0)
+
+
+def _surface_radii(parts: list[Geometry], centre: np.ndarray, axis: int, half_width: float) -> list[float]:
+    """Per direction round the axis (16), the farthest the parts' surface is from it over the band's width."""
     others = [a for a in range(3) if a != axis]
-    best = 0.0
-    for along in (-half_width, 0.0, half_width):
-        for k in range(16):
+    out = []
+    for k in range(16):
+        best = 0.0
+        for along in (-half_width, 0.0, half_width):
             t = 2 * math.pi * k / 16
             direction = np.zeros(3)
             direction[others[0]], direction[others[1]] = math.cos(t), math.sin(t)
@@ -70,7 +76,8 @@ def _surface_radius(parts: list[Geometry], centre: np.ndarray, axis: int, half_w
                 # between the last inside sample and the first outside one
                 r0, r1, d0, d1 = radii[i - 1], radii[i], d[i - 1], d[i]
                 best = max(best, float(r0 + (r1 - r0) * (-d0) / (d1 - d0)))
-    return best
+        out.append(best)
+    return out
 
 
 def _garment(spec: dict[str, Any], rest: dict[str, Any], earlier: list[tuple[str, Geometry]]) -> tuple[list[dict[str, Any]], str | None]:
@@ -189,12 +196,21 @@ def expand(kind: str, spec: Any, raw: dict[str, Any], earlier: list[tuple[str, G
                 or any(k not in ("at", "rotate", "radius", "fit", "width", "thickness", "axis", "sides") for k in spec):
             return [], HELP[kind]
         if "fit" in spec:
-            parts = [g for pid, g in earlier if pid == spec["fit"]]
+            ids = [spec["fit"]] if isinstance(spec["fit"], str) else spec["fit"]
+            if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+                return [], HELP[kind]
+            parts = [g for pid, g in earlier if pid in ids]
             if not parts:
-                return [], f"band fit: no earlier part has id {spec['fit']!r} (the band goes around its surface)"
-            radius = _surface_radius(parts, np.asarray(at), AXES[axis], float(width) / 2)
+                return [], f"band fit: no earlier part has id {', '.join(map(str, ids))} (the band goes around its surface)"
+            radii = _surface_radii(parts, np.asarray(at), AXES[axis], float(width) / 2)
+            radius = max(radii)
             if radius <= 0:
-                return [], f"band fit: the axis through {at} isn't inside part {spec['fit']!r}"
+                return [], f"band fit: the axis through {at} isn't inside part {', '.join(map(str, ids))}"
+            if radius - min(radii) > max(float(thick), 0.005):  # not round (a belt round hips and belly): hug the surface (#316)
+                rest.pop("hard", None)
+                room = 2 * (radius + float(thick) + 0.02)
+                box = {"at": at, "size": [room, float(width), room], "rotate": _axis_rotate(axis)}
+                return [{**rest, "box": box, "shell": float(thick), "fit": {"to": ids, "gap": 0.0}}], None
         elif _num(_get(spec, "radius")) and spec["radius"] > 0:
             radius = float(spec["radius"])
         else:
