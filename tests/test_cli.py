@@ -103,7 +103,8 @@ def test_lint_reports_errors_and_warnings(in_project: Project, capsys: pytest.Ca
     assert main(["lint", "--fast", "bad"]) == 1
     assert "--fast: the findings that need the built model" in capsys.readouterr().out
     assert main(["lint", "good"]) == 0
-    assert "--fast" not in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert "were not looked for" not in printed and printed.index("static checks:") < printed.index("W106")  # (#186) static first
     code, result = run_json(["lint", "nope"], capsys)
     assert code == 1 and "no model 'nope'" in result["findings"][0]["message"]
 

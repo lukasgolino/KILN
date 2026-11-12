@@ -220,9 +220,18 @@ def cmd_lint(args: argparse.Namespace, out: Output) -> int:
     project = load_project(start=Path(args.paths[0]) if args.paths else None)
     paths = [_model_path(project, p) for p in args.paths] if args.paths else project.model_paths()
     start = _progress_on(out)
+    shown: set[Any] = set()
+    if not args.fast and not out.as_json:  # what needs no mesh, at once; the mesh checks follow (#186)
+        quick = lint_paths(project, paths, geometry=False)
+        for f in quick.findings:
+            out.say(f.format())
+        shown = set(quick.findings)
+        out.say(f"static checks: {len(quick.errors)} errors, {len(quick.warnings)} warnings; now building the meshes for the "
+                f"rest (kiln lint --fast stops here; lint shares its builds with preview and build)")  # fmt: skip
     result = lint_paths(project, paths, geometry=not args.fast)
     for f in result.findings:
-        out.say(f.format())
+        if f not in shown:
+            out.say(f.format())
     seconds = time.monotonic() - start
     meshed = {n: b for n, b in result.built.items() if b.step_reason}
     if meshed and len(meshed) <= MESH_LINES:  # what each model was meshed at, and why (#223)

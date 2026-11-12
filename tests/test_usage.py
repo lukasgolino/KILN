@@ -155,3 +155,21 @@ def test_hard_join_counter_runs_over_all_pieces_and_says_a_level_made_again(proj
     builder.build_hard(model, style, builder.field_of(model, 0.01), pieces, 1, False, lambda *a: said.append(a))
     assert said[:4] == [("joining hard parts: joined", k, 4) for k in (1, 2, 3, 4)]
     assert said[4] == ("joining hard parts again with less detail (try 2): joined", 1, 4)
+
+
+def test_a_long_build_ends_with_where_its_time_went(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """#186: one line per build with each phase's seconds."""
+    import time
+
+    from kiln import usage
+
+    monkeypatch.setenv(usage.PROGRESS_ENV, "1")
+    monkeypatch.setattr(usage, "QUIET_SECONDS", 0.0)
+    with usage.Phases("thing") as phase:
+        time.sleep(0.6)
+        phase("painting")
+        phase.progress("painting: groups done", 1, 2)
+        time.sleep(0.6)
+        phase("reducing")
+    lines = [line for line in capsys.readouterr().err.splitlines() if "built in" in line]
+    assert len(lines) == 1 and "meshing 1 s" in lines[0] and "painting 1 s" in lines[0], lines
