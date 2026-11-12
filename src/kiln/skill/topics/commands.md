@@ -5,15 +5,15 @@ Every command and its flags.
 ## Commands
 
 `kiln init [dir] --style soft_toy` · `kiln new model <name> --template bean|prop|empty --class C` ·
-`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM [--frame N,N]] [--vs] [--detach] [--fit] [--effect [--at T,T,...]] [--engine] [--variant V] [--views front,34,side,back] [--pitch 5,30] [--size PX] [--draft] [--tight] [--frame-box X0,Y0,Z0,X1,Y1,Z1] [--fill [AMOUNT]] [--bg auto|light|dark]` ·
+`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM [--frame N,N]] [--vs] [--detach] [--fit] [--effect [--at T,T,...]] [--engine] [--variant V] [--views front,34,side,back] [--pitch 5,30] [--size PX] [--draft] [--tight] [--frame-box X0,Y0,Z0,X1,Y1,Z1] [--fill] [--bg auto|light|dark]` ·
 `kiln lineup [models] [--pitch DEG]` · `kiln gallery` · `kiln build [models] [--verify-godot]` (named models only: the others keep their last output) · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
 `kiln config show|get|set` · `kiln import <file> --licence L` (.glb/.gltf; .fbx/.blend/.obj with Blender 4.x) · `kiln pack list|add|search|import` · `kiln credits` · `kiln doctor` ·
 `kiln docs [topic...] [--search words]` (these docs: list, print one, find paragraphs) · `kiln skill install` · `kiln mcp`. Every command takes `--json` (before or after the command). `--closeup` takes a part
 id (`root` = parts without one) or a part's number in the file (`--closeup 3`).
 Framing: `--tight` fits each tile to what it shows (flat props), `--frame-box` frames the sheets on a region (a scene's
-corner), `lineup --pitch 60` looks down on flat props (no ground line past 20). `--fill` adds a neutral light from the
-camera (previews only: the game has no such light), so faces seen from below read; `--bg auto` is dark for dark skies.
+corner; both: turntable and `--views` only), `lineup --pitch 60` looks down on flat props (no ground line past 10). `--fill` adds a neutral light from the
+camera (previews only: the game has no such light), so faces seen from below read; `--bg auto` (turntable, views, closeups) is dark for dark skies.
 `kiln preview <model> --vs <ref.glb|ref.gltf> [--ref-height METRES]`: the model against a reference mesh (a CC0
 pack item, kept as it is: its own colours and normals) at one scale (same pixels per metre, both on y = 0, centred
 on each other), in the style's lighting: `previews/<model>/vs_<ref>.png` with paired turntable rows (reference above

@@ -68,3 +68,45 @@ def test_bad_entries_are_refused(project: Project) -> None:
     for entry in ("[{ model: desk }]", "[{ model: screw, scale: 0 }]", "[{ model: screw, id: nope }]", "{ model: screw }"):
         text = DESK.split("instances:")[0].replace("name: desk", "name: desk") + f"instances: {entry}\n"
         assert any(f.rule == "E003" for f in errors_of(project, text, "desk")), entry
+
+
+def test_an_instance_moves_with_its_part(desk: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+    from kiln.cli import _built
+
+    rigged = DESK.replace("    color: wood\n", "    color: wood\n  - box: { at: [0.3, 0.2, 0], size: [0.1, 0.2, 0.1] }\n    id: arm\n    color: red\n") \
+        .replace("  - { model: screw, at: [0.2, 0.1, 0] }", "  - { model: screw, at: [0.3, 0.3, 0], id: arm }") + "skin: rigid\nrig:\n  arm: { pivot: [0.3, 0.1, 0] }\n"  # fmt: skip
+    write_model(desk, rigged, "desk")
+    monkeypatch.chdir(desk.root)
+    scene = _built(desk, "desk")
+    bones = {scene.painted.groups[g].bone for g in scene.painted.face_group if scene.painted.groups[g].color == "#8a93a3"}
+    assert bones == {"arm", "root"}  # one screw on the arm, one on the root
+
+
+def test_the_instance_origin_goes_at_at(desk: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+    from kiln.cli import _built
+
+    write_model(desk, SCREW + "origin: center\n", "screw")
+    monkeypatch.chdir(desk.root)
+    scene = _built(desk, "desk")
+    p = scene.painted
+    grey = np.array([p.groups[g].color == "#8a93a3" for g in p.face_group])
+    first = p.vertices[p.faces[grey]].reshape(-1, 3)
+    first = first[first[:, 0] > 0]
+    assert abs((first[:, 1].min() + first[:, 1].max()) / 2 - 0.1) < 2e-3  # its centre at y = 0.1, as its glb's origin
+
+
+def test_lods_hold_their_budget_and_maps_are_refused(desk: Project) -> None:
+    write_model(desk, DESK.replace("resolution: 0.03\n", "resolution: 0.03\nlod: [60]\n"), "desk")
+    assert not build(desk).errors
+    doc, _ = read_glb((desk.output_dir / "models" / "desk.lod1.glb").read_bytes())
+    tris = sum(desk_acc["count"] // 3 for m in doc["meshes"] for prim in m["primitives"] for desk_acc in [doc["accessors"][prim["indices"]]])
+    assert tris <= 60 * 1.5, tris
+    write_model(desk, DESK.replace("resolution: 0.03\n", "resolution: 0.03\nnormal_map: 256\n"), "desk")
+    assert any("normal map" in f.message for f in build(desk).findings)
+
+
+def test_a_partial_build_rebuilds_the_scene(desk: Project) -> None:
+    from kiln.build import _with_dependents
+
+    paths = _with_dependents(desk, [desk.models_dir / "screw.kiln.yaml"])
+    assert {p.name for p in paths} == {"screw.kiln.yaml", "desk.kiln.yaml"}

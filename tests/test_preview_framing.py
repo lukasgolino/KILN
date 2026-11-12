@@ -76,3 +76,20 @@ def test_preview_flags(project: Project, monkeypatch: pytest.MonkeyPatch, capsys
     assert code != 0
     code, out = run_json(["lineup", "thing", "--pitch", "60"], capsys)
     assert code == 0, out
+
+
+def test_tight_inside_a_frame_box_frames_the_box(project: Project) -> None:
+    flat = built_of(project, FLAT)
+    box = ((0.4, 0.0, 0.4), (0.5, 0.08, 0.5))
+    centre, half = pv._tight(flat, View(0.0, 15.0), pv.Tiles(frame=box).fit(flat), box)
+    assert half < 0.1  # the small block, not the whole board
+
+
+def test_fill_takes_no_amount_and_framing_flags_say_where_they_apply(project: Project, monkeypatch: pytest.MonkeyPatch,
+                                                                     capsys: pytest.CaptureFixture[str]) -> None:  # fmt: skip
+    write_model(project, FLAT)
+    monkeypatch.chdir(project.root)
+    code, _ = run_json(["preview", "--fill", "thing", "--views", "front", "--size", "64"], capsys)
+    assert code == 0
+    code, out = run_json(["preview", "thing", "--closeup", "root", "--tight"], capsys)
+    assert code != 0 and "turntable" in str(out)

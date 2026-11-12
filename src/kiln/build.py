@@ -416,10 +416,33 @@ def atlas_entry(atlas: Atlas, files: dict[str, str], ao: float) -> dict[str, Any
     return {**files, "size": [w, h], "cell": CELL, "cells": cells, "ao": ao > 0, **({"ao_strength": _f(ao)} if ao > 0 else {})}
 
 
+def _with_dependents(project: Project, paths: list[Path]) -> list[Path]:
+    """A partial build also rebuilds the models that place a rebuilt one (`instances:`), round and round (#171)."""
+    names = {p.name[: -len(MODEL_SUFFIX)] for p in paths}
+    places: dict[Path, set[str]] = {}
+    for path in project.model_paths():
+        if "instances" in path.read_text(encoding="utf-8"):
+            model, _, _ = project.load(path)
+            if model is not None:
+                places[path] = {i.model for i in model.instances}
+    out = list(paths)
+    grown = True
+    while grown:
+        grown = False
+        for path, placed in places.items():
+            if path not in out and placed & names:
+                out.append(path)
+                names.add(path.name[: -len(MODEL_SUFFIX)])
+                grown = True
+    return out
+
+
 def build(project: Project, only_valid: bool = True, progress: Callable[[str], None] | None = None, paths: list[Path] | None = None) -> BuildResult:
     """Build every model (or only the models at `paths`: the rest keep what the last build wrote) into the output dir."""
     out = project.output_dir
     result = BuildResult(out)
+    if paths is not None:
+        paths = _with_dependents(project, paths)
     lint: LintResult = lint_project(project) if paths is None else lint_paths(project, paths)
     result.findings = list(lint.findings)
     if lint.errors and only_valid:
@@ -483,11 +506,16 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             styles_used[style.name] = style
             result.models.append(name)
             continue
-        try:  # other models placed in it, each its own build (#171)
+        try:  # other models placed in it, each its own build (#171); a LOD: everything at the same share of its triangles
             own = build_cached(model, style, palette, cache)
             built = place(project, own)
-            all_lods = [(k, budget, place(project, build_cached(model, style, palette, cache, budget))) for k, budget in enumerate(model.lod, start=1)
-                        if budget < own.triangles]  # fmt: skip
+            all_lods = []
+            for k, budget in enumerate(model.lod, start=1):
+                if budget >= built.triangles:
+                    continue
+                share = budget / built.triangles
+                lod_own = build_cached(model, style, palette, cache, max(12, int(own.triangles * share)) if model.instances else budget)
+                all_lods.append((k, budget, place(project, lod_own, share=share)))
         except InstanceError as exc:
             result.findings.append(Finding("E011", str(exc), model.path, None, "instances"))
             continue

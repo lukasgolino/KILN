@@ -95,6 +95,9 @@ decides the final triangles.
 
 Placing other models (a desk with its props, a tray of screws): `instances: [{ model: screw, at: [x, y, z], rotate:
 [x, y, z], scale: 1, id: tray }]` at the top of the model. Each is that model's own build (its mesh at its own cell size
-and budget: fine screws stay fine in a coarse scene), merged in after the scene is built; `id` is the part it moves with
-(default root). Not carried over: an instance's decals and baked maps (#295). Missing models: E011; a model placing
-itself, directly or round a circle, is an error.
+and budget: fine screws stay fine in a coarse scene), merged in after the scene is built. `at`/`rotate` are in the
+scene's model space and place the instance's origin (its `origin:`, as its own glb); `id` is the part it moves with
+(default root; not mirrored). A scene `lod:` builds every instance at the same share of its triangles. Materials are
+read in the scene's style; an instance's decals, animations and skin aren't carried over, and a scene with a normal map
+or relief can't take instances yet (#295). `kiln build screw` rebuilds the models that place it. Missing models:
+E011; templates, terrains, scatters and circles (a model placing itself round about) are errors.

@@ -1995,8 +1995,6 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
             ctx.error("E003", "an attachment (fit_to) is exported in its bone's space: drop origin", _line(data, "origin"), "origin")
     if "effect" in data:
         model.effect = parse_effect(data["effect"], lambda message, where: ctx.error("E003", message, _line(data, "effect"), where))
-    if "instances" in data:
-        model.instances = _parse_instances(ctx, data["instances"], _line(data, "instances"), model)
     lod = data.get("lod", [])
     if not isinstance(lod, list) or not all(isinstance(n, int) and not isinstance(n, bool) and n >= 12 for n in lod):
         ctx.error("E003", "lod is a list of smaller triangle budgets, e.g. [2000, 600]", _line(data, "lod"), "lod")
@@ -2119,6 +2117,8 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     _soft_colours(ctx, data, model)
     ids = set(model.ids) if model.parts else {ROOT_ID}
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig"), model.template), model.parts)
+    if "instances" in data:  # (after the parts: `id` names one)
+        model.instances = _parse_instances(ctx, data["instances"], _line(data, "instances"), model)
     skeleton = data.get("skeleton")
     if isinstance(skeleton, dict):
         model.joint_map = _parse_skeleton_map(ctx, skeleton, model, _line(data, "skeleton"))

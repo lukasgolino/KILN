@@ -93,7 +93,7 @@ class Tiles:
 
     def render(self, built: Built, view: View, size: int, fit: tuple[Array, float], **kw: Any) -> Image.Image:
         if self.tight:
-            fit = _tight(built, view, fit)
+            fit = _tight(built, view, fit, self.frame)
         return render(built, view, size, fit=fit, background=self.bg, fill=self.fill, **kw)
 
 
@@ -108,13 +108,14 @@ def tile_background(style: Any, choice: str = "auto") -> tuple[int, int, int, in
     return DARK_TILE_BG if 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.25 else TILE_BG
 
 
-def _tight(built: Built, view: View, fit: tuple[Array, float]) -> tuple[Array, float]:
-    """A tile framed on what it shows (#212): the model's (or the frame's) points projected on this view."""
+def _tight(built: Built, view: View, fit: tuple[Array, float], frame: tuple[tuple[float, ...], tuple[float, ...]] | None = None) -> tuple[Array, float]:
+    """A tile framed on what it shows (#212): the model's points (in the frame box, with one) projected on this view."""
     centre, half = fit
     right, up, _ = camera_basis(view)
     v = built.painted.vertices
-    near = np.abs(v - centre).max(axis=1) <= half * 1.5  # (a frame: only what is round it)
-    v = v[near] if near.any() else v
+    if frame is not None:
+        inside = np.all((v >= np.asarray(frame[0])) & (v <= np.asarray(frame[1])), axis=1)
+        v = v[inside] if inside.any() else np.array([frame[0], frame[1]], float)
     x, y = (v - centre) @ right, (v - centre) @ up
     cx, cy = (x.min() + x.max()) / 2, (y.min() + y.max()) / 2
     return centre + right * cx + up * cy, max(float(x.max() - x.min()), float(y.max() - y.min()), built.step * 4) / 2 * 1.08
@@ -364,12 +365,12 @@ def _floor_grid(tile: Image.Image, view: View, fit: tuple[Array, float], floor: 
 
 
 LINEUP_PITCH = 8.0
-GROUND_PITCH = 20.0  # line-ups seen from higher than this have no ground line: each model framed on its own footprint
+GROUND_PITCH = 10.0  # line-ups seen from higher than this have no ground line: each model framed on its own footprint
 
 
 def lineup(builts: list[Built], height_px: int = 480, pitch: float = LINEUP_PITCH) -> Image.Image:
     """Models side by side at one scale (pixels per metre), standing on one ground line, with a 1 m bar. From higher
-    up (`pitch` past 20 degrees: flat props, #212) each is framed on its own projected size, still at one scale."""
+    up (`pitch` past 10 degrees: flat props, #212; the ground-line crop would cut deep footprints) each is framed on its own projected size, still at one scale."""
     if not builts:
         return sheet("line-up", "no models", [])
     if pitch > GROUND_PITCH:
@@ -393,7 +394,7 @@ def lineup(builts: list[Built], height_px: int = 480, pitch: float = LINEUP_PITC
     out = Image.new("RGB", (width, height_px + 80), BG)
     draw = ImageDraw.Draw(out)
     draw.text((10, 10), "line-up", fill=TEXT, font=_font(20))
-    draw.text((10, 36), f"same scale: {ppm:.0f} px per metre, all standing on one ground line", fill=DIM, font=_font(13))
+    draw.text((10, 36), f"same scale: {ppm:.0f} px per metre, all standing on one ground line, seen from {pitch:g} degrees up", fill=DIM, font=_font(13))
     top = 64
     ground = top + height_px - margin
     x = 70

@@ -23,8 +23,9 @@ class InstanceError(Exception):
     pass
 
 
-def instance_builds(project: Project, built: Built, seen: tuple[str, ...] = ()) -> list[tuple[Instance, Built]]:
-    """Each instance's own build (its own instances placed in it), in order."""
+def instance_builds(project: Project, built: Built, seen: tuple[str, ...] = (), share: float = 1.0) -> list[tuple[Instance, Built]]:
+    """Each instance's own build (its own instances placed in it), in order; `share` < 1: built at that share of its
+    triangles (a scene LOD)."""
     from kiln.builder import build_cached
     from kiln.notation import MODEL_SUFFIX
 
@@ -39,16 +40,23 @@ def instance_builds(project: Project, built: Built, seen: tuple[str, ...] = ()) 
         errors = [f for f in findings if f.severity == "error"]
         if model is None or style is None or errors:
             raise InstanceError(f"instances: {inst.model} doesn't load ({errors[0].format() if errors else 'no model'})")
+        if model.template or model.terrain is not None or model.scatter is not None:
+            raise InstanceError(f"instances: {inst.model} is a {'template' if model.template else 'terrain' if model.terrain else 'scatter'}, not a model to place")
         palette, _ = project.palette(model.palette)
-        sub = build_cached(model, style, palette, project.root / ".kiln-cache")
-        out.append((inst, place(project, sub, (*seen, built.model.name))))
+        cache = project.root / ".kiln-cache"
+        sub = build_cached(model, style, palette, cache)
+        if share < 1.0:
+            sub = build_cached(model, style, palette, cache, max(12, int(sub.triangles * share)))
+        out.append((inst, place(project, sub, (*seen, built.model.name), share)))
     return out
 
 
-def place(project: Project, built: Built, seen: tuple[str, ...] = ()) -> Built:
-    """`built` with its instances merged in (unchanged without any)."""
+def place(project: Project, built: Built, seen: tuple[str, ...] = (), share: float = 1.0) -> Built:
+    """`built` with its instances merged in (unchanged without any); `share`: a LOD's share of the full triangles."""
     if not built.model.instances:
         return built
+    if built.bake is not None:
+        raise InstanceError("instances: a model with a normal map or relief can't place other models yet (#295)")
     p = built.painted
     vertices, faces, face_group, face_decal = [p.vertices], [p.faces], [p.face_group], [p.face_decal]
     groups = list(p.groups)
@@ -58,10 +66,10 @@ def place(project: Project, built: Built, seen: tuple[str, ...] = ()) -> Built:
     joints = [built.joints] if built.joints is not None else None
     weights = [built.weights] if built.weights is not None else None
     count = len(p.vertices)
-    for inst, sub in instance_builds(project, built, seen):
+    for inst, sub in instance_builds(project, built, seen, share):
         q = sub.painted
         r = rotation_matrix(inst.rotate)
-        vertices.append(q.vertices @ r.T * inst.scale + np.asarray(inst.at))
+        vertices.append((q.vertices - sub.origin()) @ r.T * inst.scale + np.asarray(inst.at))  # its origin at `at`, as its glb
         faces.append(q.faces + count)
         remap = []
         for g in q.groups:
