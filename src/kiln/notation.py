@@ -22,7 +22,7 @@ from kiln.mesher import CELL_LIMIT
 from kiln.retarget import REQUIRED, JointMap
 from kiln.scatter import Scatter
 from kiln.scatter import parse as parse_scatter
-from kiln.sdf import IDENTITY, SHAPES, Copy, Field, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
+from kiln.sdf import IDENTITY, SHAPES, Copy, Field, Geometry, Noise, axis_rotation, rotation_matrix, smooth_path, smooth_profile
 from kiln.shade import parse as parse_shade
 from kiln.terrain import Terrain
 from kiln.terrain import parse as parse_terrain
@@ -467,6 +467,8 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if missing:
         ctx.error("E003", f"{kind} needs {', '.join(missing)} ({sdef.help})", line, swhere)
         ok = False
+    if kind in ("tube", "lock") and "points" in params and params.pop("smooth", False):
+        params["points"] = smooth_path(params["points"])  # a curve through the points, as short straight pieces
     if kind == "lathe" and "profile" in params and params.get("smooth", True):
         if "smooth" not in spec:
             params["hard_profile"] = params["profile"]  # hard lathes keep the outline's corners unless asked

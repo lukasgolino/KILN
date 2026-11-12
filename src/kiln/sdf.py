@@ -348,6 +348,33 @@ def torus(p: Array, s: dict[str, Any]) -> Array:
     return np.sqrt(ring * ring + p[:, 1] * p[:, 1]) - s["thickness"]
 
 
+PATH_STEPS = 8  # segments per span of a smooth tube or lock
+
+
+def smooth_path(points: list[list[float]], steps: int = PATH_STEPS) -> list[list[float]]:
+    """A centripetal Catmull-Rom curve through every point (no loops or cusps on uneven spacing), as `steps` straight
+    segments per span; the ends are extended by mirroring their neighbours."""
+    pts = np.asarray(points, float)
+    if len(pts) < 3:
+        return [list(map(float, q)) for q in pts]
+    ext = np.concatenate([[2 * pts[0] - pts[1]], pts, [2 * pts[-1] - pts[-2]]])
+    out = [pts[0]]
+    for i in range(1, len(ext) - 2):
+        p0, p1, p2, p3 = ext[i - 1], ext[i], ext[i + 1], ext[i + 2]
+        t0 = 0.0
+        t1 = t0 + max(float(np.linalg.norm(p1 - p0)) ** 0.5, 1e-9)
+        t2 = t1 + max(float(np.linalg.norm(p2 - p1)) ** 0.5, 1e-9)
+        t3 = t2 + max(float(np.linalg.norm(p3 - p2)) ** 0.5, 1e-9)
+        for t in np.linspace(t1, t2, steps + 1)[1:]:
+            a1 = (t1 - t) / (t1 - t0) * p0 + (t - t0) / (t1 - t0) * p1
+            a2 = (t2 - t) / (t2 - t1) * p1 + (t - t1) / (t2 - t1) * p2
+            a3 = (t3 - t) / (t3 - t2) * p2 + (t - t2) / (t3 - t2) * p3
+            b1 = (t2 - t) / (t2 - t0) * a1 + (t - t0) / (t2 - t0) * a2
+            b2 = (t3 - t) / (t3 - t1) * a2 + (t - t1) / (t3 - t1) * a3
+            out.append((t2 - t) / (t2 - t1) * b1 + (t - t1) / (t2 - t1) * b2)
+    return [[round(float(v), 9) for v in q] for q in out]
+
+
 def smooth_profile(points: list[list[float]], rounds: int = 3) -> list[list[float]]:
     """Chaikin corner cutting on a closed outline; points on the axis (r = 0) stay put, so the shape stays closed."""
     pts = [list(p) for p in points]
@@ -450,11 +477,12 @@ SHAPES: dict[str, ShapeDef] = {
                      "radius (bottom), radius_top, height (along y), sides (4: a pyramid)"),
     "capsule": ShapeDef(capsule, {"from": "vec3", "to": "vec3", "radius": "pos", "radius_to": "pos", "sides": "sides"}, ("from", "to", "radius"), {},
                         _bounds_capsule, "from: [x, y, z], to: [x, y, z], radius, radius_to (taper), sides (hard parts)"),
-    "tube": ShapeDef(tube, {"points": "points3", "radius": "pos", "radius_to": "pos", "sides": "sides"}, ("points", "radius"), {}, _bounds_tube,
-                     "points: [[x, y, z], ...] (2+), radius, radius_to (taper), sides (hard parts)"),
+    "tube": ShapeDef(tube, {"points": "points3", "radius": "pos", "radius_to": "pos", "sides": "sides", "smooth": "bool"}, ("points", "radius"), {},
+                     _bounds_tube, "points: [[x, y, z], ...] (2+; straight between them unless smooth: true), radius, radius_to (taper), sides "
+                     "(hard parts)"),
     "lock": ShapeDef(lock, {"points": "points3", "width": "pos", "thickness": "pos", "width_to": "nonneg", "thickness_to": "nonneg",
-                            "facing": "vec3"}, ("points", "width", "thickness"), {"facing": [0.0, 0.0, 1.0]}, _bounds_lock,
-                     "points: [[x, y, z], ...] (2+), width, thickness, width_to, thickness_to (taper; width_to: 0 = a pointed tip), "
+                            "facing": "vec3", "smooth": "bool"}, ("points", "width", "thickness"), {"facing": [0.0, 0.0, 1.0]}, _bounds_lock,
+                     "points: [[x, y, z], ...] (2+; straight between them unless smooth: true), width, thickness, width_to, thickness_to (taper; width_to: 0 = a pointed tip), "
                      "facing: [x, y, z] (where the flat sides look; default [0, 0, 1])"),
     "torus": ShapeDef(torus, {"radius": "pos", "thickness": "pos", "sides": "sides"}, ("radius", "thickness"), {},
                       lambda s: _sym(np.array([s["radius"] + s["thickness"], s["thickness"], s["radius"] + s["thickness"]])),

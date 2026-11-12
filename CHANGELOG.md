@@ -16,6 +16,9 @@ before 1.0).
 
 ### Added
 
+- `smooth: true` on tubes and locks: a centripetal Catmull-Rom curve through the points (8 straight pieces per span,
+  through every point, no loops on uneven spacing) instead of straight lines between them. A wave is five points,
+  not thirteen. Without it the path is straight between points, as before (now documented) (#179).
 - `on: { part, near }` on a part: placed on the blended surface of earlier parts (those ids, blends, fitted shells
   and earlier cuts included; detail parts not) where a walk from `near` along the field settles (start just outside
   the spot), its y axis along the surface normal, then `offset` along the normal and `roll` about it (`align: false`
