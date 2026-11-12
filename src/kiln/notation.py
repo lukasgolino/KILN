@@ -220,8 +220,10 @@ class Source:
 class Relief:
     """A layer of shallow overlapping patches on the surface of some parts, in the baked maps only (kiln.relief)."""
 
-    on: list[str]  # part ids it covers
+    on: list[str]  # part ids it covers (empty with on_colors: every smooth part)
     kind: str = "fur"
+    on_colors: list[str] = field(default_factory=list)  # hex: only faces painted in these colours (#301)
+    exclude: list[str] = field(default_factory=list)  # part ids it leaves bare (`except:` in the model, #301)
     length: float = 0.09  # metres along the flow
     width: float = 0.05  # metres across
     lift: float = 0.008  # metres the tip stands off the surface
@@ -1042,7 +1044,7 @@ def _place_on(ctx: _Ctx, model: Model, done: set[int]) -> None:
                 twin.geometry.at, twin.geometry.rotation, twin.geometry.copies = r.at, r.rotation, r.copies
 
 
-RELIEF_FIELDS = {"on", "kind", "length", "width", "lift", "density", "flow", "tips", "jitter", "color", "color_to", "under", "seed", "fade"}
+RELIEF_FIELDS = {"on", "on_colors", "except", "kind", "length", "width", "lift", "density", "flow", "tips", "jitter", "color", "color_to", "under", "seed", "fade"}
 RELIEF_RANGES = {"length": (0.005, 2.0, "metres along the flow"), "width": (0.005, 2.0, "metres across the flow"),
                  "lift": (0.0005, 0.1, "metres the tip stands off the surface"), "density": (0.1, 6.0, "1 just covers the surface, more overlaps"),
                  "jitter": (0.0, 1.0, "variation of size and angle"), "under": (0.0, 1.0, "how much darker the surface is under a tip"),
@@ -1073,12 +1075,18 @@ def _parse_relief(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
         for key in sorted(str(key) for key in set(entry) - RELIEF_FIELDS):
             ctx.error("E003", f"unknown relief field {key!r}: a layer has {', '.join(sorted(RELIEF_FIELDS))}", eline, f"{where}.{key}")
             ok = False
-        on = entry.get("on")
+        on = entry.get("on", [] if "on_colors" in entry else None)
         on = [on] if isinstance(on, str) else on
-        if not isinstance(on, list) or not on or not all(isinstance(i, str) for i in on):
-            ctx.error("E003", "relief on: the ids of the parts the layer covers, e.g. on: [body, upperleg_l, upperleg_r]", eline, f"{where}.on")
+        if not isinstance(on, list) or not (on or "on_colors" in entry) or not all(isinstance(i, str) for i in on):
+            ctx.error("E003", "relief on: the ids of the parts the layer covers, e.g. on: [body, upperleg_l, upperleg_r] "
+                      "(or on_colors: [fur] for the faces painted in those colours)", eline, f"{where}.on")  # fmt: skip
             continue
-        missing = [i for i in on if i not in ids]
+        excluded = entry.get("except", [])
+        excluded = [excluded] if isinstance(excluded, str) else excluded
+        if not isinstance(excluded, list) or not all(isinstance(i, str) for i in excluded):
+            ctx.error("E003", "relief except: the ids of parts the layer leaves bare, e.g. except: [face, chest]", eline, f"{where}.except")
+            continue
+        missing = [i for i in [*on, *excluded] if i not in ids]
         if missing:
             ctx.error("E003", f"relief on: no smooth part has id {', '.join(missing)} (ids: {', '.join(sorted(ids)) or 'none'}; a mirrored "
                       "part's twin has its own mirror_id)", eline, f"{where}.on")  # fmt: skip
@@ -1086,7 +1094,19 @@ def _parse_relief(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
         if entry.get("kind", "fur") != "fur":
             ctx.error("E003", "relief kind is fur (flat patches with notched, pointed tips)", eline, f"{where}.kind")
             ok = False
-        layer = Relief(list(on))
+        layer = Relief(list(on), exclude=list(excluded))
+        raw_colors = entry.get("on_colors", [])
+        raw_colors = [raw_colors] if isinstance(raw_colors, str) else raw_colors
+        if not isinstance(raw_colors, list):
+            ctx.error("E003", "relief on_colors: palette colours, e.g. on_colors: [fur, fur_dark]", eline, f"{where}.on_colors")
+            ok = False
+        else:
+            for c in raw_colors:
+                found = _color(ctx, c, eline, f"{where}.on_colors")
+                if found is None:
+                    ok = False
+                else:
+                    layer.on_colors.append(found[0])
         for key, (lo, hi, what) in RELIEF_RANGES.items():
             value = entry.get(key, getattr(layer, key))
             if not _num(value) or not lo <= float(value) <= hi:

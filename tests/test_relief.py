@@ -304,3 +304,27 @@ def test_layers_pack_small_in_the_cache(project: Project) -> None:
     back = pickle.loads(packed)  # noqa: S301
     assert len(packed) < 0.5 * (lay.group.nbytes + lay.entry.nbytes + lay.along.nbytes + lay.shade.nbytes)
     assert all(np.array_equal(getattr(lay, k), getattr(back, k)) for k in ("group", "entry", "along", "shade")) and back.patches == lay.patches
+
+
+@pytest.mark.parametrize("select", ["on_colors: [wood]", "on: [body, head]\n    except: [head]", "on_colors: wood\n    on: [body, head]"])
+def test_relief_by_colour_or_with_except(project: Project, select: str) -> None:
+    """#301: a layer picks its faces by painted colour (on_colors) or leaves ids bare (except), no extra bones."""
+    from kiln.lint import lint_paths
+
+    text = MODEL.replace("  - on: [body]\n", f"  - {select}\n").replace("    density: 1.5\n", "    density: 1.5\n    fade: 0\n")
+    result = lint_paths(project, [write_model(project, text)])
+    assert not result.errors, result.findings
+    built = result.built["thing"]
+    lay = built.bake.layers
+    face, texel, _ = bk._texels(built.bake.uv, built.bake.size, built.bake.size)
+    red = np.array([g.color == "#e8413c" for g in built.painted.groups])[built.painted.face_group[face]]
+    entry = lay.entry.reshape(-1)[texel]
+    assert red.sum() > 500 and (entry[red] == -1).all() and (entry[~red] == 0).mean() > 0.5
+
+
+def test_relief_selection_errors(project: Project) -> None:
+    from conftest import errors_of
+
+    for select, where in (("except: [nope]", "relief[0].on"), ("on_colors: [mauve]", "relief[0].on_colors"), ("on: []", "relief[0].on")):
+        text = MODEL.replace("  - on: [body]\n", f"  - on: [body]\n    {select}\n" if not select.startswith("on:") else f"  - {select}\n")
+        assert any(f.where == where for f in errors_of(project, text)), select

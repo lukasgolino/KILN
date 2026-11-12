@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- Relief picks its faces by painted colour (`on_colors: [fur]`; alone: every smooth part in those colours) and leaves
+  ids bare (`except: [face, chest]`), so a bare chest or face that shares bones with the fur needs no extra bones
+  (#301). The docs list `kind: fur` (#307); folds, relief and colour fades moved to `kiln docs surfaces`.
 - `kiln build <models> --no-dependents`: the models that place them (instances) keep their last build (#343).
 
 ### Fixed

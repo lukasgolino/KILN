@@ -1,6 +1,7 @@
 # Surfaces
 
-Hard surfaces (exact polygons), hardware (rivets, bands, planks, bolts, slits, garments), patterns, decals, textures.
+Hard surfaces (exact polygons), hardware (rivets, bands, planks, bolts, slits, garments), patterns, decals, textures,
+cloth folds, relief fur, soft colour borders.
 
 ## Hard surface
 
@@ -88,3 +89,74 @@ for x, -x for z (it shows unless the circumference is whole tiles). `at`: the pa
 can't follow `mirror`/`array` copies: use `mirror_id` or `box`. Tile: `size: [w, h]` metres or `texel:` metres per
 pixel. It repeats; images <= 256 px are crisp (pixel art on smooth shapes). Clear pixels show the part's colour
 (after swaps); its pattern colours paint over it; a `decal` replaces it there.
+
+## Cloth folds: `folds`
+
+Robes, skirts, capes and curtains: `folds: { count: 12, depth: 0.03, from_y: 0, to_y: 1.0, sharp: 0.5 }` on a smooth
+part (a cone, a lathe, a cylinder; count 2-48, depth up to 0.1) runs `count` vertical folds round its own y axis,
+`depth` metres deep at `from_y` (the hem) and fading out by `to_y` (where the cloth hangs from); `sharp` 0 gives
+round waves, 1 narrow ridges between wide hollows. The hem comes out scalloped. Heights run along the part's own axis
+(model heights for an upright part; each `array` copy folds round its own). A fold is never deeper than a quarter of
+the fold spacing there (2 pi r / count), so near the axis and with many folds they get shallower. They are real
+shape: they show in silhouette and in Godot without a normal map; keep `depth` at least two mesh cells. A shell's wall
+folds with them; a fitted shell can't fold (fold the parts it wraps); hard parts can't; colour borders follow the
+unfolded shapes (a belt doesn't wiggle).
+
+## Relief: fur without parts
+
+Fur, and any coat of small overlapping tufts, is a `relief:` layer on one smooth body, never hundreds of clump
+parts: the patches live in the baked normal map and a base colour map, so they cost no parts, no cells and no
+triangles (a 12-part cub with three layers builds in 30 s). Needs `kiln-gen[bake]`; turns on a 1024 map unless
+`normal_map:` sets the size.
+
+```yaml
+relief:
+  - on: [body, arm_l, arm_r, leg_l, leg_r]   # ids of the smooth parts it covers (a mirror twin by its own mirror_id)
+    # or on_colors: [fur, fur_dark]: only faces painted in those colours (alone: on every smooth part; with on:, both);
+    # except: [face, chest]: ids left bare. kind: fur (the only kind so far).
+    length: 0.08      # metres, root to tip along the flow (default 0.09)
+    width: 0.045      # metres across (0.05)
+    lift: 0.007       # metres the tip stands off the surface (0.008): the depth of the shading
+    density: 1.6      # 1 just covers the surface; more overlaps like roof tiles (1)
+    flow: down        # down | up | [x, y, z]: the way the tips point (down)
+    tips: 3           # pointed tips along a patch's lower edge (3)
+    jitter: 0.3       # 0..1 variation of size and angle (0.3)
+    color: bark       # optional root colour and tip colour; without them a patch has the colour of the surface
+    color_to: wood
+    under: 0.4        # 0..1: how much darker the surface is just below each tip (0.3)
+    fade: 0.06        # metres over which patches thin out and shrink toward the edge of `on`: no hard bib (0.06)
+    seed: 1
+```
+
+- Layers apply in order; give the body long patches, the head and hands shorter ones (`length` about a tenth of the
+  part's size), a pale belly or muzzle its own short layer with `fade`.
+- Model the body as a few big blended parts first; the silhouette stays the mesh's (relief does not move it).
+- A patch is flat: on a thin limb lying across the flow it wraps badly; point `flow` along the limb there.
+- Patches stay on the parts in `on`: eyes, a nose, claws and glowing or hard parts next to them stay clean.
+  `normal_strength` scales the layer's shading with the rest of the map. `preview --draft` shows no relief.
+- The model's colours are then in `<name>.color.png` on the normal map's UVs (one material per preset; a variant has
+  its own map and glb). Manifest: `color_map` (`png`, `size`, `patches`). Example: `examples/demo/models/cub.kiln.yaml`.
+
+## Soft colour borders: `color_blend`
+
+A part's colour meets its neighbours' in a crisp border by default. `color_blend: 0.05` on a part (metres, 0 to
+0.5) fades its colour into theirs over that distance either side of the border: a pale belly or muzzle melting into
+the fur, a tan chest, a sunburnt nose.
+
+```yaml
+  - ellipsoid: { at: [0, 0.4, 0.13], radii: [0.17, 0.2, 0.12] }
+    id: belly
+    color: rope
+    blend: 0.05
+    color_blend: 0.04    # the wider of two neighbours' values is used on their border
+```
+
+- The fade is painted in the base colour map (the same map relief uses, `<name>.color.png`; it comes on with a 1024
+  map unless `normal_map:` sets the size; needs `kiln-gen[bake]`; under `atlas = true` the model leaves the atlas).
+  The mesh and its border don't change. `preview --draft` shows no fade.
+- A border fades when one of its two parts asks and the later of them joins the other with a `blend`: a nose or an
+  eye set on with a crisp seam (`blend: 0`) stays sharp next to a fading muzzle. The wider of the two values is used.
+- Colours mix in OKLab, half and half on the border, toward what the neighbour looks like (its fur, if it has
+  relief). A part's own pattern stripes and gradient bands stay crisp.
+- Borders with hard parts, glowing materials and decals stay crisp. Lint W127: a `color_blend` that fades nothing.
+- Where three colours meet, each point fades toward the nearest border only.

@@ -452,13 +452,22 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
     owner = np.asarray(adding)[field_of(model, step).nearest(adding, centres)[0]] if adding else np.zeros(len(p.faces), np.int64)
     piece_of = {i: k for k, inc in enumerate(pieces) for i in inc}
     face_field = np.array([piece_of.get(int(i), -1) for i in owner], dtype=np.int64)  # hard parts: -1
-    patches, on = None, []
+    patches = None
+    on: list[Array] = []  # per relief layer, the faces it covers
     if model.relief:  # patches over the faces of the parts each layer names (a face is its nearest adding part's)
         from kiln import relief
 
         ids = np.array([model.parts[int(i)].id for i in owner]) if adding else np.zeros(len(p.faces), dtype=str)
         soft = soft_faces(built, face_field)
-        on = [np.isin(ids, layer.on) & soft for layer in model.relief]
+        face_color = np.array([g.color for g in p.groups])[p.face_group]
+        on = []
+        for layer in model.relief:  # its ids (all with on_colors alone), its colours, less its except: ids (#301)
+            sel = (np.isin(ids, layer.on) if layer.on else np.ones(len(ids), dtype=bool)) & soft
+            if layer.on_colors:
+                sel &= np.isin(face_color, layer.on_colors)
+            if layer.exclude:
+                sel &= ~np.isin(ids, layer.exclude)
+            on.append(sel)
         patches = relief.scatter(p.vertices, p.faces, built.normals, on, model.relief)
     fading = None
     if adding and any(model.parts[i].color_blend > 0 for i in adding):  # colours that fade across part borders (#230)
