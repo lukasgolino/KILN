@@ -255,7 +255,7 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     hard_cut: list[Regions] = []
     hard_meshes: list[HardMesh] = []
     if hard_pieces:  # its own phase (#174): exact polygons joined one by one, whatever the cell size
-        phase(f"joining {len(hard)} hard part{'s' * (len(hard) != 1)}")
+        phase(f"joining {len(hard)} hard part{'s' * (len(hard) != 1)}", "joining hard parts")
         hard_cut, hard_meshes = build_hard(model, style, field, hard_pieces, target * (HARD_SHARE if any_soft else 1.0), rigged,
                                            hinted("fewer hard parts, or fewer sides on round ones, join faster", HARD_GROWTH))  # fmt: skip
     hard_triangles = sum(r.mesh.triangles for r in hard_cut)
@@ -265,10 +265,10 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     smooth = sum(len(g) for g in groups_of) + len(kept)  # the adding parts meshed here: not hard ones, not cuts
     meshing = hinted("a coarser resolution or fewer parts meshes faster")
     if pieces or kept:  # a model of hard parts only has nothing to mesh: no phase, no "0 triangles" (#174)
-        phase(f"meshing {smooth} part{'s' * (smooth != 1)} at {step * 1000:.3g} mm cells ({reason})")
+        phase(f"meshing {smooth} part{'s' * (smooth != 1)} at {step * 1000:.3g} mm cells ({reason})", "meshing")
     meshes = [dual_contour(f, step, meshing) for _, f in pieces]
     if pieces:
-        phase(f"meshed at {step * 1000:.3g} mm: {sum(m.triangles for m in meshes)} triangles")
+        phase(f"meshed at {step * 1000:.3g} mm: {sum(m.triangles for m in meshes)} triangles", "meshing")
     kept_cut, kept_hidden = _kept(model, style, field, sorted(kept), step, target, meshes, rigged)
     kept_triangles = sum(len(p.faces) for p, _ in kept_cut)
     if sum(m.triangles for m in meshes) + hard_triangles + kept_triangles == 0:
@@ -294,11 +294,11 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
             dense = max((model.parts[i].density for i in adding), default=1.0)  # dense parts (#232) need the triangles to take
             preshape = PRESHAPE * max(dense, 1.0)
             live = [(include, f, decimate(f, mesh, max(200, round(preshape * soft_target * mesh.triangles / total)), step)) for include, f, mesh in live]
-        phase(f"painting {len(adding)} parts")
+        phase(f"painting {len(adding)} parts", "painting")
         cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect, hinted("fewer gradient or pattern parts paint faster"), model.draft)
                                    for include, f, mesh in live])  # fmt: skip
         fields = [f for _, f, _ in live]
-        phase(f"reducing to {soft_target} triangles")
+        phase(f"reducing to {soft_target} triangles", "reducing")
         painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, soft_target, [inc for inc, _, _ in live], full_areas,
                                                    hinted("a coarser resolution (fewer raw triangles) reduces faster"))  # fmt: skip
     floating = 1
