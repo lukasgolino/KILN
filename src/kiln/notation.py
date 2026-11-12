@@ -666,16 +666,18 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     fold = None
     if "folds" in raw:
         fr = raw["folds"]
-        keys = ("count", "depth", "from_y", "to_y", "sharp")
+        keys = ("count", "depth", "from_y", "to_y", "sharp", "bunch")
         good = isinstance(fr, dict) and not any(k not in keys for k in fr) and isinstance(fr.get("count"), int) and not isinstance(fr.get("count"), bool) \
             and 2 <= fr["count"] <= 48 and _num(fr.get("depth")) and 0 < fr["depth"] <= 0.1 and all(_num(fr.get(k, 0.0)) for k in ("from_y", "to_y")) \
-            and "from_y" in fr and "to_y" in fr and fr["to_y"] > fr["from_y"] and _num(fr.get("sharp", 0.5)) and 0 <= fr.get("sharp", 0.5) <= 1
+            and "from_y" in fr and "to_y" in fr and fr["to_y"] > fr["from_y"] and _num(fr.get("sharp", 0.5)) and 0 <= fr.get("sharp", 0.5) <= 1 and isinstance(fr.get("bunch", False), bool)
         if not good:
             ctx.error("E003", "folds is { count: 12 (2-48), depth: metres (e.g. 0.02, at most 0.1), from_y: the hem's height, to_y: where they fade out "
-                      "(model space, from_y < to_y), sharp: 0-1 (0.5) }: cloth folds round the part's own y axis", line, f"{where}.folds")  # fmt: skip
+                      "(model space, from_y < to_y), sharp: 0-1 (0.5), bunch: false (true: rings along the axis, bunched cloth) }: cloth folds round "
+                      "the part's own y axis (a capsule's or tube's own axis)", line, f"{where}.folds")  # fmt: skip
             ok = False
         else:
-            fold = Folds(int(fr["count"]), float(fr["depth"]), float(fr["from_y"]), float(fr["to_y"]), float(fr.get("sharp", 0.5)))
+            fold = Folds(int(fr["count"]), float(fr["depth"]), float(fr["from_y"]), float(fr["to_y"]), float(fr.get("sharp", 0.5)),
+                         bool(fr.get("bunch", False)))
     mirror_raw = raw.get("mirror")
     mirror: tuple[int, ...] = ()
     if mirror_raw is not None:
@@ -882,6 +884,10 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if kind in ("tube", "lock") and params.pop("smooth", False):  # a curve through the points, as short straight pieces;
         exact = hard is True or raw.get("blend") == "none" or "sides" in spec or bool(bevel or chamfer)  # fewer for exact
         params["points"] = smooth_path(params["points"], HARD_PATH_STEPS if exact else PATH_STEPS)  # polygons (a union of pieces)
+    if fold is not None and kind == "capsule":  # round its own axis (#315)
+        fold = replace(fold, axis=(tuple(map(float, params["from"])), tuple(map(float, params["to"]))))  # type: ignore[arg-type]
+    elif fold is not None and kind == "tube":  # round its ends' line (a trouser leg)
+        fold = replace(fold, axis=(tuple(map(float, params["points"][0])), tuple(map(float, params["points"][-1]))))  # type: ignore[arg-type]
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale, folds=fold)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,

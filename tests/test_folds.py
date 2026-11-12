@@ -91,3 +91,28 @@ def test_notation_and_mirror(project: Project) -> None:
     twin = ROBE.replace("at: [0, 0.6, 0]", "at: [0.5, 0.6, 0]").replace("    color: blue\n", "    color: blue\n    mirror: x\n    mirror_id: other\n")
     model, _, _ = load(project, twin)
     assert model is not None and model.parts[1].geometry.folds == model.parts[0].geometry.folds
+
+
+def test_folds_follow_a_capsules_axis_and_bunch(project: Project) -> None:
+    """#315: on a capsule (a trouser leg) the folds run round its own axis, wherever it points; bunch: rings along it."""
+    text = ("name: thing\nparts:\n  - capsule: { from: [0.3, 0.1, 0], to: [0.1, 0.9, 0], radius: 0.1 }\n    color: blue\n"
+            "    folds: { count: 6, depth: 0.02, from_y: 0.0, to_y: 0.9 }\n")  # fmt: skip
+    model, _, findings = load(project, text)
+    assert model is not None and not findings, findings
+    g = model.parts[0].geometry
+    a, b = np.array([0.3, 0.1, 0.0]), np.array([0.1, 0.9, 0.0])
+    u = (b - a) / np.linalg.norm(b - a)
+    e1 = np.cross(u, [0.0, 0.0, 1.0])
+    e1 /= np.linalg.norm(e1)
+    e2 = np.cross(u, e1)
+    centre = a + (b - a) * 0.2
+    ring = np.array([centre + 0.1 * (np.cos(t) * e1 + np.sin(t) * e2) for t in np.linspace(0, 2 * np.pi, 120, endpoint=False)])
+    assert g.folds is not None
+    d = folds(ring, g.folds, 0.0)
+    peaks = np.flatnonzero((d > np.roll(d, 1)) & (d >= np.roll(d, -1)))
+    assert len(peaks) == 6 and d.max() > 0.01  # the hollows round the leg's own axis, not world y
+    bunched = Folds(5, 0.02, 0.0, 0.5, 0.5, bunch=True, axis=((0.0, 0.0, 0.0), (0.0, 1.0, 0.0)))
+    line = np.array([[0.1, y, 0.0] for y in np.linspace(0.0, 0.5, 200)])
+    d = folds(line, bunched, 0.0)
+    peaks = np.flatnonzero((d[1:-1] > d[:-2]) & (d[1:-1] >= d[2:]))
+    assert 4 <= len(peaks) <= 5  # rings stacked along the axis

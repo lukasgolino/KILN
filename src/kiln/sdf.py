@@ -560,6 +560,30 @@ class Folds:
     from_y: float
     to_y: float
     sharp: float = 0.5  # 0: smooth waves; up to 1: narrow ridges between wide hollows
+    bunch: bool = False  # rings stacked along the axis (cloth bunched at an ankle or a wrist), not folds running down it
+    axis: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None  # a capsule's or tube's own axis (#315)
+
+    def frame(self) -> Array:
+        """(19,) the folds packed for the compiled path: count, depth, from_y, to_y, sharp, base y (filled in by the
+        caller), bunch, then the axis's start, its direction (unnormalised), and two unit vectors across it (all 0: the
+        part's own y axis)."""
+        out = np.zeros(19)
+        out[:5] = (self.count, self.depth, self.from_y, self.to_y, self.sharp)
+        out[6] = 1.0 if self.bunch else 0.0
+        if self.axis is not None:
+            a, d, e1, e2 = _fold_axis(self.axis)
+            out[7:10], out[10:13], out[13:16], out[16:19] = a, d, e1, e2
+        return out
+
+
+def _fold_axis(axis: tuple[tuple[float, float, float], tuple[float, float, float]]) -> tuple[Array, Array, Array, Array]:
+    a, b = np.asarray(axis[0], float), np.asarray(axis[1], float)
+    d = b - a
+    u = d / max(float(np.linalg.norm(d)), 1e-12)
+    ref = np.array([1.0, 0.0, 0.0]) if abs(u[0]) < 0.9 else np.array([0.0, 0.0, 1.0])
+    e1 = np.cross(u, ref)
+    e1 /= np.linalg.norm(e1)
+    return a, d, e1, np.cross(u, e1)
 
 
 def folds(q: Array, f: Folds, base_y: float) -> Array:
@@ -568,13 +592,28 @@ def folds(q: Array, f: Folds, base_y: float) -> Array:
     depth, which fades from `from_y` to `to_y` measured along that axis (`base_y` + local y: model heights for an
     upright part) and is capped at a quarter of the fold spacing there (2 pi r / count), so the field stays a usable
     bound near the axis and at high counts."""
-    r = np.hypot(q[:, 0], q[:, 2])
-    theta = np.arctan2(q[:, 2], q[:, 0])
-    wave = 0.5 - 0.5 * np.cos(f.count * theta)
-    profile = 1.0 - (1.0 - wave) ** (1.0 + 2.0 * f.sharp)
+    if f.axis is not None:  # round a capsule's or tube's own axis; the fade by the height of the nearest point on it
+        a, d, e1, e2 = _fold_axis(f.axis)
+        s_ = np.clip((q - a) @ d / max(float(d @ d), 1e-18), 0.0, 1.0)
+        foot = a + s_[:, None] * d
+        rad = q - foot
+        r = np.linalg.norm(rad, axis=1)
+        theta = np.arctan2(rad @ e2, rad @ e1)
+        height = base_y + foot[:, 1]
+    else:
+        r = np.hypot(q[:, 0], q[:, 2])
+        theta = np.arctan2(q[:, 2], q[:, 0])
+        height = base_y + q[:, 1]
     span = f.to_y - f.from_y
-    t = np.clip((base_y + q[:, 1] - f.from_y) / span, 0.0, 1.0) if span else np.zeros(len(q))
-    depth = np.minimum(f.depth, 0.25 * 2 * np.pi * r / f.count) * (1.0 - t) ** 1.5
+    if f.bunch:  # rings across the axis, `count` of them over the span
+        wave = 0.5 - 0.5 * np.cos(2 * np.pi * f.count * (height - f.from_y) / span) if span else np.zeros(len(q))
+        cap = 0.25 * span / f.count
+    else:
+        wave = 0.5 - 0.5 * np.cos(f.count * theta)
+        cap = 0.25 * 2 * np.pi * r / f.count
+    profile = 1.0 - (1.0 - wave) ** (1.0 + 2.0 * f.sharp)
+    t = np.clip((height - f.from_y) / span, 0.0, 1.0) if span else np.zeros(len(q))
+    depth = np.minimum(f.depth, cap) * (1.0 - t) ** 1.5
     return np.asarray(depth * profile)
 
 

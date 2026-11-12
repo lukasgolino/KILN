@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `folds:` on a capsule or a tube run round its own axis (trouser legs, sleeves), and `bunch: true` stacks rings
+  along the axis (cloth bunched at an ankle); the compiled path has both (#315).
 - An `idle` cycle: breathing, a slow sway, the head glancing to either side, arms and elbows settling. KILN ships
   KayKit's CC0 humanoid clips (26: idles, walks, runs, jumps, hits, deaths, throw, pick up): `kiln clips` lists
   them, `kiln clips add` copies them with their licence into `imports/kaykit-animations/` (#150).

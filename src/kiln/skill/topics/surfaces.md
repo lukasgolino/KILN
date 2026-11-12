@@ -105,6 +105,16 @@ shape: they show in silhouette and in Godot without a normal map; keep `depth` a
 folds with them; a fitted shell can't fold (fold the parts it wraps); hard parts can't; colour borders follow the
 unfolded shapes (a belt doesn't wiggle).
 
+On a capsule or a tube (a trouser leg, a sleeve) the folds run round its own axis (a tube's: from its first point to
+its last), wherever it points, faded by the height of the nearest point on that axis. `bunch: true` stacks `count`
+rings across the axis instead, over `from_y`..`to_y`: cloth bunched at an ankle or a wrist.
+
+```yaml
+  - capsule: { from: [0.1, 0.12, 0], to: [0.1, 0.9, 0], radius: 0.09 }
+    id: lowerleg_l
+    folds: { count: 4, depth: 0.012, from_y: 0.05, to_y: 0.35, bunch: true }
+```
+
 ## Relief: fur without parts
 
 Fur, and any coat of small overlapping tufts, is a `relief:` layer on one smooth body, never hundreds of clump
