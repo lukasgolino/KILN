@@ -49,6 +49,9 @@ before 1.0).
 
 ### Added
 
+- See-through materials: a preset's `alpha` (0.05-1; glTF BLEND, Godot transparency, the toon shader too, kept by
+  variant recolours; previews dither it) and a `clear` preset in the built-in styles (`glass` stays opaque, so
+  existing models don't change). Lint W131: see-through parts in an atlas project are drawn opaque (#175).
 - Poses point parts at model-space points: `aim: [x, y, z]`, and two-bone IK `reach: [x, y, z]` (`pole:` for the
   middle joint) on an upper arm or thigh; `kiln preview --pose --json` gives each part's end per frame (`ends`)
   (#200). The manifest's `start` poses now come from the solved frames (with the skeleton, as the glb).

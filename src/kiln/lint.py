@@ -27,7 +27,7 @@ from kiln.packs import lock_findings
 from kiln.project import Project
 from kiln.retarget import JOINTS
 from kiln.sdf import Array, Field, Geometry, part_thickness
-from kiln.style import Style
+from kiln.style import MaterialPreset, Style
 from kiln.vendor.findings import Finding
 
 WARNING_RULES = {
@@ -60,6 +60,7 @@ WARNING_RULES = {
     "W128": "a round part got so few triangles that it reads as a polygon (many small parts share one budget)",
     "W129": "skin_falloff does nothing here (not a soft skin, or a hard, kept, separate or cutting part)",
     "W130": "a variant leaves a colour as it is that goes with one it swaps (same ramp, or close in hue): a seam in the old colour",
+    "W131": "a see-through material (alpha < 1) in an atlas project: the atlas draws every part opaque",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -458,6 +459,11 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                                     "check it still fits, then `kiln mark <model> --current`", path, None, "style_version"))  # fmt: skip
             palette, _ = project.palette(model.palette)
             keep += variant_warnings(model, palette)
+            if project.config.atlas:  # one opaque material per model: glass can't be see-through there (#175)
+                see = sorted({p.material for p in model.parts if p.geometry.op == "add" and style.materials.get(p.material, MaterialPreset()).alpha < 1})
+                if see:
+                    keep.append(Finding("W131", f"{', '.join(see)} {'is' if len(see) == 1 else 'are'} see-through (alpha < 1), but atlas = true draws "
+                                        "every part with one opaque material: make the glass its own model, or drop atlas", path, None, "parts"))  # fmt: skip
         loaded.append((path, model, style, palette, keep))
     names = {p.name.split(".")[0] for p in project.model_paths()}
     for path, model, _, _, keep in loaded:  # an effect's emitters are other models in the project

@@ -118,6 +118,10 @@ def render(
     and outlines leave them alone. `colors`: a linear albedo per face corner (F, 3, 3) instead of the paint groups'
     colours (terrains: blended splat layers)."""
     hide = with_unrevealed(built, hide)
+    see = np.array([built.style.materials.get(gr.material, built.style.materials["default"]).alpha for gr in built.painted.groups])
+    if (see < 1).any():  # see-through presets (glass, #175): dithered at their alpha, as fading pieces are
+        face_alpha = see[built.painted.face_group]
+        fade = face_alpha if fade is None else fade * face_alpha
     look: Look = built.style.look
     swap = swap or {}
     corners, normals = posed(built, track, frame)

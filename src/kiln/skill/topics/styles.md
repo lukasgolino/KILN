@@ -41,7 +41,7 @@ scale_with_size = true         # models over 1 m get resolution x sqrt(size); fa
 character = 8000
 default = 4000
 
-[materials]                    # roughness, metallic (0..1), emission (glow strength, capped per colour: see parts), rim (soft edge light)
+[materials]                    # roughness, metallic (0..1), emission (glow strength, capped per colour: see parts), rim (soft edge light), alpha (0.05-1: see-through)
 plastic = { roughness = 0.42 }
 
 [look]                         # the Godot look kit and preview lighting

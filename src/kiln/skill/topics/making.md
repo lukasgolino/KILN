@@ -19,9 +19,12 @@ Making a model: plan in metres, scaffold, parts, lint, look, fit with the rest; 
      `gradient` or `pattern` on each of many parts, many hard parts (more so with bevels and many sides).
      `kiln preview <name> --draft` while shapes are moving.
    - Every colour is a palette name. Materials are the style's presets (plastic, fabric, skin, leather, wood, stone,
-     metal, gold, leaf, glass, rubber, paint, glow). Toy styles' `metal` is part metallic: faces turned down or away
+     metal, gold, leaf, glass, clear, rubber, paint, glow). Toy styles' `metal` is part metallic: faces turned down or away
      take a little of the ground's warm colour. For cool cartoon steel pick a blue-grey and `plastic`, or add a preset
      with `metallic` 0.1-0.2 (`kiln docs styles`).
+   - See-through (`clear`, or a preset with `alpha` < 1): blended parts share one surface, so a solid clear part
+     blended into others shows a hole, not what is behind it. Give it its own surface: a `shell` (a bottle, a dome
+     over a dial) or rig it `separate: true` (a window pane). Previews dither it; `atlas = true` draws it opaque (W131).
    - Mechanical props (flat faces, holes, bolts, panels): `hard: true` parts (with `bevel`). Smooth parts blend and
      then get reduced to the budget, so big flats come out dented and holes jagged; hard parts keep flats flat and
      edges straight. Smooth parts are for organic shapes (bodies, cloth, food, rocks).
