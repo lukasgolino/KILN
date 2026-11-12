@@ -194,6 +194,19 @@ def quaternion(degrees: tuple[float, float, float]) -> Array:
     return np.round(out / np.linalg.norm(out), 9)
 
 
+# Gaits (#150): walk and waddle as before when the model has no lower limbs; knee and elbow bends when it has
+# (humanoid lowerleg_* / lowerarm_*, or `knees:` / `elbows:`); run and sneak are faster / crouched walks.
+GAITS: dict[str, dict[str, float]] = {
+    "walk": {"swing": 30.0, "arm_swing": 25.0, "knee": 40.0, "knee_rest": 5.0, "elbow": 20.0, "bounce": 0.02, "lean": 0.0, "crouch": 0.0, "drop": 0.0},
+    "waddle": {"swing": 18.0, "arm_swing": 25.0, "knee": 20.0, "knee_rest": 5.0, "elbow": 15.0, "bounce": 0.02, "lean": 0.0, "crouch": 0.0,
+               "drop": 0.0},
+    "run": {"swing": 45.0, "arm_swing": 40.0, "knee": 80.0, "knee_rest": 15.0, "elbow": 85.0, "bounce": 0.05, "lean": 10.0, "crouch": 0.0,
+            "drop": 0.0},
+    "sneak": {"swing": 20.0, "arm_swing": 10.0, "knee": 30.0, "knee_rest": 5.0, "elbow": 45.0, "bounce": 0.01, "lean": 15.0, "crouch": 15.0,
+              "drop": 0.06},
+}  # fmt: skip
+
+
 def _wave(t: float) -> float:
     return math.sin(2 * math.pi * t)
 
@@ -226,23 +239,47 @@ def expand_cycle(anim: Animation, model: Model) -> list[dict[str, PartPose]]:
         return [v] if isinstance(v, str) else list(v)
 
     ids = set(model.ids)
-    legs = [n for n in names("legs", ["leg_l", "leg_r"]) if n in ids]
-    arms = [n for n in names("arms", ["arm_l", "arm_r"]) if n in ids]
+
+    def present(key: str, *choices: list[str]) -> list[str]:
+        """The first default whose parts the model has (KILN's leg_l, or a humanoid's upperleg_l), or what was asked."""
+        if key in c:
+            return [n for n in names(key, []) if n in ids]
+        return next(([n for n in pick if n in ids] for pick in choices if any(n in ids for n in pick)), [])
+
+    legs = present("legs", ["leg_l", "leg_r"], ["upperleg_l", "upperleg_r"])
+    arms = present("arms", ["arm_l", "arm_r"], ["upperarm_l", "upperarm_r"])
+    knees = present("knees", ["lowerleg_l", "lowerleg_r"])  # bend when the model has lower limbs (#150)
+    elbows = present("elbows", ["lowerarm_l", "lowerarm_r"])
     body = str(c.get("body", "root"))
     part = str(c.get("part", "root"))
     axis = {"x": 0, "y": 1, "z": 2}.get(str(c.get("axis", "y")), 1)
     for i in range(frames):
         t = i / frames
         pose: dict[str, PartPose] = {}
-        if kind in ("walk", "waddle"):
-            swing = opt("swing", 30.0 if kind == "walk" else 18.0)
+        if kind in GAITS:
+            g = GAITS[kind]
+            swing = opt("swing", g["swing"])
+            fwd = -1.0  # parts turn in model axes: +x takes a hanging tip (foot, hand) back, an upright one (head) forward
             for k, leg in enumerate(legs):
-                pose[leg] = PartPose(rotate=(swing * _wave(t + 0.5 * k), 0.0, 0.0))
+                pose[leg] = PartPose(rotate=(swing * _wave(t + 0.5 * k) + fwd * opt("crouch", g["crouch"]), 0.0, 0.0))
             for k, arm in enumerate(arms):
-                pose[arm] = PartPose(rotate=(-opt("arm_swing", 25.0) * _wave(t + 0.5 * k), 0.0, 0.0))
-            bounce = opt("bounce", 0.02) * abs(math.sin(2 * math.pi * t))
+                pose[arm] = PartPose(rotate=(-opt("arm_swing", g["arm_swing"]) * _wave(t + 0.5 * k), 0.0, 0.0))
+            # knees fold (foot back) most while the leg swings forward, a little at contact, more when crouching;
+            # elbows hold a bend (forearm forward) that grows as the arm swings forward
+            for k, knee in enumerate(knees):
+                swing_phase = max(0.0, -math.cos(2 * math.pi * (t + 0.5 * k)))
+                bend = opt("knee", g["knee"]) * swing_phase + 2 * opt("crouch", g["crouch"]) + g["knee_rest"]
+                pose[knee] = PartPose(rotate=(-fwd * bend, 0.0, 0.0))
+            for k, elbow in enumerate(elbows):
+                forward = 0.5 + 0.5 * _wave(t + 0.5 * k)
+                pose[elbow] = PartPose(rotate=(fwd * opt("elbow", g["elbow"]) * (0.4 + 0.6 * forward), 0.0, 0.0))
+            bounce = opt("bounce", g["bounce"]) * abs(math.sin(2 * math.pi * t))
             roll = opt("roll", 8.0) * _wave(t) if kind == "waddle" else 0.0
-            pose[body] = PartPose(offset=(0.0, bounce, 0.0), rotate=(0.0, 0.0, roll))
+            drop = -opt("drop", g["drop"])
+            pose[body] = PartPose(offset=(0.0, bounce + drop, 0.0), rotate=(0.0, 0.0, roll))
+            torso = str(c.get("torso", "spine"))  # the lean bends the upper body forward, not the legs with it
+            if torso in ids and torso != body and opt("lean", g["lean"]):
+                pose[torso] = PartPose(rotate=(opt("lean", g["lean"]), 0.0, 0.0))
         elif kind == "hop":
             height = opt("height", 0.2)
             y = height * math.sin(math.pi * t)

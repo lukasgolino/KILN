@@ -34,8 +34,10 @@ Cycles (8 frames unless `frames:`):
 
 | type | options (defaults) |
 |---|---|
-| `walk` | `legs` [leg_l, leg_r], `arms` [arm_l, arm_r], `body` root, `swing` 30, `arm_swing` 25, `bounce` 0.02 |
+| `walk` | `legs` [leg_l, leg_r] (a humanoid: upperleg_l/_r), `arms` [arm_l, arm_r] (upperarm_l/_r), `body` root, `swing` 30, `arm_swing` 25, `bounce` 0.02; with lower limbs (`knees` [lowerleg_l, lowerleg_r], `elbows` [lowerarm_l, lowerarm_r]) `knee` 40 (folds while the leg swings forward), `elbow` 20 |
 | `waddle` | as walk + `roll` 8 (side-to-side), `swing` 18 |
+| `run` | as walk: `swing` 45, `arm_swing` 40, `knee` 80, `elbow` 85, `bounce` 0.05, `lean` 10 (the `torso`, default spine, forward) |
+| `sneak` | as walk: `swing` 20, `arm_swing` 10, `knee` 30, `elbow` 45, `lean` 15, `crouch` 15 (thighs forward, knees twice that), `drop` 0.06 (the body lowered) |
 | `hop` | `part` root, `height` 0.2, `squash` 0.1 |
 | `bob` | `part`, `amount` 0.05 |
 | `spin` | `part`, `axis` y, `direction` 1 |

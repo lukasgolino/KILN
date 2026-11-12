@@ -8,6 +8,10 @@ before 1.0).
 
 ### Fixed
 
+- The built-in walk on a humanoid (`skeleton: humanoid`) moved only the hips: its legs and arms default to
+  upperleg/upperarm now, and a model with lower limbs (lowerleg/lowerarm, or `knees:` / `elbows:`) bends its knees
+  (folding while the leg swings forward) and elbows. Models without lower limbs walk as before. Cached builds are
+  rebuilt once (#150).
 - `normal_map: 2048` wrote a 2140x2138 texture: the packer's atlas came out up to 10% over the size asked for and
   was written as it was. The map is now exactly the size asked for, square, with the charts and their padding
   inside it (packed again at a lower texel density until they fit). Texel density changes with it: about 20% lower
@@ -16,6 +20,8 @@ before 1.0).
 
 ### Added
 
+- `run` and `sneak` cycles: a faster walk leaning forward, and a crouched walk (thighs forward, knees bent, the body
+  lowered and leaning) (#150).
 - `smooth: true` on tubes and locks: a centripetal Catmull-Rom curve through the points (8 straight pieces per span,
   3 for hard parts; through every point, no loops on uneven spacing; a closed path, first point = last, wraps
   round) instead of straight lines between them. A wave is five points,
