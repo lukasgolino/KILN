@@ -296,6 +296,7 @@ class _Ctx:
     def __init__(self, path: Path | None, palette: dict[str, str], materials: set[str]) -> None:
         self.path = path
         self.palette = palette  # name or key -> hex
+        self.ramps: dict[str, tuple[str, ...]] = getattr(palette, "ramps", {})  # the palette's ramps: name -> hexes (#205)
         self.materials = materials
         self.findings: list[Finding] = []
 
@@ -2128,6 +2129,13 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 continue
             swap = {}
             for a, b in spec["swap"].items():
+                if isinstance(a, str) and a not in ctx.palette and a in ctx.ramps:  # a whole ramp: shade for shade (#205)
+                    if not isinstance(b, str) or b in ctx.palette or b not in ctx.ramps or len(ctx.ramps[b]) != len(ctx.ramps[a]):
+                        ctx.error("E003", f"{a} is a palette ramp ({len(ctx.ramps[a])} colours): swap it for another ramp of the same "
+                                  f"length (ramps: {', '.join(f'{n} ({len(r)})' for n, r in ctx.ramps.items())})", vline, f"variants.{vname}.swap")  # fmt: skip
+                        continue
+                    swap.update(dict(zip(ctx.ramps[a], ctx.ramps[b], strict=True)))
+                    continue
                 ca = _color(ctx, a, vline, f"variants.{vname}.swap")
                 cb = _color(ctx, b, vline, f"variants.{vname}.swap")
                 if ca and cb:
