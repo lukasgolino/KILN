@@ -6,6 +6,12 @@ before 1.0).
 
 ## [Unreleased]
 
+### Performance
+
+- Hard parts join faster: a BSP node tests each polygon's box (made once, carried down the tree) against its plane
+  in one numpy pass and splits only the polygons the plane crosses; output is the same polygon for polygon. The
+  82-hard-part desk scene's hard pass 47 -> 28 s (#214).
+
 ### Changed
 
 - Docs (making): when to choose hard parts (mechanical props: flat faces, holes), and how toy metal picks up the
