@@ -54,7 +54,7 @@ PATTERNS = ("stripes", "checker", "dots", "band")
 STATUSES = ("draft", "approved")
 SKINS = ("none", "rigid", "soft")
 UNIONS = ("whole", "per_bone")
-CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "chain")
+CYCLES = ("walk", "waddle", "run", "sneak", "hop", "bob", "spin", "swing", "breathe", "wave", "chain")
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "color_blend", "density", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
