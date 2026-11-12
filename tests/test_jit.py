@@ -149,3 +149,26 @@ def test_compiled_nearest_matches_the_part_loop(absolute: bool, count: int, monk
     np.testing.assert_array_equal(which, ref[1])
     np.testing.assert_array_equal(best, ref[0])
     assert (which == expect[0]).mean() > 0.999  # numpy's own shapes agree to rounding
+
+
+def test_locks_and_ellipsoids_agree_in_both_paths() -> None:
+    """#238: a lock's (and an ellipsoid's) distance ran short away from it, so the compiled kernel skipped it by its
+    box where the numpy path still blended it in: the two disagreed (and numpy's answer depended on batch size)."""
+    from conftest import parse
+
+    from kiln.builder import field_of
+
+    locks = "".join(f"  - lock: {{ points: [[{0.012 * k - 0.24:.3f}, 0.5, 0.2], [{0.012 * k - 0.24:.3f}, 0.8, 0.35]], width: 0.06, thickness: 0.015, "
+                    f"width_to: 0 }}\n    color: red\n    blend: 0.03\n    blend_to: [body]\n" for k in range(40))  # fmt: skip
+    model, findings = parse("name: m\nparts:\n  - ellipsoid: { at: [0, 0.5, 0], radii: [0.25, 0.4, 0.2] }\n    id: body\n    color: red\n" + locks)
+    assert model is not None, findings
+    field = field_of(model, 0.01)
+    p = np.random.default_rng(3).uniform([-0.6, -0.1, -0.5], [0.6, 1.2, 0.8], (20000, 3))
+    compiled = field.distance(p)
+    jit.AVAILABLE = False
+    try:
+        plain = field.distance(p)
+        small = np.concatenate([field.distance(p[k : k + 97]) for k in range(0, len(p), 97)])
+    finally:
+        jit.AVAILABLE = True
+    assert np.abs(compiled - plain).max() < 1e-6 and np.abs(plain - small).max() < 1e-6

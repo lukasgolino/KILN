@@ -792,9 +792,12 @@ class Field:
             return jit.distance(g, p, box=(lo, hi, pad))
         q = np.maximum(lo - p, p - hi)  # per axis: how far outside the box (one pass for the test and the stand-in)
         near = np.all(q <= pad, axis=1)
-        d = np.linalg.norm(np.maximum(q, 0.0), axis=1) + pad
+        outside = np.linalg.norm(np.maximum(q, 0.0), axis=1)
+        d = outside + pad
         if near.any():
             d[near] = g.distance(p[near])
+            if g.shape in ("ellipsoid", "lock"):  # their distance runs short away from them; the box's holds (#238)
+                d[near] = np.where(outside[near] > 0, np.maximum(d[near], outside[near]), d[near])  # (inside the box: as it is)
         return d
 
     def nearest(self, parts: list[int], p: Array, absolute: bool = True) -> tuple[Array, Array]:

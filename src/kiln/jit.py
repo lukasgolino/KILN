@@ -477,6 +477,11 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
             if qx > pad or qy > pad or qz > pad:
                 ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
                 return math.sqrt(ox * ox + oy * oy + oz * oz) + pad
+            d = part_at(0, x, y, z, filled, t)
+            if (t[0][0] == 1 or t[0][0] == 10) and (qx > 0.0 or qy > 0.0 or qz > 0.0):  # ellipsoid, lock outside their box:
+                ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)  # their distance runs short there; the box's holds (#238)
+                d = max(d, math.sqrt(ox * ox + oy * oy + oz * oz))
+            return d
         return part_at(0, x, y, z, filled, t)
 
     @njit(cache=True, parallel=True)
@@ -498,7 +503,11 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
         if qx > pad[i] or qy > pad[i] or qz > pad[i]:
             ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
             return math.sqrt(ox * ox + oy * oy + oz * oz) + pad[i]
-        return part_at(i, x, y, z, False, t)
+        d = part_at(i, x, y, z, False, t)
+        if (t[0][i] == 1 or t[0][i] == 10) and (qx > 0.0 or qy > 0.0 or qz > 0.0):  # ellipsoid, lock outside their box:
+            ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)  # never under the distance to the box (#238)
+            d = max(d, math.sqrt(ox * ox + oy * oy + oz * oz))
+        return d
 
     @njit(cache=True, inline="always")
     def target_distance(s: int, n: int, x: float, y: float, z: float, t: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any,
@@ -558,6 +567,8 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                 d = box + pad[i]
             else:
                 d = part_at(i, x, y, z, False, t)
+                if (t[0][i] == 1 or t[0][i] == 10) and box > 0.0:  # ellipsoid, lock: never under the box's distance (#238)
+                    d = max(d, box)
             if op[i] == 1:
                 f = -smin(-f, d, k)
             elif op[i] == 2:

@@ -12,6 +12,10 @@ before 1.0).
 
 ### Fixed
 
+- A lock's (and an ellipsoid's) distance ran short away from it, below the distance to its own box: the compiled
+  path then skipped it by its box where the numpy path still blended it in, so the two disagreed near many locks
+  (and numpy's answer depended on how points were batched). Outside its box such a part's distance is now never
+  under the box's, in both paths. Models with many locks may mesh slightly differently (#238).
 - `kiln preview --draft` on a model with part `density` and a budget above the draft mesh's face count stopped with
   E009 (the simplifier refuses a target it is already under); it now leaves the mesh as it is (#299).
 
