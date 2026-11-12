@@ -809,6 +809,9 @@ def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int |
             h.update(part.decal.image.read_bytes())
         if part.texture is not None:
             h.update(part.texture.image.read_bytes())
+        for pat in part.patterns:  # a pixel motif read from an image isn't in the model text
+            if pat.pixels:
+                h.update("|".join(pat.pixels).encode())
         if part.geometry.shape == "extrude":  # outlines from a font file aren't in the model text
             h.update(json.dumps([part.geometry.params.get("points"), part.geometry.params.get("holes")]).encode())
     if model.fit_to is not None:  # the character it's fitted to

@@ -51,6 +51,11 @@ material, id, mirror, ...) go to each.
 - `checker`: checks `size` metres across.
 - `dots`: dots on a grid `size` metres apart, diameter `width` x size; `jitter` (0-1: up to half that of a cell each
   way) and `vary` (size +-) at random (`seed`); `offset: [x, y, z]` shifts a repeat (a 2nd dots pattern moves itself).
+- `pixel`: a pixel motif tiled round the part's own axis (a hat band, a hem, a cuff): `rows: ["#..#", ".##."]` (`#`
+  or any letter painted, `.` or space not; top row first) or `image: trims/key.png` (alpha over half painted; up to
+  256x64), each cell `size` metres tall along `axis`, the band centred on `at` (from the part's centre: `frame: part` is
+  the default here), the motif `repeat` times round (default 8: cells get wider on a wider part). One colour per
+  pattern: list several for more. E.g. `{ type: pixel, color: gold, size: 0.02, at: -0.1, repeat: 16, rows: [...] }`.
 
 ## Decals
 

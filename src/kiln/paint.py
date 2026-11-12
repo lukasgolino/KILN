@@ -211,6 +211,8 @@ def _pattern_fn(p: Pattern, geometry: Geometry | None = None) -> ScalarFn:
         return lambda x: p.size / 2 - np.abs(x @ axis - p.at)
     if p.type == "checker":
         return lambda x: np.prod(np.sin(math.pi * (x - shift) / p.size + 1e-3), axis=1)
+    if p.type == "pixel":
+        return _pixel_fn(p)
     radius = p.width * p.size / 2  # dots
 
     if not p.jitter and not p.vary:
@@ -242,6 +244,39 @@ def _pattern_fn(p: Pattern, geometry: Geometry | None = None) -> ScalarFn:
         return best
 
     return scattered
+
+
+def _pixel_fn(p: Pattern) -> ScalarFn:
+    """A pixel motif tiled round the axis (#198): columns go round (the motif `repeat` times), rows `size` metres tall
+    along the axis, centred on `at` (top row highest). Signed: inside a painted cell, the distance to its nearest edge
+    with an unpainted cell (0.5 of a cell when none); outside, minus the distance to the nearest painted neighbour's
+    edge; so the zero line is the motif's outline and painted cells next to each other aren't cut apart."""
+    grid = np.array([[ch == "#" for ch in row] for row in p.pixels], dtype=bool)  # rows top first
+    rows, cols = grid.shape
+    axis = int(np.argmax(np.abs(p.axis)))
+    others = [k for k in range(3) if k != axis]
+
+    def painted(r: Array, c: Array) -> Array:
+        inside = (r >= 0) & (r < rows)
+        out = np.zeros(len(r), dtype=bool)
+        out[inside] = grid[r[inside], c[inside] % cols]
+        return out
+
+    def fn(x: Array) -> Array:
+        u = (np.arctan2(x[:, others[1]], x[:, others[0]]) / (2 * math.pi)) % 1.0 * (cols * p.repeat)  # columns round
+        v = (p.at - x[:, axis]) / p.size + rows / 2  # rows down from the top
+        c, r = np.floor(u).astype(np.int64), np.floor(v).astype(np.int64)
+        fu, fv = u - c, v - r
+        here = painted(r, c)
+        edges = ((painted(r, c - 1), fu), (painted(r, c + 1), 1 - fu), (painted(r - 1, c), fv), (painted(r + 1, c), 1 - fv))
+        inside = np.full(len(x), 0.5)
+        outside = np.full(len(x), 0.5)
+        for neighbour, gap in edges:
+            inside = np.where(~neighbour, np.minimum(inside, gap), inside)  # to an edge where the paint stops
+            outside = np.where(neighbour, np.minimum(outside, gap), outside)  # to an edge where it starts
+        return np.where(here, inside, -outside) * p.size
+
+    return fn
 
 
 def _mix64(z: Array) -> Array:
