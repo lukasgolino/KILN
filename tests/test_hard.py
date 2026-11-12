@@ -817,7 +817,8 @@ def _made_whole(polys: list[Any]) -> int:
     return count
 
 
-def test_box_sorted_splits_build_the_same_solid(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("offset", [0.0, 50.0])
+def test_box_sorted_splits_build_the_same_solid(monkeypatch: pytest.MonkeyPatch, offset: float) -> None:
     """#214: polygons clear of a plane by their boxes skip the test per point; the solids come out the same, polygon
     for polygon, whether every node sorts by boxes or none does."""
     from kiln import hard
@@ -825,10 +826,15 @@ def test_box_sorted_splits_build_the_same_solid(monkeypatch: pytest.MonkeyPatch)
     rng = np.random.default_rng(5)
     spec = HardSpec(10, 0.01, 2)
 
+    from kiln.hard import CLEAR, EPS
+
+    nudges = [0.0, 0.0, 2 * EPS, -2 * EPS, CLEAR - EPS, CLEAR + EPS]  # flush faces, and faces either side of the margins
+
     def scene() -> list[Any]:
         out: list[Any] = []
         for i in range(12):
-            at = rng.uniform(0, 0.6, 3) if i % 3 else np.array([0.2 * (i % 4), 0.0, 0.1 * (i % 2)])
+            at = rng.uniform(0, 0.6, 3) if i % 3 else np.array([0.2 * (i % 4) + nudges[i % len(nudges)], 0.0, 0.1 * (i % 2)])
+            at = at + offset
             g = Geometry("box", {"size": [0.2, 0.15, 0.2], "round": 0.0}, at=at) if i % 2 else Geometry("cylinder", {"radius": 0.08, "height": 0.2}, at=at)
             out = union(out, solid(g, spec, i))
         return out
