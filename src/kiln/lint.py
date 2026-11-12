@@ -379,7 +379,7 @@ def _moved(m: Model, anim: str) -> set[str]:
     from kiln.rig import animation_poses
 
     poses = animation_poses(a, m)
-    return {name for pose in poses for name, pp in pose.items() if any(pp.rotate)}
+    return {name for pose in poses for name, pp in pose.items() if any(pp.rotate) or pp.aim is not None or pp.reach is not None}
 
 
 def _build_job(job: tuple[Model, Style, dict[str, str], Path]) -> Built | str:

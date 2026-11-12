@@ -183,6 +183,9 @@ class PartPose:
     offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     rotate: tuple[float, float, float] = (0.0, 0.0, 0.0)  # degrees, about the part's pivot
     scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    aim: tuple[float, float, float] | None = None  # model-space point the bone points at (its rotate is solved per frame, #200)
+    reach: tuple[float, float, float] | None = None  # two-bone IK: this bone and its child bend so the child's end gets there
+    pole: tuple[float, float, float] | None = None  # (reach) model-space point the middle joint bends toward
 
 
 @dataclass
@@ -318,6 +321,10 @@ def _vec(v: Any, n: int = 3) -> tuple[float, ...] | None:
     if isinstance(v, list) and len(v) == n and all(_num(x) for x in v):
         return tuple(float(x) for x in v)
     return None
+
+
+def _point3(v: tuple[float, ...] | None) -> tuple[float, float, float] | None:
+    return None if v is None else (v[0], v[1], v[2])
 
 
 def _check_value(kind: str, v: Any) -> Any:
@@ -1515,8 +1522,16 @@ def _pose(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, where: str) -> d
         if part_id not in ids:
             ctx.error("E008", f"unknown part id {part_id!r} (ids: {', '.join(sorted(ids))})", line, pwhere)
             return None
-        if not isinstance(change, dict) or any(k not in ("offset", "rotate", "scale") for k in change):
-            ctx.error("E008", "a part's pose is { offset: [x, y, z] metres, rotate: [x, y, z] degrees, scale: s | [x, y, z] }", line, pwhere)
+        if not isinstance(change, dict) or any(k not in ("offset", "rotate", "scale", "aim", "reach", "pole") for k in change):
+            ctx.error("E008", "a part's pose is { offset: [x, y, z] metres, rotate: [x, y, z] degrees, scale: s | [x, y, z] }, or instead of "
+                      "rotate aim: [x, y, z] (point it there) / reach: [x, y, z] (two-bone IK, pole: [x, y, z])", line, pwhere)  # fmt: skip
+            return None
+        targets = {k: _vec(change[k]) for k in ("aim", "reach", "pole") if k in change}
+        if any(v is None for v in targets.values()):
+            ctx.error("E008", "aim, reach and pole are model-space points [x, y, z] (metres)", line, pwhere)
+            return None
+        if len({"aim", "reach", "rotate"} & set(change)) > 1 or ("pole" in change and "reach" not in change) or (targets and part_id == ROOT_ID):
+            ctx.error("E008", "a part's pose takes one of rotate, aim and reach (pole goes with reach); the root has none", line, pwhere)
             return None
         offset = _vec(change.get("offset", [0, 0, 0]))
         rotate = _vec(change.get("rotate", [0, 0, 0]))
@@ -1525,7 +1540,9 @@ def _pose(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, where: str) -> d
         if offset is None or rotate is None or scale is None or min(scale) <= 0:
             ctx.error("E008", "offset and rotate are [x, y, z]; scale is a number or [x, y, z] (> 0)", line, pwhere)
             return None
-        out[str(part_id)] = PartPose((offset[0], offset[1], offset[2]), (rotate[0], rotate[1], rotate[2]), (scale[0], scale[1], scale[2]))
+        aim, reach, pole = (_point3(targets.get(k)) for k in ("aim", "reach", "pole"))
+        out[str(part_id)] = PartPose((offset[0], offset[1], offset[2]), (rotate[0], rotate[1], rotate[2]), (scale[0], scale[1], scale[2]),
+                                     aim=aim, reach=reach, pole=pole)  # fmt: skip
     return out
 
 
