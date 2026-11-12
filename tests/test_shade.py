@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from conftest import CONFIG, load, make_project, write_model
@@ -170,7 +171,7 @@ def test_a_colour_mapped_model_gets_it_per_texel(tmp_path: Path) -> None:
         return  # xatlas not installed (kiln-gen[bake])
     faded = GROOVED + "  - sphere: { at: [0, 0.8, 0], radius: 0.1 }\n    color: gold\n    blend: 0.03\n    color_blend: 0.04\n"
 
-    def made(text: str, root: Path) -> tuple[np.ndarray, list[dict]]:
+    def made(text: str, root: Path) -> tuple[np.ndarray, list[dict[str, Any]]]:
         proj = make_project(root)
         write_model(proj, text)
         assert not build(proj).errors
