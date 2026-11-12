@@ -330,6 +330,7 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     if pieces or kept:  # a model of hard parts only has nothing to mesh: no phase, no "0 triangles" (#174)
         phase(f"meshing {smooth} part{'s' * (smooth != 1)} at {step * 1000:.3g} mm cells ({reason})", "meshing")
     meshes = [dual_contour(f, step, meshing) for _, f in pieces]
+    meshes = [_refined(model, include, f, mesh, step) for (include, f), mesh in zip(pieces, meshes, strict=True)]
     if pieces:
         phase(f"meshed at {step * 1000:.3g} mm: {sum(m.triangles for m in meshes)} triangles", "meshing")
     kept_cut, kept_hidden = _kept(model, style, field, sorted(kept), step, target, meshes, rigged)
@@ -430,6 +431,71 @@ def soft_faces(built: Built, face_field: Array) -> Array:
 
 
 _BASE_PATCHES: dict[str, Any] = {}  # model name -> its full build's relief patches, for its LODs (set by build_cached)
+
+
+FINE_ROUNDS = 16  # longest-edge splits at most, per part with a finer resolution
+
+
+def _refined(model: Model, include: list[int], field: Field, mesh: Mesh, step: float) -> Mesh:
+    """Parts with their own finer `resolution` (a face on a body): the mesh in each one's box (padded by its blend and
+    two of its cells) is split until its edges are under 1.5 of those cells, and every vertex there moves onto the
+    surface along its normal, so the detail the coarse cells missed (lids, nostrils, a nose) is in the mesh, which
+    stays watertight (#306). Along the normal, not the field's gradient: inside a union the gradient points to the
+    nearest part's own boundary, often buried (a nose's back), not to the surface."""
+    from kiln.paint import refine
+
+    fine: list[tuple[int, float]] = []
+    for i in include:
+        cell = model.parts[i].fine
+        if cell is not None and cell < step:
+            fine.append((i, cell))
+    if not fine or not mesh.triangles:
+        return mesh
+    v, f = mesh.vertices, mesh.faces
+    for i, cell in fine:
+        lo, hi = model.parts[i].geometry.bounds()
+        pad = 2 * cell + model.parts[i].geometry.blend
+        for _ in range(FINE_ROUNDS):
+            c = v[f].mean(axis=1)
+            sel = np.all((c >= lo - pad) & (c <= hi + pad), axis=1)
+            before = len(f)
+            v, f, _ = refine(v, f, sel, 1.5 * cell, lambda x: x)
+            region = np.unique(f[np.all((v[f].mean(axis=1) >= lo - pad) & (v[f].mean(axis=1) <= hi + pad), axis=1)])
+            v = v.copy()
+            v[region] = _onto_surface(field, v, f, region, step)
+            if len(f) == before:
+                break
+    return Mesh(v, f)
+
+
+def _onto_surface(field: Field, v: Array, f: Array, which: Array, reach: float, samples: int = 33) -> Array:
+    """Vertices `which` moved along their (area-weighted) normals to the nearest crossing of the surface: outward
+    from inside, inward from outside, within `reach`; where there is none, they stay."""
+    n = np.zeros_like(v)
+    face_n = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    for k in range(3):
+        np.add.at(n, f[:, k], face_n)
+    n = n[which] / np.maximum(np.linalg.norm(n[which], axis=1, keepdims=True), 1e-12)
+    p = v[which]
+    t = np.linspace(0.0, reach, samples)
+    out = p.copy()
+    d0 = field.distance(p)
+    for sign in (1.0, -1.0):  # inside: march out; outside: march in
+        go = np.flatnonzero((d0 < 0) if sign > 0 else (d0 > 0))
+        if not len(go):
+            continue
+        q = p[go][None, :, :] + sign * t[:, None, None] * n[go][None, :, :]
+        d = field.distance(q.reshape(-1, 3)).reshape(samples, len(go))
+        crossed = (d >= 0) if sign > 0 else (d <= 0)
+        first = np.argmax(crossed, axis=0)
+        ok = crossed[first, np.arange(len(go))] & (first > 0)
+        k1 = first[ok]
+        cols = np.arange(len(go))[ok]
+        a, b = d[k1 - 1, cols], d[k1, cols]
+        frac = np.clip(a / np.where(np.abs(a - b) > 1e-12, a - b, 1.0), 0.0, 1.0)
+        tt = t[k1 - 1] + frac * (t[k1] - t[k1 - 1])
+        out[go[cols]] = p[go[cols]] + sign * tt[:, None] * n[go[cols]]
+    return np.asarray(out)
 
 
 def _face_axes(model: Model, owner: Array) -> Array:

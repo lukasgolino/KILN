@@ -58,7 +58,7 @@ UNIONS = ("whole", "per_bone")
 CYCLES = ("walk", "waddle", "run", "sneak", "hop", "bob", "spin", "swing", "breathe", "wave", "chain")
 INTERPOLATIONS = ("linear", "step")
 
-PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "density", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
+PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "density", "resolution", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
                "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr", "on", "folds"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
@@ -158,6 +158,7 @@ class Part:
     color_blend: float = 0.0  # metres: its colour fades into its neighbours' over this distance from their border (base colour map)
     color_blend_set: bool = False  # the part gave color_blend itself (else the style's [shape] color_blend may apply)
     density: float = 1.0  # weight on the triangle budget in its surface (3: three times the triangles per area of the rest)
+    fine: float | None = None  # metres: a finer mesh cell in this part's box than the model's (a face), refined onto the surface (#306)
     on: OnSurface | None = None  # placed on the blended surface of earlier parts (resolved once all parts are read)
     skin_falloff: float | None = None  # soft skins: metres over which other bones pull on this part's surface (#192)
     keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
@@ -588,6 +589,12 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                   "triangles per area, e.g. a face; 0.5: coarser)", line, f"{where}.density")  # fmt: skip
         ok = False
         density = 1.0
+    fine = raw.get("resolution")
+    if fine is not None and (not _num(fine) or not 0.0005 <= float(fine) <= 0.5):
+        ctx.error("E003", "a part's resolution is a finer mesh cell inside its box, in metres (e.g. 0.004 for a face; pair it with "
+                  "density so the budget keeps the triangles)", line, f"{where}.resolution")  # fmt: skip
+        ok = False
+        fine = None
     skin_falloff = raw.get("skin_falloff")
     if skin_falloff is not None and (not _num(skin_falloff) or not 0 <= float(skin_falloff) <= 0.5):
         ctx.error("E003", "skin_falloff is how far (metres) other bones pull on this part's surface in a soft skin: 0 (only its own bone) "
@@ -876,7 +883,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale, folds=fold)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
-                   "texture": texture, "color_blend": float(color_blend), "color_blend_set": "color_blend" in raw, "density": float(density), "on": on,
+                   "texture": texture, "color_blend": float(color_blend), "color_blend_set": "color_blend" in raw, "density": float(density), "fine": None if fine is None else float(fine), "on": on,
                    "skin_falloff": None if skin_falloff is None else float(skin_falloff), "wall": op == "cut" and "color" in raw}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:

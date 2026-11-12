@@ -51,6 +51,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `emission: 0.6` | this part's glow strength over its preset's (eyes softer than a crystal). A glowing colour's strength is capped so it keeps its hue (its brightest channel x strength at most 0.75), so for bright colours a higher number changes nothing (a dark red can glow at 3, a pale pink tops out under 1); its lit colour is dimmed: the glow carries it |
 | `blend` | smooth-union radius in metres with everything before it (cuts/intersects: smooth edge) |
 | `color_blend` | metres its colour fades into blended neighbours' (`surfaces`) |
+| `resolution: 0.004` | a finer mesh cell inside this part's box than the model's (a face, hands): the mesh there is split down to it and moved onto the surface, so lids, nostrils and a nose show on a coarse body; give it `density` too, or the budget reduces it away |
 | `density: 3` | weight on the triangle budget (0.25-8, default 1): about 3x the share of the budget it would get, at the same total (a face); 0.5 coarser. Not past its full-resolution mesh; hard and kept parts ignore it |
 | `cut: true` | remove this shape from everything before it (holes, slits, windows, eye sockets) |
 | `cut: [case, lid]` | cuts only the parts with these ids (`cut: lid`: one); those parts are then meshed as their own surface (crisp against the rest), so the pad under a watch case or a tray's screws stay whole |

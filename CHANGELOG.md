@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- A part's own `resolution:` (metres): the mesh inside its box is refined to that cell and moved onto the surface
+  along its normals, so a face gets its lids, nostrils and nose on a body meshed coarsely, without the whole model's
+  cells shrinking; pair it with `density` (#306).
 - Relief kinds `scales` (a round lobe), `feathers` (one point and a rib) and `shingles` (a straight edge) next to
   `fur`; `flow: along` follows each part's own axis out from the body; `displace: true` moves the mesh out by the
   layer, so tufts break the silhouette (the normals stay, so the map isn't counted twice); a model's LODs stamp its
