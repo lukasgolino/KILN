@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from kiln.rig import limb_segment
 from kiln.sdf import Array
 
 if TYPE_CHECKING:
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
 JOINT_SHARE = 0.4  # overlap within this share of the limb part's reach from its joint is where it meets the body
 MAX_POINTS = 12000  # grid points per pair at most
 MIN_POINTS = 4  # fused grid points (beyond the joint) before it counts
+ALONG_SHARE = 0.35  # the web runs along the limb at least this share of its reach (an arm hugging the body; not a collar)
 
 
 def _branch_top(bones: list[Bone], child: int, ancestor: int) -> int:
@@ -81,6 +83,8 @@ def fused_limbs(built: Built) -> list[tuple[str, int | None, str]]:
                 continue
             if any(bones[t].parent >= 0 and _paired(bones[bones[t].parent].name, names, twins) for t in tops):
                 continue  # within one limb (a shin and its thigh, a foot and its shin): they meet at their joint
+            if not all(any(bn.parent == t for bn in bones) for t in tops):
+                continue  # a one-bone stub (a toy's arm or leg) moves as one lump anyway: articulated limbs only
             joints = [bones[t].pivot for t in tops]
             reach = max(pa.geometry.blend, pb.geometry.blend, 0.0)
             lo = np.maximum(boxes[ka][0], boxes[kb][0]) - reach
@@ -93,7 +97,9 @@ def fused_limbs(built: Built) -> list[tuple[str, int | None, str]]:
                 continue
             pts = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
             da, db = pa.geometry.distance(pts), pb.geometry.distance(pts)
-            fused = (da < reach) & (db < reach) & ((da < 0) | (db < 0))  # inside one and within the blend of the other
+            # on the joined surface where both parts are within the blend of it: the web of skin between them (buried
+            # insides, a leg's top inside the hips, don't count)
+            fused = (np.abs(np.minimum(da, db)) < cell) & (da < reach + cell) & (db < reach + cell)
             if not fused.any():
                 continue
             far = max(float(np.linalg.norm(c - j, axis=1).max()) for j in joints for c in [_corners(boxes[limb[0]])])
@@ -103,15 +109,20 @@ def fused_limbs(built: Built) -> list[tuple[str, int | None, str]]:
             if int(away.sum()) < MIN_POINTS:
                 continue
             k_limb, p_limb = limb
+            seg = limb_segment(p_limb.geometry)
+            a0, a1 = seg if seg is not None else (joints[0], (boxes[k_limb][0] + boxes[k_limb][1]) / 2)
+            axis = (a1 - a0) / max(float(np.linalg.norm(a1 - a0)), 1e-9)
+            along = pts[away] @ axis
+            if float(along.max() - along.min()) < ALONG_SHARE * far:  # a collar where a stub limb leaves the body, not a web along it
+                continue
             other = pb if p_limb is pa else pa
-            d_limb, d_other = (da, db) if p_limb is pa else (db, da)
-            inside = away & (d_limb <= 0)
-            depth = float((reach - d_other[inside]).max()) if inside.any() else reach
+            d_other = db if p_limb is pa else da
+            depth = float((reach + cell - d_other[away]).max())
             where_pt = pts[away][np.argmax(dj[away])]
             seen.add((pa.id, pb.id))
             msg = (f"{p_limb.id} (part {k_limb}) and {other.id} are fused at rest out to {float(dj[away].max()):.2f} m from its joint "
                    f"(near [{where_pt[0]:.2f}, {where_pt[1]:.2f}, {where_pt[2]:.2f}]): one lump of skin, so posing {p_limb.id} stretches it. "
-                   f"Move {p_limb.id} about {depth + step:.2f} m clear of {other.id}, or model the limb out from the body (an A-pose)")  # fmt: skip
+                   f"Move {p_limb.id} about {depth:.2f} m clear of {other.id}, or model the limb out from the body (an A-pose)")  # fmt: skip
             found.append((depth, msg, p_limb.line, p_limb.where))
     found.sort(key=lambda f: -f[0])
     return [(msg, line, where) for _, msg, line, where in found]
