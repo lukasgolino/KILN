@@ -39,6 +39,9 @@ before 1.0).
 
 ### Fixed
 
+- Lint W113 no longer flags intended overlaps with clothing: parts passing through a garment's hem, neck or
+  openings or an open shell's open side, and body parts another garment wraps (an arm through an armhole, the chest
+  under a sleeve) (#313).
 - The `wave` cycle on an arm with a forearm (humanoids) holds the upper arm out to the side and waves the forearm
   from a bent elbow, whatever the rest pose, instead of raising the straight arm up by the head (#319).
 - `frames:` written on an animation instead of inside its `cycle:` now says where it goes (E008); the docs show it

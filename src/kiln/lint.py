@@ -382,13 +382,18 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
     centres = pv.vertices[pv.faces].mean(axis=1)
     owner = np.asarray(adding)[field.nearest(adding, centres)[0]]
     step = built.step
+    fits = [m.parts[k].geometry.fit for k in shells]
+    worn = [t for f in fits if f is not None for t in f[0]]  # what garments wrap (#313)
     out = []
     for i in shells:
         gi = m.parts[i].geometry
+        openings = [g for g in (p.geometry for p in m.parts) if g.op == "cut" and g.cut_only is not None and i in g.cut_only]
         for j in adding:
             if j == i or m.parts[j].id == m.parts[i].id or m.parts[j].geometry.shell or (gi.fit is not None and any(m.parts[j].geometry is t for t in gi.fit[0])) \
                     or (m.parts[j].id in m.rig and m.parts[i].id in m.rig[m.parts[j].id].revealed):
                 continue  # its own details, other shells, what it's fitted around (kept a gap away by construction), what it hides (hair)
+            if gi.fit is not None and any(m.parts[j].geometry is t for t in worn):
+                continue  # a body part another garment wraps (the chest under a sleeve's shoulder, an arm through an armhole)
             lo = np.maximum(field.boxes[i][0], field.boxes[j][0])
             hi = np.minimum(field.boxes[i][1], field.boxes[j][1])
             if (hi <= lo).any():
@@ -399,6 +404,12 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
                 continue
             pts = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
             overlap = (m.parts[j].geometry.distance(pts) < 0) & (gi.distance(pts) < 0)
+            # through an opening, not the wall: near the open rim (a garment's hem and neck, an open shell's side) or in
+            # a cut that opens this shell alone (#313)
+            margin = gi.shell + (gi.fit[1] if gi.fit is not None else 0.0) + 3 * step
+            overlap &= _rim_distance(gi, pts) > margin
+            for g in openings:
+                overlap &= g.distance(pts) > margin
             volume = float(overlap.sum()) * h**3
             if volume < (2 * step) ** 3:
                 continue
@@ -409,6 +420,23 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
             if ((envelope > 0) & (envelope < gi.shell + 2 * step)).any():
                 out.append((i, j, volume, pts[overlap].mean(axis=0)))
     return out
+
+
+def _rim_distance(g: Geometry, pts: Array) -> Array:
+    """How far each point is from where a shell is open: an open side's plane, or a garment box's hem and top (its
+    fitted wall ends there). Elsewhere: infinity."""
+    p = pts.copy()
+    for axis in g.mirror or ():
+        p[:, axis] = np.abs(p[:, axis])
+    q = p - g.at
+    if g.rotation is not None:
+        q = q @ g.rotation
+    if g.open is not None:
+        return np.asarray(np.abs(q[:, g.open[0]] - g.open_plane()))
+    if g.fit is not None and g.shape == "box":
+        half = float(g.params["size"][1]) / 2
+        return np.asarray(np.minimum(np.abs(q[:, 1] - half), np.abs(q[:, 1] + half)))
+    return np.full(len(pts), np.inf)
 
 
 def _moved(m: Model, anim: str) -> set[str]:

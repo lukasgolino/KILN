@@ -96,3 +96,17 @@ def test_an_id_clash_with_openings_and_dropped_fields_are_errors(project: Projec
     for extra in ("    rotate: [0, 10, 0]\n", "    hard: true\n"):
         _, _, findings = load(project, TORSO.replace("    id: shirt\n", "    id: shirt\n" + extra))
         assert any("garment takes no" in f.message for f in findings), (extra, findings)
+
+
+def test_w113_quiet_on_openings_and_worn_parts_but_not_a_real_poke(project: Project) -> None:
+    """#313: a head through a garment's open neck, an arm in its own sleeve through the side: intended. A spike through
+    the shirt's wall still warns."""
+    head = "  - sphere: { at: [0, 1.42, 0], radius: 0.16 }\n    id: head\n    color: wood\n    blend: 0.03\n"
+    arm = ("  - capsule: { from: [0.12, 1.12, 0], to: [0.55, 0.95, 0], radius: 0.07 }\n    id: arm\n    color: wood\n    blend: 0.03\n"
+           "  - garment: { fit: [arm], gap: 0.008, thickness: 0.02, hem: 0 }\n    id: sleeve\n    color: blue\n")  # fmt: skip
+    text = TORSO.replace("  - garment:", head + arm + "  - garment:", 1)
+    rules = [f for f in lint_paths(project, [write_model(project, text)]).findings if f.rule == "W113"]
+    assert not rules, [f.format() for f in rules]
+    spike = "  - cone: { aim: [[0.1, 0.85, 0.1], [0.2, 0.85, 0.4]], radius: 0.04 }\n    color: wood\n"
+    rules = [f for f in lint_paths(project, [write_model(project, text + spike)]).findings if f.rule == "W113"]
+    assert rules, "a cone through the shirt's front wall"
