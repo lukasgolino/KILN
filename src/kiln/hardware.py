@@ -209,8 +209,8 @@ def expand(kind: str, spec: Any, raw: dict[str, Any], earlier: list[tuple[str, G
             if radius - min(radii) > max(float(thick), 0.005):  # not round (a belt round hips and belly): hug the surface (#316)
                 rest.pop("hard", None)
                 room = 2 * (radius + float(thick) + 0.02)
-                box = {"at": at, "size": [room, float(width), room], "rotate": _axis_rotate(axis)}
-                return [{**rest, "box": box, "shell": float(thick), "fit": {"to": ids, "gap": 0.0}}], None
+                slab = {"at": at, "size": [room, float(width), room], "rotate": _axis_rotate(axis)}
+                return [{**rest, "box": slab, "shell": float(thick), "fit": {"to": ids, "gap": 0.0}}], None
         elif _num(_get(spec, "radius")) and spec["radius"] > 0:
             radius = float(spec["radius"])
         else:
