@@ -64,6 +64,8 @@ before 1.0).
 
 ### Changed
 
+- Lint W123 (the mesh dips under the ground) names the part that dips, where, and by how much, on that part's line
+  (#195).
 - Shade paint on a model with a base colour map (relief, `color_blend`) is painted per texel into the map, from
   the normal map's normals and each texel's occlusion, with the same strengths; its mapped faces carry no COLOR_0
   multiplier any more (no double shading). Fine grooves and relief now shade too (#266).

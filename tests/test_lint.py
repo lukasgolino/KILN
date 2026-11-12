@@ -298,3 +298,12 @@ def test_cover_samples_every_copy(project: Project) -> None:
     points = surface_samples(field_of(model, 0.01).parts[1], 0.01)
     angles = np.round(np.degrees(np.arctan2(points[:, 2], points[:, 0])) / 45) % 8
     assert len(set(angles.tolist())) == 8 and len(points) > 8 * 100  # every bead of the ring, densely
+
+
+def test_w123_names_the_part_that_dips(project: Project) -> None:
+    """#195: W123 says which part is under the ground and by how much."""
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.6, 0], size: [0.5, 0.5, 0.5] }\n    color: red\n"
+            "  - sphere: { at: [0.1, 0.195, 0], radius: 0.2 }\n    id: foot\n    color: red\n    blend: 0.05\n")  # fmt: skip
+    result = lint_paths(project, [write_model(project, text)])
+    w = [f for f in result.findings if f.rule == "W123"]
+    assert w and "under foot" in w[0].message and w[0].where == "parts[1]", [f.format() for f in result.findings]

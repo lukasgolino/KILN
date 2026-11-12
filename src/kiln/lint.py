@@ -22,7 +22,7 @@ from kiln.cover import covers, mostly_covered
 from kiln.export import Built
 from kiln.jit import set_threads
 from kiln.mesher import CELL_LIMIT, crack_groups, mesh_steps, open_edges, pinches
-from kiln.notation import Model
+from kiln.notation import ROOT_ID, Model
 from kiln.packs import lock_findings
 from kiln.project import Project
 from kiln.retarget import JOINTS
@@ -291,8 +291,15 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         warn("W106", f"the lowest point is at y = {float(lo[1]):.3g} m: models stand on y = 0 (feet, wheels, base). Move the parts, "
              "or disable W106 for things that hang or float")  # fmt: skip
     elif m.origin is None and float(lo[1]) < -max(GROUND_DIP, 0.1 * built.step):  # coarse cells round a little anyway
-        warn("W123", f"the built mesh dips to y = {float(lo[1]) * 1000:.3g} mm, below the ground (blends and meshing can push it under the "
-             "shapes' bottom): set origin: ground to lift the exported mesh onto y = 0, or raise the lowest parts a little")  # fmt: skip
+        v = built.painted.vertices
+        low = v[np.argmin(v[:, 1])]
+        adding = [i for i, q in enumerate(m.parts) if q.geometry.op == "add"]
+        culprit = m.parts[adding[int((field or field_of(m, built.step)).nearest(adding, low[None, :])[0][0])]] if adding else None
+        named = (f" at [{low[0]:.2f}, {low[1]:.3f}, {low[2]:.2f}], under {culprit.id if culprit.id != ROOT_ID else 'part ' + str(culprit.index)}"
+                 if culprit is not None else "")  # fmt: skip
+        warn("W123", f"the built mesh dips to y = {float(lo[1]) * 1000:.3g} mm{named}, below the ground (blends and meshing can push it under the "
+             f"shapes' bottom): set origin: ground to lift the exported mesh onto y = 0, or raise {'that part' if culprit else 'the lowest parts'} "
+             f"by {-float(lo[1]) * 1000:.2g} mm", culprit.line if culprit else None, culprit.where if culprit else "")  # fmt: skip
     limits = CLASS_SIZES.get(m.cls)
     if limits and not limits[0] <= size <= limits[1]:
         warn("W108", f"a {m.cls} {size:.3g} m across is unusual (expected {limits[0]:g}-{limits[1]:g} m): units are metres")
