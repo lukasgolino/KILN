@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from conftest import built_of, closed_faces, errors_of, ok_model, sphere_text
@@ -305,3 +307,36 @@ def test_named_textures_and_triplanar(project: Project) -> None:
     assert blue.sum() > 200  # the print shows in the preview
     errors = errors_of(project, text.replace("texture: print\n  - sphere", "texture: nope\n  - sphere"))
     assert any("isn't one of the model's textures" in f.message for f in errors)
+
+
+def test_a_motif_print_scatters_coloured_stamps(project: Project) -> None:
+    """#312: texture motif: stamps in several colours scattered over a seamless tile, seeded, made once."""
+    from kiln.notation import load_model
+
+    (project.root / "decals").mkdir(exist_ok=True)
+    flower = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    for x in range(16):
+        for y in range(16):
+            if (x - 7.5) ** 2 + (y - 7.5) ** 2 < 49:
+                flower.putpixel((x, y), (230, 60, 140, 255) if (x - 7.5) ** 2 + (y - 7.5) ** 2 > 9 else (250, 210, 40, 255))
+    flower.save(project.root / "decals" / "flower.png")
+    Image.new("RGBA", (8, 16), (40, 150, 60, 255)).save(project.root / "decals" / "leaf.png")
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: white\n"
+            "    texture: { motif: { images: [decals/flower.png, decals/leaf.png], count: 20, seed: 3 }, project: triplanar, size: [0.2, 0.2] }\n")  # fmt: skip
+    model, _ = ok_model(project, text)
+    tex = model.parts[0].texture
+    assert tex is not None and tex.image.is_file() and ".kiln-cache" in str(tex.image)
+    tile = np.asarray(Image.open(tex.image).convert("RGBA"))
+    colours = {tuple(int(c) // 40 for c in px[:3]) for px in tile.reshape(-1, 4) if px[3] > 200}
+    assert len(colours) >= 3  # pink, yellow, green
+    again, _ = ok_model(project, text)
+    assert again.parts[0].texture is not None and again.parts[0].texture.image == tex.image  # the same seed: the same tile
+    palette, _ = project.palette(None)
+    _, findings = load_model(write_model_text(project, text.replace("count: 20", "count: 0")), palette, set())
+    assert any("motif is" in f.message for f in findings)
+
+
+def write_model_text(project: Project, text: str) -> Path:
+    path = project.models_dir / "thing.kiln.yaml"
+    path.write_text(text)
+    return path

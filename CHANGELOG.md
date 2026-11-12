@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- Motif prints: `texture: { motif: { images, count, scale, rotate, seed } }` scatters multicolour stamps over a
+  seamless, seeded tile made in KILN (a floral shirt), tiled like any texture (#312).
 - Material `grain` and `grain_size` in a style: a fine bumpy finish in the normals (rough cloth, felt) without
   geometry or triangles; a tiling noise normal map in KILN's Godot scenes, the same bumps in the previews (#329).
 - Named textures: `textures: { print: {...} }` at the top of a model, `texture: print` on each part; and

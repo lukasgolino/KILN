@@ -1422,7 +1422,65 @@ def _parse_decal(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal | N
     return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]), per_copy=bool(per_copy))
 
 
-TEXTURE_KEYS = ("image", "project", "size", "texel", "at", "axis")
+TEXTURE_KEYS = ("image", "motif", "project", "size", "texel", "at", "axis")
+MOTIF_KEYS = ("images", "count", "scale", "rotate", "seed", "pixels")
+
+
+def _motif_tile(ctx: _Ctx, raw: Any, line: int | None, where: str) -> str | None:
+    """A motif print (#312): `count` stamps from `images` (PNGs with alpha, several colours) scattered over one tile,
+    each turned up to `rotate` degrees and scaled within `scale` (a share of the tile), wrapping round its edges so it
+    tiles without seams; seeded. Written once to .kiln-cache/motifs/ (named by its content); returns its path from the
+    project folder, for the texture to tile."""
+    import hashlib
+
+    from PIL import Image, UnidentifiedImageError
+
+    form = ("motif is { images: [decals/flower.png, decals/leaf.png] (stamps with alpha), count: 12 (stamps per tile), scale: [0.15, 0.25] "
+            "(a stamp's size, share of the tile), rotate: 180 (degrees, either way), seed: 1, pixels: 256 (the tile) }, with the texture's "
+            "size: [w, h] or texel")  # fmt: skip
+    if not isinstance(raw, dict) or [k for k in raw if k not in MOTIF_KEYS]:
+        ctx.error("E003", form, line, where)
+        return None
+    images, count, scale = raw.get("images"), raw.get("count", 12), raw.get("scale", [0.15, 0.25])
+    turn, seed, pixels = raw.get("rotate", 180), raw.get("seed", 1), raw.get("pixels", 256)
+    if not isinstance(images, list) or not images or not all(isinstance(i, str) for i in images) or not isinstance(count, int) \
+            or isinstance(count, bool) or not 1 <= count <= 400 or not (isinstance(scale, list) and len(scale) == 2 and all(_num(v) for v in scale)
+                                                                    and 0 < scale[0] <= scale[1] <= 1) \
+            or not _num(turn) or not 0 <= turn <= 180 or not isinstance(seed, int) or not isinstance(pixels, int) or not 32 <= pixels <= 2048:
+        ctx.error("E003", form, line, where)
+        return None
+    base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+    stamps = []
+    for k, name in enumerate(images):
+        path = (base / name).resolve()
+        try:
+            with Image.open(path) as im:
+                stamps.append(im.convert("RGBA"))
+        except (OSError, UnidentifiedImageError):
+            ctx.error("E011", f"motif image {name} not found or not a PNG (paths are relative to the project folder)", line, f"{where}.images[{k}]")
+            return None
+    digest = hashlib.sha256(repr((images, count, scale, turn, seed, pixels)).encode())
+    for st in stamps:
+        digest.update(st.tobytes())
+    out = base / ".kiln-cache" / "motifs" / f"{digest.hexdigest()[:20]}.png"
+    if not out.is_file():
+        rng = np.random.default_rng(seed)
+        canvas = Image.new("RGBA", (3 * pixels, 3 * pixels), (0, 0, 0, 0))  # the tile and its eight neighbours
+        for _ in range(count):
+            st = stamps[int(rng.integers(len(stamps)))]
+            side = max(2, int(round(pixels * float(rng.uniform(scale[0], scale[1])))))
+            stamp = st.resize((side, max(2, int(round(side * st.height / st.width)))), Image.Resampling.LANCZOS)
+            stamp = stamp.rotate(float(rng.uniform(-turn, turn)), resample=Image.Resampling.BICUBIC, expand=True)
+            x, y = int(rng.integers(pixels)), int(rng.integers(pixels))
+            for dx in (0, pixels, 2 * pixels):  # in every copy, so the middle tile repeats without seams
+                for dy in (0, pixels, 2 * pixels):
+                    left, top = x + dx - stamp.width // 2, y + dy - stamp.height // 2
+                    if left >= 0 and top >= 0 and left + stamp.width <= 3 * pixels and top + stamp.height <= 3 * pixels:
+                        canvas.alpha_composite(stamp, (left, top))
+        tile = canvas.crop((pixels, pixels, 2 * pixels, 2 * pixels))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tile.save(out)
+    return str(out.relative_to(base))
 
 
 def _parse_texture(ctx: _Ctx, raw: Any, line: int | None, where: str, part_at: tuple[float, ...] | None = None) -> Decal | None:
@@ -1430,6 +1488,11 @@ def _parse_texture(ctx: _Ctx, raw: Any, line: int | None, where: str, part_at: t
     whole part (#184): box faces take it from the side they face, cylindrical wraps it round `axis` through `at`."""
     form = ("texture is { image: textures/x.png, project: box | triplanar | cylindrical, size: [w, h] (metres per tile) or texel: m (per pixel), "
             "at: [x, y, z] (default: the part's centre), axis: x|y|z (cylindrical) }")
+    if isinstance(raw, dict) and "motif" in raw and "image" not in raw:  # a print scattered from stamps (#312)
+        image_rel = _motif_tile(ctx, raw["motif"], line, f"{where}.motif")
+        if image_rel is None:
+            return None
+        raw = {**{k: v for k, v in raw.items() if k != "motif"}, "image": image_rel}
     if not isinstance(raw, dict) or not isinstance(raw.get("image"), str) or [k for k in raw if k not in TEXTURE_KEYS]:
         ctx.error("E003", form, line, where)
         return None

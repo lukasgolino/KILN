@@ -98,6 +98,12 @@ shows where box would switch sides (a sleeve's side).
 A texture used on several parts is defined once at the top and named: `textures: { print: { image:
 textures/print.png, project: triplanar, texel: 0.004 } }`, then `texture: print` on each part.
 
+A busy multicolour print (flowers, leaves) made in KILN: `motif:` in place of `image` scatters stamps from a list of
+PNGs (alpha, any colours) over one seamless tile, seeded: `texture: { motif: { images: [decals/flower.png,
+decals/leaf.png], count: 14, scale: [0.12, 0.2], rotate: 180, seed: 2 }, project: triplanar, size: [0.14, 0.14] }`
+(`scale`: a stamp's size as a share of the tile, up to 0.5 to wrap cleanly; `pixels`: the tile, 256). The tile is
+written once to `.kiln-cache/motifs/`.
+
 ## Cloth folds: `folds`
 
 Robes, skirts, capes and curtains: `folds: { count: 12, depth: 0.03, from_y: 0, to_y: 1.0, sharp: 0.5 }` on a smooth
