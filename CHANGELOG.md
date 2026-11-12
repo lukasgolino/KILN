@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+### Changed
+
+- `kiln docs parts` split in two: `parts` (shapes and part options) and `surfaces` (hard surfaces, hardware, patterns,
+  decals, textures). The topic had hit its size budget; the details cut to fit it are back (#270).
+
 ### Fixed
 
 - A decal on a part with a `gradient` or `pattern` also cut and marked other parts' faces painted in the same colours
