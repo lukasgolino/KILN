@@ -489,8 +489,8 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                 ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
                 return math.sqrt(ox * ox + oy * oy + oz * oz) + pad
             d = part_at(0, x, y, z, filled, t)
-            if (t[0][0] == 1 or t[0][0] == 10) and (qx > 0.0 or qy > 0.0 or qz > 0.0):  # ellipsoid, lock outside their box:
-                ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)  # their distance runs short there; the box's holds (#238)
+            if qx > 0.0 or qy > 0.0 or qz > 0.0:  # outside the box: never under the box's distance (#238: locks,
+                ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)  # ellipsoids and scaled parts run short there)
                 d = max(d, math.sqrt(ox * ox + oy * oy + oz * oz))
             return d
         return part_at(0, x, y, z, filled, t)
@@ -515,8 +515,8 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
             ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
             return math.sqrt(ox * ox + oy * oy + oz * oz) + pad[i]
         d = part_at(i, x, y, z, False, t)
-        if (t[0][i] == 1 or t[0][i] == 10) and (qx > 0.0 or qy > 0.0 or qz > 0.0):  # ellipsoid, lock outside their box:
-            ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)  # never under the distance to the box (#238)
+        if qx > 0.0 or qy > 0.0 or qz > 0.0:  # outside the box: never under the distance to it (#238)
+            ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
             d = max(d, math.sqrt(ox * ox + oy * oy + oz * oz))
         return d
 
@@ -578,7 +578,7 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                 d = box + pad[i]
             else:
                 d = part_at(i, x, y, z, False, t)
-                if (t[0][i] == 1 or t[0][i] == 10) and box > 0.0:  # ellipsoid, lock: never under the box's distance (#238)
+                if box > 0.0:  # never under the box's distance (#238: locks, ellipsoids, scaled parts run short)
                     d = max(d, box)
             if op[i] == 1:
                 f = -smin(-f, d, k)

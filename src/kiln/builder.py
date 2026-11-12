@@ -13,8 +13,9 @@ import math
 import os
 import pickle
 import re
+import time
 import traceback
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,7 @@ BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x 
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
 LOST_AREA = 0.25  # a part keeping less of its surface than this through decimation is lost (lint W111)
+SOFT_FLOOR = 0.2  # of (1 - HARD_SHARE): the least of the budget smooth parts keep, however small (a movement's pins)
 HARD_SHARE = 0.75  # hard parts may take this much of the budget before they lose detail (bevels, then sides)
 KEEP_SIZE = 0.02  # crisp parts smaller than this share of the model are kept at every LOD (rivets, eyes, crests)
 KEEP_MIN = 48  # triangles a kept part keeps at least
@@ -144,10 +146,11 @@ def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int,
     that is unchanged: moving one prop late in a scene joins again from there, not from the first part (#214)."""
     steps = _hard_steps(model, include)
     keys: list[str] = []
-    h = hashlib.sha256(f"{BUILDER_VERSION}|{level}".encode())
+    h = hashlib.sha256(f"{__version__}|{BUILDER_VERSION}|{level}".encode())
     for i in steps:
         p = model.parts[i]
-        h.update(pickle.dumps((i, p.geometry, hard_spec(p, style, level)), protocol=pickle.HIGHEST_PROTOCOL))
+        g = p.geometry  # its fields only: the compiled kernels cache tables on the object (not part of the shape)
+        h.update(pickle.dumps((i, [getattr(g, f.name) for f in fields(g)], hard_spec(p, style, level)), protocol=pickle.HIGHEST_PROTOCOL))
         keys.append(h.hexdigest()[:32])
     acc: Solid = []
     start = 0
@@ -223,7 +226,7 @@ def _hard_share(model: Model, hard: set[int] | frozenset[int], adding: list[int]
     soft_area = sum(_box_area(model.parts[i].geometry) for i in soft)
     hard_area = sum(_box_area(model.parts[i].geometry) for i in adding if i in hard)
     share = soft_area / max(soft_area + hard_area, 1e-12)
-    return 1.0 - (1.0 - HARD_SHARE) * min(1.0, 2.0 * share)
+    return 1.0 - (1.0 - HARD_SHARE) * min(1.0, max(SOFT_FLOOR, 2.0 * share))
 
 
 def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[int]], budget: float, rigged: bool,
@@ -335,7 +338,7 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
         raise ValueError("the model has no surface (everything cut away, or all parts are cuts)")
     live = [(include, f, mesh) for (include, f), mesh in zip(pieces, meshes, strict=True) if mesh.triangles]
     taken = hard_triangles + kept_triangles
-    soft_target = max(target - taken, int(target * (1 - HARD_SHARE))) if taken else target
+    soft_target = max(target - taken, int(target * (1 - _hard_share(model, hard, adding)))) if taken else target
     hidden: tuple[int, ...] = ()
     lost: tuple[int, ...] = ()
     painted: Painted | None = None
@@ -939,7 +942,7 @@ def cached(model: Model, style: Style, palette: dict[str, str], cache_dir: Path 
     return cache_dir is not None and _cache_file(model, style, palette, cache_dir, budget).is_file()
 
 
-COLOR_VALUE = re.compile(r'(\bcolor(?:_to)?"?\s*:\s*)("[^"]*"|\'[^\']*\'|#[0-9a-fA-F]{6}|[A-Za-z0-9_-]+)')  # (YAML or the JSON of shape_text)
+COLOR_VALUE = re.compile(r'(\b(?:color|color_to|to)"?\s*:\s*)("[^"]*"|\'[^\']*\'|#[0-9a-fA-F]{6}|[A-Za-z0-9_-]+)')  # (YAML or the JSON of shape_text; a gradient's to:)
 
 
 def color_labels(model: Model, palette: dict[str, str]) -> tuple[str, list[str]]:
@@ -961,19 +964,28 @@ def color_labels(model: Model, palette: dict[str, str]) -> tuple[str, list[str]]
     return COLOR_VALUE.sub(label, text), labels
 
 
-def _recolored(built: Built, old: list[str], new: list[str], palette: dict[str, str]) -> Built:
-    """A cached build with its colours moved from `old` to `new` (label for label): paint groups and relief colours."""
+def _recolored(built: Built, old: list[str], new: list[str], model: Model) -> Built | None:
+    """A cached build with its colours moved from `old` to `new` (label for label): paint groups and relief colours.
+    None when it holds a colour that isn't one of the labels (a gradient's mixed bands): that one builds again."""
     to = dict(zip(old, new, strict=True))
-    names = {hx: name for name, hx in palette.items() if len(name) > 1}
+    if any(g.color not in to for g in built.painted.groups):
+        return None
+    lay = built.bake.layers if built.bake is not None else None
+    if lay is not None and any(c and c not in to for pair in lay.colors for c in pair):
+        return None
+    names: dict[str, str] = {}  # the names the model writes its colours with now (as a cold build names them)
+    for part in model.parts:
+        names.setdefault(part.color, part.color_name)
+        for pat in part.patterns:
+            names.setdefault(pat.color, pat.color_name)
     groups = []
     for g in built.painted.groups:
-        hx = to.get(g.color, g.color)
+        hx = to[g.color]
         base, sep, rest = g.color_name.partition("#")
-        name = names.get(hx, hx) if hx != g.color else base  # (a literal hex is its own name, as parsed)
+        name = names.get(hx, hx) if hx != g.color else base
         groups.append(replace(g, color=hx, color_name=name + sep + rest))
     built.painted = replace(built.painted, groups=groups)
-    if built.bake is not None and built.bake.layers is not None:
-        lay = built.bake.layers
+    if lay is not None:
         lay.colors = [(to.get(a, a) if a else a, to.get(b, b) if b else b) for a, b in lay.colors]
     return built
 
@@ -1030,11 +1042,21 @@ HARD_CACHE_FILES = 400  # joined hard solids kept (the newest; older ones are de
 
 
 def _prune_hard(folder: Path) -> None:
+    """Keep the newest HARD_CACHE_FILES solids; lint's processes may prune at once, so a file may go under us."""
     if not folder.is_dir():
         return
-    files = sorted(folder.glob("*.pickle"), key=lambda f: f.stat().st_mtime, reverse=True)
-    for old in files[HARD_CACHE_FILES:]:
-        old.unlink(missing_ok=True)
+    dated = []
+    for f in folder.iterdir():
+        try:
+            dated.append((f.stat().st_mtime, f))
+        except OSError:
+            continue
+    now = time.time()
+    for _, f in [d for d in dated if d[1].suffix == ".tmp" and now - d[0] > 3600]:  # left by a killed build
+        f.unlink(missing_ok=True)
+    solids = sorted((d for d in dated if d[1].suffix == ".pickle"), key=lambda d: d[0], reverse=True)
+    for _, f in solids[HARD_CACHE_FILES:]:
+        f.unlink(missing_ok=True)
 
 
 def _twin_key(model: Model, style: Style, palette: dict[str, str], budget: int | None) -> tuple[str, list[str]]:
@@ -1053,7 +1075,7 @@ def _note_colour_twin(model: Model, style: Style, palette: dict[str, str], cache
     if model.source is not None or not model.shape_text:
         return
     twin, labels = _twin_key(model, style, palette, budget)
-    (cache_dir / f"{prefix}colours.json").write_text(json.dumps({"twin": twin, "key": key, "labels": labels}))
+    _write_note(cache_dir / f"{prefix}colours.json", {"twin": twin, "key": key, "labels": labels})
 
 
 def _from_colour_twin(model: Model, style: Style, palette: dict[str, str], cache_dir: Path, budget: int | None, prefix: str) -> Built | None:
@@ -1071,9 +1093,18 @@ def _from_colour_twin(model: Model, style: Style, palette: dict[str, str], cache
         return None
     if not isinstance(loaded, Built):
         return None
-    built = _recolored(loaded, last["labels"], labels, palette)
-    note.write_text(json.dumps({"twin": twin, "key": cache_key(model, style, palette, budget), "labels": labels}))
+    built = _recolored(loaded, last["labels"], labels, model)
+    if built is None:
+        return None
+    _write_note(note, {"twin": twin, "key": cache_key(model, style, palette, budget), "labels": labels})
+    (cache_dir / f"{prefix}{last['key']}.pickle").unlink(missing_ok=True)  # (superseded: the recoloured one replaces it)
     return built
+
+
+def _write_note(path: Path, data: dict[str, Any]) -> None:
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data))
+    os.replace(tmp, path)
 
 
 def _store(built: Built, path: Path) -> None:
