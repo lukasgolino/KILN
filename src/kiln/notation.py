@@ -22,7 +22,7 @@ from kiln.mesher import CELL_LIMIT
 from kiln.retarget import REQUIRED, JointMap
 from kiln.scatter import Scatter
 from kiln.scatter import parse as parse_scatter
-from kiln.sdf import IDENTITY, SHAPES, Copy, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
+from kiln.sdf import IDENTITY, SHAPES, Copy, Field, Geometry, Noise, axis_rotation, rotation_matrix, smooth_profile
 from kiln.shade import parse as parse_shade
 from kiln.terrain import Terrain
 from kiln.terrain import parse as parse_terrain
@@ -45,7 +45,7 @@ CYCLES = ("walk", "waddle", "hop", "bob", "spin", "swing", "breathe", "wave", "c
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "color_blend", "density", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr"}  # fmt: skip
+               "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr", "on"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -97,6 +97,18 @@ class Decal:
     project: str = "planar"  # planar: a decal; box, cylindrical: a texture tiled over the whole part
 
 
+@dataclass(frozen=True)
+class OnSurface:
+    """`on:` a part placed on the blended surface of earlier parts: `near` snapped onto it, `offset` metres along the
+    normal there, the part's own y axis turned to the normal (`align`), then `roll` degrees about it."""
+
+    ids: tuple[str, ...]
+    near: tuple[float, float, float]
+    offset: float = 0.0
+    roll: float = 0.0
+    align: bool = True
+
+
 @dataclass
 class Part:
     index: int
@@ -123,6 +135,7 @@ class Part:
     detail: bool = False  # only in the baked normal map (grooves, wrinkles, strands), never in the mesh
     color_blend: float = 0.0  # metres: its colour fades into its neighbours' over this distance from their border (base colour map)
     density: float = 1.0  # weight on the triangle budget in its surface (3: three times the triangles per area of the rest)
+    on: OnSurface | None = None  # placed on the blended surface of earlier parts (resolved once all parts are read)
     keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
     uv: UVSpec | None = None  # texture coordinates projected from its shape (kiln.uv)
     patterns: tuple[Pattern, ...] = ()  # painted in order (a later one paints over earlier ones)
@@ -376,6 +389,10 @@ def _parse_copies(ctx: _Ctx, raw: Any, line: int | None, where: str) -> tuple[Co
 
 def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]:
     where = f"parts[{index}]"
+    if isinstance(raw, dict) and True in raw and "on" not in raw:  # YAML 1.1 reads a bare `on:` key as true
+        raw["on"] = raw.pop(True)
+        if isinstance(raw, LineMap) and True in raw.key_lines:
+            raw.key_lines["on"] = raw.key_lines.pop(True)
     if not isinstance(raw, dict):
         ctx.error("E003", "each part is a mapping: - sphere: { at: [0, 1, 0], radius: 0.3 }", line, where)
         return []
@@ -431,6 +448,21 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             ok = False
         elif "height" in sdef.fields and "height" not in spec:
             params["height"] = aim[3]
+    on = None
+    if "on" in raw:
+        on = _parse_on(raw["on"])
+        if on is None:
+            ctx.error("E003", "on places the part on the blended surface of earlier parts: on: { part: body, near: [x, y, z] } (+ offset: "
+                      "metres along the normal, roll: degrees, align: false keeps its own turn); part may be a list of ids", line,
+                      f"{where}.on")  # fmt: skip
+            ok = False
+        elif "at" in spec or "at" in raw or aim_raw is not None:
+            ctx.error("E003", "a part placed with on has no at or aim (on puts it on the surface at near)", line, f"{where}.on")
+            ok = False
+        elif "array" in raw:
+            ctx.error("E003", "on places one part: its array copies wouldn't follow the surface; write a part per spot (or mirror_id)",
+                      line, f"{where}.on")  # fmt: skip
+            ok = False
     missing = [k for k in sdef.required if k not in params and k not in spec]  # a bad value was reported already
     if missing:
         ctx.error("E003", f"{kind} needs {', '.join(missing)} ({sdef.help})", line, swhere)
@@ -717,7 +749,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
-                   "texture": texture, "color_blend": float(color_blend), "density": float(density)}  # fmt: skip
+                   "texture": texture, "color_blend": float(color_blend), "density": float(density), "on": on}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
@@ -828,6 +860,61 @@ def _parse_aim(raw: Any) -> tuple[tuple[float, ...], np.ndarray, float, float] |
         turn = axis_rotation(d, float(roll)) @ turn
     mid = tuple(float(v) for v in (np.add(a, b) / 2))
     return mid, np.round(turn, 12), float(roll), length
+
+
+def _parse_on(raw: Any) -> OnSurface | None:
+    if not isinstance(raw, dict) or any(k not in ("part", "near", "offset", "roll", "align") for k in raw):
+        return None
+    ids = raw.get("part")
+    ids = [ids] if isinstance(ids, str) else ids
+    near, offset, roll, align = _vec(raw.get("near")), raw.get("offset", 0.0), raw.get("roll", 0.0), raw.get("align", True)
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids) or near is None or not _num(offset) \
+            or not _num(roll) or not isinstance(align, bool):
+        return None
+    return OnSurface(tuple(ids), (float(near[0]), float(near[1]), float(near[2])), float(offset), float(roll), align)
+
+
+def _place_on(ctx: _Ctx, model: Model, done: set[int]) -> None:
+    """Resolve `on:` in order (a part may sit on one placed before it): walk `near` onto the blended surface of the
+    named earlier parts (cuts before it apply; detail parts are only in the normal map, so not), then move and turn
+    the part; its mirror_id twin follows. Parts in `done` were placed already (before a hardware part read them)."""
+    for k, part in enumerate(model.parts):
+        on = part.on
+        if on is None or part.twin_of is not None or k in done:
+            continue
+        done.add(k)
+        earlier = [q for q in model.parts[:k] if not q.detail]
+        active = frozenset(j for j, q in enumerate(earlier) if q.id in on.ids and q.geometry.op == "add")
+        if not active:
+            if not model.template:  # a template may sit its parts on another template's (a helmet's spikes on a head)
+                ctx.error("E003", f"on: no earlier part has id {', '.join(on.ids)} (a part sits on parts listed before it)", part.line,
+                          f"{part.where}.on")  # fmt: skip
+            continue
+        field = Field([q.geometry for q in earlier], 0.05, active)
+        p = np.array([on.near], dtype=float)
+        lo, hi = field.bounds()
+        eps = max(1e-5, float(np.linalg.norm(hi - lo)) * 1e-5)
+        for _ in range(64):  # walk onto the surface along the field's gradient
+            d = field.distance(p)
+            p = p - d[:, None] * field.gradient(p, eps)
+            if abs(float(d[0])) < 1e-7:
+                break
+        normal = field.gradient(p, eps)[0]
+        if abs(float(field.distance(p)[0])) > 1e-4 or not np.isfinite(normal).all():
+            ctx.error("E003", f"on: the walk from near {list(on.near)} along the field doesn't settle on the surface of {', '.join(on.ids)}; "
+                      "start it just outside the spot", part.line, f"{part.where}.on")  # fmt: skip
+            continue
+        g = part.geometry
+        g.at = p[0] + normal * on.offset
+        if on.align:
+            turn = _parse_aim({"from": [0, 0, 0], "to": normal.tolist(), "roll": on.roll})
+            assert turn is not None
+            g.rotation = turn[1] if g.rotation is None else turn[1] @ g.rotation
+        g.at = np.round(g.at, 9)
+        for twin in model.parts:
+            if twin.twin_of == part.id:
+                r = _reflect(g, twin.twin_axis)
+                twin.geometry.at, twin.geometry.rotation, twin.geometry.copies = r.at, r.rotation, r.copies
 
 
 RELIEF_FIELDS = {"on", "kind", "length", "width", "lift", "density", "flow", "tips", "jitter", "color", "color_to", "under", "seed", "fade"}
@@ -1726,6 +1813,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         if not isinstance(raw_parts, list) or not raw_parts:
             ctx.error("E003", "parts must be a non-empty list, e.g. - sphere: { at: [0, 0.5, 0], radius: 0.5 }", _line(data, "parts"), "parts")
         else:
+            placed: set[int] = set()  # parts placed with on: already
             for i, raw in enumerate(raw_parts):
                 pline = _line(raw) or _line(data, "parts")
                 kinds = [k for k in raw if k in HARDWARE] if isinstance(raw, dict) else []
@@ -1735,6 +1823,11 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 if len(kinds) > 1 or any(k in SHAPES for k in raw):
                     ctx.error("E003", f"each part needs exactly one shape: {', '.join(SHAPES)}, or one hardware part: {', '.join(HARDWARE)}", pline, f"parts[{i}]")
                     continue
+                if "on" in raw or True in raw:
+                    ctx.error("E003", f"on places shapes, not hardware: give the {kinds[0]} its at (or put it on a shape placed with on)",
+                              pline, f"parts[{i}].on")  # fmt: skip
+                    continue
+                _place_on(ctx, model, placed)  # hardware reads the parts before it: place them first
                 earlier = [(p.id, p.geometry) for p in model.parts if p.geometry.op == "add"]
                 subs, problem = expand(kinds[0], raw[kinds[0]], dict(raw), earlier)
                 if problem is not None:
@@ -1784,6 +1877,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                                   f"{part.where}.fit")  # fmt: skip
                     continue
                 part.geometry.fit = (targets, part.fit[1])
+            _place_on(ctx, model, placed)  # after fit: a part may sit on a fitted shell
             if any(p.detail for p in model.parts):
                 _split_detail(ctx, model)
     _parse_relief(ctx, data, model)

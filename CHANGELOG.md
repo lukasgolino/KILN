@@ -16,6 +16,11 @@ before 1.0).
 
 ### Added
 
+- `on: { part, near }` on a part: placed on the blended surface of earlier parts (those ids, blends, fitted shells
+  and earlier cuts included; detail parts not) where a walk from `near` along the field settles (start just outside
+  the spot), its y axis along the surface normal, then `offset` along the normal and `roll` about it (`align: false`
+  only moves it). Fur clumps, straps, scales and spikes no longer need the body's field worked out by hand;
+  `mirror_id` twins and `mirror` follow; not with `array` or hardware parts (#149).
 - Lint W128: a round soft part (sphere, ellipsoid, capsule, torus) that shows at least half of its surface on
   fewer than 48 triangles per copy reads as a polygon. A prop of many small parts shares one class budget; the
   warning gives the `density` and the `budget:` that would lift it to 48 (#167).

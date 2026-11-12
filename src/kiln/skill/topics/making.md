@@ -106,6 +106,28 @@ style_version, template). Templates can extend templates.
 Size classes in the built-in styles: prop, character, hero, creature, vehicle, machine, building, nature (and
 `default` for anything else). Size sanity (W108, largest side): character 0.2-4 m, prop 0.02-6 m, building 1-200 m...
 
+## On the surface: `on`
+
+Clumps, straps, scales, spikes and tufts belong on the body's blended surface, which isn't any one part's shape.
+`on` puts a part there instead of `at`:
+
+```yaml
+  - cone: { radius: 0.03, height: 0.12 }
+    color: fur_dark
+    on: { part: [body, head], near: [0.25, 0.8, 0.05], offset: -0.02, roll: 0 }
+    mirror_id: tuft_r
+    mirror: x
+```
+
+`near` is walked along the field onto the surface made by the earlier parts with those ids (blends and fitted shells
+included; cuts listed before it apply; detail parts don't): start it just outside the spot, since from deep inside
+the walk takes the field's way out, not the nearest point. The part's own y axis turns to the surface normal there (`rotate` turns it in its own frame first; `align:
+false` keeps its turn and only moves it), `roll` spins it about the normal, `offset` moves it along the normal
+(negative sinks it in: a cone's `at` is its middle). A part may sit on one placed this way before it; a `mirror_id`
+twin is placed as its mirror image (`mirror: x` folds it as usual). A walk that doesn't settle on the surface is an
+error (E003), as are `on` with `array` (the copies wouldn't follow the surface: a part per spot) and on hardware
+parts (give them `at`). Hardware after a placed part sees it placed.
+
 ## Relief: fur without parts
 
 Fur, and any coat of small overlapping tufts, is a `relief:` layer on one smooth body, never hundreds of clump
