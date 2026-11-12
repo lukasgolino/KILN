@@ -23,6 +23,11 @@ before 1.0).
 
 ### Performance
 
+- Joined hard parts are kept in the build cache every 8 joins; a rebuild resumes at the last unchanged one, so moving a
+  prop near the end of a scene joins again only from there (an 82-hard-part desk: 35 s cold, 9 s after moving one
+  part), with the same result as joining from the first part. Hard parts lose bevels for the budget only when they
+  need its smooth parts' share: that share now follows how much of the surface the smooth parts are (a movement's
+  few small pins no longer cost 36 hard parts their bevels) (#214).
 - A colour-only edit reuses the cached build, recoloured: part, pattern, relief and palette colours, as long as the
   same parts share colours (the paint borders don't move). A 2.4 m hero's colour tweak goes from a full rebuild
   (about 2.5 min) to seconds (#246).

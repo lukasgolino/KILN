@@ -847,3 +847,39 @@ def test_box_sorted_splits_build_the_same_solid(monkeypatch: pytest.MonkeyPatch,
     sorted_none = scene()
     assert len(sorted_all) > 100
     assert [(p.points, p.plane, p.tag) for p in sorted_all] == [(p.points, p.plane, p.tag) for p in sorted_none]
+
+
+def test_a_rebuild_resumes_at_the_last_unchanged_joined_solid(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#214: joined hard solids are kept every HARD_CHECKPOINT steps; moving the last part joins again only from the
+    last checkpoint, and the result is the same as a cold build."""
+    import hashlib
+    import shutil
+
+    from kiln import builder, hard
+
+    monkeypatch.setattr(builder, "HARD_CHECKPOINT", 2)
+    boxes = "".join(f"  - box: {{ at: [{0.25 * k:.2f}, 0.1, 0], size: [0.2, 0.2, 0.2] }}\n    color: red\n    hard: true\n" for k in range(6))
+    text = "name: thing\nparts:\n" + boxes
+    calls: list[int] = []
+    real = hard.union
+
+    def counting(a: Any, b: Any) -> Any:
+        calls.append(1)
+        return real(a, b)
+
+    monkeypatch.setattr(builder, "union", counting)
+
+    def mesh(t: str) -> str:
+        model, style = ok_model(project, t)
+        palette, _ = project.palette(model.palette)
+        b = builder.build_cached(model, style, palette, project.root / ".kiln-cache")
+        return hashlib.sha256(b.painted.vertices.tobytes() + b.painted.faces.tobytes()).hexdigest()
+
+    mesh(text)
+    cold = len(calls)
+    moved = text.replace("at: [1.25, 0.1, 0]", "at: [1.3, 0.1, 0]")
+    calls.clear()
+    warm = mesh(moved)
+    assert 0 < len(calls) < cold  # only the steps after the last unchanged checkpoint
+    shutil.rmtree(project.root / ".kiln-cache")
+    assert mesh(moved) == warm  # the same as joined from the first part

@@ -42,7 +42,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 30  # bump when meshing/painting changes output
+BUILDER_VERSION = 31  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -133,11 +133,42 @@ def _hard_steps(model: Model, include: frozenset[int]) -> list[int]:
     return out
 
 
+HARD_CHECKPOINT = 8  # joined hard steps between two cached solids (#214: a rebuild resumes at the last unchanged one)
+_hard_cache: Path | None = None  # where joined hard solids are kept (set by build_cached for its build)
+
+
 def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int, tick: Any = None) -> Solid:
     """The hard parts of one piece combined in order: adding parts unite; every later cut or intersect applies
-    (`tick()` after each one)."""
+    (`tick()` after each one). With a cache, the solid after every HARD_CHECKPOINT steps is kept under a hash of
+    the steps so far (each part's index, geometry and detail level), and a later build resumes at the last of them
+    that is unchanged: moving one prop late in a scene joins again from there, not from the first part (#214)."""
+    steps = _hard_steps(model, include)
+    keys: list[str] = []
+    h = hashlib.sha256(f"{BUILDER_VERSION}|{level}".encode())
+    for i in steps:
+        p = model.parts[i]
+        h.update(pickle.dumps((i, p.geometry, hard_spec(p, style, level)), protocol=pickle.HIGHEST_PROTOCOL))
+        keys.append(h.hexdigest()[:32])
     acc: Solid = []
-    for i in _hard_steps(model, include):
+    start = 0
+    folder = _hard_cache
+    if folder is not None:
+        for k in range(len(steps) - 1, -1, -1):
+            if (k + 1) % HARD_CHECKPOINT == 0 or k == len(steps) - 1:
+                path = folder / f"{keys[k]}.pickle"
+                if path.is_file():
+                    try:
+                        with path.open("rb") as fh:
+                            acc = pickle.load(fh)  # noqa: S301 - our own cache file
+                        start = k + 1
+                        break
+                    except (OSError, pickle.UnpicklingError, EOFError, AttributeError, TypeError):
+                        acc = []
+    for _ in range(start):  # (the steps a cached solid already holds: counted done)
+        if tick is not None:
+            tick()
+    for k in range(start, len(steps)):
+        i = steps[k]
         p = model.parts[i]
         g = p.geometry
         if g.op == "add":
@@ -145,9 +176,19 @@ def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int,
         elif acc:
             other = solid(g, hard_spec(p, style, level), i)
             acc = subtract(acc, other) if g.op == "cut" else intersect(acc, other)
+        if folder is not None and ((k + 1) % HARD_CHECKPOINT == 0 or k == len(steps) - 1):
+            folder.mkdir(parents=True, exist_ok=True)
+            _store_solid(acc, folder / f"{keys[k]}.pickle")
         if tick is not None:
             tick()
     return acc
+
+
+def _store_solid(solid_: Solid, path: Path) -> None:
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    with tmp.open("wb") as fh:
+        pickle.dump(solid_, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp, path)
 
 
 def hard_joins(model: Model, pieces: list[frozenset[int]]) -> int:
@@ -164,6 +205,25 @@ def _spec_key(part: Part, spec: HardSpec) -> tuple[int, float, int]:
     """What of a HardSpec changes this part's solid: bevel bands only with a bevel, sides only on round shapes."""
     sides = int(part.geometry.params.get("sides") or spec.sides)  # as hard.local_polys reads it
     return (sides if part.geometry.shape in ROUND_SHAPES else 0, spec.bevel, spec.segments if spec.bevel else 0)
+
+
+def _box_area(g: Geometry) -> float:
+    lo, hi = g.bounds()
+    x, y, z = np.maximum(np.asarray(hi) - np.asarray(lo), 0.0)
+    return float(2 * (x * y + y * z + z * x))
+
+
+def _hard_share(model: Model, hard: set[int] | frozenset[int], adding: list[int]) -> float:
+    """How much of the budget hard parts may take before they lose detail: all of it with no smooth parts, else
+    HARD_SHARE, the rest kept for the smooth parts in proportion to their part of the surface (boxes: a rough
+    measure). A few small smooth parts (a movement's pins) no longer cost 36 hard parts their bevels (#214)."""
+    soft = [i for i in adding if i not in hard]
+    if not soft:
+        return 1.0
+    soft_area = sum(_box_area(model.parts[i].geometry) for i in soft)
+    hard_area = sum(_box_area(model.parts[i].geometry) for i in adding if i in hard)
+    share = soft_area / max(soft_area + hard_area, 1e-12)
+    return 1.0 - (1.0 - HARD_SHARE) * min(1.0, 2.0 * share)
 
 
 def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[int]], budget: float, rigged: bool,
@@ -249,7 +309,6 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     # hard parts are exact polygons, made first: what they leave of the budget goes to the smooth parts
     hard_pieces = [frozenset(i for i in inc if i in hard) for inc in all_pieces]
     hard_pieces = [inc for inc in hard_pieces if inc]
-    any_soft = any(i not in hard for i in adding)
     def hinted(hint: str, growth: float = 1.0) -> Progress:  # a phase's counter, with what would make it faster
         return lambda what, done, total: phase.progress(what, done, total, hint, growth)
 
@@ -257,7 +316,7 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     hard_meshes: list[HardMesh] = []
     if hard_pieces:  # its own phase (#174): exact polygons joined one by one, whatever the cell size
         phase(f"joining {len(hard)} hard part{'s' * (len(hard) != 1)}", "joining hard parts")
-        hard_cut, hard_meshes = build_hard(model, style, field, hard_pieces, target * (HARD_SHARE if any_soft else 1.0), rigged,
+        hard_cut, hard_meshes = build_hard(model, style, field, hard_pieces, target * _hard_share(model, hard, adding), rigged,
                                            hinted("fewer hard parts, or fewer sides on round ones, join faster", HARD_GROWTH))  # fmt: skip
     hard_triangles = sum(r.mesh.triangles for r in hard_cut)
     kept = kept_parts(model, hard)
@@ -942,7 +1001,13 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
         if not built.step_reason and model.source is None:  # cached before builds kept it
             built.step_reason = mesh_cells(field_of(model, built.step), model, style)[2]
         return built
-    built = build_model(model, style, budget, palette)
+    global _hard_cache
+    _hard_cache = cache_dir / "hard"
+    try:
+        built = build_model(model, style, budget, palette)
+    finally:
+        _hard_cache = None
+    _prune_hard(cache_dir / "hard")
     built.motion_key = motion_key(model)
     cache_dir.mkdir(parents=True, exist_ok=True)
     for old in cache_dir.glob(f"{prefix}*.pickle"):
@@ -950,6 +1015,17 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
     _store(built, path)
     _note_colour_twin(model, style, palette, cache_dir, budget, prefix, key)
     return built
+
+
+HARD_CACHE_FILES = 400  # joined hard solids kept (the newest; older ones are deleted after a build)
+
+
+def _prune_hard(folder: Path) -> None:
+    if not folder.is_dir():
+        return
+    files = sorted(folder.glob("*.pickle"), key=lambda f: f.stat().st_mtime, reverse=True)
+    for old in files[HARD_CACHE_FILES:]:
+        old.unlink(missing_ok=True)
 
 
 def _twin_key(model: Model, style: Style, palette: dict[str, str], budget: int | None) -> tuple[str, list[str]]:
