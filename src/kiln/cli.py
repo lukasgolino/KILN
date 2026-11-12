@@ -329,7 +329,13 @@ def _built(project: Project, name: str, draft: bool = False) -> Any:
     try:
         if draft:  # its own cache folder: a draft never replaces the build's cached meshes
             return build_cached(_drafted(model), style, palette, project.root / ".kiln-cache" / "draft")
-        return _with_occlusion(project, build_cached(model, style, palette, project.root / ".kiln-cache"))
+        from kiln.instances import InstanceError, place
+
+        try:
+            built = place(project, build_cached(model, style, palette, project.root / ".kiln-cache"))  # instances (#171)
+        except InstanceError as exc:
+            raise _usage(str(exc), model.path) from None
+        return _with_occlusion(project, built)
     except ValueError as exc:
         from kiln.builder import build_error
 

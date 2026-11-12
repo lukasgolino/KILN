@@ -49,6 +49,9 @@ before 1.0).
 
 ### Added
 
+- `instances:` place other models in a model (a desk with its props), each its own build at its own detail, merged
+  in after the scene is built; previews, glb, Godot and LODs take them as any surface. Shared meshes and
+  instances' decals and maps: #295 (#171).
 - Preview framing and light: `--tight` (each tile on what it shows), `--frame-box` (a region), `--fill` (a neutral
   light from the camera, previews only), `--bg auto|light|dark` (auto: dark for dark-sky styles), `kiln lineup
   --pitch`; `--closeup NUMBER` documented (a part's place in `parts:`) (#180, #203, #212).

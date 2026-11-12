@@ -470,6 +470,9 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
         missing = sorted({e.model for e in model.effect.emitters} - names) if model is not None and model.effect is not None else []
         if missing:
             keep.append(Finding("E011", f"effect emits {', '.join(missing)}: no models/<name>.kiln.yaml for it", path, None, "effect"))
+        placed = sorted({i.model for i in model.instances} - names) if model is not None else []
+        if placed:  # (#171)
+            keep.append(Finding("E011", f"instances place {', '.join(placed)}: no models/<name>.kiln.yaml for it", path, None, "instances"))
     # templates are bases, not models: checked as text only
     meshed = [k for k, (_, m, st, _, keep) in enumerate(loaded)
               if geometry and m and st and not m.template and m.terrain is None and m.scatter is None and not any(f.severity == "error" for f in keep)]  # fmt: skip

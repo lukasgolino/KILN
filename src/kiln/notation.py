@@ -63,7 +63,7 @@ PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "d
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts",
+TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances",
               "rig", "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
@@ -236,6 +236,18 @@ class Relief:
     fade: float = 0.06  # metres: patches thin out and shrink over this distance toward the edge of `on`
 
 
+@dataclass(frozen=True)
+class Instance:
+    """Another model placed in this one, as it is built (its own mesh and detail, #171)."""
+
+    model: str
+    at: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    rotate: tuple[float, float, float] = (0.0, 0.0, 0.0)  # degrees, as a part's
+    scale: float = 1.0
+    bone: str = ROOT_ID  # the part (bone) it moves with
+    line: int | None = None
+
+
 @dataclass
 class Model:
     name: str
@@ -283,6 +295,7 @@ class Model:
     shape_text: str = ""  # the fields a build's mesh, paint and skin come from, as one text (the mesh cache's key)
     motion_text: str = ""  # the animations, as one text (the cached build's tracks are made again when it changes)
     effect: Effect | None = None  # a burst of other models' meshes (models/<name>.effect.json)
+    instances: tuple[Instance, ...] = ()  # other models placed in this one, each its own build (a desk with its props)
     terrain: Terrain | None = None  # a heightfield with splat layers instead of parts (kiln.terrain)
     scatter: Scatter | None = None  # other models placed many times over a surface instead of parts (kiln.scatter)
 
@@ -1982,6 +1995,8 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
             ctx.error("E003", "an attachment (fit_to) is exported in its bone's space: drop origin", _line(data, "origin"), "origin")
     if "effect" in data:
         model.effect = parse_effect(data["effect"], lambda message, where: ctx.error("E003", message, _line(data, "effect"), where))
+    if "instances" in data:
+        model.instances = _parse_instances(ctx, data["instances"], _line(data, "instances"), model)
     lod = data.get("lod", [])
     if not isinstance(lod, list) or not all(isinstance(n, int) and not isinstance(n, bool) and n >= 12 for n in lod):
         ctx.error("E003", "lod is a list of smaller triangle budgets, e.g. [2000, 600]", _line(data, "lod"), "lod")
@@ -2190,6 +2205,37 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                             swap[pat.color] = mixed
             model.variants[str(vname)] = swap
     return model, ctx.findings
+
+
+def _parse_instances(ctx: _Ctx, raw: Any, line: int | None, model: Model) -> tuple[Instance, ...]:
+    """instances: [{ model: screw, at: [x, y, z], rotate: [x, y, z], scale: 1, id: tray }, ...] (#171)."""
+    usage = "instances is a list of { model: <name>, at: [x, y, z], rotate: [x, y, z] degrees, scale: s, id: <part it moves with> }"
+    if not isinstance(raw, list):
+        ctx.error("E003", usage, line, "instances")
+        return ()
+    out = []
+    ids = set(model.ids)
+    for k, item in enumerate(raw):
+        where = f"instances[{k}]"
+        iline = _line(item) or line
+        if not isinstance(item, dict) or any(key not in ("model", "at", "rotate", "scale", "id") for key in item) \
+                or not isinstance(item.get("model"), str) or not NAME_RE.match(item["model"]):  # fmt: skip
+            ctx.error("E003", usage, iline, where)
+            continue
+        if item["model"] == model.name:
+            ctx.error("E003", "a model can't place itself", iline, f"{where}.model")
+            continue
+        at, rotate = _vec(item.get("at", [0, 0, 0])), _vec(item.get("rotate", [0, 0, 0]))
+        scale = item.get("scale", 1.0)
+        bone = item.get("id", ROOT_ID)
+        if at is None or rotate is None or not _num(scale) or float(scale) <= 0:
+            ctx.error("E003", "at and rotate are [x, y, z]; scale is a number > 0", iline, where)
+            continue
+        if bone not in ids:
+            ctx.error("E003", f"id {bone!r}: the part it moves with (ids: {', '.join(sorted(ids))})", iline, f"{where}.id")
+            continue
+        out.append(Instance(item["model"], (at[0], at[1], at[2]), (rotate[0], rotate[1], rotate[2]), float(scale), str(bone), iline))
+    return tuple(out)
 
 
 def _parse_fit_to(ctx: _Ctx, raw: Any, line: int | None) -> tuple[Path, str, tuple[str, ...]] | None:

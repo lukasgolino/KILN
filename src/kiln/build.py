@@ -19,6 +19,7 @@ from kiln.builder import build_cached
 from kiln.effect import to_json
 from kiln.export import Built, attr_names, gltf_name, to_glb, uv_channel
 from kiln.godot import bone_map_tres, find_godot_project, look_scene, model_scene, res_path, with_bone_map
+from kiln.instances import InstanceError, place
 from kiln.lint import LintResult, lint_paths, lint_project
 from kiln.notation import MODEL_SUFFIX, Model
 from kiln.packs import LOCK_NAME, locked_pack
@@ -482,14 +483,21 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             styles_used[style.name] = style
             result.models.append(name)
             continue
-        built = build_cached(model, style, palette, cache)
+        try:  # other models placed in it, each its own build (#171)
+            own = build_cached(model, style, palette, cache)
+            built = place(project, own)
+            all_lods = [(k, budget, place(project, build_cached(model, style, palette, cache, budget))) for k, budget in enumerate(model.lod, start=1)
+                        if budget < own.triangles]  # fmt: skip
+        except InstanceError as exc:
+            result.findings.append(Finding("E011", str(exc), model.path, None, "instances"))
+            continue
         if model.animation_library is not None:
             problems = library_findings(project, built, cache)
             result.findings += problems
             if any(f.severity == "error" for f in problems):
                 continue
         glb = out / "models" / f"{name}.glb"
-        lod_builts = [(k, budget, build_cached(model, style, palette, cache, budget)) for k, budget in enumerate(model.lod, start=1) if budget < built.triangles]
+        lod_builts = all_lods
         atlas: AtlasUse | None = None
         atlas_files: dict[str, dict[str, str]] = {}  # "" (base) or variant -> texture kind -> path in models/
         # a model with a normal map keeps its own materials (Godot samples the palette and the normal map on the same UVs)
