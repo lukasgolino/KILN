@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from kiln.export import Built
     from kiln.rig import Bone
 
-JOINT_SHARE = 0.4  # overlap within this share of the limb part's reach from its joint is where it meets the body
+JOINT_SHARE = 0.55  # overlap within this share of the limb part's reach from its joint is where it meets the body
 MAX_POINTS = 12000  # grid points per pair at most
 MIN_POINTS = 4  # fused grid points (beyond the joint) before it counts
 ALONG_SHARE = 0.35  # the web runs along the limb at least this share of its reach (an arm hugging the body; not a collar)
