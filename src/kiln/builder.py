@@ -41,7 +41,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 29  # bump when meshing/painting changes output
+BUILDER_VERSION = 30  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -351,7 +351,8 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
                   floating, hidden, lost, asked)  # fmt: skip
     if model.normal_map:
         size = model.normal_map if budget is None else max(256, model.normal_map // 2)  # a LOD: its own, smaller map
-        built.bake = bake_normals(model, built, step, [inc for inc in groups_of if inc], kept, size)
+        phase("baking maps")  # (#300: it ran on under the skinning line, which looked stuck on its last part)
+        built.bake = bake_normals(model, built, step, [inc for inc in groups_of if inc], kept, size, hinted("a smaller normal_map bakes faster"))
     return built
 
 
@@ -364,7 +365,8 @@ def soft_faces(built: Built, face_field: Array) -> Array:
     return np.asarray((face_field >= 0) & ~glows & (p.face_decal < 0))
 
 
-def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int], size: int) -> Any:
+def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int], size: int,
+                 progress: Progress | None = None) -> Any:  # fmt: skip
     """The model's normal map. Each face is baked with its own piece's field, as it was meshed (a separate helmet's
     opening, a bone's own surface), plus the detail parts: those with the id of one of the piece's parts, and every
     detail cut. Kept parts get their own field; hard parts (exact polygons) keep their mesh normals."""
@@ -427,7 +429,7 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
             fading = Fade(p.vertices[edges[pair[keep]]], np.stack([p.face_group[f1], p.face_group[f2]], axis=1),
                           np.stack([owner[f1], owner[f2]], axis=1), normal, reach[keep], owner)  # fmt: skip
     return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
-                     np.array(on) if model.relief else None, fading)  # fmt: skip
+                     np.array(on) if model.relief else None, fading, progress)  # fmt: skip
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],

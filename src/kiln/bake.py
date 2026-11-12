@@ -144,27 +144,42 @@ def unwrap(vertices: Array, faces: Array, size: int) -> tuple[Array, float]:
     def extent(atlas: Any) -> float:
         return float(max(atlas.width, atlas.height, 1)) if atlas.atlas_count == 1 else math.inf
 
-    best = atlas = packed(size, 0.0)
-    if extent(best) == math.inf:  # several atlases: start from one of any size
-        best = atlas = packed(0, 0.0)
-    density, misses = float(atlas.texels_per_unit), 0
+    first = packed(size, 0.0)
+    if extent(first) == math.inf:  # several atlases: start from one of any size
+        first = packed(0, 0.0)
+    if first.atlas_count != 1:
+        raise ValueError(f"the mesh's UV charts didn't fit one {size} map; use a bigger normal_map")
+    vmap, index, uvs = first[0]
+    if not np.array_equal(vmap[index], faces):  # xatlas keeps the faces in order: corners map back one to one
+        raise ValueError("xatlas reordered the faces; the normal map can't be matched to the mesh")
+    # packing again at a lower density keeps these charts (#300: making them again from the mesh was most of an
+    # unwrap): the first atlas's UVs, in its texels, are the charts; texels_per_unit is then a plain scale
+    chart_uv = np.ascontiguousarray(np.asarray(uvs, dtype=np.float32) * np.array([first.width, first.height], dtype=np.float32))
+    chart_index = np.ascontiguousarray(index, dtype=np.uint32)
+
+    def repacked(scale: float) -> Any:
+        atlas = xatlas.Atlas()
+        atlas.add_uv_mesh(chart_uv, chart_index)
+        atlas.generate(pack_options=_pack(xatlas, 0, scale))
+        return atlas
+
+    best, best_uvs = first, np.asarray(uvs, dtype=np.float64)[index]
+    scale, atlas, misses = 1.0, first, 0
     for _ in range(PACK_TRIES):
         if extent(best) <= size or misses == STALLED:
             break
-        density *= SHRINK * min(1.0, size / extent(atlas))  # always down: the packed size is noisy in the density
-        atlas = packed(0, density)
+        scale *= SHRINK * min(1.0, size / extent(atlas))  # always down: the packed size is noisy in the density
+        atlas = repacked(scale)
+        if atlas.atlas_count != 1:
+            misses += 1
+            continue
+        _, index2, uvs2 = atlas[0]
         if extent(atlas) < extent(best):
-            best, misses = atlas, 0
+            best, best_uvs, misses = atlas, np.asarray(uvs2, dtype=np.float64)[index2], 0
         else:
             misses += 1
-    if best.atlas_count != 1:
-        raise ValueError(f"the mesh's UV charts didn't fit one {size} map; use a bigger normal_map")
-    vmap, index, uvs = best[0]
-    if not np.array_equal(vmap[index], faces):  # xatlas keeps the faces in order: corners map back one to one
-        raise ValueError("xatlas reordered the faces; the normal map can't be matched to the mesh")
-    uv = np.asarray(uvs, dtype=np.float64)[index]  # 0..1 across the atlas
-    scale = np.minimum(np.array([best.width, best.height]) / size, 1.0)
-    return uv * scale, min(1.0, size / extent(best))
+    scale_xy = np.minimum(np.array([best.width, best.height]) / size, 1.0)
+    return best_uvs * scale_xy, min(1.0, size / extent(best))
 
 
 def _pack(xatlas: Any, size: int, texels_per_unit: float) -> Any:
@@ -241,26 +256,44 @@ def _texels(uv: Array, width: int, height: int | None = None) -> tuple[Array, Ar
 
 def _surface_point(field: Field, p: Array, step: float) -> tuple[Array, Array]:
     """(surface point, |distance| left) near each p: two Newton steps along the gradient, at most two cells each, each
-    step's distance the mean of the gradient's six samples (one evaluation set per step)."""
+    step's distance the mean of the gradient's six samples (one evaluation set per step). (Stepping along the mesh
+    normal first was tried for #300: near thin parts it lands on another sheet; not worth its 8%.)"""
     q = p.copy()
     eps = max(step * 0.05, 1e-4)
     offsets = np.eye(3) * eps
-    for _ in range(2):
-        stacked = np.concatenate([q + o for o in offsets] + [q - o for o in offsets])
-        d = field.distance(stacked).reshape(6, len(q))
+    active = np.arange(len(q))
+    for k in range(2):
+        a = q[active]
+        stacked = np.concatenate([a + o for o in offsets] + [a - o for o in offsets])
+        d = field.distance(stacked).reshape(6, len(a))
         g = (d[:3] - d[3:]).T
         g /= np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-12)
         f = d.mean(axis=0)  # the distance at q, to O(eps^2)
-        q = q - np.clip(f, -2 * step, 2 * step)[:, None] * g
+        q[active] = a - np.clip(f, -2 * step, 2 * step)[:, None] * g
+        if k == 0:  # a point the first step moved by under a thousandth of a cell is there: no second step (#300)
+            active = active[np.abs(f) > SETTLED * step]
+            if not len(active):
+                break
     return q, np.abs(field.distance(q))
 
 
+def _unit_gradient(field: Field, q: Array, h: Array) -> Array:
+    """The field's unit gradient at q by central differences h (per point), in one evaluation call."""
+    e = np.eye(3)
+    stacked = np.concatenate([q + e[k] * h for k in range(3)] + [q - e[k] * h for k in range(3)])
+    d = field.distance(stacked).reshape(6, len(q))
+    g = (d[:3] - d[3:]).T
+    return np.asarray(g / np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-12))
+
+
 SUPERSAMPLE = ((-0.25, -0.25), (0.25, -0.25), (-0.25, 0.25), (0.25, 0.25))  # texel offsets (tangent, bitangent) averaged
+SETTLED = 1e-3  # cells: a surface point whose Newton step was this small takes no second step
+SUPERSAMPLE_COS = math.cos(math.radians(3))  # a texel whose own normal turns this far from the mesh's is supersampled
 
 
 def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, normals: Array, size: int, step: float,
          strength: float = 1.0, patches: Any = None, face_group: Array | None = None, face_on: Array | None = None,
-         fade: Any = None) -> Bake:  # fmt: skip
+         fade: Any = None, progress: Any = None) -> Bake:  # fmt: skip
     """Unwrap the mesh and bake into its tangent frames the normals of each face's own field (`face_field`: an index
     into `fields`, -1: the mesh normal as it is, e.g. exact hard parts). Each texel is filtered (#125): the normals
     at four points a quarter texel around its centre, averaged, each with a gradient step of half a texel, so detail
@@ -289,6 +322,7 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     fades: list[tuple[Array, ...]] = []  # texels near a colour border: (texel, point, face, normal)
     reliefs: list[tuple[Array, ...]] = []  # texels a patch may touch: (texel, point, normal, tangent, up, metres per texel, face)
     owner = np.asarray(face_field)[face]
+    done = 0
     for k, field in enumerate(fields):
         mine = np.flatnonzero(owner == k)
         for s in range(0, len(mine), CHUNK):
@@ -305,18 +339,25 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
             size_m = metres[f]
             centre, off = _surface_point(field, p, step)
             h = np.maximum(size_m * 0.5, 1e-4)[:, None]
-            hi = np.zeros_like(p)
-            for a, c in SUPERSAMPLE:  # around the surface point, in the mesh's tangent plane: a quarter texel is close enough
-                q = centre + (t * a + up * c) * size_m[:, None]
-                g = np.stack([field.distance(q + e * h) - field.distance(q - e * h) for e in np.eye(3)], axis=1)
-                hi += g / np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-12)
-            hi /= np.maximum(np.linalg.norm(hi, axis=1, keepdims=True), 1e-12)
+            hi = _unit_gradient(field, centre, h)  # the texel centre's own normal
+            # where the surface turns away from the mesh (grooves, relief, edges) the texel is supersampled: four
+            # gradients a quarter texel round the point, averaged (smooth texels: their one sample is as good, #300)
+            turned = np.flatnonzero((hi * n).sum(axis=1) < SUPERSAMPLE_COS)
+            if len(turned):
+                acc = np.zeros((len(turned), 3))
+                for a, c in SUPERSAMPLE:  # around the surface point, in the mesh's tangent plane: a quarter texel is close enough
+                    q = centre[turned] + (t[turned] * a + up[turned] * c) * size_m[turned, None]
+                    acc += _unit_gradient(field, q, h[turned])
+                hi[turned] = acc / np.maximum(np.linalg.norm(acc, axis=1, keepdims=True), 1e-12)
             local = np.stack([(hi * t).sum(axis=1), (hi * up).sum(axis=1), (hi * n).sum(axis=1)], axis=1)
             local[:, :2] *= strength
             local[off > step] = (0.0, 0.0, 1.0)  # no surface near: the mesh normal
             local[:, 2] = np.maximum(local[:, 2], 0.05)  # never facing away from the surface
             local /= np.linalg.norm(local, axis=1, keepdims=True)
             out[texel[rows]] = local
+            if progress is not None:
+                done += len(rows)
+                progress("baking maps: texels done", done, int((owner >= 0).sum()))
             if fade is not None:
                 near = fade.touches(centre) & (off <= step)
                 fades.append((texel[rows][near], centre[near], f[near], n[near]))

@@ -6,6 +6,14 @@ before 1.0).
 
 ## [Unreleased]
 
+### Performance
+
+- Normal and colour maps bake about 45% faster (a 2.4 m relief-furred hero with 2048 maps: 285 -> 156 s for the
+  whole build): a texel is supersampled only where the surface turns away from the mesh (elsewhere its own normal is
+  as good; the map changes by 0.006 degrees on average), the charts are packed again without being cut again when
+  the atlas comes out too big, and a surface point already on the surface takes no second step. The bake has its own
+  progress line, `baking maps`; it ran on under `skinning`, which then looked stuck on its last part (#300).
+
 ## [0.23.0] - 2026-11-12
 
 Look and features. Relief layers (fur as patches in baked maps), colour that fades across part borders, shade
