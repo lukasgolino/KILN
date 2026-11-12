@@ -29,6 +29,9 @@ before 1.0).
 
 ### Added
 
+- `garment` hardware: a layer of clothing fitted to earlier parts (a shell `gap` off their surface between `from_y`
+  and `to_y`, open at the hem, neck and cuffs), with an optional thicker `hem` band and `openings` cut through it
+  alone (#193).
 - The `skin` style preset: stylised game skins with matte materials, colours that fade where parts blend, shade paint
   (darker crevices and undersides) and a soft look kit; fur as relief and face `density` in its notes and worked
   example (`kiln docs styles`) (#233).

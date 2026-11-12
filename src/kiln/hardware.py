@@ -11,7 +11,7 @@ import numpy as np
 
 from kiln.sdf import Geometry, rotation_matrix
 
-HARDWARE = ("rivets", "band", "planks", "bolt", "slit")
+HARDWARE = ("rivets", "band", "planks", "bolt", "slit", "garment")
 AXES = {"x": 0, "y": 1, "z": 2}
 HELP = {
     "rivets": "rivets: { count: 8, along: [[x, y, z], ...] (a path, model space) or around: { center: [x, y, z], radius, axis: y }, size: 0.03 }",
@@ -19,6 +19,8 @@ HELP = {
     "planks": "planks: { size: [x, y, z], count, gap, axis: x (side by side along it), jitter: 0.1, seed: 1 } (with at, rotate)",
     "bolt": "bolt: { at: [x, y, z], radius, length, sides: 6 } (a hex head along y; rotate it)",
     "slit": "slit: { at: [x, y, z], size: [w, h, d] } (a cut: visors, arrow slits)",
+    "garment": "garment: { fit: [chest, spine, ...] (ids it wraps), gap: 0.008, thickness: 0.02 (two mesh cells or more), from_y, to_y (its hem and top; "
+               "default: theirs), hem: 0.015 (a thicker band at the bottom; 0: none), openings: [{ at, size }, ...] (cut through it) }",
 }
 
 
@@ -63,12 +65,59 @@ def _surface_radius(parts: list[Geometry], centre: np.ndarray, axis: int, half_w
     return best
 
 
+def _garment(spec: dict[str, Any], rest: dict[str, Any], earlier: list[tuple[str, Geometry]]) -> tuple[list[dict[str, Any]], str | None]:
+    """A layer of clothing (#193): a box over the wrapped parts between from_y and to_y, a shell `thickness` thick
+    fitted `gap` off their surface (open where the box ends: hem, neck and cuffs), a second, thicker band at the hem,
+    and `openings` cut through the garment alone (a placket, a neckline)."""
+    keys = ("fit", "gap", "thickness", "from_y", "to_y", "hem", "openings")
+    if any(k not in keys for k in spec):
+        return [], HELP["garment"]
+    ids = spec.get("fit")
+    ids = [ids] if isinstance(ids, str) else ids
+    gap, thick, hem = spec.get("gap", 0.008), spec.get("thickness", 0.02), spec.get("hem", 0.015)  # walls under two mesh cells break up (W102)
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids) or not _num(gap) or gap < 0 or not _num(thick) \
+            or thick <= 0 or not _num(hem) or hem < 0:
+        return [], HELP["garment"]
+    wrapped = [g for pid, g in earlier if pid in ids]
+    if not wrapped:
+        return [], f"garment fit: no earlier part has id {', '.join(ids)} (it wraps parts listed before it)"
+    boxes = [g.bounds() for g in wrapped]
+    lo, hi = np.min([b[0] for b in boxes], axis=0), np.max([b[1] for b in boxes], axis=0)
+    y0, y1 = spec.get("from_y", float(lo[1])), spec.get("to_y", float(hi[1]))
+    if not _num(y0) or not _num(y1) or y1 <= y0:
+        return [], "garment from_y and to_y are its hem's and its top's height in metres (from_y < to_y)"
+    room = float(gap) + float(thick) + 0.02  # the box reaches past the wall all round, except at its hem and top
+    centre = [(lo[0] + hi[0]) / 2, (y0 + y1) / 2, (lo[2] + hi[2]) / 2]
+    size = [float(hi[0] - lo[0]) + 2 * room, float(y1 - y0), float(hi[2] - lo[2]) + 2 * room]
+    rest = {k: v for k, v in rest.items() if k not in ("at", "rotate", "hard")}
+    garment_id = rest.get("id")
+    out: list[dict[str, Any]] = [{**rest, "box": {"at": [float(v) for v in centre], "size": size}, "shell": float(thick),
+                                   "fit": {"to": list(ids), "gap": float(gap)}}]  # fmt: skip
+    if hem > 0:
+        band = min(float(hem) * 2, size[1])
+        out.append({**rest, "box": {"at": [float(centre[0]), float(y0 + band / 2), float(centre[2])], "size": [size[0], band, size[2]]},
+                    "shell": float(thick) * 1.8, "fit": {"to": list(ids), "gap": float(gap)}})  # fmt: skip
+    openings = spec.get("openings", [])
+    if not isinstance(openings, list):
+        return [], HELP["garment"]
+    for k, o in enumerate(openings):
+        at, osize = (_vec(o.get("at")), _vec(o.get("size"))) if isinstance(o, dict) else (None, None)
+        if at is None or osize is None or min(osize) <= 0 or any(key not in ("at", "size") for key in o):
+            return [], f"garment openings[{k}] is {{ at: [x, y, z], size: [w, h, d] }} (cut through the garment)"
+        if not isinstance(garment_id, str):
+            return [], "garment openings cut the garment alone: give it an id (e.g. id: shirt)"
+        out.append({"box": {"at": at, "size": osize}, "cut": garment_id})
+    return out, None
+
+
 def expand(kind: str, spec: Any, raw: dict[str, Any], earlier: list[tuple[str, Geometry]]) -> tuple[list[dict[str, Any]], str | None]:
     """The ordinary parts a hardware part stands for, or an error message. `earlier`: (id, geometry) of the adding
     parts before it (for band fit)."""
     if not isinstance(spec, dict):
         return [], f"{kind} takes a mapping: {HELP[kind]}"
     rest = {k: v for k, v in raw.items() if k != kind}
+    if kind == "garment":  # cloth: a fitted shell (soft), not hard metal
+        return _garment(spec, rest, earlier)
     rest.setdefault("hard", True)
     at = _vec(_get(spec, "at", rest.pop("at", [0, 0, 0])))
     rotate = _vec(_get(spec, "rotate", rest.pop("rotate", [0, 0, 0])))
