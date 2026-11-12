@@ -63,7 +63,7 @@ PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "d
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances",
+TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances", "transforms",
               "rig", "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
@@ -2153,6 +2153,8 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig"), model.template), model.parts)
     if "instances" in data:  # (after the parts: `id` names one)
         model.instances = _parse_instances(ctx, data["instances"], _line(data, "instances"), model)
+    if "transforms" in data:  # (last: the parts as placed, fitted and rigged)
+        _apply_transforms(ctx, data["transforms"], _line(data, "transforms"), model)
     skeleton = data.get("skeleton")
     if isinstance(skeleton, dict):
         model.joint_map = _parse_skeleton_map(ctx, skeleton, model, _line(data, "skeleton"))
@@ -2270,6 +2272,60 @@ def _parse_instances(ctx: _Ctx, raw: Any, line: int | None, model: Model) -> tup
             continue
         out.append(Instance(item["model"], (at[0], at[1], at[2]), (rotate[0], rotate[1], rotate[2]), float(scale), str(bone), iline))
     return tuple(out)
+
+
+def _apply_transforms(ctx: _Ctx, raw: Any, line: int | None, model: Model) -> None:
+    """transforms: [{ ids: [chest, head, arm_l, arm_r], rotate: [x, y, z], pivot: [x, y, z], move: [x, y, z] }, ...]:
+    each turns the parts with these ids about `pivot` (degrees, as a part's rotate), then moves them, in order: a
+    hunched rest posture without retyping every part (#305). Their rig pivots and sockets go with them."""
+    usage = "transforms is a list of { ids: [part ids], rotate: [x, y, z] degrees, pivot: [x, y, z], move: [x, y, z] }"
+    if not isinstance(raw, list):
+        ctx.error("E003", usage, line, "transforms")
+        return
+    known = set(model.ids)
+    for k, item in enumerate(raw):
+        where = f"transforms[{k}]"
+        tline = _line(item) or line
+        ids = item.get("ids") if isinstance(item, dict) else None
+        ids = [ids] if isinstance(ids, str) else ids
+        if not isinstance(item, dict) or any(key not in ("ids", "rotate", "pivot", "move") for key in item) \
+                or not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):  # fmt: skip
+            ctx.error("E003", usage, tline, where)
+            continue
+        missing = [i for i in ids if i not in known]
+        if missing:
+            ctx.error("E003", f"transforms: no part has id {', '.join(missing)} (ids: {', '.join(sorted(known))})", tline, f"{where}.ids")
+            continue
+        rot, piv, mov = (_vec(item.get(key, [0, 0, 0])) for key in ("rotate", "pivot", "move"))
+        if rot is None or piv is None or mov is None:
+            ctx.error("E003", "rotate, pivot and move are [x, y, z]", tline, where)
+            continue
+        r = rotation_matrix((rot[0], rot[1], rot[2]))
+        pivot, move = np.asarray(piv, float), np.asarray(mov, float)
+        # a mirrored part is drawn on both sides of x = 0: it can only follow a transform that keeps x = 0 a mirror
+        keeps_mirror = abs(r[0, 1]) < 1e-9 and abs(r[0, 2]) < 1e-9 and abs(r[1, 0]) < 1e-9 and abs(r[2, 0]) < 1e-9 \
+            and abs(pivot[0]) < 1e-9 and abs(move[0]) < 1e-9  # fmt: skip
+        chosen = [part for part in model.parts if part.id in ids]
+        if not keeps_mirror and any(0 in part.geometry.mirror for part in chosen):
+            ctx.error("E003", "transforms: a part with mirror: x can only turn about x and move in y and z (it is drawn on both sides "
+                      "of x = 0); give each side its own id (mirror_id) to pose them apart", tline, where)  # fmt: skip
+            continue
+
+        def moved(x: Any, r: Any = r, pivot: Any = pivot, move: Any = move) -> Any:
+            return r @ (np.asarray(x, float) - pivot) + pivot + move
+
+        for part in chosen:
+            g = part.geometry
+            if len(g.copies) == 1 and g.copies[0] is IDENTITY:
+                g.at = moved(g.at)
+                g.rotation = r if g.rotation is None else r @ g.rotation
+            else:  # an array: each copy then the transform, about the copy's own pivot
+                g.copies = tuple(Copy(r @ c.rotation, c.pivot, r @ (c.pivot + c.offset - pivot) + pivot + move - c.pivot) for c in g.copies)
+        for pid in ids:
+            entry = model.rig.get(pid)
+            if entry is not None:
+                model.rig[pid] = replace(entry, pivot=None if entry.pivot is None else tuple(moved(entry.pivot).tolist()),
+                                         sockets=tuple((n, tuple(moved(q).tolist())) for n, q in entry.sockets))  # fmt: skip
 
 
 def _parse_fit_to(ctx: _Ctx, raw: Any, line: int | None) -> tuple[Path, str, tuple[str, ...]] | None:

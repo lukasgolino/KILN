@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `transforms:` turn and move a group of parts about a pivot (a hunched rest pose), rig pivots and sockets with
+  them; a mirrored part refuses a turn that breaks its mirror (E003) (#305).
 - A part's own `resolution:` (metres): the mesh inside its box is refined to that cell and moved onto the surface
   along its normals, so a face gets its lids, nostrils and nose on a body meshed coarsely, without the whole model's
   cells shrinking; pair it with `density` (#306).
