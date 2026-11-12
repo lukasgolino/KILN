@@ -1,0 +1,76 @@
+name: body_toy
+description: a toy-proportioned humanoid body (standard joints, short and round, about 0.6 m to the neck) in overalls; extend with head_toy
+template: true
+palette: people
+class: character
+skeleton: humanoid
+skin: soft
+budget: 12000
+rig:
+  hips: {pivot: [0, 0.3, 0]}
+  spine: {pivot: [0, 0.36, 0]}
+  chest: {pivot: [0, 0.46, 0]}
+  upperarm_l: {pivot: [0.16, 0.55, 0]}
+  lowerarm_l: {pivot: [0.3, 0.46, 0]}
+  hand_l: {pivot: [0.37, 0.38, 0.01]}
+  upperleg_l: {pivot: [0.085, 0.27, 0]}
+  lowerleg_l: {pivot: [0.08, 0.16, 0]}
+  foot_l: {pivot: [0.08, 0.06, 0]}
+  head: {pivot: [0, 0.6, 0]}
+parts:
+  - capsule: {from: [0.085, 0.27, 0], to: [0.085, 0.16, 0], radius: 0.06}
+    id: upperleg_l
+    color: cloth_blue
+    material: fabric
+    blend: 0.03
+    mirror: x
+    mirror_id: upperleg_r
+  - capsule: {from: [0.08, 0.16, 0], to: [0.08, 0.08, 0], radius: 0.058}
+    id: lowerleg_l
+    color: cloth_blue
+    material: fabric
+    blend: 0.02
+    mirror: x
+    mirror_id: lowerleg_r
+  - ellipsoid: {at: [0.08, 0.045, 0.03], radii: [0.065, 0.045, 0.095]}
+    id: foot_l
+    color: leather_dark
+    material: leather
+    blend: 0.02
+    mirror: x
+    mirror_id: foot_r
+  - ellipsoid: {at: [0, 0.31, 0], radii: [0.15, 0.09, 0.13]}
+    id: hips
+    color: cloth_blue
+    material: fabric
+  - ellipsoid: {at: [0, 0.38, 0.01], radii: [0.17, 0.1, 0.14]}
+    id: spine
+    color: cloth_blue
+    material: fabric
+    blend: 0.05
+  - ellipsoid: {at: [0, 0.5, 0], radii: [0.16, 0.1, 0.12]}
+    id: chest
+    color: cloth_red
+    material: fabric
+    blend: 0.05
+  - capsule: {from: [0.15, 0.55, 0], to: [0.3, 0.46, 0], radius: 0.05}
+    id: upperarm_l
+    color: cloth_red
+    material: fabric
+    blend: 0.03
+    mirror: x
+    mirror_id: upperarm_r
+  - capsule: {from: [0.3, 0.46, 0], to: [0.37, 0.39, 0.01], radius: 0.045}
+    id: lowerarm_l
+    color: skin_light
+    material: skin
+    blend: 0.02
+    mirror: x
+    mirror_id: lowerarm_r
+  - sphere: {at: [0.39, 0.36, 0.01], radius: 0.05}
+    id: hand_l
+    color: skin_light
+    material: skin
+    blend: 0.02
+    mirror: x
+    mirror_id: hand_r

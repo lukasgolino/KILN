@@ -63,7 +63,7 @@ PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "d
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances", "transforms",
+TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances", "transforms", "textures",
               "rig", "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
@@ -2091,6 +2091,19 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         if not isinstance(raw_parts, list) or not raw_parts:
             ctx.error("E003", "parts must be a non-empty list, e.g. - sphere: { at: [0, 0.5, 0], radius: 0.5 }", _line(data, "parts"), "parts")
         else:
+            named = data.get("textures", {})  # model-level textures used by name (#320)
+            if not isinstance(named, dict) or not all(isinstance(v, dict) for v in named.values()):
+                ctx.error("E003", "textures maps names to textures, e.g. textures: { print: { image: textures/print.png, project: box, texel: 0.004 } }; "
+                          "a part then writes texture: print", _line(data, "textures"), "textures")  # fmt: skip
+                named = {}
+            for i, raw in enumerate(raw_parts):
+                if isinstance(raw, dict) and isinstance(raw.get("texture"), str):
+                    if raw["texture"] in named:
+                        raw["texture"] = dict(named[raw["texture"]])
+                    else:
+                        ctx.error("E003", f"texture {raw['texture']!r} isn't one of the model's textures: ({', '.join(named) or 'none'}); a texture "
+                                  "is { image, project, size | texel } or a name from textures:", _line(raw) or _line(data, "parts"), f"parts[{i}].texture")  # fmt: skip
+                        raw.pop("texture")
             placed: set[int] = set()  # parts placed with on: already
             for i, raw in enumerate(raw_parts):
                 pline = _line(raw) or _line(data, "parts")

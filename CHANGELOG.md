@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `kiln library <name>` prints a template's YAML; toy-proportioned templates `body_toy` and `head_toy` for
+  soft_toy characters (#188).
 - Garments: `collar: { style: band | open, height, depth, lapel }` (an open collar cuts a V and lays lapels on the
   chest), `placket: { width, buttons, button_color }` down the front, V openings (`shape: v`), and `length:` for a
   sleeve or trouser leg that runs along its limb and ends square and open (T-posed arms too) (#279).

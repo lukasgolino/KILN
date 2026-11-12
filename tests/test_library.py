@@ -21,6 +21,7 @@ CAST = {
     "warrior": "body_stocky, head_bearded, helmet_nasal, armour_cape",
     "fool": "body_slim, head_goofy, helmet_kettle",
     "queen": "body_slim, head_female, helmet_crown",
+    "kid": "body_toy, head_toy",
 }
 
 
@@ -168,3 +169,22 @@ def test_fold_needs_a_parent() -> None:
 
     _, findings = parse(FOLD.format(extra="", revealed="[head]").replace("parent: head, ", ""))
     assert any(f.rule == "E007" and "fold" in f.message for f in findings)
+
+
+def test_library_prints_one_template(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#188: `kiln library <name>` prints the template's YAML; an unknown name lists the real ones."""
+    code, result = run_json(["library", "head_toy"], capsys)
+    assert code == 0 and "name: head_toy" in result["text"] and "id: hair" in result["text"]
+    code, _ = run_json(["library", "head_nope"], capsys)
+    assert code != 0
+
+
+def test_toy_templates_lint_clean(project: Project) -> None:
+    """#188: toy proportions for soft_toy: a head about half the height, big eyes; no warnings together."""
+    from kiln.lint import lint_paths
+
+    path = write_model(project, "name: kid\nclass: character\nstyle: soft_toy\nextends: [body_toy, head_toy]\n", "kid")
+    result = lint_paths(project, [path])
+    assert not result.findings, [f.format() for f in result.findings]
+    lo, hi = result.built["kid"].bounds()
+    assert hi[1] < 1.1 and float(hi[1] - 0.58) / float(hi[1] - lo[1]) > 0.4  # the head is a big share of it

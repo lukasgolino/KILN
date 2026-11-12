@@ -150,13 +150,24 @@ def cmd_library(args: argparse.Namespace, out: Output) -> int:
     from kiln.notation import library_dir
     from kiln.vendor.yamlio import parse_yaml
 
+    name = getattr(args, "name", None)
+    if name:  # one template: its text, to read its parts, ids and sizes before extending it (#188)
+        path = library_dir() / f"{name}{SUFFIX}"
+        if not path.is_file():
+            names = sorted(p.name[: -len(SUFFIX)] for p in library_dir().glob(f"*{SUFFIX}"))
+            raise _usage(f"no template {name!r} (kiln library lists them: {', '.join(names)})")
+        text = path.read_text(encoding="utf-8")
+        out.say(text.rstrip("\n"))
+        out.result({"name": name, "path": str(path), "text": text})
+        return 0
     items = []
     for path in sorted(library_dir().glob(f"*{SUFFIX}")):
         data = parse_yaml(path.read_text(encoding="utf-8"))
         name = path.name[: -len(SUFFIX)]
         items.append({"name": name, "kind": name.split("_")[0], "description": str(data.get("description", ""))})
         out.say(f"{name:22s} {data.get('description', '')}")
-    out.say("combine: `kiln new model <name> --extends body_stocky,head_bearded,helmet_nasal,armour_cape`")
+    out.say("combine: `kiln new model <name> --extends body_stocky,head_bearded,helmet_nasal,armour_cape`; one template's parts: "
+            "`kiln library <name>`; toy proportions (soft_toy): body_toy, head_toy")
     out.result({"templates": items})
     return 0
 
@@ -1262,7 +1273,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--class", dest="cls")
     s.add_argument("--description")
     s.add_argument("--force", action="store_true")
-    sub.add_parser("library", parents=[common], help="KILN's templates: bodies, heads, helmets, armour")
+    s = sub.add_parser("library", parents=[common], help="KILN's templates: bodies, heads, helmets, armour; a name prints that one")
+    s.add_argument("name", nargs="?", help="a template: print its YAML (parts, ids, sizes)")
     s = sub.add_parser("clips", parents=[common], help="the CC0 humanoid clips KILN ships (idle, walk, run, jump, ...): list, or add to imports/")
     cs = s.add_subparsers(dest="clips_cmd")
     cs.add_parser("list", parents=[common], help="the clip files and their clips")

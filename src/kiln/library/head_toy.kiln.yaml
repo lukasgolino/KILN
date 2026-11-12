@@ -1,0 +1,37 @@
+name: head_toy
+description: 'a toy head for body_toy: big and round (about half the height), big eyes, small nose, a hair cap'
+template: true
+palette: people
+rig:
+  hair: {parent: head, fold: true}
+parts:
+  - sphere: {at: [0, 0.8, 0], radius: 0.22}
+    id: head
+    color: skin_light
+    material: skin
+    blend: 0.05
+  - sphere: {at: [0, 0.79, 0.215], radius: 0.026}
+    id: head
+    color: skin_mid
+    material: skin
+    blend: 0.015
+  - sphere: {at: [0.08, 0.85, 0.17], radius: 0.055}
+    id: head
+    color: white
+    material: default
+    mirror: x
+  - sphere: {at: [0.085, 0.85, 0.215], radius: 0.03}
+    id: head
+    color: eye
+    material: default
+    mirror: x
+  - capsule: {from: [-0.035, 0.72, 0.2], to: [0.035, 0.72, 0.2], radius: 0.009}
+    id: head
+    color: lip
+    material: default
+    density: 2
+  - ellipsoid: {at: [0, 0.88, -0.02], radii: [0.23, 0.18, 0.225]}
+    id: hair
+    color: hair_brown
+    material: default
+    blend: 0.01
