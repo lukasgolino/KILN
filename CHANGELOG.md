@@ -8,6 +8,9 @@ before 1.0).
 
 ### Changed
 
+- Decal cuts snap values within 1e-6 of a cut line onto it (no near-twin vertices beside a cut point); decal
+  meshes may change slightly; cached builds are rebuilt once (#211).
+
 - `kiln docs parts` split in two: `parts` (shapes and part options) and `surfaces` (hard surfaces, hardware, patterns,
   decals, textures). The topic had hit its size budget; the details cut to fit it are back (#270).
 
@@ -34,6 +37,8 @@ before 1.0).
 
 ### Added
 
+- Decals: `per_copy: true` on an arrayed part puts the decal on every copy (sharing one texture in the glb), and
+  `texel` (metres per image pixel) sizes a decal from its image instead of `size` (#211).
 - `pixel` pattern: a pixel motif (`rows` of `#` and `.`, or a small PNG) tiled round a part's own axis in a band,
   `size` metres per cell, `repeat` times round or `auto` (about square cells): Greek keys, zigzags and checks round
   hat bands, hems and cuffs, cut into the mesh crisply, reading left to right like cylindrical textures. Smooth parts

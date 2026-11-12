@@ -148,7 +148,7 @@ class _Writer:
         self.normal_uri = normal_uri  # the normal map as a file next to the glb (shared by variants), else embedded
         self.doc = Document(generator)
         self.materials: dict[tuple[str, str, int], int] = {}
-        self.textures: dict[tuple[int, str], int] = {}
+        self.textures: dict[tuple[str, str, str], int] = {}
         self.sampler: dict[tuple[bool, bool], int] = {}  # (nearest, repeat) -> sampler
 
     def color(self, hex_color: str) -> str:
@@ -214,10 +214,10 @@ class _Writer:
         return self.atlas_material
 
     def texture(self, decal: int, base_color: str) -> int:
-        key = (decal, base_color)
+        d = self.b.painted.decals[decal]
+        key = (str(d.image), d.project, base_color)  # one texture per image and colour: per-copy decals share it (#211)
         if key in self.textures:
             return self.textures[key]
-        d = self.b.painted.decals[decal]
         image = Image.open(d.image).convert("RGBA")
         backdrop = Image.new("RGBA", image.size, tuple(int(base_color[i : i + 2], 16) for i in (1, 3, 5)) + (255,))
         backdrop.alpha_composite(image)
