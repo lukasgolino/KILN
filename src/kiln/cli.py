@@ -262,7 +262,7 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
     progress = (lambda s: print(f"kiln: {s}", file=sys.stderr)) if not out.as_json else None
     paths = [_model_path(project, m) for m in args.models] if args.models else None
     start = _progress_on(out)
-    result = build(project, progress=progress, paths=paths)
+    result = build(project, progress=progress, paths=paths, dependents=not args.no_dependents)
     seconds = time.monotonic() - start
     for f in result.findings:
         out.say(f.format())
@@ -1228,6 +1228,7 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("build", parents=[common], help="build every model (or the ones named) into the output dir")
     s.add_argument("models", nargs="*", help="only these models; the others keep what the last build wrote")
     s.add_argument("--verify-godot", action="store_true", help="load everything in headless Godot afterwards")
+    s.add_argument("--no-dependents", action="store_true", help="with models named: don't rebuild the models that place them (instances); they keep their last build")
     s = sub.add_parser("preview", parents=[common], help="preview sheets for one model (default: turntable)")
     s.add_argument("model")
     s.add_argument("--turntable", action="store_true", help="8 sides x 3 heights (the default sheet when nothing else is asked for)")

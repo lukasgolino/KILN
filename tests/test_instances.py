@@ -110,3 +110,11 @@ def test_a_partial_build_rebuilds_the_scene(desk: Project) -> None:
 
     paths = _with_dependents(desk, [desk.models_dir / "screw.kiln.yaml"])
     assert {p.name for p in paths} == {"screw.kiln.yaml", "desk.kiln.yaml"}
+
+
+def test_no_dependents_builds_only_what_is_named(desk: Project, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.chdir(desk.root)
+    code, out = run_json(["build", "screw", "--no-dependents"], capsys)
+    assert code == 0 and out["models"] == ["screw"], out
+    code, out = run_json(["build", "screw"], capsys)
+    assert code == 0 and sorted(out["models"]) == ["desk", "screw"], out

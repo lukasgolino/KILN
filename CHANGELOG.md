@@ -6,6 +6,10 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- `kiln build <models> --no-dependents`: the models that place them (instances) keep their last build (#343).
+
 ### Fixed
 
 - `kiln preview --draft` on a model with part `density` and a budget above the draft mesh's face count stopped with
