@@ -52,7 +52,7 @@ kiln-gen = "kiln.cli:main"  # so `uvx kiln-gen ...` (the MCP Registry entry) fin
 where = ["src"]
 
 [tool.setuptools.package-data]
-kiln = ["py.typed", "styles/*", "templates/*", "skill/*", "skill/topics/*", "library/*", "recipes/*"]
+kiln = ["py.typed", "styles/*", "templates/*", "skill/*", "skill/topics/*", "library/*", "recipes/*", "clips/*"]
 
 [tool.mypy]
 strict = true

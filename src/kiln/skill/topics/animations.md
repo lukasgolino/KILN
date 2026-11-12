@@ -51,7 +51,8 @@ Cycles (8 frames unless the cycle says `frames:`, inside it: `walk: { cycle: { t
 | `spin` | `part`, `axis` y, `direction` 1 |
 | `swing` | `part`, `axis` y, `angle` 20 |
 | `breathe` | `part`, `amount` 0.03 |
-| `wave` | `arms` (the last one waves), `raise` 150, `angle` 20 |
+| `wave` | `arms` (the last one waves), `raise` 150, `angle` 20; an arm with a forearm below it (humanoids): the upper arm out to `raise` 80 degrees from hanging, the forearm `bend` 75 more, waving from the elbow by `angle` |
+| `idle` | standing with life (try `frames: 24`, fps 8): `chest` (chest, else spine) `breathe` 0.02 and `sway` 2, `head` `look` 10 (holds to either side) and `nod` 2, `arms` `arm_sway` 3, elbows bent `elbow` 8 |
 | `chain` | `parts` [ids in order from the root out; default: every id in file order], `axis` y, `angle` 15, `phase` 0.15: a travelling wave for flags, tails, tentacles, ropes |
 
 Gaits bend lower limbs on a humanoid (`skeleton: humanoid`: lowerleg/lowerarm; listing `legs:` / `arms:` drops these

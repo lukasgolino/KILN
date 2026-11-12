@@ -524,9 +524,35 @@ def expand_cycle(anim: Animation, model: Model, skeleton: Skeleton | None = None
         elif kind == "wave":
             arm = arms[-1] if arms else part
             entry = model.rig.get(arm)
-            side = 1.0 if entry is not None and entry.pivot is not None and entry.pivot[0] > 0 else -1.0  # +X = the model's left
-            raise_deg = opt("raise", 150.0)
-            pose[arm] = PartPose(rotate=(0.0, 0.0, side * (raise_deg + opt("angle", 20.0) * _wave(t))))
+            at = pivot.get(arm) if entry is None or entry.pivot is None else np.asarray(entry.pivot)
+            side = 1.0 if at is not None and at[0] > 0 else -1.0  # +X = the model's left
+            fore = child.get(arm) if humanoid or "elbows" in c else None
+            if fore is not None and fore in ids and fore in pivot and arm in pivot:  # (#319) upper arm out, forearm up, waving from the elbow
+                def out_angle(a: Array, b: Array) -> float:  # degrees out from hanging straight down, in the front plane
+                    return math.degrees(math.atan2(side * float(b[0] - a[0]), -float(b[1] - a[1])))
+
+                hand = child.get(fore)
+                tip = pivot[hand] if hand in pivot else (pivot[fore] + (pivot[fore] - pivot[arm]))
+                upper = opt("raise", 80.0) - out_angle(pivot[arm], pivot[fore])  # angles out from straight down, whatever the rest pose
+                lower = opt("raise", 80.0) + opt("bend", 75.0) + opt("angle", 20.0) * _wave(t) - out_angle(pivot[fore], tip) - upper
+                pose[arm] = PartPose(rotate=(0.0, 0.0, side * upper))
+                pose[fore] = PartPose(rotate=(0.0, 0.0, side * lower))
+            else:
+                pose[arm] = PartPose(rotate=(0.0, 0.0, side * (opt("raise", 150.0) + opt("angle", 20.0) * _wave(t))))
+        elif kind == "idle":  # (#150) standing still with life: breathing, a slow sway, a glance aside, arms settling
+            chest = str(c.get("chest", next((n for n in ("chest", "spine", "body") if n in ids), "root")))
+            head = str(c.get("head", "head"))
+            b = opt("breathe", 0.02) * _wave(t)
+            sway = opt("sway", 2.0) * _wave(t + 0.25)
+            pose[chest] = PartPose(scale=(1 + b / 2, 1 + b, 1 + b / 2), rotate=(0.0, 0.0, sway))
+            if head in ids:
+                look = opt("look", 10.0) * math.sin(2 * math.pi * t) ** 3  # holds to either side, turns quickly between
+                pose[head] = PartPose(rotate=(opt("nod", 2.0) * _wave(t + 0.1), look, -sway))
+            for k, arm in enumerate(arms):
+                settle = opt("arm_sway", 3.0) * _wave(t + 0.3 + 0.5 * k)
+                pose[arm] = PartPose(rotate=_euler(axis_of(arm), settle) if elbows else (settle, 0.0, 0.0))
+            for elbow in elbows:
+                pose[elbow] = PartPose(rotate=_euler(axis_of(elbow), -opt("elbow", 8.0)))
         out.append(pose)
     return out
 

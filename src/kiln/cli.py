@@ -161,6 +161,42 @@ def cmd_library(args: argparse.Namespace, out: Output) -> int:
     return 0
 
 
+CLIPS_DIR = "kaykit-animations"  # imports/<this>/: the bundled CC0 humanoid clips (#150)
+
+
+def cmd_clips(args: argparse.Namespace, out: Output) -> int:
+    """The CC0 humanoid clips that ship with KILN (KayKit Character Animations, Rig_Medium): list them, or copy them
+    into the project's imports/ to play on a humanoid with `import:` animations or `animation_library`."""
+    import shutil
+
+    from kiln.vendor.gltf import read_glb
+
+    here = Path(__file__).parent / "clips"
+    files = sorted(here.glob("*.glb"))
+    rows = []
+    for f in files:
+        doc, _ = read_glb(f.read_bytes())
+        names = [str(a.get("name", "")) for a in doc.get("animations", [])]
+        rows.append({"file": f.name, "clips": names})
+    if args.clips_cmd == "add":
+        project = _require_project()
+        dest = project.root / "imports" / CLIPS_DIR
+        dest.mkdir(parents=True, exist_ok=True)
+        for f in [*files, here / "LICENSE-kaykit-animations.txt"]:
+            shutil.copyfile(f, dest / f.name)
+        for r in rows:
+            out.say(f"imports/{CLIPS_DIR}/{r['file']}: {', '.join(r['clips'])}")
+        out.say(f"play one: animations: {{ idle: {{ import: imports/{CLIPS_DIR}/Rig_Medium_General.glb, clip: Idle_A }} }} "
+                "(a humanoid skeleton; `kiln docs humanoids`). CC0: crediting Kay Lousberg is welcome, not required")
+        out.result({"folder": f"imports/{CLIPS_DIR}", "files": rows})
+        return 0
+    for r in rows:
+        out.say(f"{r['file']}: {', '.join(r['clips'])}")
+    out.say(f"`kiln clips add` copies them into imports/{CLIPS_DIR}/ (CC0, KayKit Character Animations)")
+    out.result({"files": rows})
+    return 0
+
+
 def cmd_new(args: argparse.Namespace, out: Output) -> int:
     project = _require_project()
     name = args.name
@@ -1227,6 +1263,10 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--description")
     s.add_argument("--force", action="store_true")
     sub.add_parser("library", parents=[common], help="KILN's templates: bodies, heads, helmets, armour")
+    s = sub.add_parser("clips", parents=[common], help="the CC0 humanoid clips KILN ships (idle, walk, run, jump, ...): list, or add to imports/")
+    cs = s.add_subparsers(dest="clips_cmd")
+    cs.add_parser("list", parents=[common], help="the clip files and their clips")
+    cs.add_parser("add", parents=[common], help="copy them into imports/kaykit-animations/")
     s = sub.add_parser("lint", parents=[common], help="check models (errors and warnings)")
     s.add_argument("paths", nargs="*")
     s.add_argument("--fast", action="store_true", help="only the checks that need no built model: notation, fields, names (skips E009, E013 and most warnings; the summary lists them)")
@@ -1337,7 +1377,7 @@ def parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_build, "preview": cmd_preview, "lineup": cmd_lineup,
             "gallery": cmd_gallery, "status": cmd_status, "mark": cmd_mark, "style": cmd_style, "config": cmd_config,
-            "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "docs": cmd_docs, "mcp": cmd_mcp, "library": cmd_library}  # fmt: skip
+            "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "docs": cmd_docs, "mcp": cmd_mcp, "library": cmd_library, "clips": cmd_clips}  # fmt: skip
 
 
 def main(argv: Sequence[str] | None = None) -> int:

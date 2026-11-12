@@ -55,7 +55,7 @@ PATTERNS = ("stripes", "checker", "dots", "band", "pixel")
 STATUSES = ("draft", "approved")
 SKINS = ("none", "rigid", "soft")
 UNIONS = ("whole", "per_bone")
-CYCLES = ("walk", "waddle", "run", "sneak", "hop", "bob", "spin", "swing", "breathe", "wave", "chain")
+CYCLES = ("walk", "waddle", "run", "sneak", "hop", "bob", "spin", "swing", "breathe", "wave", "chain", "idle")
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "density", "resolution", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
@@ -1840,7 +1840,7 @@ def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, huma
             if not isinstance(cycle, dict) or cycle.get("type") not in CYCLES:
                 ctx.error("E008", f"cycle needs type: {'|'.join(CYCLES)} (see the reference for each one's options)", aline, f"{where}.cycle")
                 continue
-            named = [v for k, v in cycle.items() if k in ("legs", "arms", "parts", "part", "body", "head")]
+            named = [v for k, v in cycle.items() if k in ("legs", "arms", "parts", "part", "body", "head", "chest", "elbows")]
             flat = [x for v in named for x in (v if isinstance(v, list) else [v])]
             unknown = [x for x in flat if x not in ids]
             if unknown:

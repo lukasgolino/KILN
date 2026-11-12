@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- An `idle` cycle: breathing, a slow sway, the head glancing to either side, arms and elbows settling. KILN ships
+  KayKit's CC0 humanoid clips (26: idles, walks, runs, jumps, hits, deaths, throw, pick up): `kiln clips` lists
+  them, `kiln clips add` copies them with their licence into `imports/kaykit-animations/` (#150).
 - `transforms:` turn and move a group of parts about a pivot (a hunched rest pose), rig pivots and sockets with
   them; a mirrored part refuses a turn that breaks its mirror (E003) (#305).
 - A part's own `resolution:` (metres): the mesh inside its box is refined to that cell and moved onto the surface
@@ -36,6 +39,8 @@ before 1.0).
 
 ### Fixed
 
+- The `wave` cycle on an arm with a forearm (humanoids) holds the upper arm out to the side and waves the forearm
+  from a bent elbow, whatever the rest pose, instead of raising the straight arm up by the head (#319).
 - `frames:` written on an animation instead of inside its `cycle:` now says where it goes (E008); the docs show it
   inside the cycle (#318).
 - Scatter-scene previews draw a placed relief (or colour-faded) model with its colour map, sampled at the corners,

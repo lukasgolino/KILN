@@ -583,3 +583,12 @@ def test_lint_and_build_report_the_same_findings(in_project: Project, capsys: py
     code, built = run_json(["build"], capsys)
     key = lambda f: (f["rule"], f.get("path"), f.get("where"), f["message"])  # noqa: E731
     assert sorted(map(key, linted["findings"])) == sorted(map(key, built["findings"]))
+
+
+def test_clips_lists_and_adds_the_bundled_cc0_clips(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#150: KILN ships KayKit's CC0 humanoid clips; `kiln clips add` copies them, with their licence, into imports/."""
+    code, result = run_json(["clips"], capsys)
+    assert code == 0 and any("Idle_A" in r["clips"] for r in result["files"]) and any("Walking_A" in r["clips"] for r in result["files"])
+    code, result = run_json(["clips", "add"], capsys)
+    folder = in_project.root / "imports" / "kaykit-animations"
+    assert code == 0 and (folder / "Rig_Medium_General.glb").is_file() and "CC0" in (folder / "LICENSE-kaykit-animations.txt").read_text()
