@@ -51,7 +51,7 @@ PREFIX_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 ANIMATION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")  # imported clips keep their library names (Idle_A)
 ROOT_ID = "root"
 AXES = {"x": 0, "y": 1, "z": 2}
-PATTERNS = ("stripes", "checker", "dots", "band")
+PATTERNS = ("stripes", "checker", "dots", "band", "pixel")
 STATUSES = ("draft", "approved")
 SKINS = ("none", "rigid", "soft")
 UNIONS = ("whole", "per_bone")
@@ -104,6 +104,8 @@ class Pattern:
     jitter: float = 0.0  # dots: each dot moved up to jitter/2 of a cell each way from its grid place (seeded)
     vary: float = 0.0  # dots: each dot's size varies by up to this share
     seed: int = 0
+    pixels: tuple[str, ...] = ()  # pixel: the motif's rows, top first ("#" painted, "." not), tiled round the axis
+    repeat: int = 0  # pixel: how many times the motif goes round (0: auto, about square cells at the part's radius)
 
 
 @dataclass(frozen=True)
@@ -752,6 +754,10 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                       line, where)  # fmt: skip
             ok = False
     asks_hard = crisp or bool(bevel or chamfer) or "sides" in spec
+    if ok and (hard is True or (hard is None and asks_hard)) and any(q.type == "pixel" for q in patterns):
+        ctx.error("E003", "a pixel pattern goes on a smooth part (its cells are cut into the surface); drop hard / sides / bevel / blend: none, "
+                  "or use a texture", line, f"{where}.pattern")  # fmt: skip
+        ok = False
     if ok and (hard is True or (hard is None and asks_hard)) and (twist or noise is not None or fold is not None or scale is not None):
         ctx.error("E003", "a hard part (sides, bevel, chamfer, blend: none or hard: true) can't twist, scale or have noise or folds: those need the "
                   "smooth field",
@@ -1149,7 +1155,8 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
     if not isinstance(raw, dict) or raw.get("type") not in PATTERNS:
         ctx.error("E003", f"pattern is {{ type: {'|'.join(PATTERNS)}, color, size (metres), axis: x|y|z }}", line, where)
         return None
-    bad = [k for k in raw if k not in ("type", "color", "size", "axis", "width", "at", "frame", "offset", "jitter", "vary", "seed")]
+    bad = [k for k in raw if k not in ("type", "color", "size", "axis", "width", "at", "frame", "offset", "jitter", "vary", "seed", "rows", "image",
+                                       "repeat")]  # fmt: skip
     size, width = raw.get("size", 0.1), raw.get("width", 0.5)
     axis = raw.get("axis", "y")
     c = _color(ctx, raw.get("color"), line, f"{where}.color")
@@ -1178,15 +1185,62 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
         problems.append("seed is a whole number, 0 to 2147483647")
     if "offset" in raw and raw["type"] == "band":
         problems.append("offset moves a repeat (stripes, checker, dots); a band is placed by at")
-    if problems or c is None:
+    pixels: tuple[str, ...] = ()
+    repeat = raw.get("repeat", "auto")
+    if raw["type"] == "pixel":
+        pixels, why = _pixel_rows(ctx, raw, line, where)
+        if why:
+            problems.append(why)
+        if repeat == "auto":
+            repeat = 0
+        elif not isinstance(repeat, int) or isinstance(repeat, bool) or not 1 <= repeat <= 256:
+            problems.append("repeat is how many times the motif goes round (1-256), or auto (about square cells)")
+    else:
+        repeat = 0
+        if any(k in raw for k in ("rows", "image", "repeat")):
+            problems.append("rows, image and repeat are for type: pixel")
+    if problems or c is None or (raw["type"] == "pixel" and not pixels):
         if problems:
             ctx.error("E003", "pattern: " + "; ".join(problems), line, where)
         return None
     unit = [0.0, 0.0, 0.0]
     unit[AXES[axis]] = 1.0
     assert offset is not None
+    if raw["type"] == "pixel" and "frame" not in raw:
+        frame = "part"  # round the part's own axis (a hat band round the hat, wherever it sits)
     return Pattern(str(raw["type"]), c[0], c[1], float(size), (unit[0], unit[1], unit[2]), float(width), float(at), str(frame),
-                   offset=(offset[0], offset[1], offset[2]), jitter=float(jitter), vary=float(vary), seed=int(seed))  # fmt: skip
+                   offset=(offset[0], offset[1], offset[2]), jitter=float(jitter), vary=float(vary), seed=int(seed), pixels=pixels,
+                   repeat=int(repeat))  # fmt: skip
+
+
+def _pixel_rows(ctx: _Ctx, raw: dict[str, Any], line: int | None, where: str) -> tuple[tuple[str, ...], str | None]:
+    """A pixel pattern's motif: `rows` as given, or an image's pixels (alpha over half painted; an image without
+    transparency: its dark pixels), top row first."""
+    if ("rows" in raw) == ("image" in raw):
+        return (), "a pixel pattern takes rows: [\"#..#\", \".##.\"] (# painted) or image: path.png, one of them"
+    if "rows" in raw:
+        rows = raw["rows"]
+        if not isinstance(rows, list) or not rows or not all(isinstance(r, str) and r for r in rows) or len({len(r) for r in rows}) != 1 \
+                or len(rows) > 64 or len(rows[0]) > 256:
+            return (), "rows is a list of equal-length strings (up to 64 rows of 256): . or space is bare, any other character painted"
+        return tuple("".join("#" if ch not in ". " else "." for ch in r) for r in rows), None
+    if not isinstance(raw["image"], str):
+        return (), "image is a path to a small PNG (relative to the project folder)"
+    base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+    path = (base / raw["image"]).resolve()
+    if not path.is_file():
+        ctx.error("E011", f"pattern image {raw['image']} not found (paths are relative to the project folder)", line, f"{where}.image")
+        return (), ""
+    from PIL import Image
+
+    img = np.asarray(Image.open(path).convert("RGBA"))
+    if img.shape[0] > 64 or img.shape[1] > 256:
+        return (), f"image {raw['image']} is {img.shape[1]}x{img.shape[0]}: a pixel motif is at most 256x64"
+    if (img[:, :, 3] > 127).all():  # no transparency: the dark pixels are the motif
+        mask = img[:, :, :3].astype(float) @ np.array([0.299, 0.587, 0.114]) < 128
+    else:
+        mask = img[:, :, 3] > 127
+    return tuple("".join("#" if m else "." for m in row) for row in mask), None
 
 
 PATH_SHAPES = ("tube", "capsule", "lock")  # gradient along: path (from the first point to the last)

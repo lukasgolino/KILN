@@ -34,6 +34,10 @@ before 1.0).
 
 ### Added
 
+- `pixel` pattern: a pixel motif (`rows` of `#` and `.`, or a small PNG) tiled round a part's own axis in a band,
+  `size` metres per cell, `repeat` times round or `auto` (about square cells): Greek keys, zigzags and checks round
+  hat bands, hems and cuffs, cut into the mesh crisply, reading left to right like cylindrical textures. Smooth parts
+  only (#198).
 - Patterns: `offset: [x, y, z]` shifts stripes, checks and dots; dots take `jitter` (each dot moved up to half that
   of a cell each way) and `vary` (its size by up to that share), random per cell from `seed` (default: the pattern's
   place in the list), for speckles and scattered spots; with `frame: part`, mirror sides and array copies scatter

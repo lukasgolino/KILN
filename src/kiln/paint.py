@@ -198,6 +198,8 @@ def _pattern_fn(p: Pattern, geometry: Geometry | None = None) -> ScalarFn:
     """>= 0 where the pattern's second colour goes; `geometry`: the part, for patterns in its own frame."""
     if p.type == "along" and geometry is not None:  # a gradient's band: from `at` (a fraction) on along the path or axis
         return _along_fn(p, geometry)
+    if p.type == "pixel":
+        return _pixel_fn(p, geometry)
     if p.frame == "part" and geometry is not None:
         from kiln.uv import local
 
@@ -242,6 +244,78 @@ def _pattern_fn(p: Pattern, geometry: Geometry | None = None) -> ScalarFn:
         return best
 
     return scattered
+
+
+PIXEL_NARROWEST = 0.25  # columns narrower than this share of a row's height (near the axis) aren't painted
+
+
+def pixel_columns(p: Pattern, geometry: Geometry | None) -> int:
+    """How many columns go round: the motif's x `repeat`, or with `repeat: auto` (0) about square cells at the part's
+    widest radius round its axis."""
+    cols = len(p.pixels[0])
+    if p.repeat or geometry is None:
+        return cols * max(p.repeat, 1)
+    from kiln.sdf import SHAPES
+
+    lo, hi = SHAPES[geometry.shape].bounds(geometry.params)
+    axis = int(np.argmax(np.abs(p.axis)))
+    radius = max(float(np.max(np.abs(np.r_[lo, hi].reshape(2, 3)[:, k]))) for k in range(3) if k != axis)
+    return cols * max(1, round(2 * math.pi * radius / (cols * p.size)))
+
+
+def pixel_cell(p: Pattern, geometry: Geometry | None) -> float:
+    """The smallest side of a cell where cells are widest (refining to it keeps narrow columns)."""
+    from kiln.sdf import SHAPES
+
+    if geometry is None:
+        return p.size
+    lo, hi = SHAPES[geometry.shape].bounds(geometry.params)
+    axis = int(np.argmax(np.abs(p.axis)))
+    radius = max(float(np.max(np.abs(np.r_[lo, hi].reshape(2, 3)[:, k]))) for k in range(3) if k != axis)
+    return min(p.size, 2 * math.pi * radius / pixel_columns(p, geometry))
+
+
+def _pixel_fn(p: Pattern, geometry: Geometry | None) -> ScalarFn:
+    """A pixel motif tiled round the axis (#198): columns go round left to right seen from outside (as cylindrical
+    textures), rows `size` metres tall along the axis, centred on `at` (top row highest). Signed, in metres: inside a
+    painted cell, the distance to its nearest edge with an unpainted cell; outside, minus the distance to the nearest
+    painted neighbour's edge, and further off the band minus the distance to it, so the zero line is the motif's
+    outline, painted neighbours aren't cut apart and refining stays near the band. Columns narrower than
+    PIXEL_NARROWEST of a row (near the axis: a cone's tip, a cap) aren't painted."""
+    grid = np.array([[ch == "#" for ch in row] for row in p.pixels], dtype=bool)  # rows top first
+    rows, cols = grid.shape
+    axis = int(np.argmax(np.abs(p.axis)))
+    a, b = {0: (1, 2), 1: (0, 2), 2: (0, 1)}[axis]
+    total = pixel_columns(p, geometry)
+
+    def painted(r: Array, c: Array) -> Array:
+        inside = (r >= 0) & (r < rows)
+        out = np.zeros(len(r), dtype=bool)
+        out[inside] = grid[r[inside], c[inside] % cols]
+        return out
+
+    def fn(x: Array) -> Array:
+        if p.frame == "part" and geometry is not None:
+            from kiln.uv import local
+
+            x = local(geometry, x)
+        u = (np.arctan2(x[:, a], x[:, b]) / (2 * math.pi) + 0.5) * total  # columns round, as uv._around
+        v = (p.at - x[:, axis]) / p.size + rows / 2  # rows down from the top
+        c, r = np.floor(u).astype(np.int64), np.floor(v).astype(np.int64)
+        fu, fv = u - c, v - r
+        here = painted(r, c)
+        edges = ((painted(r, c - 1), fu), (painted(r, c + 1), 1 - fu), (painted(r - 1, c), fv), (painted(r + 1, c), 1 - fv))
+        inside = np.full(len(x), 0.5)
+        outside = np.full(len(x), 0.5)
+        for neighbour, gap in edges:
+            inside = np.where(~neighbour, np.minimum(inside, gap), inside)  # to an edge where the paint stops
+            outside = np.where(neighbour, np.minimum(outside, gap), outside)  # to an edge where it starts
+        off = np.maximum(-v, v - rows)  # cells beyond the band: how far
+        value = np.where(here, inside, -np.maximum(outside, off)) * p.size
+        narrow = 2 * math.pi * np.hypot(x[:, a], x[:, b]) / total < PIXEL_NARROWEST * p.size
+        return np.where(narrow & (value > 0), -value, value)
+
+    return fn
 
 
 def _mix64(z: Array) -> Array:
@@ -530,14 +604,15 @@ def _patterns(
             # A pattern needs edges shorter than its repeat (or a stripe could fall between vertices), then short edges
             # along its borders to cut them cleanly; areas between borders stay coarse (the budget). A gradient's band
             # runs one way (its coordinate only grows along the part), so its border pass is enough.
-            passes = [(pat.size / 2 if pat.type != "band" else pat.size, False), (pat.size / 4, True)]
+            cell = pixel_cell(pat, part.geometry) if pat.type == "pixel" else pat.size
+            passes = [(cell / 2 if pat.type != "band" else pat.size, False), (cell / 4, True)]
             for limit, border_only in passes[1:] if pat.type == "along" else passes:
                 for _ in range(12):
                     sel = mine.copy()
                     values = _own_values(fn, vertices, faces, sel)[faces[sel]]  # the part's faces only (#123)
                     if border_only:
                         sel[sel] = (values.min(axis=1) < 0) & (values.max(axis=1) >= 0)
-                    elif pat.type == "band":
+                    elif pat.type in ("band", "pixel"):
                         sel[sel] = values.max(axis=1) > -pat.size  # only near the band
                     if not sel.any():
                         break
