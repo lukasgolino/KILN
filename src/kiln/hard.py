@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import cached_property
 
 import numpy as np
 
@@ -86,7 +87,17 @@ class Polygon:
     tag: int  # the part it came from
 
     def flipped(self) -> Polygon:
-        return Polygon(tuple(reversed(self.points)), self.plane.flipped(), self.tag)
+        out = Polygon(tuple(reversed(self.points)), self.plane.flipped(), self.tag)
+        if "box" in self.__dict__:  # the same points: the same box
+            out.__dict__["box"] = self.__dict__["box"]
+        return out
+
+    @cached_property
+    def box(self) -> tuple[float, float, float, float, float, float]:
+        """Its box's centre and half sizes, made once (#214: a polygon is tested against many planes on its way down)."""
+        xs, ys, zs = zip(*self.points, strict=True)
+        x0, x1, y0, y1, z0, z1 = min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
+        return ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2)
 
 
 def polygon(points: Sequence[Point], tag: int) -> Polygon | None:
@@ -168,16 +179,65 @@ def _extent(polys: list[Polygon]) -> tuple[float, float, float, float, float, fl
     return ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2)
 
 
+SORT_MIN = 24  # polygons: from this many on, their boxes are tested against the plane in one numpy pass
+Boxes = Array  # (N, 6): each polygon's box centre and half sizes, in the order of its list
+
+
+def _boxes(polys: list[Polygon]) -> Boxes:
+    return np.array([p.box for p in polys]) if polys else np.zeros((0, 6))
+
+
+def _split_all(plane: Plane, polys: list[Polygon], boxes: Boxes | None, co_front: list[Polygon], co_back: list[Polygon],
+               front: list[Polygon], back: list[Polygon]) -> tuple[Boxes | None, Boxes | None]:  # fmt: skip
+    """_split of each polygon in order (the lists come out as they always did), but a polygon whose box lies clear of
+    the plane by CLEAR goes to its side without a test per point: what every point's own test (against EPS) would
+    say (#214). Returns the boxes of `front` and `back` (when `boxes` is given and they are fresh lists)."""
+    if boxes is None or len(polys) < SORT_MIN:
+        for p in polys:
+            _split(plane, p, co_front, co_back, front, back)
+        return None, None
+    n = plane.normal
+    mid = boxes[:, 0] * n[0] + boxes[:, 1] * n[1] + boxes[:, 2] * n[2] - plane.w
+    reach = boxes[:, 3] * abs(n[0]) + boxes[:, 4] * abs(n[1]) + boxes[:, 5] * abs(n[2])
+    sides = ((mid - reach > CLEAR) * 1 + (mid + reach < -CLEAR) * 2).tolist()
+    src_f: list[int] = []  # each output polygon's row in `boxes`, -1: a new piece (boxed afresh)
+    src_b: list[int] = []
+    for i, (p, side) in enumerate(zip(polys, sides, strict=True)):
+        if side == 1:
+            front.append(p)
+            src_f.append(i)
+        elif side == 2:
+            back.append(p)
+            src_b.append(i)
+        else:
+            nf, nb = len(front), len(back)
+            _split(plane, p, co_front, co_back, front, back)
+            src_f += [-1] * (len(front) - nf)
+            src_b += [-1] * (len(back) - nb)
+    return _rows(boxes, src_f, front), _rows(boxes, src_b, back)
+
+
+def _rows(boxes: Boxes, src: list[int], polys: list[Polygon]) -> Boxes | None:
+    if len(polys) < SORT_MIN:  # (a short list is split point by point: no boxes needed)
+        return None
+    idx = np.asarray(src, dtype=np.int64)
+    out = boxes[np.maximum(idx, 0)] if len(idx) else np.zeros((0, 6))
+    for k in np.flatnonzero(idx < 0).tolist():
+        out[k] = polys[k].box
+    return out
+
+
 class _Node:
     """A BSP node, made when first reached: `pending` holds the polygons its subtree is built from until then."""
 
-    __slots__ = ("plane", "front", "back", "pending")
+    __slots__ = ("plane", "front", "back", "pending", "boxes")
 
-    def __init__(self, pending: list[Polygon]) -> None:
+    def __init__(self, pending: list[Polygon], boxes: Boxes | None = None) -> None:
         self.plane: Plane | None = None
         self.front: _Node | None = None
         self.back: _Node | None = None
         self.pending: list[Polygon] | None = pending
+        self.boxes = boxes  # the pending polygons' boxes (made on first use)
 
     def expand(self) -> None:
         """This node's plane (its first polygon's) and its children, each holding its side's polygons."""
@@ -191,12 +251,13 @@ class _Node:
         on: list[Polygon] = []  # in the plane: they make no subtree
         front: list[Polygon] = []
         back: list[Polygon] = []
-        for p in polys:
-            _split(self.plane, p, on, on, front, back)
+        boxes = self.boxes if self.boxes is not None else (_boxes(polys) if len(polys) >= SORT_MIN else None)
+        self.boxes = None
+        fb, bb = _split_all(self.plane, polys, boxes, on, on, front, back)
         if front:
-            self.front = _Node(front)
+            self.front = _Node(front, fb)
         if back:
-            self.back = _Node(back)
+            self.back = _Node(back, bb)
 
 
 class _Tree:
@@ -216,9 +277,9 @@ class _Tree:
         inside its box."""
         out: list[Polygon] = []
         inverted = self.inverted
-        stack = [(self.root, polygons, _extent(polygons))]
+        stack: list[tuple[_Node, list[Polygon], tuple[float, ...], Boxes | None]] = [(self.root, polygons, _extent(polygons), None)]
         while stack:
-            node, polys, extent = stack.pop()
+            node, polys, extent, boxes = stack.pop()
             if not polys:
                 continue  # nothing reaches the subtree
             node.expand()
@@ -232,24 +293,25 @@ class _Tree:
             reach = abs(n[0]) * hx + abs(n[1]) * hy + abs(n[2]) * hz
             if mid - reach > CLEAR:  # all in front
                 if ahead is not None:
-                    stack.append((ahead, polys, extent))
+                    stack.append((ahead, polys, extent, boxes))
                 else:
                     out += polys
                 continue
             if mid + reach < -CLEAR:  # all behind
                 if behind is not None:
-                    stack.append((behind, polys, extent))
+                    stack.append((behind, polys, extent, boxes))
                 continue
             front: list[Polygon] = []
             back: list[Polygon] = []
-            for p in polys:
-                _split(plane, p, front, back, front, back)
+            if boxes is None and len(polys) >= SORT_MIN:
+                boxes = _boxes(polys)
+            fb, bb = _split_all(plane, polys, boxes, front, back, front, back)  # (the boxes go down with the batches)
             if ahead is not None:
-                stack.append((ahead, front, _extent(front)))
+                stack.append((ahead, front, _extent(front), fb))
             else:
                 out += front
             if behind is not None:
-                stack.append((behind, back, _extent(back)))
+                stack.append((behind, back, _extent(back), bb))
         return out
 
 
