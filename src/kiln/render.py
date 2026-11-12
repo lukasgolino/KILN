@@ -205,6 +205,9 @@ def render(
                 corner = np.where((dec >= 0) | glow_, corner, 1.0)
             albedo = albedo * corner[:, None]
         presets = [built.style.materials.get(gr.material, built.style.materials["default"]) for gr in groups]
+        grain = np.array([pr.grain for pr in presets])[g]
+        if (grain > 0).any() and look.shader != "toon":  # a fine bumpy finish in the normals (#329), as the Godot material's noise map
+            n = _grained(n, (corners[T] * bary[:, :, None]).sum(axis=1), grain, np.array([pr.grain_size for pr in presets])[g], dec >= 0)
         rough = np.array([pr.roughness for pr in presets])[g]
         metal = np.array([pr.metallic for pr in presets])[g]
         emit = np.array([pr.emission for pr in presets])[g]
@@ -293,6 +296,22 @@ def render(
         image = _bloom(image, glow.reshape(res, res, 3), max(1, int(res * 0.025)))
     out = Image.fromarray((image * 255 + 0.5).astype(np.uint8), "RGBA")
     return out.resize((size, size), Image.Resampling.BOX)
+
+
+def _grained(n: Array, pos: Array, grain: Array, size: Array, skip: Array) -> Array:
+    """Normals tilted by smooth noise `size` metres across, `grain` strong (not where a texture or decal shows)."""
+    from kiln.sdf import Noise, noise
+
+    on = (grain > 0) & ~skip
+    if not on.any():
+        return n
+    out = n.copy()
+    p = pos[on] / size[on, None] * 0.2  # the noise's own scale is 0.2 m
+    tilt = np.stack([noise(p + off, Noise(1.0, 0.2, seed)) for seed, off in ((11, 0.0), (12, 3.1), (13, 7.7))], axis=1)
+    tilt -= (tilt * n[on]).sum(axis=1, keepdims=True) * n[on]  # across the surface only
+    out[on] = n[on] + tilt * (0.6 * grain[on, None])
+    out[on] /= np.maximum(np.linalg.norm(out[on], axis=1, keepdims=True), 1e-12)
+    return out
 
 
 def _triplanar(img: Array, pos: Array, normal: Array, size: tuple[float, float]) -> Array:

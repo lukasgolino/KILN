@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- Material `grain` and `grain_size` in a style: a fine bumpy finish in the normals (rough cloth, felt) without
+  geometry or triangles; a tiling noise normal map in KILN's Godot scenes, the same bumps in the previews (#329).
 - Named textures: `textures: { print: {...} }` at the top of a model, `texture: print` on each part; and
   `project: triplanar` (box UVs in the glb; KILN's Godot scenes and the previews blend the three projections, so no
   seam at a sleeve's side) (#320).

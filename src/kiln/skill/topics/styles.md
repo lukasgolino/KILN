@@ -42,6 +42,8 @@ character = 8000
 default = 4000
 
 [materials]                    # roughness, metallic (0..1), emission (glow strength, capped per colour: see parts), rim (soft edge light), alpha (0.05-1: see-through)
+                               # grain (0..1): a fine bumpy finish in the normals, no geometry (rough cloth, felt), grain_size (m per bump, 0.01);
+                               #   KILN's Godot scenes (standard looks) and previews; not on textured or normal-mapped faces
 plastic = { roughness = 0.42 }
 
 [look]                         # the Godot look kit and preview lighting

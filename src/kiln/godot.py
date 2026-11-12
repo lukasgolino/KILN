@@ -61,10 +61,26 @@ extends Node3D
 @export var outline := 0.0
 @export var outline_color := Color(0.1, 0.08, 0.12)
 @export var rims: Dictionary = {}
+@export var grains: Dictionary = {}  # preset -> [strength, metres per bump] (#329)
 @export var swap: Dictionary = {}  # variant: "rrggbb" (a material's colour, from its name) -> new colour
 
 # Materials are made once and shared by every instance (and every model) with the same source and settings.
 static var _shared: Dictionary = {}
+
+static var _grain: NoiseTexture2D
+
+
+static func _grain_texture() -> NoiseTexture2D:  # one tiling bump texture for every grainy material
+\tif _grain == null:
+\t\tvar noise := FastNoiseLite.new()
+\t\tnoise.frequency = 8.0 / 256.0
+\t\t_grain = NoiseTexture2D.new()
+\t\t_grain.noise = noise
+\t\t_grain.seamless = true
+\t\t_grain.as_normal_map = true
+\t\t_grain.bump_strength = 4.0
+\treturn _grain
+
 
 static func _see_through(shader: Shader) -> Shader:  # the toon shader with the material's alpha (glass)
 \tvar key := "alpha|%d" % shader.get_instance_id()
@@ -112,6 +128,13 @@ func _ready() -> void:
 \t\t\t\tif source.emission_enabled and swap.has(hex):
 \t\t\t\t\tstandard.emission = albedo
 \t\t\t\tvar rim: float = rims.get(source.resource_name.get_slice("_", 0).get_slice("@", 0), 0.0)  # (glow@0.6: the glow preset)
+\t\t\t\tvar grain: Array = grains.get(source.resource_name.get_slice("_", 0).get_slice("@", 0), [])
+\t\t\t\tif grain.size() == 2 and standard.normal_texture == null and standard.albedo_texture == null:  # a fine bumpy finish (#329)
+\t\t\t\t\tstandard.normal_enabled = true
+\t\t\t\t\tstandard.normal_texture = _grain_texture()
+\t\t\t\t\tstandard.normal_scale = grain[0]
+\t\t\t\t\tstandard.uv1_triplanar = true
+\t\t\t\t\tstandard.uv1_scale = Vector3.ONE / (grain[1] * 8.0)  # the texture holds about 8 bumps across
 \t\t\t\tif rim > 0.0:
 \t\t\t\t\tstandard.rim_enabled = true
 \t\t\t\t\tstandard.rim = rim
@@ -593,6 +616,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
     baked occlusion), re-encoded for the Compatibility renderer."""
     look = style.look
     rims = ", ".join(f"{_quote(k)}: {v.rim:.6g}" for k, v in sorted(style.materials.items()) if v.rim > 0)
+    grains = ", ".join(f"{_quote(k)}: [{v.grain:.6g}, {v.grain_size:.6g}]" for k, v in sorted(style.materials.items()) if v.grain > 0)
     atlas = textures is not None
     script = _apply_script(ATLAS_SCRIPT if atlas else APPLY_SCRIPT, look, atlas)
     toon = toon_shader(look, atlas)
@@ -641,6 +665,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         f"outline = {look.outline:.6g}",
         *([] if look.outline_color == "darken" else [f"outline_color = {_color(look.outline_color)}"]),
         f"rims = {{{rims}}}",
+        *([f"grains = {{{grains}}}"] if grains else []),
         *([f"revealed = [{', '.join(_quote(n) for n in revealed)}]"] if revealed else []),
         *(['rim_shader = SubResource("Shader_rim")', f"rim_light = {look.rim_light:.6g}", f"rim_light_color = {_color(look.rim_light_color)}",
            f"rim_light_power = {look.rim_light_power:.6g}"] if rim else []),  # fmt: skip
