@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+### Fixed
+
+- `kiln preview --draft` on a model with part `density` and a budget above the draft mesh's face count stopped with
+  E009 (the simplifier refuses a target it is already under); it now leaves the mesh as it is (#299).
+
 ### Performance
 
 - Normal and colour maps bake about 45% faster (a 2.4 m relief-furred hero with 2048 maps: 285 -> 156 s for the
