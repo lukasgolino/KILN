@@ -33,6 +33,8 @@ CANDIDATES = 6  # scatter: points tried per patch wanted
 SHRINK = 0.5  # a patch at the very edge of its region is this size (`fade`)
 FACING = 0.2  # a patch shows only where the surface faces its own way (dot of the normals): not on the far side of a thin limb
 ANGLE = 25.0  # degrees a patch's flow turns either way at jitter 1
+FLOW_FLAT = 0.1  # the flow's length in the surface under which no patch is kept (it faces the flow: no way to point)
+FLOW_LIES = 0.35  # ... and over which patches are whole (the surface within ~20 degrees of facing the flow: a fade)
 FLOWS = {"down": (0.0, -1.0, 0.0), "up": (0.0, 1.0, 0.0)}
 MAX_PATCHES = 60_000  # per model: each patch is one pass over the texels near it (20 000 take about 15 s)
 
@@ -118,11 +120,16 @@ def scatter(vertices: Array, faces: Array, normals: Array, face_on: list[Array],
         chance = rng.random_sample(len(pick))
         edge = _edge_distance(vertices, faces, on, points) if r.fade > 0 else np.full(len(pick), np.inf)
         full = np.clip(edge / r.fade, 0.0, 1.0) if r.fade > 0 else np.ones(len(pick))
+        # where the surface faces along the flow (a shoulder's top under flow: down) the flow barely lies in it: its
+        # direction swings or falls back to one fixed axis, a stepped streak of patches all pointing one way; there the
+        # patches thin out and shrink as they do toward an edge (#303)
+        wanted = np.asarray(FLOWS[r.flow] if isinstance(r.flow, str) else r.flow, dtype=float)
+        wanted = wanted / np.linalg.norm(wanted)
+        lying = np.linalg.norm(wanted - normal * (normal @ wanted)[:, None], axis=1)
+        full = full * np.clip((lying - FLOW_FLAT) / (FLOW_LIES - FLOW_FLAT), 0.0, 1.0)
         keep = _spaced(points, SPACING * float(np.sqrt(each)), want, chance <= full)
         points, normal, size, turn, full = points[keep], normal[keep], size[keep], turn[keep], full[keep]
         size = size * (SHRINK + (1 - SHRINK) * full)
-        wanted = np.asarray(FLOWS[r.flow] if isinstance(r.flow, str) else r.flow, dtype=float)
-        wanted = wanted / np.linalg.norm(wanted)
         flow = wanted - normal * (normal @ wanted)[:, None]
         flat = np.linalg.norm(flow, axis=1) < 1e-3  # the surface faces along the flow (a crown): any direction in it
         spare = np.cross(normal, np.where(np.abs(normal[:, :1]) < 0.9, [[1.0, 0.0, 0.0]], [[0.0, 0.0, 1.0]]))

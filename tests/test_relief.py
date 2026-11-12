@@ -112,7 +112,20 @@ def test_fade_thins_and_shrinks_patches_toward_the_edge() -> None:
 
     assert band(soft).sum() < 0.75 * band(hard).sum()
     assert soft.length[band(soft)].mean() < 0.9 * soft.length[~band(soft)].mean()
-    assert np.allclose(hard.length, 0.1)
+    lies = np.sqrt(np.maximum(0.0, 1.0 - hard.normal[:, 1] ** 2)) >= rl.FLOW_LIES  # (where the flow lies in the surface)
+    assert lies.sum() > 0.8 * len(lies) and np.allclose(hard.length[lies], 0.1)
+
+
+def test_no_stepped_patches_where_the_surface_faces_the_flow() -> None:
+    """#303: on the bottom of an egg under flow: down (the surface faces the flow) patches thin out and shrink; none
+    stands where the flow can't point."""
+    v, f, n = egg()
+    on = lower(v, f)
+    p = rl.scatter(v, f, n, [on], [Relief(["body"], length=0.1, width=0.06, fade=0.0, jitter=0.0)])
+    lying = np.sqrt(np.maximum(0.0, 1.0 - p.normal[:, 1] ** 2))
+    assert len(p.length) > 50 and lying.min() >= rl.FLOW_FLAT
+    facing = lying < rl.FLOW_LIES
+    assert facing.any() and p.length[facing].mean() < 0.1
 
 
 def test_a_patch_rises_to_its_notched_tip_and_shades_the_surface_below() -> None:
