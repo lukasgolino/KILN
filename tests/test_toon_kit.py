@@ -35,11 +35,11 @@ ALL: dict[str, Any] = {"toon_softness": 0.4, "toon_shadow_color": "#5b4f9e", "to
 
 # sha256 (16 hex) of the scenes before #26: (plain scene, variant + atlas textures + revealed scene, look kit)
 BEFORE = {  # look kits changed on purpose in #161 (tonemap_white, the Compatibility sun script)
-    "toon": ("5e66273789dc65be", "5eebdbfb6a99db73", "e58c506d45228c13"),
-    "soft_toy": ("d3011a190891cf12", "0777c5ca15567e7c", "b39d8959ee681048"),
-    "low_poly": ("363ff8de50e936f6", "11f2107cfba465dd", "b3662df45bfd1a14"),
-    "clay": ("0b6dc07955fb08f3", "e2cffe2335d756d2", "ad8101e13905dcaa"),
-    "diorama": ("a8a6865b2863d8a8", "e5438facfe7ee01f", "901d6833e7a3a02f"),
+    "toon": ("463b86c5c488b1be", "e7b3d865c5ce7408", "e58c506d45228c13"),
+    "soft_toy": ("48184086683e44fb", "cab98a45abaf4ff6", "b39d8959ee681048"),
+    "low_poly": ("5f31347e3c290272", "7e55792f344a8e32", "b3662df45bfd1a14"),
+    "clay": ("2cb5d9f8a7019516", "d5270b651c19528c", "ad8101e13905dcaa"),
+    "diorama": ("fe1be694995768da", "f2ea436a23ea20ae", "901d6833e7a3a02f"),
 }
 
 

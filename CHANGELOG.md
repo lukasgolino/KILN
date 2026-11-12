@@ -21,6 +21,11 @@ before 1.0).
 
 ### Fixed
 
+- Toon: `kiln preview` and Godot agree (#183). The Godot toon shader took the sun at PI x its strength (Godot's
+  `LIGHT_COLOR` carries a PI for PBR's divide), so toon bands came out washed and clipped (gold went yellow); they
+  now light as the preview and the standard shader do. **Toon models are darker in Godot than before**: the
+  palette as written. The preview's outlines are the inverted hull Godot draws (outward only, the set width), not
+  a line twice as wide across each edge. Engine parity mean OKLab gap 0.16 -> 0.03.
 - A decal on a part with a `gradient` or `pattern` also cut and marked other parts' faces painted in the same colours
   (their band and stripe colours are shared): it now keeps to the faces nearest its own part (#146).
 - Colour borders along blends zigzagged at lower budgets (a sawtooth on a sleeve's edge from about 1200 triangles

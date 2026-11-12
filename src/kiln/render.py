@@ -140,56 +140,7 @@ def render(
     if hide:
         front &= ~np.array([built.painted.groups[g].bone in hide for g in built.painted.face_group], dtype=bool)
     tri = np.flatnonzero(front)
-    x0 = np.floor(sx[tri].min(axis=1)).astype(int).clip(0, res - 1)
-    x1 = np.ceil(sx[tri].max(axis=1)).astype(int).clip(0, res - 1)
-    y0 = np.floor(sy[tri].min(axis=1)).astype(int).clip(0, res - 1)
-    y1 = np.ceil(sy[tri].max(axis=1)).astype(int).clip(0, res - 1)
-    w, h = x1 - x0 + 1, y1 - y0 + 1
-    counts = w * h
-    best_depth = np.full(res * res, np.inf)
-    best_tri = np.full(res * res, -1)
-    best_bary = np.zeros((res * res, 3))
-    dropped = np.full(res * res, np.inf)  # nearest depth per pixel at which a faded face was dithered away
-    chunk = 4_000_000
-    start = 0
-    while start < len(tri):
-        cum = np.cumsum(counts[start:])
-        end = start + max(1, int(np.searchsorted(cum, chunk)))
-        sel = np.arange(start, min(end, len(tri)))
-        start = sel[-1] + 1
-        reps = counts[sel]
-        t_idx = np.repeat(sel, reps)
-        offsets = np.arange(int(reps.sum())) - np.repeat(np.cumsum(reps) - reps, reps)
-        px = x0[t_idx] + offsets % w[t_idx]
-        py = y0[t_idx] + offsets // w[t_idx]
-        T = tri[t_idx]
-        cx, cy = px + 0.5, py + 0.5
-        ax, ay, bx, by, qx, qy = sx[T, 0], sy[T, 0], sx[T, 1], sy[T, 1], sx[T, 2], sy[T, 2]
-        denom = (by - qy) * (ax - qx) + (qx - bx) * (ay - qy)
-        denom = np.where(np.abs(denom) < 1e-12, 1e-12, denom)
-        l0 = ((by - qy) * (cx - qx) + (qx - bx) * (cy - qy)) / denom
-        l1 = ((qy - ay) * (cx - qx) + (ax - qx) * (cy - qy)) / denom
-        l2 = 1 - l0 - l1
-        inside = (l0 >= -1e-6) & (l1 >= -1e-6) & (l2 >= -1e-6)
-        px, py, T, l0, l1, l2 = px[inside], py[inside], T[inside], l0[inside], l1[inside], l2[inside]
-        depth = l0 * sz[T, 0] + l1 * sz[T, 1] + l2 * sz[T, 2]
-        if fade is not None:
-            keep = BAYER[(py // SUPERSAMPLE) % 4, (px // SUPERSAMPLE) % 4] < fade[T]
-            np.minimum.at(dropped, py[~keep] * res + px[~keep], depth[~keep])
-            px, py, T, l0, l1, l2, depth = px[keep], py[keep], T[keep], l0[keep], l1[keep], l2[keep], depth[keep]
-        if not len(px):  # nothing in this chunk covers a pixel centre (all off screen in a close framing)
-            continue
-        pix = py * res + px
-        order = np.lexsort((depth, pix))
-        pix, depth = pix[order], depth[order]
-        first = np.concatenate([[True], pix[1:] != pix[:-1]])
-        pix, depth = pix[first], depth[first]
-        T, bary = T[order][first], np.stack([l0, l1, l2], axis=1)[order][first]
-        better = depth < best_depth[pix]
-        pix = pix[better]
-        best_depth[pix] = depth[better]
-        best_tri[pix] = T[better]
-        best_bary[pix] = bary[better]
+    best_depth, best_tri, best_bary, dropped = _raster(sx, sy, sz, tri, res, fade)
     hit = best_tri >= 0
     rgba = np.zeros((res * res, 4))
     rgba[:] = np.array(background) / 255.0
@@ -288,19 +239,88 @@ def render(
         rgba[hit, :3] = _to_srgb(color)
         rgba[hit, 3] = 1.0
     image = rgba.reshape(res, res, 4)
-    if look.outline > 0:
-        width = look.outline * SUPERSAMPLE / 2 if look.outline_space == "pixels" else look.outline * scale  # edges mark both sides
-        edge_colors: Array | None = None
+    if look.outline > 0:  # the inverted hull, as Godot draws it (#183): back faces pushed out along their normals, drawn where nearer
+        if look.outline_space == "pixels":  # pushed out on screen, a constant width in output pixels
+            away = np.stack([normals @ right, -(normals @ up)], axis=-1)
+            away /= np.maximum(np.linalg.norm(away, axis=-1, keepdims=True), 1e-9)
+            hx, hy, hz = sx + away[..., 0] * look.outline * SUPERSAMPLE, sy + away[..., 1] * look.outline * SUPERSAMPLE, sz
+        else:
+            moved = rel + normals * look.outline
+            hx, hy, hz = (moved @ right) * scale + res / 2, res / 2 - (moved @ up) * scale, moved @ forward
+        back = (hx[:, 1] - hx[:, 0]) * (hy[:, 2] - hy[:, 0]) - (hx[:, 2] - hx[:, 0]) * (hy[:, 1] - hy[:, 0]) > 0
+        if hide:
+            back &= ~np.array([built.painted.groups[g].bone in hide for g in built.painted.face_group], dtype=bool)
+        hull_depth, hull_tri, _, _ = _raster(hx, hy, hz, np.flatnonzero(back), res, fade)  # dithered as its face
+        holes = (dropped < best_depth).reshape(res, res)  # dither holes: a faded piece isn't outlined around every hole
+        holes = holes | np.roll(holes, 1, 0) | np.roll(holes, -1, 0) | np.roll(holes, 1, 1) | np.roll(holes, -1, 1)
+        drawn = (hull_tri >= 0) & (hull_depth < best_depth) & ~holes.reshape(-1)
+        flat = image.reshape(-1, 4)
         if look.outline_color == "darken":  # each part's own colour, darkened (linear, as the Godot outline shader)
-            dark = np.zeros((res * res, 3))
-            if hit.any():
-                dark[hit] = albedo_table[built.painted.face_group[best_tri[hit]]] * TOON_DARKEN
-            edge_colors = _to_srgb(dark).reshape(res, res, 3)
-        image = _outline(image, best_depth.reshape(res, res), max(1, int(round(width))), look.outline_color, (dropped < best_depth).reshape(res, res), edge_colors)
+            table = np.array([srgb_to_linear(swap.get(gr.color, gr.color)) for gr in built.painted.groups]) * TOON_DARKEN
+            flat[drawn, :3] = _to_srgb(table[built.painted.face_group[hull_tri[drawn]]])
+        else:
+            flat[drawn, :3] = np.array([int(look.outline_color[i : i + 2], 16) / 255 for i in (1, 3, 5)])
+        flat[drawn, 3] = 1.0
     if glow.any():
         image = _bloom(image, glow.reshape(res, res, 3), max(1, int(res * 0.025)))
     out = Image.fromarray((image * 255 + 0.5).astype(np.uint8), "RGBA")
     return out.resize((size, size), Image.Resampling.BOX)
+
+
+def _raster(sx: Array, sy: Array, sz: Array, tri: Array, res: int, fade: Array | None = None) -> tuple[Array, Array, Array, Array]:
+    """The nearest of triangles `tri` (screen x, y and depth per corner) at each pixel centre of a res x res image:
+    (depth, triangle, barycentrics, dropped: the nearest depth at which a faded face was dithered away)."""
+    x0 = np.floor(sx[tri].min(axis=1)).astype(int).clip(0, res - 1)
+    x1 = np.ceil(sx[tri].max(axis=1)).astype(int).clip(0, res - 1)
+    y0 = np.floor(sy[tri].min(axis=1)).astype(int).clip(0, res - 1)
+    y1 = np.ceil(sy[tri].max(axis=1)).astype(int).clip(0, res - 1)
+    w, h = x1 - x0 + 1, y1 - y0 + 1
+    counts = w * h
+    best_depth = np.full(res * res, np.inf)
+    best_tri = np.full(res * res, -1)
+    best_bary = np.zeros((res * res, 3))
+    dropped = np.full(res * res, np.inf)  # nearest depth per pixel at which a faded face was dithered away
+    chunk = 4_000_000
+    start = 0
+    while start < len(tri):
+        cum = np.cumsum(counts[start:])
+        end = start + max(1, int(np.searchsorted(cum, chunk)))
+        sel = np.arange(start, min(end, len(tri)))
+        start = sel[-1] + 1
+        reps = counts[sel]
+        t_idx = np.repeat(sel, reps)
+        offsets = np.arange(int(reps.sum())) - np.repeat(np.cumsum(reps) - reps, reps)
+        px = x0[t_idx] + offsets % w[t_idx]
+        py = y0[t_idx] + offsets // w[t_idx]
+        T = tri[t_idx]
+        cx, cy = px + 0.5, py + 0.5
+        ax, ay, bx, by, qx, qy = sx[T, 0], sy[T, 0], sx[T, 1], sy[T, 1], sx[T, 2], sy[T, 2]
+        denom = (by - qy) * (ax - qx) + (qx - bx) * (ay - qy)
+        denom = np.where(np.abs(denom) < 1e-12, 1e-12, denom)
+        l0 = ((by - qy) * (cx - qx) + (qx - bx) * (cy - qy)) / denom
+        l1 = ((qy - ay) * (cx - qx) + (ax - qx) * (cy - qy)) / denom
+        l2 = 1 - l0 - l1
+        inside = (l0 >= -1e-6) & (l1 >= -1e-6) & (l2 >= -1e-6)
+        px, py, T, l0, l1, l2 = px[inside], py[inside], T[inside], l0[inside], l1[inside], l2[inside]
+        depth = l0 * sz[T, 0] + l1 * sz[T, 1] + l2 * sz[T, 2]
+        if fade is not None:
+            keep = BAYER[(py // SUPERSAMPLE) % 4, (px // SUPERSAMPLE) % 4] < fade[T]
+            np.minimum.at(dropped, py[~keep] * res + px[~keep], depth[~keep])
+            px, py, T, l0, l1, l2, depth = px[keep], py[keep], T[keep], l0[keep], l1[keep], l2[keep], depth[keep]
+        if not len(px):  # nothing in this chunk covers a pixel centre (all off screen in a close framing)
+            continue
+        pix = py * res + px
+        order = np.lexsort((depth, pix))
+        pix, depth = pix[order], depth[order]
+        first = np.concatenate([[True], pix[1:] != pix[:-1]])
+        pix, depth = pix[first], depth[first]
+        T, bary = T[order][first], np.stack([l0, l1, l2], axis=1)[order][first]
+        better = depth < best_depth[pix]
+        pix = pix[better]
+        best_depth[pix] = depth[better]
+        best_tri[pix] = T[better]
+        best_bary[pix] = bary[better]
+    return best_depth, best_tri, best_bary, dropped
 
 
 def toon_lit(ndl: Array, bands: int, softness: float = 0.0) -> Array:
@@ -378,39 +398,6 @@ def _mapped_normals(bake: Any, faces: Array, bary: Array, n: Array) -> Array:
     up = np.cross(n, t) * w[:, None]
     out = local[:, :1] * t + local[:, 1:2] * up + local[:, 2:3] * n
     return np.asarray(out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-12))
-
-
-def _outline(image: Array, depth: Array, width: int, hex_color: str, dropped: Array | None = None, colors: Array | None = None) -> Array:
-    """Silhouette and depth-step edges, `width` pixels. None at or next to `dropped` pixels (dither holes): a faded
-    piece would otherwise be outlined around every hole. `colors` (sRGB per pixel): outline colours instead of
-    `hex_color`, each outline pixel taking the nearest surface's within `width` (as an inverted hull in front)."""
-    solid = np.isfinite(depth)
-    d = np.where(solid, depth, 1e9)
-    edge = np.zeros_like(solid)
-    span = float(np.ptp(d[solid])) if solid.any() else 1.0
-    for dy, dx in ((0, 1), (1, 0), (0, -1), (-1, 0)):
-        shifted = np.roll(np.roll(d, dy, axis=0), dx, axis=1)
-        edge |= np.abs(shifted - d) > max(span * 0.04, 1e-6)
-    edge &= solid | np.roll(solid, 1, axis=0) | np.roll(solid, -1, axis=0) | np.roll(solid, 1, axis=1) | np.roll(solid, -1, axis=1)
-    holes = dropped if dropped is not None else np.zeros_like(solid)
-    edge &= ~(holes | np.roll(holes, 1, 0) | np.roll(holes, -1, 0) | np.roll(holes, 1, 1) | np.roll(holes, -1, 1))
-    grown = edge.copy()
-    for _ in range(width - 1):
-        grown = grown | np.roll(grown, 1, 0) | np.roll(grown, -1, 0) | np.roll(grown, 1, 1) | np.roll(grown, -1, 1)
-    grown &= ~holes
-    out = image.copy()
-    if colors is not None:
-        near, col_map = d.copy(), colors.copy()
-        for _ in range(width):
-            for axis, step in ((0, 1), (0, -1), (1, 1), (1, -1)):
-                nd, nc = np.roll(near, step, axis), np.roll(col_map, step, axis)
-                closer = nd < near
-                near, col_map = np.where(closer, nd, near), np.where(closer[..., None], nc, col_map)
-        out[grown, :3] = col_map[grown]
-    else:
-        out[grown, :3] = np.array([int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5)])
-    out[grown, 3] = 1.0
-    return out
 
 
 def silhouette(corners: Array, view: View, size: int, fit: tuple[Array, float]) -> Array:
