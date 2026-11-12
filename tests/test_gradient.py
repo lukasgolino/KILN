@@ -179,7 +179,7 @@ def test_a_long_phase_keeps_saying_so(monkeypatch: pytest.MonkeyPatch, capsys: p
         phase("reducing to 100 triangles")
         time.sleep(0.75)
     time.sleep(0.3)  # nothing after the build ended
-    lines = capsys.readouterr().err.splitlines()
+    lines = [line for line in capsys.readouterr().err.splitlines() if "built in" not in line]  # (the build's summary line, #186)
     assert len(lines) >= 2 and all(line.startswith("kiln: thing: reducing to 100 triangles (") for line in lines)
 
 
