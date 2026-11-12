@@ -8,6 +8,11 @@ before 1.0).
 
 ### Fixed
 
+- Colour borders along blends zigzagged at lower budgets (a sawtooth on a sleeve's edge from about 1200 triangles
+  down): thinning a border to the budget left its vertices either side of it. Each vertex where two plain colours meet
+  now goes back onto the exact border after reducing (along the surface, at most half an edge). And a decal that wraps
+  round a side ended on whole triangles (a stepped edge): it is cut along where the surface turns away too. Meshes
+  with colour borders or decals change a little; cached builds are rebuilt once (#191).
 - The built-in walk on a humanoid (`skeleton: humanoid`) moved only the hips: its legs and arms default to
   upperleg/upperarm now, its knees and elbows bend (knees fold while the leg swings forward), its feet stay level,
   and the body rides so the planted foot stays on the ground. Listing `legs:` / `arms:` keeps the humanoid defaults

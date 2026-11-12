@@ -557,6 +557,19 @@ def _border_planes(pat: Pattern, points: Array, geometry: Geometry | None = None
     return [plane(c) for c in levels]
 
 
+DECAL_FACING = 0.25  # a decal stops where the surface turns this far from its way (cos of ~75 degrees)
+
+
+def _vertex_normals(vertices: Array, faces: Array) -> Array:
+    """Area-weighted vertex normals (unit; 0 for unused vertices)."""
+    tri = vertices[faces]
+    n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    acc = np.zeros_like(vertices, dtype=np.float64)
+    for k in range(3):
+        np.add.at(acc, faces[:, k], n)
+    return np.asarray(acc / np.maximum(np.linalg.norm(acc, axis=1, keepdims=True), 1e-12))
+
+
 def paint(painted: Regions, model: Model) -> Painted:
     """Decals on top of the paint groups (cut after decimation: their borders are straight)."""
     vertices, faces, owner = painted.mesh.vertices, painted.mesh.faces, painted.owner
@@ -579,12 +592,16 @@ def paint(painted: Regions, model: Model) -> Painted:
             values = uv[:, column] - bound if bound == 0.0 else bound - uv[:, column]
             vertices, faces, _, parent = split(vertices, faces, values, sel)
             owner, face_decal = owner[parent], face_decal[parent]
+        # and along where the surface turns past DECAL_FACING from the decal's way (#191: a decal wrapping round a side
+        # ended on whole triangles, a stepped edge): smooth vertex normals give a clean line
+        sel = np.isin(owner, list(own))
+        vertices, faces, _, parent = split(vertices, faces, _vertex_normals(vertices, faces) @ facing - DECAL_FACING, sel)
+        owner, face_decal = owner[parent], face_decal[parent]
         centroid = vertices[faces].mean(axis=1)
         uvc = decal_uv(d, centroid)
-        normal = np.cross(vertices[faces[:, 1]] - vertices[faces[:, 0]], vertices[faces[:, 2]] - vertices[faces[:, 0]])
-        normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
+        turned = (_vertex_normals(vertices, faces) @ facing - DECAL_FACING)[faces].mean(axis=1)
         depth = np.abs((centroid - np.array(d.at)) @ facing)
-        inside = (uvc >= 0).all(axis=1) & (uvc <= 1).all(axis=1) & (normal @ facing > 0.25) & (depth < max(d.size))
+        inside = (uvc >= 0).all(axis=1) & (uvc <= 1).all(axis=1) & (turned > 0) & (depth < max(d.size))
         mark = inside & np.isin(owner, list(own)) & (face_decal < 0)
         face_decal[mark] = len(decals)
         decals.append(d)

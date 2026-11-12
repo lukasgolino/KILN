@@ -13,6 +13,7 @@ import math
 import os
 import pickle
 import traceback
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 23  # bump when meshing/painting changes output
+BUILDER_VERSION = 24  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -658,6 +659,8 @@ def _decimate(
             mesh, owner, painted = attempt(goal)
             if len(painted.faces) <= target * 1.05 or goal <= target * 0.3:
                 break  # or the extra triangles come from patterns and borders themselves (lint W110 says so)
+    if not model.draft:
+        _snap_borders(painted, model, fields, region_piece, cut, edge * 0.5)
     normals = np.zeros((len(painted.faces), 3, 3))
     hidden: list[int] = []
     lost: list[int] = []
@@ -671,6 +674,64 @@ def _decimate(
         hidden += [i for i, a in zip(include, full, strict=True) if a == 0]
         lost += [i for i, a, b in zip(include, full, final, strict=True) if a > 0 and b < a * LOST_AREA]
     return painted, normals, tuple(sorted(hidden)), tuple(sorted(lost))
+
+
+def _snap_borders(painted: Painted, model: Model, fields: list[Field], region_piece: Array, cut: Regions, reach: float) -> None:
+    """Colour borders between two plain paint groups back onto the exact border (#191): thinning the borders to the
+    budget leaves their vertices up to a fraction of an edge either side of it, so a coarse border zigzags. Each
+    vertex where exactly two groups meet walks along the surface to where the groups' distances are equal (a few
+    Newton steps on their difference, smooth shapes as paint uses, then back onto the surface), at most `reach`. Pattern and
+    `under` groups (their borders aren't distance borders) and three-group corners are left as they are."""
+    p = painted
+    groups = len(p.groups)
+    members: dict[int, list[int]] = {}
+    for i, g in cut.part_group.items():
+        members.setdefault(g, []).append(i)
+    skip = set(cut.pattern_groups) | {x for xs in cut.pattern_groups.values() for x in xs}
+    corners = p.faces.reshape(-1)
+    corner_group = np.repeat(p.face_group, 3)
+    lo = np.full(len(p.vertices), groups)
+    hi = np.full(len(p.vertices), -1)
+    np.minimum.at(lo, corners, corner_group)
+    np.maximum.at(hi, corners, corner_group)
+    count = np.zeros((len(p.vertices),), dtype=np.int64)  # how many groups meet: 2 = a plain border vertex
+    pairs = np.unique(np.stack([corners, corner_group], axis=1), axis=0)
+    np.add.at(count, pairs[:, 0], 1)
+    border = np.flatnonzero((count == 2) & (lo < hi))
+    if not len(border):
+        return
+    a, b = lo[border], hi[border]
+    ok = np.array([int(x) in members and int(y) in members and int(x) not in skip and int(y) not in skip
+                   and region_piece[x] == region_piece[y] for x, y in zip(a, b, strict=True)], dtype=bool)  # fmt: skip
+    border, a, b = border[ok], a[ok], b[ok]
+    for piece in np.unique(region_piece[a]) if len(border) else []:
+        sel = region_piece[a] == piece
+        field = fields[int(piece)]
+        owners = Field([replace(g, noise=None) for g in field.parts], field.margin, field.active) if any(g.noise for g in field.parts) else field
+        idx, ga, gb = border[sel], a[sel], b[sel]
+        start = p.vertices[idx].astype(np.float64)
+        q = start.copy()
+
+        def difference(x: Array, ga: Array = ga, gb: Array = gb, owners: Field = owners) -> Array:
+            """Group a's distance minus group b's, on the smooth shapes (noise leaves borders where those meet, #100)."""
+            da, db = np.zeros(len(x)), np.zeros(len(x))
+            for g in np.unique(np.concatenate([ga, gb])):
+                d = np.min([owners.part_distance(i, x) for i in members[int(g)]], axis=0)
+                da = np.where(ga == g, d, da)
+                db = np.where(gb == g, d, db)
+            return da - db
+
+        eps = max(reach * 0.01, 1e-5)
+        for _ in range(4):
+            f = difference(q)
+            grad = np.stack([(difference(q + e) - difference(q - e)) / (2 * eps) for e in np.eye(3) * eps], axis=1)
+            n = field.gradient(q, eps)
+            tangent = grad - (grad * n).sum(axis=1, keepdims=True) * n
+            step = -(f / np.maximum((tangent * tangent).sum(axis=1), 1e-12))[:, None] * tangent
+            q = q + step
+            q = q - field.distance(q)[:, None] * field.gradient(q, eps)  # back onto the surface
+        settled = (np.abs(difference(q)) < np.abs(difference(start))) & (np.linalg.norm(q - start, axis=1) <= reach) & np.isfinite(q).all(axis=1)
+        p.vertices[idx[settled]] = q[settled]
 
 
 def mesh_pieces(model: Model) -> tuple[list[list[int]], int]:
