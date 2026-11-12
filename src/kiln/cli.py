@@ -226,8 +226,10 @@ def cmd_lint(args: argparse.Namespace, out: Output) -> int:
         for f in quick.findings:
             out.say(f.format())
         shown = set(quick.findings)
-        out.say(f"static checks: {len(quick.errors)} errors, {len(quick.warnings)} warnings; now building the meshes for the "
-                f"rest (kiln lint --fast stops here; lint shares its builds with preview and build)")  # fmt: skip
+        failing = {f.path for f in quick.errors}
+        if len(failing) < len(paths):  # (a model with an error isn't built: nothing to say for it)
+            out.say(f"static checks: {len(quick.errors)} errors, {len(quick.warnings)} warnings; now building the meshes for the "
+                    f"rest (kiln lint --fast stops here; lint shares its builds with preview and build)")  # fmt: skip
     result = lint_paths(project, paths, geometry=not args.fast)
     for f in result.findings:
         if f not in shown:
@@ -261,6 +263,8 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
     project = _require_project()
     progress = (lambda s: print(f"kiln: {s}", file=sys.stderr)) if not out.as_json else None
     paths = [_model_path(project, m) for m in args.models] if args.models else None
+    if args.no_dependents and paths is None:
+        raise _usage("--no-dependents goes with models named: kiln build <models> --no-dependents")
     start = _progress_on(out)
     result = build(project, progress=progress, paths=paths, dependents=not args.no_dependents)
     seconds = time.monotonic() - start

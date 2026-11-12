@@ -169,11 +169,14 @@ def unwrap(vertices: Array, faces: Array, size: int) -> tuple[Array, float]:
         if extent(best) <= size or misses == STALLED:
             break
         scale *= SHRINK * min(1.0, size / extent(atlas))  # always down: the packed size is noisy in the density
-        atlas = repacked(scale)
-        if atlas.atlas_count != 1:
+        tried = repacked(scale)
+        if tried.atlas_count != 1:  # (keep the last single atlas: its size sets the next scale)
             misses += 1
             continue
+        atlas = tried
         _, index2, uvs2 = atlas[0]
+        if not np.array_equal(np.asarray(index2), chart_index):  # the faces in order, as the first atlas checks
+            raise ValueError("xatlas reordered the faces; the normal map can't be matched to the mesh")
         if extent(atlas) < extent(best):
             best, best_uvs, misses = atlas, np.asarray(uvs2, dtype=np.float64)[index2], 0
         else:
@@ -303,6 +306,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     layer over the surface, tilting the map by the slope of its height (scaled by `strength` too) and kept per texel
     in `Bake.layers` for the base colour map. `fade` (kiln.fade.Fade): colours fading across part borders, kept in
     the layers too."""
+    if progress is not None:  # the unwrap has its own counter, so the texels' estimate doesn't count it (#300)
+        progress("baking maps: unwrapping", 0, 1)
     uv, fit = unwrap(vertices, faces, size)
     width = height = size
     tan = tangents(vertices, faces, uv, normals)
@@ -322,7 +327,7 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     fades: list[tuple[Array, ...]] = []  # texels near a colour border: (texel, point, face, normal)
     reliefs: list[tuple[Array, ...]] = []  # texels a patch may touch: (texel, point, normal, tangent, up, metres per texel, face)
     owner = np.asarray(face_field)[face]
-    done = 0
+    done, to_do = 0, int((owner >= 0).sum())
     for k, field in enumerate(fields):
         mine = np.flatnonzero(owner == k)
         for s in range(0, len(mine), CHUNK):
@@ -357,13 +362,15 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
             out[texel[rows]] = local
             if progress is not None:
                 done += len(rows)
-                progress("baking maps: texels done", done, int((owner >= 0).sum()))
+                progress("baking maps: texels done", done, to_do)
             if fade is not None:
                 near = fade.touches(centre) & (off <= step)
                 fades.append((texel[rows][near], centre[near], f[near], n[near]))
             if patches is not None and len(patches):
                 near = patches.touches(centre) & (off <= step)
                 reliefs.append((texel[rows][near], centre[near], n[near], t[near], up[near], size_m[near], f[near]))
+    if progress is not None:  # relief, fades and the image after the texels: their own counter, not a stuck N/N (#300)
+        progress("baking maps: relief, colour and image", 0, 1)
     filled = np.zeros(width * height, dtype=bool)
     filled[texel] = True
     layers = None

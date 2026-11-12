@@ -115,9 +115,11 @@ class Phases:
                 self.last = elapsed
                 print(f"kiln: {self.name}: {what} ({elapsed:.0f} s)", file=sys.stderr, flush=True)
 
-    def __call__(self, what: str) -> None:
+    def __call__(self, what: str, name: str | None = None) -> None:
+        """A new phase: `what` for its progress lines, `name` (short) for the summary line (default: `what`)."""
         self._close_phase()
-        self.current = self.phase_name = what
+        self.current = what
+        self.phase_name = name or what
         self.phase_start = time.monotonic()
         self._eta = self._counter = None
         if self.on:
