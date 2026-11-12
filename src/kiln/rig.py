@@ -528,7 +528,7 @@ def expand_cycle(anim: Animation, model: Model, skeleton: Skeleton | None = None
             side = 1.0 if at is not None and at[0] > 0 else -1.0  # +X = the model's left
             fore = child.get(arm) if humanoid or "elbows" in c else None
             if fore is not None and fore in ids and fore in pivot and arm in pivot:  # (#319) upper arm out, forearm up, waving from the elbow
-                def out_angle(a: Array, b: Array) -> float:  # degrees out from hanging straight down, in the front plane
+                def out_angle(a: Array, b: Array, side: float = side) -> float:  # degrees out from hanging down, in the front plane
                     return math.degrees(math.atan2(side * float(b[0] - a[0]), -float(b[1] - a[1])))
 
                 hand = child.get(fore)
