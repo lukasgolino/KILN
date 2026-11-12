@@ -63,7 +63,7 @@ def hard_parts(model: Model, style: Style) -> frozenset[int]:
     out = set()
     for i, p in enumerate(model.parts):
         g = p.geometry
-        if g.op != "add" or g.shape not in HARD_SHAPES or g.twist or g.noise is not None or g.folds is not None or g.scale is not None or g.blend_to is not None or (g.shell and g.shape not in SHELL_SHAPES) \
+        if any(q.type == "pixel" for q in p.patterns) or g.op != "add" or g.shape not in HARD_SHAPES or g.twist or g.noise is not None or g.folds is not None or g.scale is not None or g.blend_to is not None or (g.shell and g.shape not in SHELL_SHAPES) \
                 or g.fit is not None:
             continue
         if p.hard is not None:
