@@ -1847,7 +1847,7 @@ def _fold_unrevealed(data: dict[Any, Any]) -> dict[Any, Any]:
         changed = dict(raw)
         if raw.get("id") in into:
             changed["id"] = into[raw["id"]]
-        if isinstance(raw.get("cut"), str):
+        if isinstance(raw.get("cut"), str | list):  # (cut: [hair, head] too, #209)
             changed["cut"] = ref(raw["cut"])
         if "fit" in raw:
             changed["fit"] = _relined(raw["fit"], {**raw["fit"], "to": ref(raw["fit"].get("to"))}) if isinstance(raw["fit"], dict) else ref(raw["fit"])

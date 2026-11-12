@@ -41,3 +41,18 @@ def test_a_cut_keeps_to_the_parts_it_names(project: Project) -> None:
 def test_unknown_ids_are_named(project: Project) -> None:
     errors = errors_of(project, TRAY.format(cut="[case, nope]"))
     assert any(f.rule == "E003" and "nope" in f.message for f in errors), errors
+
+
+def test_a_cut_reaching_only_what_it_names_keeps_the_shared_surface(project: Project) -> None:
+    from conftest import ok_model
+
+    from kiln.builder import mesh_pieces
+
+    model, _ = ok_model(project, TRAY.format(cut="[case]").replace("[0.7, 0.1, 0.1]", "[0.1, 0.05, 0.1]").replace("at: [0, 0.12, 0]", "at: [-0.2, 0.19, 0]"))
+    pieces, n_main = mesh_pieces(model)
+    assert len(pieces) == n_main == 1  # the cut is inside the case only: nothing to split off
+
+
+def test_folded_ids_in_a_cut_list(project: Project) -> None:
+    text = TRAY.format(cut="[case, lid]") + "rig:\n  lid: { parent: case, fold: true }\n"
+    assert not errors_of(project, text)

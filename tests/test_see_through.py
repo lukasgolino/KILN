@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 from conftest import CONFIG, FAST_STYLE, built_of, make_project, write_model
 
 from kiln.build import build
@@ -64,3 +65,32 @@ def test_atlas_warns_that_glass_is_opaque(tmp_path: Path) -> None:
     path = write_model(project, PANE)
     found = [f for f in lint_paths(project, [path], geometry=False).findings if f.rule == "W131"]
     assert len(found) == 1 and "clear" in found[0].message
+
+
+def test_toon_glass_is_see_through_in_godot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offscreen Godot (KILN_ENGINE_RENDER=1): the toon alpha shader compiles and the red board shows through."""
+    import os
+    import shutil
+
+    from kiln.cli import main
+    from kiln.godot import find_godot_binary
+
+    if os.environ.get("KILN_ENGINE_RENDER") != "1" or find_godot_binary() is None or shutil.which("xvfb-run") is None:
+        pytest.skip("renders offscreen: KILN_ENGINE_RENDER=1, Godot and xvfb")
+    from PIL import Image
+
+    (tmp_path / "project.godot").write_text('config_version=5\n[rendering]\nrenderer/rendering_method="gl_compatibility"\n')
+    monkeypatch.chdir(tmp_path)
+    assert main(["init", "art", "--style", "toon"]) == 0
+    art = tmp_path / "art"
+    (art / "models" / "pane.kiln.yaml").write_text(PANE.replace("name: thing", "name: pane"))
+    monkeypatch.chdir(art)
+    assert main(["build", "pane"]) == 0
+    assert main(["preview", "pane", "--engine", "--views", "front", "--pitch", "0", "--size", "128"]) == 0
+    image = np.asarray(Image.open(art / "previews" / "pane" / "engine.png").convert("RGB")).astype(int)
+    reddish = (image[:, :, 0] > image[:, :, 2] + 40) & (image[:, :, 0] > 100)
+    ys, xs = np.nonzero(reddish)
+    assert len(ys) > 400  # the board round the pane
+    cy, cx = (ys.min() + ys.max()) // 2, (xs.min() + xs.max()) // 2  # the board's middle: behind the pane
+    middle = image[cy - 3 : cy + 4, cx - 3 : cx + 4].reshape(-1, 3).mean(axis=0)
+    assert middle[0] > middle[2] + 20, middle  # red through the blue glass (an opaque pane: blue)
