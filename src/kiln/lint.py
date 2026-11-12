@@ -58,6 +58,7 @@ WARNING_RULES = {
     "W126": "a relief layer has no patches: the parts it is on show no smooth, non-glowing surface",
     "W127": "color_blend fades nothing: the part has no border it blends across with a part of another colour",
     "W128": "a round part got so few triangles that it reads as a polygon (many small parts share one budget)",
+    "W129": "skin_falloff does nothing here (not a soft skin, or a hard, kept, separate or cutting part)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -86,7 +87,7 @@ CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than a
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
 BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127", "W128")  # fmt: skip
+               "W124", "W125", "W126", "W127", "W128", "W129")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -176,6 +177,15 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             raise_to = f"budget: {int(math.ceil(budget * need / 100) * 100)} (now {budget})"
             warn("W128", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is {n} triangles{each}: it reads as a polygon; "
                  f"{more + ', or ' if more else ''}{raise_to}", part.line, part.where)  # fmt: skip
+        for k, part in enumerate(m.parts):
+            if part.skin_falloff is None:
+                continue
+            why = ("the skin isn't soft" if m.skin != "soft" else "it cuts" if part.geometry.op != "add" else "it is hard (exact polygons)"
+                   if k in hard else "it is kept (meshed on its own)" if k in kept else "it is separate (meshed on its own)"
+                   if part.id in separate else "")  # fmt: skip
+            if why:
+                warn("W129", f"skin_falloff does nothing here: {why}, so its surface follows its own bone already or isn't skinned; "
+                     "drop it", part.line, f"{part.where}.skin_falloff")  # fmt: skip
         if m.detail:
             details = m.detail
             lo, hi = built.bounds()

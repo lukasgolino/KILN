@@ -327,11 +327,14 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
         phase("skinning")
         joints, weights = soft_weights(painted.vertices, model, field, skeleton, step, hinted("skin: rigid or fewer parts skins faster"))
         names = [b.name for b in skeleton.bones]
-        falloff = {names.index(p.id): p.skin_falloff for p in model.parts if p.skin_falloff is not None and p.id in names}
-        if falloff:  # skin_falloff: painted surface follows its own bone away from its border (#192)
+        falloff: dict[int, float] = {}  # skin_falloff per bone: the smallest its parts ask for (#192)
+        for part in model.parts:
+            if part.skin_falloff is not None and part.id in names:
+                b = names.index(part.id)
+                falloff[b] = min(falloff.get(b, part.skin_falloff), part.skin_falloff)
+        if falloff:  # skin_falloff: painted surface follows its own bone away from its border
             face_bone = np.array([names.index(g.bone) if g.bone in names else -1 for g in painted.groups])[painted.face_group]
-            joints, weights = own_bone(painted.vertices, painted.faces, face_bone, joints, weights,
-                                       {b: min(f for q in model.parts if q.id == names[b] and (f := q.skin_falloff) is not None) for b in falloff})
+            joints, weights = own_bone(painted.vertices, painted.faces, face_bone, joints, weights, falloff, n_soft)
         if len(painted.vertices) > n_soft:  # hard parts don't bend: each vertex follows its own part's bone
             names = [b.name for b in skeleton.bones]
             bone = np.zeros(len(painted.vertices), dtype=np.int64)

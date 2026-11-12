@@ -53,3 +53,29 @@ def test_notation(project: Project) -> None:
     for bad in ("-0.1", "1", "soft"):
         _, _, findings = load(project, HERO.split("animations:")[0].replace("rig:\n", SLEEVE + f"    skin_falloff: {bad}\n" + "rig:\n", 1))
         assert any((f.where or "").endswith(".skin_falloff") for f in findings), (bad, findings)
+
+
+def test_the_glb_is_valid_and_the_twin_lods_and_lint_follow(project: Project) -> None:
+    from kiln.build import build
+    from kiln.gltf_check import check_glb
+
+    text = HERO.split("animations:")[0].replace("rig:\n", SLEEVE + "    skin_falloff: 0\n" + "rig:\n", 1) + "lod: [300]\n"
+    write_model(project, text)
+    result = build(project)
+    assert not result.errors, result.findings
+    for glb in ("thing.glb", "thing.lod1.glb"):
+        assert check_glb((project.output_dir / "models" / glb).read_bytes()) == [], glb  # unused joints are 0
+    _, built = arm_interior(project, "    skin_falloff: 0\n")
+    p = built.painted  # type: ignore[attr-defined]
+    names = [b.name for b in built.skeleton.bones]  # type: ignore[attr-defined]
+    right = names.index("upperarm_r")
+    bone = np.array([p.groups[g].bone for g in p.face_group])
+    mine = np.zeros(len(p.vertices), dtype=bool)
+    mine[p.faces[bone == "upperarm_r"].reshape(-1)] = True
+    other = np.zeros(len(p.vertices), dtype=bool)
+    other[p.faces[bone != "upperarm_r"].reshape(-1)] = True
+    w = np.where(built.joints == right, built.weights, 0).sum(axis=1)  # type: ignore[attr-defined]
+    assert w[mine & ~other].min() > 0.99  # the mirror twin too
+    rigid = HERO.split("animations:")[0].replace("rig:\n", SLEEVE + "    skin_falloff: 0\n" + "rig:\n", 1) + "skin: rigid\n"
+    findings = lint_paths(project, [write_model(project, rigid)]).findings
+    assert any(f.rule == "W129" for f in findings), findings
