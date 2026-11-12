@@ -54,7 +54,9 @@ def test_emissive_material(project: Project) -> None:
     doc, _ = decoded(built)
     mat = doc["materials"][0]
     assert mat["emissiveFactor"] == pytest.approx(srgb_to_linear("#e8413c"))
-    assert mat["extensions"]["KHR_materials_emissive_strength"]["emissiveStrength"] == 2.0
+    from kiln.export import glow_strength
+
+    assert mat["extensions"]["KHR_materials_emissive_strength"]["emissiveStrength"] == pytest.approx(glow_strength(srgb_to_linear("#e8413c"), 2.0))
     assert doc["extensionsUsed"] == ["KHR_materials_emissive_strength"]
 
 

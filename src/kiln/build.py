@@ -500,7 +500,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             for vname, swap in [("", {}), *sorted(model.variants.items())]:
                 stem = f"{name}.{vname}" if vname else name
                 atlas_files[vname] = {"palette": f"{stem}.palette.png"}
-                write(out / "models" / f"{stem}.palette.png", cells.palette_png(swap))
+                write(out / "models" / f"{stem}.palette.png", cells.palette_png(swap, built.style.materials))
                 if glow > 0:
                     atlas_files[vname]["glow"] = f"{stem}.glow.png"
                     write(out / "models" / f"{stem}.glow.png", cells.glow_png(built, swap))

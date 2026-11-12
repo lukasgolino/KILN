@@ -58,7 +58,7 @@ UNIONS = ("whole", "per_bone")
 CYCLES = ("walk", "waddle", "run", "sneak", "hop", "bob", "spin", "swing", "breathe", "wave", "chain")
 INTERPOLATIONS = ("linear", "step")
 
-PART_FIELDS = {"id", "color", "material", "blend", "color_blend", "density", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
+PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "density", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
                "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr", "on", "folds"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
@@ -681,6 +681,14 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         if not isinstance(material, str) or material not in ctx.materials:
             ctx.error("E005", f"unknown material {material!r}; the style has: {', '.join(sorted(ctx.materials))}", line, f"{where}.material")
             ok = False
+        elif "emission" in raw:  # its own glow strength (#202): the preset with that emission ("glow@0.6")
+            emission = raw["emission"]
+            if not _num(emission) or not 0 <= float(emission) <= 20:
+                ctx.error("E003", "emission is this part's glow strength (0 to 20; its colour x it), over its material preset's, e.g. 0.6",
+                          line, f"{where}.emission")  # fmt: skip
+                ok = False
+            else:
+                material = f"{material}@{float(emission):g}"
         if "pattern" in raw:
             listed = raw["pattern"] if isinstance(raw["pattern"], list) and raw["pattern"] else [raw["pattern"]]
             parsed = [_parse_pattern(ctx, r, line, f"{where}.pattern" + (f"[{k}]" if len(listed) > 1 else "")) for k, r in enumerate(listed)]

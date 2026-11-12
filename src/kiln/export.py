@@ -69,6 +69,16 @@ class Built:
         return np.array([mid[0], lo[1], mid[2]]) if o == "base" else mid
 
 
+GLOW_PEAK = 0.75  # a glowing colour's brightest channel x its strength at most: past it the tone curve clips to white
+GLOW_ALBEDO = 0.3  # a glowing part's lit colour, scaled: the glow carries it
+
+
+def glow_strength(rgb: list[float] | tuple[float, ...], emission: float) -> float:
+    """The emissive strength a colour gets (#202): the preset's, capped so its brightest channel stays under GLOW_PEAK
+    (a pale pink at strength 2 went white in Godot and in previews; capped, it keeps its hue)."""
+    return float(min(emission, GLOW_PEAK / max(max(rgb), 1e-6)))
+
+
 def srgb_to_linear(hex_color: str) -> list[float]:
     out = []
     for i in (1, 3, 5):
@@ -174,7 +184,8 @@ class _Writer:
         if self.b.bake is not None and decal < 0:
             mat["normalTexture"] = {"index": self.normal_map()}
         if preset.emission > 0:
-            strength = preset.emission
+            strength = glow_strength(rgb, preset.emission)
+            pbr["baseColorFactor"] = [*(c * GLOW_ALBEDO for c in rgb), 1.0]
             mat["emissiveFactor"] = rgb
             if strength != 1.0:
                 mat["extensions"] = {"KHR_materials_emissive_strength": {"emissiveStrength": strength}}

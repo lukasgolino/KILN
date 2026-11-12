@@ -198,7 +198,8 @@ def test_glow_rim_and_godot_scenes(tmp_path: Path) -> None:
                                           "glow": "models/thing.night.glow.png", "godot_scene": "res://assets/kiln/models/thing.night.tscn"}  # fmt: skip
     doc, _ = glb(project, "thing")
     mat = doc["materials"][0]
-    assert mat["emissiveFactor"] == [1.0, 1.0, 1.0] and mat["extensions"]["KHR_materials_emissive_strength"]["emissiveStrength"] == 2.0
+    strength = mat["extensions"]["KHR_materials_emissive_strength"]["emissiveStrength"]
+    assert mat["emissiveFactor"] == [1.0, 1.0, 1.0] and 0 < strength < 2.0  # glow 2, capped for the colour's hue (#202)
     assert "COLOR_0" not in prims(doc)[0]["attributes"]  # atlas_ao off
     models = tmp_path / "assets" / "kiln" / "models"
     scene = (models / "thing.tscn").read_text()
