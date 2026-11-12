@@ -93,13 +93,14 @@ class Style:
     max_cells: int = MAX_CELLS  # mesh grid cells per axis at most: big models get coarser cells past this
     scale_with_size: bool = True  # models over 1 m get coarser cells (resolution x sqrt(size)); off: resolution as is
     shade: Shade = Shade()  # [shade]: shade paint baked into the vertex colours (kiln.shade); off by default
+    color_blend: float = 0.0  # [shape]: color_blend for every smooth part that blends and doesn't set its own (#262)
 
     def budget(self, cls: str) -> int:
         return self.budgets.get(cls, self.budgets.get("default", 4000))
 
 
 SHAPE_KEYS = {"smooth": bool, "sharp_angle": float, "resolution": float, "hard_surface": str, "hard_sides": int, "max_cells": int,
-              "scale_with_size": bool}
+              "scale_with_size": bool, "color_blend": float}
 LOOK_TYPES: dict[str, type] = {k: type(v) for k, v in Look().__dict__.items()}
 
 
@@ -189,6 +190,11 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
         bad(f"max_cells is mesh grid cells per axis at most (64-{CELL_LIMIT}), e.g. 512; more is finer on big models, slower", "shape.max_cells")
     if not isinstance(scale_with_size, bool):
         bad("scale_with_size is true (models over 1 m get coarser cells) or false (resolution as is, e.g. for a hero)", "shape.scale_with_size")
+    color_blend = shape.get("color_blend", 0.0)
+    if not isinstance(color_blend, int | float) or isinstance(color_blend, bool) or not 0 <= color_blend <= 0.5:
+        bad("color_blend is metres (0 to 0.5): every smooth part that blends fades its colour that far into its neighbours' unless it "
+            "sets its own, e.g. 0.03", "shape.color_blend")  # fmt: skip
+        color_blend = 0.0
     hard_surface = shape.get("hard_surface", "auto")
     hard_sides = shape.get("hard_sides", 12)
     if hard_surface not in HARD_MODES:
@@ -246,7 +252,7 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
     if any(f.severity == "error" for f in findings):
         return None, findings
     style = Style(name, str(data.get("description", "")), bool(smooth), float(sharp), float(resolution), dict(budgets), materials, look,
-                  str(data.get("notes", "")), path, text, str(hard_surface), int(hard_sides), int(max_cells), bool(scale_with_size), Shade().over(shade_values))  # fmt: skip
+                  str(data.get("notes", "")), path, text, str(hard_surface), int(hard_sides), int(max_cells), bool(scale_with_size), Shade().over(shade_values), float(color_blend))  # fmt: skip
     return style, findings
 
 

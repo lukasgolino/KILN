@@ -26,13 +26,14 @@ themselves must change, `kiln style bump -m "why"`; `kiln status` then flags old
 ```toml
 # styles/sky_pirates.style.toml
 description = "Chunky toy airships, warm sunset light"
-extends = "soft_toy"           # soft_toy | low_poly | toon | clay | diorama | another project style
+extends = "soft_toy"           # soft_toy | low_poly | toon | clay | diorama | skin | another project style
 notes = """Shapes, proportions, colours, materials, lighting in words (agents follow this)."""
 
 [shape]
 smooth = true                  # false = faceted (flat normals)
 sharp_angle = 50               # smooth styles: edges sharper than this stay crisp
 resolution = 0.008             # metres per mesh cell for a ~1 m model (finer = rounder, slower)
+color_blend = 0.0              # metres: every smooth part that blends fades its colour into its neighbours' (a part's own wins)
 max_cells = 256                # mesh cells across a model at most (64-1024): bigger models get coarser cells past it
 scale_with_size = true         # models over 1 m get resolution x sqrt(size); false: resolution as is
 
@@ -98,3 +99,37 @@ Every toon key is off by default (today's plain cel look). Wind Waker / Sable-st
 `outline_space = "pixels"` with `outline = 2` and `outline_color = "darken"`. Previews follow every key except
 `toon_shadows` (the software renderer has no cast shadows; `kiln preview --engine` shows them in Forward+ and Mobile
 projects, and on Compatibility only with `compat_shadows = true`).
+
+## The skin preset: stylised game skins
+
+`default_style = "skin"` (or `extends = "skin"`) turns the painted game-skin look on without setting each option:
+matte materials (no rim, no shine on skin, fur and cloth), `[shape] color_blend = 0.03` (every smooth part that blends
+fades its colour into its neighbours'), `[shade]` on (cavity 0.3, top 0.12, under 0.1), larger budgets, and a soft
+look kit (high ambient, warm sun). Fur goes on as relief, faces get `density`. A worked example (builds in ~25 s):
+
+```yaml
+name: critter
+class: creature
+parts:
+  - ellipsoid: { at: [0, 0.45, 0], radii: [0.28, 0.4, 0.24] }
+    id: body
+    color: fur_brown
+  - ellipsoid: { at: [0, 0.42, 0.14], radii: [0.18, 0.26, 0.13] }
+    id: belly
+    color: fur_light            # fades into the body: the style's color_blend
+    blend: 0.06
+  - sphere: { at: [0, 0.98, 0.02], radius: 0.2 }
+    id: head
+    color: fur_brown
+    blend: 0.08
+    density: 2                  # more of the budget on the face
+  - ellipsoid: { at: [0, 0.94, 0.19], radii: [0.09, 0.07, 0.07] }
+    id: snout
+    color: fur_light
+    blend: 0.04
+relief:
+  - { on: [body, head], length: 0.07, width: 0.035, lift: 0.006 }
+```
+
+Eyes, teeth and claws: a crisp seam (no `blend`) keeps them out of the fade, or `color_blend: 0` on the part.
+

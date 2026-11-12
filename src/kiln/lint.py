@@ -207,10 +207,10 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                 if count == 0 and k < len(m.relief):
                     warn("W126", f"relief layer {k + 1} (on {', '.join(m.relief[k].on)}) has no patches: those parts show no smooth surface of "
                          "their own (covered by other parts, hard, glowing or under a decal)")  # fmt: skip
-        if any(part.color_blend > 0 for part in m.parts):
+        if any(part.color_blend > 0 and part.color_blend_set for part in m.parts):  # (a style's default may find nothing to fade)
             lay = built.bake.layers if built.bake is not None else None
             if lay is None or lay.mix is None or not (lay.mix > 0).any():
-                first = next(part for part in m.parts if part.color_blend > 0)
+                first = next(part for part in m.parts if part.color_blend > 0 and part.color_blend_set)
                 warn("W127", "color_blend fades nothing here (and still bakes the maps): a fade needs a neighbour of another colour that "
                      "the part joins with a blend (not a crisp seam, a hard or glowing part, or a decal)", first.line, f"{first.where}.color_blend")  # fmt: skip
         if built.asked_step and built.step > built.asked_step * CAPPED:

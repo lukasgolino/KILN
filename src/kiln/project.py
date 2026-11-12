@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from kiln.atlas import AO_STRENGTH
-from kiln.notation import MODEL_SUFFIX, NAME_RE, Model, load_model
+from kiln.notation import MODEL_SUFFIX, NAME_RE, Model, apply_style, load_model
 from kiln.style import Style, load_style, resolve_look
 from kiln.vendor.findings import Finding, PaganError, has_errors
 from kiln.vendor.palette import PALETTE_SUFFIX, load_palette_file
@@ -114,6 +114,8 @@ class Project:
         if lf:
             return None, None, findings
         model, mf = load_model(path, palette, set(style.materials))
+        if model is not None:
+            apply_style(model, style.color_blend)
         if model is not None and model.animation_library is not None:
             mf += self._library(model)
         return model, style, findings + mf

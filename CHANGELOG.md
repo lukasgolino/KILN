@@ -22,6 +22,11 @@ before 1.0).
 
 ### Added
 
+- The `skin` style preset: stylised game skins with matte materials, colours that fade where parts blend, shade paint
+  (darker crevices and undersides) and a soft look kit; fur as relief and face `density` in its notes and worked
+  example (`kiln docs styles`) (#233).
+- `[shape] color_blend` in a style: every smooth part that blends (and doesn't set its own) fades its colour that far
+  into its neighbours'; the baked colour map comes on for such models. W127 only for a part's own color_blend (#262).
 - `skin_falloff` on a part (soft skins): the surface painted as its bone follows that bone alone away from its colour
   border (`0`), or fades over to it within that many metres; the border stays blended. A sleeve blended into the
   chest no longer smears down the torso when the arm moves. Without it, weights are as before. Lint W129 when it

@@ -84,7 +84,7 @@ def test_a_look_only_style_edit_keeps_the_built_mesh(project: Project, monkeypat
     assert roughness(again) == [0.9] * len(before) and before != roughness(again)  # the export uses today's materials
     json.dumps(builder.shape_key(model, plain))  # the key is plain data
     values = {"smooth": "false", "sharp_angle": "20", "resolution": "0.02", "hard_surface": '"always"', "hard_sides": "8", "max_cells": "128",
-              "scale_with_size": "false"}  # fmt: skip
+              "scale_with_size": "false", "color_blend": "0.03"}  # fmt: skip
     assert set(values) == set(SHAPE_KEYS)
     for key, value in values.items():
         other = with_style(f"[shape]\n{key} = {value}\n")

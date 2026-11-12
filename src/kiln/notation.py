@@ -147,6 +147,7 @@ class Part:
     texture: Decal | None = None  # an image tiled over the whole part (project box | cylindrical), under its decal
     detail: bool = False  # only in the baked normal map (grooves, wrinkles, strands), never in the mesh
     color_blend: float = 0.0  # metres: its colour fades into its neighbours' over this distance from their border (base colour map)
+    color_blend_set: bool = False  # the part gave color_blend itself (else the style's [shape] color_blend may apply)
     density: float = 1.0  # weight on the triangle budget in its surface (3: three times the triangles per area of the rest)
     on: OnSurface | None = None  # placed on the blended surface of earlier parts (resolved once all parts are read)
     skin_falloff: float | None = None  # soft skins: metres over which other bones pull on this part's surface (#192)
@@ -772,7 +773,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
-                   "texture": texture, "color_blend": float(color_blend), "density": float(density), "on": on,
+                   "texture": texture, "color_blend": float(color_blend), "color_blend_set": "color_blend" in raw, "density": float(density), "on": on,
                    "skin_falloff": None if skin_falloff is None else float(skin_falloff)}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
@@ -1040,6 +1041,19 @@ def _soft_colours(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
     if model.source is not None:
         return
     if not model.normal_map:
+        model.normal_map = RELIEF_MAP
+
+
+def apply_style(model: Model, color_blend: float) -> None:
+    """A style's [shape] color_blend (#262): every smooth adding part that blends and doesn't set its own fades that far;
+    the baked maps come on when one does (as for a part's own color_blend)."""
+    if color_blend <= 0 or model.source is not None:
+        return
+    for p in model.parts:
+        g = p.geometry
+        if not p.color_blend_set and g.op == "add" and g.blend > 0 and not p.hard and not p.crisp and not p.detail:
+            p.color_blend = color_blend
+    if any(p.color_blend > 0 for p in model.parts) and not model.normal_map:
         model.normal_map = RELIEF_MAP
 
 
