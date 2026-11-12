@@ -16,6 +16,7 @@ You check your work by LOOKING at the previews. This page is the core. Everythin
 | `setup` | a new project, what to ask the owner, `kiln.toml` and the layout |
 | `making` | the full model loop and the model file; fur (`relief:` layers, never clump parts), soft colour borders (`color_blend`) |
 | `parts` | every shape and part field (read before writing parts) |
+| `surfaces` | hard surfaces, hardware (rivets, bands, planks, garments), patterns, decals, textures |
 | `rigs`, `animations`, `humanoids`, `templates` | characters: rigs, skins, cycles, CC0 clips, the template library |
 | `styles` | presets, inspirations, the look kit |
 | `build` | glb, Godot scenes, look kits, colour modes, the manifest, what to report |
