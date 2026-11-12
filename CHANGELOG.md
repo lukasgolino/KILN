@@ -23,6 +23,9 @@ before 1.0).
 
 ### Performance
 
+- A colour-only edit reuses the cached build, recoloured: part, pattern, relief and palette colours, as long as the
+  same parts share colours (the paint borders don't move). A 2.4 m hero's colour tweak goes from a full rebuild
+  (about 2.5 min) to seconds (#246).
 - Normal and colour maps bake about 45% faster (a 2.4 m relief-furred hero with 2048 maps: 285 -> 156 s for the
   whole build): a texel is supersampled only where the surface turns away from the mesh (elsewhere its own normal is
   as good; the map changes by 0.006 degrees on average), the charts are packed again without being cut again when

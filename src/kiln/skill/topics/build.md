@@ -155,7 +155,9 @@ What grows with the model:
   so a big scene costs like a small model unless you force fine cells on it.
 
 What stays cheap after the first build: an edit of animations, variants, description or comments, or of the
-style's `[look]` and `[materials]`, reuses the built meshes (seconds). While shapes are still moving,
+style's `[look]` and `[materials]`, reuses the built meshes (seconds). So does a colour edit that keeps which parts
+share a colour (a part, pattern, relief or palette colour changed to one no other part has): the meshes, paint
+borders and baked maps are reused, recoloured. Two parts that now share a colour (or no longer do) build again. While shapes are still moving,
 `kiln preview <model> --draft` shows a slow model in seconds (above). `kiln lint --fast` checks the text without
 building.
 

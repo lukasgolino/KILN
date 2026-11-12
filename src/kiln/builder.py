@@ -12,6 +12,7 @@ import json
 import math
 import os
 import pickle
+import re
 import traceback
 from dataclasses import replace
 from pathlib import Path
@@ -870,6 +871,45 @@ def cached(model: Model, style: Style, palette: dict[str, str], cache_dir: Path 
     return cache_dir is not None and _cache_file(model, style, palette, cache_dir, budget).is_file()
 
 
+COLOR_VALUE = re.compile(r'(\bcolor(?:_to)?"?\s*:\s*)("[^"]*"|\'[^\']*\'|#[0-9a-fA-F]{6}|[A-Za-z0-9_-]+)')  # (YAML or the JSON of shape_text)
+
+
+def color_labels(model: Model, palette: dict[str, str]) -> tuple[str, list[str]]:
+    """The model's shape text with every colour value as a label (the first colour met is c0, ...; one label per
+    colour, whatever name or key it was written with), and each label's colour (hex). Two builds with the same
+    labelled text have the same meshes, the same paint borders and the same relief: only colours differ (#246)."""
+    text = model.shape_text or model.text
+    labels: list[str] = []
+
+    def label(m: re.Match[str]) -> str:
+        raw = m.group(2).strip("'\"")
+        hx = raw.lower() if raw.startswith("#") else palette.get(raw)
+        if hx is None:
+            return m.group(0)  # not a colour (an error elsewhere): left as written
+        if hx not in labels:
+            labels.append(hx)
+        return f"{m.group(1)}c{labels.index(hx)}"
+
+    return COLOR_VALUE.sub(label, text), labels
+
+
+def _recolored(built: Built, old: list[str], new: list[str], palette: dict[str, str]) -> Built:
+    """A cached build with its colours moved from `old` to `new` (label for label): paint groups and relief colours."""
+    to = dict(zip(old, new, strict=True))
+    names = {hx: name for name, hx in palette.items() if len(name) > 1}
+    groups = []
+    for g in built.painted.groups:
+        hx = to.get(g.color, g.color)
+        base, sep, rest = g.color_name.partition("#")
+        name = names.get(hx, hx) if hx != g.color else base  # (a literal hex is its own name, as parsed)
+        groups.append(replace(g, color=hx, color_name=name + sep + rest))
+    built.painted = replace(built.painted, groups=groups)
+    if built.bake is not None and built.bake.layers is not None:
+        lay = built.bake.layers
+        lay.colors = [(to.get(a, a) if a else a, to.get(b, b) if b else b) for a, b in lay.colors]
+    return built
+
+
 def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir: Path | None, budget: int | None = None) -> Built:
     if cache_dir is None:
         return build_model(model, style, budget, palette)
@@ -877,6 +917,10 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
     prefix = f"{model.name}.{budget or 'base'}."
     path = cache_dir / f"{prefix}{key}.pickle"
     cached_build: Built | None = None
+    if not path.is_file():  # a colour-only edit: the last build with the same shapes and paint borders, recoloured (#246)
+        recolored = _from_colour_twin(model, style, palette, cache_dir, budget, prefix)
+        if recolored is not None:
+            _store(recolored, path)
     if path.is_file():
         try:
             with path.open("rb") as fh:
@@ -904,6 +948,46 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
     for old in cache_dir.glob(f"{prefix}*.pickle"):
         old.unlink(missing_ok=True)
     _store(built, path)
+    _note_colour_twin(model, style, palette, cache_dir, budget, prefix, key)
+    return built
+
+
+def _twin_key(model: Model, style: Style, palette: dict[str, str], budget: int | None) -> tuple[str, list[str]]:
+    """cache_key without colour values (labels instead) and without the palette, and the labels' colours."""
+    text, labels = color_labels(model, palette)
+    shape = model.shape_text
+    try:
+        model.shape_text = text
+        key = cache_key(model, style, {}, budget)
+    finally:
+        model.shape_text = shape
+    return key, labels
+
+
+def _note_colour_twin(model: Model, style: Style, palette: dict[str, str], cache_dir: Path, budget: int | None, prefix: str, key: str) -> None:
+    if model.source is not None or not model.shape_text:
+        return
+    twin, labels = _twin_key(model, style, palette, budget)
+    (cache_dir / f"{prefix}colours.json").write_text(json.dumps({"twin": twin, "key": key, "labels": labels}))
+
+
+def _from_colour_twin(model: Model, style: Style, palette: dict[str, str], cache_dir: Path, budget: int | None, prefix: str) -> Built | None:
+    note = cache_dir / f"{prefix}colours.json"
+    if model.source is not None or not model.shape_text or not note.is_file():
+        return None
+    try:
+        last = json.loads(note.read_text())
+        twin, labels = _twin_key(model, style, palette, budget)
+        if last.get("twin") != twin or len(last.get("labels", [])) != len(labels):
+            return None
+        with (cache_dir / f"{prefix}{last['key']}.pickle").open("rb") as fh:
+            loaded = pickle.load(fh)  # noqa: S301 - our own cache file
+    except (OSError, ValueError, KeyError, pickle.UnpicklingError, EOFError, AttributeError, TypeError):
+        return None
+    if not isinstance(loaded, Built):
+        return None
+    built = _recolored(loaded, last["labels"], labels, palette)
+    note.write_text(json.dumps({"twin": twin, "key": cache_key(model, style, palette, budget), "labels": labels}))
     return built
 
 
