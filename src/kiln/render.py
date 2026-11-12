@@ -110,6 +110,7 @@ def render(
     hide: frozenset[str] = frozenset(),
     fade: Array | None = None,
     colors: Array | None = None,
+    fill: float = 0.0,
 ) -> Image.Image:
     """One view. `fit` = (centre, half-extent in metres) to frame several renders the same way; default: the
     model's own bounding sphere. `hide`: bones (part ids) left out, e.g. a detached helmet. `revealed` parts (stump caps)
@@ -230,6 +231,8 @@ def render(
             spec_col = np.where(metal[:, None] > 0.5, albedo, 1.0)
             rim_term = rim[:, None] * np.power(1 - np.clip(n @ view_dir, 0, 1), 3)[:, None] * sky
             color = diffuse + spec[:, None] * spec_col * sun_col + rim_term
+        if fill > 0:  # previews only (#180): a neutral light from the camera, so faces turned away from sun and sky read
+            color = color + albedo * fill * np.clip(n @ -forward, 0, None)[:, None]
         color = color + lit_albedo * emit[:, None]
         if look.rim_light > 0:  # the style's added fresnel rim (Godot: a next pass on every material)
             fres = np.power(1 - np.clip(n @ -forward, 0, 1), look.rim_light_power)

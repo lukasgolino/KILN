@@ -49,6 +49,9 @@ before 1.0).
 
 ### Added
 
+- Preview framing and light: `--tight` (each tile on what it shows), `--frame-box` (a region), `--fill` (a neutral
+  light from the camera, previews only), `--bg auto|light|dark` (auto: dark for dark-sky styles), `kiln lineup
+  --pitch`; `--closeup NUMBER` documented (a part's place in `parts:`) (#180, #203, #212).
 - `cut: [ids]`: a cut names the parts it cuts. Those parts are meshed as their own surface, so the cut keeps to
   them in one model too (before, `cut: <id>` only held for separate or fitted parts: elsewhere it cut everything
   before it) (#209).
