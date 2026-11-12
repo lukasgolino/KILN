@@ -17,6 +17,18 @@ CONFIG_NAME = "kiln.toml"
 EXPORTS = ("glb", "godot")
 
 
+
+class PaletteLookup(dict[str, str]):
+    """A palette's colour names and keys -> hex, with its ramps (name -> hexes, shadow to highlight): variants swap
+    whole ramps (#205)."""
+
+    ramps: dict[str, tuple[str, ...]]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.ramps = {}
+
+
 @dataclass
 class Config:
     default_style: str = "soft_toy"
@@ -86,11 +98,12 @@ class Project:
             else:
                 try:
                     pal = load_palette_file(path)
-                    lookup: dict[str, str] = {}
+                    lookup = PaletteLookup()
                     for c in pal.colors.values():
                         lookup[c.key] = c.hex
                         if c.name:
                             lookup[c.name] = c.hex
+                    lookup.ramps = {name: tuple(pal.colors[k].hex for k in keys) for name, keys in pal.ramps.items()}
                     self._palettes[key] = (lookup, [])
                 except PaganError as exc:
                     self._palettes[key] = ({}, [_key_hint(f) for f in exc.findings])

@@ -59,6 +59,7 @@ WARNING_RULES = {
     "W127": "color_blend fades nothing: the part has no border it blends across with a part of another colour",
     "W128": "a round part got so few triangles that it reads as a polygon (many small parts share one budget)",
     "W129": "skin_falloff does nothing here (not a soft skin, or a hard, kept, separate or cutting part)",
+    "W130": "a variant leaves a colour as it is that goes with one it swaps (same ramp, or close in hue): a seam in the old colour",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -456,6 +457,7 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                 keep.append(Finding("W107", f"made under style_version {model.style_version}; the project is at {project.config.style_version}: "
                                     "check it still fits, then `kiln mark <model> --current`", path, None, "style_version"))  # fmt: skip
             palette, _ = project.palette(model.palette)
+            keep += variant_warnings(model, palette)
         loaded.append((path, model, style, palette, keep))
     names = {p.name.split(".")[0] for p in project.model_paths()}
     for path, model, _, _, keep in loaded:  # an effect's emitters are other models in the project
@@ -497,6 +499,67 @@ def lint_project(project: Project, geometry: bool = True) -> LintResult:
 
 FEW_TRIANGLES = 48  # a round part's visible surface with fewer reads as a polygon (a sphere: about 8 sides)
 MOSTLY_SHOWN = 0.5  # ... when at least this much of its own surface shows (a pupil inside an eye needs few)
+
+
+KIN_HUE = 15.0  # degrees: an unswapped colour this close in hue to a swapped one (both coloured) goes with it
+KIN_CHROMA = 0.04  # OKLab chroma below which a colour is a grey (no hue to match)
+
+
+def variant_warnings(model: Model, palette: dict[str, str], only: str | None = None) -> list[Finding]:
+    """W130 (#205): colours the model paints that a variant leaves as they are, though they go with a colour it swaps:
+    the same palette ramp (robe and robe_dark), or close in hue. A missed shade gives a seam in the old colour."""
+    from kiln.vendor.color import hex_to_rgb, rgb_to_oklab
+
+    used: list[str] = []
+    for part in model.parts:
+        if part.geometry.op != "add":
+            continue
+        for c in (part.color, *(pat.color for pat in part.patterns if pat.mix is None)):
+            if c not in used:
+                used.append(c)
+    names: dict[str, str] = {}  # hex -> its colour name (a key only when it has none)
+    for name, hx in palette.items():
+        if hx not in names or len(names[hx]) == 1 < len(name):
+            names[hx] = name
+    ramps: dict[str, tuple[str, ...]] = getattr(palette, "ramps", {})
+
+    def hue(hx: str) -> tuple[float, float]:
+        lab = rgb_to_oklab(hex_to_rgb(hx))
+        return math.hypot(lab[1], lab[2]), math.degrees(math.atan2(lab[2], lab[1]))
+
+    def same_ramp(a: str, c: str) -> str | None:  # a ramp both are in, but not a shade shared by several ramps (outlines)
+        shared = {hx for hx in (a, c) if sum(hx in r for r in ramps.values()) > 1}
+        return None if shared else next((r for r, hexes in ramps.items() if a in hexes and c in hexes), None)
+
+    def close_hue(a: str, c: str) -> bool:
+        (ca, ha), (cc, hc) = hue(a), hue(c)
+        return ca > KIN_CHROMA and cc > KIN_CHROMA and abs((ha - hc + 180) % 360 - 180) < KIN_HUE
+
+    def kin(a: str, b: str) -> bool:
+        return a == b or same_ramp(a, b) is not None or close_hue(a, b)
+
+    out: list[Finding] = []
+    for vname, swap in model.variants.items():
+        if only is not None and vname != only:
+            continue
+        changed = [a for a, b in swap.items() if a in used and not kin(a, b)]  # (to a shade of its own: the hue stays)
+        for c in used:
+            if c in swap:
+                continue
+            why = ""
+            for a in changed:
+                ramp = same_ramp(a, c)
+                if ramp:
+                    why = f"it is in ramp {ramp} with {names.get(a, a)}, which it swaps"
+                    break
+                if close_hue(a, c):
+                    why = f"it is close in hue to {names.get(a, a)}, which it swaps"
+                    break
+            if why:
+                out.append(Finding("W130", f"variant {vname} leaves {names.get(c, c)} as it is, but {why}: swap it too, or swap "
+                                   "whole palette ramps by name (`swap: { robes: golds }`); to keep it, map it to itself "
+                                   f"(`{names.get(c, c)}: {names.get(c, c)}`)", model.path, None, f"variants.{vname}.swap"))  # fmt: skip
+    return out
 
 
 def _round_area(g: Geometry) -> float | None:

@@ -462,6 +462,14 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     swap = built.model.variants.get(args.variant) if args.variant else None
     if args.variant and swap is None:
         raise _usage(f"{name} has no variant {args.variant!r} (variants: {', '.join(built.model.variants) or 'none'})")
+    kin: list[Finding] = []
+    if args.variant:  # colours the variant left that go with ones it swaps (#205)
+        from kiln.lint import variant_warnings
+
+        disabled = set(project.config.lint_disable) | set(built.model.lint_disable)
+        kin = [f for f in variant_warnings(built.model, project.palette(built.model.palette)[0], args.variant) if f.rule not in disabled]
+        for f in kin:
+            out.say(f.format())
     size = args.size if args.size is not None else project.config.preview_size
     if size is not None and not 64 <= size <= 1024:
         raise _usage("--size is the tile size in pixels, 64-1024")
@@ -566,6 +574,7 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     if args.draft:
         _stamp_drafts(outputs)
     out.result({"model": name, "outputs": outputs, "triangles": built.triangles, **({"draft": True} if args.draft else {}),
+                **({"warnings": [f.to_dict() for f in kin]} if kin else {}),
                 **({"compare": metrics} if metrics else {})})  # fmt: skip
     return 0
 

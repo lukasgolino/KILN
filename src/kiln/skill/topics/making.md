@@ -73,7 +73,7 @@ skin: soft                     # none (static) | rigid | soft; default rigid whe
 union: whole                   # rigid skins: whole | per_bone (each bone its own closed surface: joints can't tear)
 animations: {...}              # optional
 variants:                      # optional: recoloured copies (<name>.<variant>.glb, or swap tables: variant_glbs)
-  copilot: { swap: { red: green } }
+  copilot: { swap: { red: green } }   # palette colours; or whole ramps by name, shade for shade: { robes: golds } (colour entries win; a shade in two ramps only when named)
 lint: { disable: [W106] }
 ```
 
