@@ -26,7 +26,7 @@ bands shade round and designed edges stay crisp.
 
 ## Hardware
 
-Written like a shape, each stands for several ordinary parts (hard by default); the part's other fields (colour,
+Written like a shape, each stands for several ordinary parts (hard by default; `hand`, `foot` and `garment` soft); the part's other fields (colour,
 material, id, mirror, ...) go to each.
 
 | hardware | meaning |
@@ -37,6 +37,8 @@ material, id, mirror, ...) go to each.
 | `bolt: { at: [x, y, z], radius: 0.02, length: 0.02 }` | a hex bolt head along y (rotate it) |
 | `slit: { at: [x, y, z], size: [0.3, 0.04, 0.3] }` | a cut: visor and arrow slits |
 | `garment: { fit: [chest, spine], from_y, to_y, hem, openings }` | a fitted layer of clothing round earlier parts, open at the hem and neck (`making` has the full field list and the rigged-character setup) |
+| `hand: { at: [x, y, z], length: 0.2, fingers: 4, curl: 30, spread: 8, nail: 0.02, nail_color: black }` | a soft hand from the wrist: palm, curled tapered fingers, thumb, claws; fingers point -y, palm -x, thumb +z (`rotate`, `mirror`); `width`, `thumb`, `knuckles` |
+| `foot: { at: [x, y, z], length: 0.26, toes: 5, curl: 10, nail: 0 }` | a soft foot whose sole stands on `at` (under the ankle): sole, toes pointing +z, heel; `width`, `spread`, `heel`, `nail_color` |
 
 ## Patterns
 

@@ -128,3 +128,51 @@ def test_flat_faces_take_few_triangles(project: Project) -> None:
     area = np.linalg.norm(n, axis=1)
     flat = np.abs(n / area[:, None]).max(axis=1) > 0.999
     assert area[flat].sum() / area.sum() > 0.6 and flat.sum() < 0.3 * len(f)
+
+
+HAND = """\
+name: thing
+parts:
+  - sphere: { at: [0, 1, 0], radius: 0.2 }
+    color: wood
+  - hand: { at: [0.3, 0.8, 0], length: 0.2, fingers: 4, nail: 0.02, nail_color: black }
+    color: wood
+    mirror: x
+"""
+
+
+def test_hand_expands_to_soft_parts_and_mirrors(project: Project) -> None:
+    model, style = ok_model(project, HAND)
+    # sphere + palm, 4 fingers, thumb, 5 nails (each mirrored)
+    assert len(model.parts) == 1 + 1 + 4 + 1 + 5
+    assert all(not p.hard for p in model.parts[1:])
+    built = build_model(model, style, palette=project.palette(None)[0])
+    xs = built.painted.vertices[:, 0]
+    assert float(xs.min()) < -0.3 and float(xs.max()) > 0.3  # both hands
+    assert colours(built).get("black", 0) > 0  # the nails keep their own colour
+
+
+def test_fingers_hang_down_from_the_wrist(project: Project) -> None:
+    model, _ = ok_model(project, HAND.replace("    mirror: x\n", ""))
+    tubes = [p for p in model.parts if p.geometry.shape == "tube"]
+    assert len(tubes) == 5
+    for t in tubes:
+        pts = np.asarray(t.geometry.params["points"], float)
+        assert pts[-1][1] < 0.8 - 0.05  # below the wrist
+
+
+def test_foot_stands_on_its_at(project: Project) -> None:
+    text = "name: thing\nparts:\n  - foot: { at: [0, 0, 0], length: 0.26, toes: 5 }\n    color: wood\n"
+    model, style = ok_model(project, text)
+    assert len(model.parts) == 1 + 5 + 1  # sole, toes, heel
+    built = build_model(model, style, palette=project.palette(None)[0])
+    v = built.painted.vertices
+    assert abs(float(v[:, 1].min())) < 0.02  # the sole on the ground
+    assert float(v[:, 2].max()) > 0.12  # toes point +z
+
+
+def test_hand_and_foot_errors(project: Project) -> None:
+    base = "name: thing\nparts:\n  - {hw}\n    color: wood\n"
+    for hw in ("hand: { fingers: 9 }", "hand: { toes: 3 }", "foot: { length: -1 }", "foot: { spread: 90 }", "hand: { thumb: 2 }"):
+        errs = errors_of(project, base.replace("{hw}", hw))
+        assert any("E003" in f.format() for f in errs), (hw, [f.format() for f in errs])
