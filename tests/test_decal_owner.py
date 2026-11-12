@@ -63,9 +63,10 @@ parts:
     p = lint_paths(project, [write_model(project, text)]).built["thing"].painted
     tri = p.vertices[p.faces]
     centre = tri.mean(axis=1)
-    floor = (np.abs(centre[:, 2] - 0.05) < 0.01) & (np.abs(centre[:, 0]) < 0.14) & (np.abs(centre[:, 1] - 0.3) < 0.14)
-    floor &= np.linalg.norm(centre - [0, 0.3, 0.02], axis=1) > 0.08  # (not the sphere)
-    assert floor.any() and (p.face_decal[floor] >= 0).mean() > 0.9
+    floor = (np.abs(centre[:, 2] - 0.05) < 0.01) & (np.abs(centre[:, 0]) < 0.12) & (np.abs(centre[:, 1] - 0.3) < 0.12)  # off the walls
+    floor &= np.linalg.norm(centre - [0, 0.3, 0.02], axis=1) > 0.1  # (and off the sphere)
+    area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2
+    assert floor.any() and area[floor & (p.face_decal >= 0)].sum() > 0.95 * area[floor].sum()  # main: none of it
 
 
 def test_many_parts_sharing_a_gradient_stay_cheap(project: Project) -> None:
