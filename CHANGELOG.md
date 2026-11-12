@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- Named textures: `textures: { print: {...} }` at the top of a model, `texture: print` on each part; and
+  `project: triplanar` (box UVs in the glb; KILN's Godot scenes and the previews blend the three projections, so no
+  seam at a sleeve's side) (#320).
 - `kiln library <name>` prints a template's YAML; toy-proportioned templates `body_toy` and `head_toy` for
   soft_toy characters (#188).
 - Garments: `collar: { style: band | open, height, depth, lapel }` (an open collar cuts a V and lays lapels on the

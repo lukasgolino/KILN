@@ -418,7 +418,7 @@ def corner_uv(d: Decal, corners: Array) -> Array:
     normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
     dominant = np.argmax(np.abs(normal), axis=1)
     sign = np.where(normal[np.arange(len(normal)), dominant] >= 0, 1.0, -1.0)
-    if d.project == "box":
+    if d.project in ("box", "triplanar"):  # (triplanar: box UVs in the glb; KILN's Godot scenes and previews blend three)
         return _box_uv(d, rel.reshape(-1, 3), np.repeat(dominant, 3), np.repeat(sign, 3)).reshape(-1, 3, 2)
     a = "xyz".index(d.axis)
     b, c = (a + 1) % 3, (a + 2) % 3

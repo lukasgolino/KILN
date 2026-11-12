@@ -185,12 +185,15 @@ def render(
                 img = np.asarray(Image.open(d.image).convert("RGBA"), dtype=float) / 255.0
                 if d.project == "planar":
                     uv = decal_uv(d, rest[m]).clip(0, 0.999999)
+                elif d.project == "triplanar":  # (#320) three planar projections blended by the normal, as KILN's Godot scenes do
+                    texel = _triplanar(img, rest[m] - np.array(d.at), n[m], d.size)
                 else:  # textures: the glTF's per-corner coordinates, interpolated as the GPU does; they repeat
                     uv = (corner_uv(d, p.vertices[p.faces[T[m]]]) * bary[m][:, :, None]).sum(axis=1)
                     uv = np.mod(uv, 1.0).clip(0, 0.999999)
-                tx = (uv[:, 0] * img.shape[1]).astype(int)
-                ty = (uv[:, 1] * img.shape[0]).astype(int)
-                texel = img[ty, tx]
+                if d.project != "triplanar":
+                    tx = (uv[:, 0] * img.shape[1]).astype(int)
+                    ty = (uv[:, 1] * img.shape[0]).astype(int)
+                    texel = img[ty, tx]
                 lin = np.array([[c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in row] for row in texel[:, :3]])
                 albedo[m] = albedo[m] * (1 - texel[:, 3:4]) + lin * texel[:, 3:4]
         lit_albedo = albedo  # what glows: Godot's EMISSION doesn't take COLOR, so no occlusion there
@@ -290,6 +293,20 @@ def render(
         image = _bloom(image, glow.reshape(res, res, 3), max(1, int(res * 0.025)))
     out = Image.fromarray((image * 255 + 0.5).astype(np.uint8), "RGBA")
     return out.resize((size, size), Image.Resampling.BOX)
+
+
+def _triplanar(img: Array, pos: Array, normal: Array, size: tuple[float, float]) -> Array:
+    """RGBA per point: the image tiled `size` metres along the three planes, mixed by the normal's share of each axis
+    (to the fourth power: a sharp blend, as Godot's uv1_triplanar_sharpness 4)."""
+    h, w = img.shape[:2]
+    weights = np.abs(normal) ** 4
+    weights /= np.maximum(weights.sum(axis=1, keepdims=True), 1e-12)
+    out = np.zeros((len(pos), img.shape[2]))
+    for axis, (a, b) in enumerate(((2, 1), (0, 2), (0, 1))):  # x: the zy plane, y: xz, z: xy
+        u = np.mod(pos[:, a] / size[0], 1.0)
+        v = np.mod(-pos[:, b] / size[1], 1.0)
+        out += weights[:, axis, None] * img[(v * h).astype(int).clip(0, h - 1), (u * w).astype(int).clip(0, w - 1)]
+    return out
 
 
 def _grade(color: Array, look: Look) -> Array:

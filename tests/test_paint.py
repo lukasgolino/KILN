@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from conftest import built_of, closed_faces, sphere_text
+from conftest import built_of, closed_faces, errors_of, ok_model, sphere_text
 from PIL import Image
 
 from kiln.builder import field_of
@@ -281,3 +281,27 @@ def test_decal_paints_over_a_texture(project: Project) -> None:
             "    texture: { image: textures/tile.png, project: box, size: [0.1, 0.1] }\n")  # fmt: skip
     p = built_of(project, text).painted
     assert p.decals[0].project == "planar" and (p.face_decal == 0).any() and (p.face_decal >= 0).all()
+
+
+def test_named_textures_and_triplanar(project: Project) -> None:
+    """#320: a texture defined once under textures: and used by name on several parts; project: triplanar gives box
+    UVs in the glb, a material name KILN's Godot scenes turn into uv1_triplanar, and a blended preview."""
+    from kiln.builder import build_model
+    from kiln.export import to_glb
+    from kiln.render import View, render
+    from kiln.vendor.gltf import read_glb
+
+    _texture_image(project)
+    text = ("name: thing\ntextures:\n  print: { image: textures/tile.png, project: triplanar, size: [0.1, 0.1] }\nparts:\n"
+            "  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n    texture: print\n"
+            "  - sphere: { at: [0, 0.6, 0], radius: 0.15 }\n    color: red\n    texture: print\n")  # fmt: skip
+    model, style = ok_model(project, text)
+    assert all(p.texture is not None and p.texture.project == "triplanar" for p in model.parts)
+    built = build_model(model, style, palette=project.palette(None)[0])
+    doc, _ = read_glb(to_glb(built, "kiln"))
+    assert any("_tri0.1x0.1#" in m["name"] for m in doc["materials"])
+    image = np.asarray(render(built, View(30.0, 20.0), 96))
+    blue = (image[..., 2] > 150) & (image[..., 0] < 80) & (image[..., 3] > 0)
+    assert blue.sum() > 200  # the print shows in the preview
+    errors = errors_of(project, text.replace("texture: print\n  - sphere", "texture: nope\n  - sphere"))
+    assert any("isn't one of the model's textures" in f.message for f in errors)

@@ -91,7 +91,12 @@ round `axis` through `at` (u = arc length: texels keep their size), caps taken f
 for x, -x for z (it shows unless the circumference is whole tiles). `at`: the part's centre by default. Cylindrical
 can't follow `mirror`/`array` copies: use `mirror_id` or `box`. Tile: `size: [w, h]` metres or `texel:` metres per
 pixel. It repeats; images <= 256 px are crisp (pixel art on smooth shapes). Clear pixels show the part's colour
-(after swaps); its pattern colours paint over it; a `decal` replaces it there.
+(after swaps); its pattern colours paint over it; a `decal` replaces it there. `triplanar`: box UVs in the glb, but
+KILN's Godot scenes (standard looks) and the previews blend the three projections by the surface's facing, so no seam
+shows where box would switch sides (a sleeve's side).
+
+A texture used on several parts is defined once at the top and named: `textures: { print: { image:
+textures/print.png, project: triplanar, texel: 0.004 } }`, then `texture: print` on each part.
 
 ## Cloth folds: `folds`
 

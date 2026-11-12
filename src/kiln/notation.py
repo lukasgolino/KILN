@@ -114,7 +114,7 @@ class Decal:
     axis: str  # x, -x, y, -y, z, -z: the direction the decal faces (it is projected along it)
     at: tuple[float, float, float]
     size: tuple[float, float]  # width, height in metres on the surface (a texture: one tile)
-    project: str = "planar"  # planar: a decal; box, cylindrical: a texture tiled over the whole part
+    project: str = "planar"  # planar: a decal; box, triplanar, cylindrical: a texture tiled over the whole part
     per_copy: bool = False  # on an arrayed part: the decal on every copy, placed as on the first
     copy: tuple[float, ...] | None = None  # a per-copy decal's copy: its rotation (9), pivot (3), offset (3), so points map back
 
@@ -1428,14 +1428,14 @@ TEXTURE_KEYS = ("image", "project", "size", "texel", "at", "axis")
 def _parse_texture(ctx: _Ctx, raw: Any, line: int | None, where: str, part_at: tuple[float, ...] | None = None) -> Decal | None:
     """`texture: { image, project: box | cylindrical, size: [w, h] | texel: m, at, axis }`: an image tiled over the
     whole part (#184): box faces take it from the side they face, cylindrical wraps it round `axis` through `at`."""
-    form = ("texture is { image: textures/x.png, project: box | cylindrical, size: [w, h] (metres per tile) or texel: m (per pixel), "
+    form = ("texture is { image: textures/x.png, project: box | triplanar | cylindrical, size: [w, h] (metres per tile) or texel: m (per pixel), "
             "at: [x, y, z] (default: the part's centre), axis: x|y|z (cylindrical) }")
     if not isinstance(raw, dict) or not isinstance(raw.get("image"), str) or [k for k in raw if k not in TEXTURE_KEYS]:
         ctx.error("E003", form, line, where)
         return None
     project, axis = raw.get("project", "box"), raw.get("axis", "y")
     at = _vec(raw["at"]) if "at" in raw else (part_at or (0.0, 0.0, 0.0))  # default: the part's own centre
-    if project not in ("box", "cylindrical") or axis not in ("x", "y", "z") or at is None or ("size" in raw) == ("texel" in raw):
+    if project not in ("box", "cylindrical", "triplanar") or axis not in ("x", "y", "z") or at is None or ("size" in raw) == ("texel" in raw):
         ctx.error("E003", form + "; give size or texel, not both", line, where)
         return None
     base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()

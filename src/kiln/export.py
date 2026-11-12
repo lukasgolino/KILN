@@ -200,6 +200,9 @@ class _Writer:
             pbr["baseColorFactor"] = [1.0, 1.0, 1.0, 1.0]
             pbr["baseColorTexture"] = {"index": self.texture(decal, color)}
             mat["name"] += f"_decal{decal}"
+            d = self.b.painted.decals[decal]
+            if d.project == "triplanar":  # KILN's Godot scenes blend three projections (uv1_triplanar) at this tile size
+                mat["name"] += f"_tri{d.size[0]:.6g}x{d.size[1]:.6g}"
         elif self.mapped and color_name == MAPPED:
             pbr["baseColorTexture"] = {"index": self.color_map()}
         mat["name"] += color

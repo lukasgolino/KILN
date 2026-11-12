@@ -102,6 +102,11 @@ func _ready() -> void:
 \t\t\telse:
 \t\t\t\tvar standard := source.duplicate() as BaseMaterial3D
 \t\t\t\tstandard.albedo_color = albedo
+\t\t\t\tvar tri := source.resource_name.get_slice("#", 0).get_slice("_decal", 1).get_slice("_tri", 1)
+\t\t\t\tif tri != "":  # a triplanar texture (#320): three projections blended, a tile w x h metres
+\t\t\t\t\tstandard.uv1_triplanar = true
+\t\t\t\t\tstandard.uv1_triplanar_sharpness = 4.0
+\t\t\t\t\tstandard.uv1_scale = Vector3(1.0 / tri.get_slice("x", 0).to_float(), 1.0 / tri.get_slice("x", 1).to_float(), 1.0 / tri.get_slice("x", 0).to_float())
 \t\t\t\tif mesh_instance.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_COLOR:
 \t\t\t\t\tstandard.vertex_color_use_as_albedo = true  # vertex_colors = true: glTF colours are linear
 \t\t\t\tif source.emission_enabled and swap.has(hex):
