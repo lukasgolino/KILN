@@ -66,12 +66,12 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `scale: [1, 1, 0.4]` | stretch the shape in its own frame (or one number); soft parts only |
 | `noise: { amount: 0.01, scale: 0.2, seed: 3 }` | lumpy surface (rocks, bark, clay): amount in metres, scale = bump size. Colour borders with other parts follow the smooth shapes, so a patch on a noisy part keeps a clean edge |
 | `folds: { count: 12, depth: 0.02, from_y, to_y }` | cloth folds round the part's own axis, deepest at the hem (`making`) |
-| `pattern: {...}` | a second colour painted on the part (below) |
+| `pattern: {...}` | a second colour painted on the part (`kiln docs surfaces`) |
 | `gradient: { to: fur_light, steps: 3 }` | the part's colour going to `to` in `steps` bands (2-16, default 3), mixed in OKLab; `from:` replaces the part's colour at the start. `along: path` (the default for tube, capsule and lock: first point to last) or `x`/`y`/`z` (the default for other shapes: across the shape's own box, low to high). Patterns paint over it; variants recolour the mixed bands from the swapped ends |
-| `decal: {...}` | an image on the part (below) |
-| `texture: {...}` | an image tiled over the whole part, box or cylindrical projection, crisp when small (below) |
+| `decal: {...}` | an image on the part (`kiln docs surfaces`) |
+| `texture: {...}` | an image tiled over the whole part, box or cylindrical projection, crisp when small (`kiln docs surfaces`) |
 | `loose: true` | this part may float free (flames, bees, sparks, rubble): W103 doesn't count it |
-| `blend: none` | a hard part, joined crisply (below) |
+| `blend: none` | a hard part, joined crisply (`kiln docs surfaces`) |
 | `hard: true` / `false` | make this part hard (exact polygons) or smooth, whatever the style says |
 | `chamfer: 0.02` | hard parts: one flat band cut along every edge (box, wedge, cylinder, cone, extrude) |
 | `bevel: 0.02` | hard parts: rounded edges in `segments: 1-4` flat bands (default 2); where an extrude outline is thinner than about twice the bevel (font serifs, hairlines) it flattens there to fit |

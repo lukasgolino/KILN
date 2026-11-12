@@ -1,7 +1,6 @@
 # Surfaces
 
-Hard surfaces (exact polygons), hardware parts (rivets, bands, planks, bolts, slits, garments), patterns, decals and
-textures.
+Hard surfaces (exact polygons), hardware (rivets, bands, planks, bolts, slits, garments), patterns, decals, textures.
 
 ## Hard surface
 
