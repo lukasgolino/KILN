@@ -137,8 +137,9 @@ def render(
     # back-face culling (meshes are closed)
     area = (sx[:, 1] - sx[:, 0]) * (sy[:, 2] - sy[:, 0]) - (sx[:, 2] - sx[:, 0]) * (sy[:, 1] - sy[:, 0])
     front = area < 0
-    if hide:
-        front &= ~np.array([built.painted.groups[g].bone in hide for g in built.painted.face_group], dtype=bool)
+    hidden = np.array([built.painted.groups[g].bone in hide for g in built.painted.face_group], dtype=bool) if hide else None
+    if hidden is not None:
+        front &= ~hidden
     tri = np.flatnonzero(front)
     best_depth, best_tri, best_bary, dropped = _raster(sx, sy, sz, tri, res, fade)
     hit = best_tri >= 0
@@ -231,15 +232,10 @@ def render(
             color = color + np.array(srgb_to_linear(look.rim_light_color)) * (look.rim_light * fres)[:, None]
         if look.glow and (emit > 0).any():
             glow[hit] = lit_albedo * emit[:, None] * look.exposure
-        color = color * look.exposure
-        color = _filmic(color) if look.tonemapper != "linear" else color
-        lum = (color * np.array([0.2126, 0.7152, 0.0722])).sum(axis=1, keepdims=True)
-        color = lum + (color - lum) * look.saturation
-        color = (color - 0.18) * look.contrast + 0.18
-        rgba[hit, :3] = _to_srgb(color)
+        rgba[hit, :3] = _to_srgb(_grade(color, look))
         rgba[hit, 3] = 1.0
     image = rgba.reshape(res, res, 4)
-    if look.outline > 0:  # the inverted hull, as Godot draws it (#183): back faces pushed out along their normals, drawn where nearer
+    if look.outline > 0 and colors is None:  # (terrains: Godot draws them no outline) the inverted hull, as Godot draws it (#183): back faces pushed out along their normals, drawn where nearer
         if look.outline_space == "pixels":  # pushed out on screen, a constant width in output pixels
             away = np.stack([normals @ right, -(normals @ up)], axis=-1)
             away /= np.maximum(np.linalg.norm(away, axis=-1, keepdims=True), 1e-9)
@@ -248,23 +244,33 @@ def render(
             moved = rel + normals * look.outline
             hx, hy, hz = (moved @ right) * scale + res / 2, res / 2 - (moved @ up) * scale, moved @ forward
         back = (hx[:, 1] - hx[:, 0]) * (hy[:, 2] - hy[:, 0]) - (hx[:, 2] - hx[:, 0]) * (hy[:, 1] - hy[:, 0]) > 0
-        if hide:
-            back &= ~np.array([built.painted.groups[g].bone in hide for g in built.painted.face_group], dtype=bool)
+        if hidden is not None:
+            back &= ~hidden
         hull_depth, hull_tri, _, _ = _raster(hx, hy, hz, np.flatnonzero(back), res, fade)  # dithered as its face
         holes = (dropped < best_depth).reshape(res, res)  # dither holes: a faded piece isn't outlined around every hole
         holes = holes | np.roll(holes, 1, 0) | np.roll(holes, -1, 0) | np.roll(holes, 1, 1) | np.roll(holes, -1, 1)
         drawn = (hull_tri >= 0) & (hull_depth < best_depth) & ~holes.reshape(-1)
         flat = image.reshape(-1, 4)
-        if look.outline_color == "darken":  # each part's own colour, darkened (linear, as the Godot outline shader)
+        if look.outline_color == "darken":  # each part's flat colour, darkened (Godot also multiplies in vertex colours and colour maps: #292)
             table = np.array([srgb_to_linear(swap.get(gr.color, gr.color)) for gr in built.painted.groups]) * TOON_DARKEN
-            flat[drawn, :3] = _to_srgb(table[built.painted.face_group[hull_tri[drawn]]])
+            flat[drawn, :3] = _to_srgb(_grade(table[built.painted.face_group[hull_tri[drawn]]], look))
         else:
-            flat[drawn, :3] = np.array([int(look.outline_color[i : i + 2], 16) / 255 for i in (1, 3, 5)])
+            flat[drawn, :3] = _to_srgb(_grade(np.array([srgb_to_linear(look.outline_color)]), look))
         flat[drawn, 3] = 1.0
     if glow.any():
         image = _bloom(image, glow.reshape(res, res, 3), max(1, int(res * 0.025)))
     out = Image.fromarray((image * 255 + 0.5).astype(np.uint8), "RGBA")
     return out.resize((size, size), Image.Resampling.BOX)
+
+
+def _grade(color: Array, look: Look) -> Array:
+    """Linear colours (N, 3) through the look's exposure, tone curve, saturation and contrast, as Godot's
+    environment does to everything drawn (the unshaded outline too)."""
+    color = color * look.exposure
+    color = _filmic(color) if look.tonemapper != "linear" else color
+    lum = (color * np.array([0.2126, 0.7152, 0.0722])).sum(axis=1, keepdims=True)
+    color = lum + (color - lum) * look.saturation
+    return (color - 0.18) * look.contrast + 0.18
 
 
 def _raster(sx: Array, sy: Array, sz: Array, tri: Array, res: int, fade: Array | None = None) -> tuple[Array, Array, Array, Array]:
