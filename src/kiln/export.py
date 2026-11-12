@@ -44,6 +44,7 @@ class Built:
     asked_step: float = 0.0  # the mesh step the style or model asked for; above it, the grid cap decided `step` (lint W120)
     step_reason: str = ""  # why `step` is what it is, in words (kiln lint / build print it)
     ao: Array | None = None  # (F, 3) per corner: shade paint / baked occlusion (kiln.shade) the previews multiply in, as the engine does
+    corner_fade: Any = None  # colour fades without the maps (#262): per corner (F x 3) group toward, weight, second group, weight
     bake: Any = None  # kiln.bake.Bake: the normal map with its UVs and tangents (model normal_map)
     motion_key: str = ""  # what `tracks` were made from (builder.motion_key): a cached build re-samples them when it changes
     relief_patches: Any = None  # kiln.relief.Patches scattered on this (full) build: its LODs stamp the same ones (#261)
@@ -78,6 +79,23 @@ def glow_strength(rgb: list[float] | tuple[float, ...], emission: float) -> floa
     """The emissive strength a colour gets (#202): the preset's, capped so its brightest channel stays under GLOW_PEAK
     (a pale pink at strength 2 went white in Godot and in previews; capped, it keeps its hue)."""
     return float(min(emission, GLOW_PEAK / max(max(rgb), 1e-6)))
+
+
+def fade_colors(built: Built, swap: dict[str, str] | None = None) -> Array | None:
+    """Linear colours (F, 3, 3) per face corner with `built.corner_fade` mixed in, in OKLab as the base colour map
+    mixes them (a variant's `swap` applied first). None: the model has no per-vertex fades."""
+    if built.corner_fade is None:
+        return None
+    from kiln.bake import _from_oklab, _oklab
+
+    swap = swap or {}
+    p = built.painted
+    table = np.array([srgb_to_linear(swap.get(g.color, g.color)) for g in p.groups])
+    lab = _oklab(table)
+    o1, w1, o2, w2 = built.corner_fade
+    own = lab[np.repeat(p.face_group, 3)]
+    mixed = own * (1 - w1 - w2)[:, None] + lab[o1] * w1[:, None] + lab[o2] * w2[:, None]
+    return np.asarray(_from_oklab(mixed).reshape(len(p.faces), 3, 3))
 
 
 def srgb_to_linear(hex_color: str) -> list[float]:
@@ -155,6 +173,7 @@ class _Writer:
 
         strength = atlas.ao if atlas is not None else ao
         self.ao: Array | None = shading(built, strength)  # shade paint and/or atlas_ao: a multiplier per vertex in COLOR_0
+        self.fades = fade_colors(built, swap) if self.vertex_colors else None  # (F, 3, 3): colour fades in COLOR_0 (#262)
         self.normal_texture: int | None = None
         self.normal_uri = normal_uri  # the normal map as a file next to the glb (shared by variants), else embedded
         self.doc = Document(generator)
@@ -341,6 +360,9 @@ class _Writer:
             ao_col = rows.shape[1]
             if self.ao is not None:  # the shade multiplier per corner (it only differs where the normal does: no new splits)
                 rows = np.concatenate([rows, self.ao[sel].reshape(-1, 1)], axis=1)
+            fade_col = rows.shape[1]
+            if self.fades is not None and self.vertex_colors and self.atlas is None and key[1] == "vertex":  # colour fades per corner (#262)
+                rows = np.concatenate([rows, np.round(self.fades[sel].reshape(-1, 3), 6)], axis=1)
             attr_col = rows.shape[1]
             for name in self.face_attr:  # and attributes along part borders
                 rows = np.concatenate([rows, np.repeat(self.face_attr[name][sel], 3)[:, None]], axis=1)
@@ -356,6 +378,8 @@ class _Writer:
             color = None  # COLOR_0 (written later, with alpha, when the model has attr:)
             if self.vertex_colors and self.atlas is None:  # every surface carries its colours (glow ones keep their own material too)
                 color = np.array([srgb_to_linear(palette[int(c)]) for c in unique[:, 4]], dtype=np.float32)
+                if attr_col > fade_col:  # faded corners carry their own mixed colour
+                    color = unique[:, fade_col:attr_col].astype(np.float32)
                 if not self.face_attr:
                     attributes["COLOR_0"] = self.doc.accessor(color, target=ARRAY_BUFFER)
             shared = self.atlas is not None and key[3] < 0

@@ -58,17 +58,31 @@ def test_the_mix_runs_straight_through_the_border_and_ends_at_the_reach() -> Non
     xs = np.array([0.0, 0.025, 0.05, 0.1, 0.2])
     points = np.stack([xs, np.zeros_like(xs), np.zeros_like(xs)], axis=1)
     ups = np.tile(up, (len(xs), 1))
-    other, weight = fade.mix(points, np.zeros(len(xs), dtype=np.int64), ups)
+    other, weight, _, _ = fade.mix(points, np.zeros(len(xs), dtype=np.int64), ups)
     assert weight[0] == 0.5 and (np.diff(weight) <= 0).all() and weight[3] == 0 and weight[4] == 0
     assert 0.2 < weight[1] < 0.35 and (other[:3] == 1).all()
-    back, w2 = fade.mix(-points, np.ones(len(xs), dtype=np.int64), ups)  # the other side fades toward the first group
+    back, w2, _, _ = fade.mix(-points, np.ones(len(xs), dtype=np.int64), ups)  # the other side fades toward the first group
     assert (back[:3] == 0).all() and np.allclose(w2, weight)
-    _, none = fade.mix(points, np.full(len(xs), 2), ups)  # a third part passing near the border: untouched
+    _, none, _, _ = fade.mix(points, np.full(len(xs), 2), ups)  # a third part passing near the border: untouched
     assert (none == 0).all()
-    _, far_side = fade.mix(points, np.zeros(len(xs), dtype=np.int64), -ups)  # the back of a thin part: untouched
+    _, far_side, _, _ = fade.mix(points, np.zeros(len(xs), dtype=np.int64), -ups)  # the back of a thin part: untouched
     assert (far_side == 0).all()
     assert fade.touches(points)[:4].all() and len(fade.ends) == 20  # a 2 m edge with a 0.1 m reach: 20 pieces, none missed
     assert not fade.touches(np.array([[0.5, 0.0, 0.0]]))[0]
+
+
+def test_three_colours_meet_as_equals_at_a_corner() -> None:
+    """Part 0 (group 0) meets part 1 (group 1) along x = 0 and part 2 (group 2) along y = 0: near the corner, part 0's
+    surface fades toward both, not toward whichever border is a hair nearer."""
+    up = np.array([0.0, 0.0, 1.0])
+    edges = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]], [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]])
+    fade = Fade(edges, np.array([[0, 1], [0, 2]]), np.array([[0, 1], [0, 2]]), np.tile(up, (2, 1)), np.array([0.1, 0.1]), np.array([0, 1, 2]))
+    pts = np.array([[0.01, 0.0101, 0.0], [0.0101, 0.01, 0.0], [0.0, 0.0, 0.0], [0.02, 0.5, 0.0]])
+    o1, w1, o2, w2 = fade.mix(pts, np.zeros(len(pts), dtype=np.int64), np.tile(up, (len(pts), 1)))
+    assert {int(o1[0]), int(o2[0])} == {1, 2} and {int(o1[1]), int(o2[1])} == {1, 2}
+    assert abs(w1[0] - w1[1]) < 1e-3 and abs(w2[0] - w2[1]) < 1e-3  # no flip across the bisector
+    assert np.isclose(w1[2] + w2[2], 2 / 3) and np.isclose(w1[2], w2[2])  # all three at a third at the corner
+    assert w2[3] == 0 and o1[3] == 1  # away from the corner: one border only
 
 
 def colours(png: bytes) -> np.ndarray:
@@ -166,3 +180,40 @@ def test_under_fur_the_fade_goes_toward_the_fur_colour(project: Project, tmp_pat
 
     # the body is blue fur: the belly's fade must not pull the bare wood colour through it
     assert woody(MODEL, tmp_path / "a") <= woody(MODEL.replace("    color_blend: 0.08\n", ""), tmp_path / "b") + 0.002
+
+
+def test_normal_map_0_fades_in_the_vertex_colours(tmp_path: Path) -> None:
+    """#262: `normal_map: 0` keeps the maps off; the fade goes per vertex (COLOR_0) in a vertex_colors project, and the
+    preview shows the same mixed colours."""
+    from conftest import CONFIG
+
+    proj = make_project(tmp_path, CONFIG + "vertex_colors = true\n")
+    text = MODEL.replace("normal_map: 256\n", "normal_map: 0\n")
+    model, _, findings = load(proj, text)
+    assert model is not None and model.normal_map == 0 and model.vertex_fades, findings
+    write_model(proj, text + "variants:\n  other: { swap: { gold: blue } }\n")
+    result = build(proj)
+    assert not result.errors, result.findings
+    built = lint_paths(proj, [proj.models_dir / "thing.kiln.yaml"]).built["thing"]
+    assert built.bake is None and built.corner_fade is not None
+    _, w1, _, _ = built.corner_fade
+    assert (w1 > 0).sum() > 20 and w1.max() <= 0.5 + 1e-9
+    models = proj.output_dir / "models"
+    assert not (models / "thing.color.png").exists()
+    doc, bin_ = read_glb((models / "thing.glb").read_bytes())
+    from kiln.vendor.gltf import read_accessor
+
+    cols = np.concatenate([read_accessor(doc, bin_, prim["attributes"]["COLOR_0"]) for mesh in doc["meshes"] for prim in mesh["primitives"]
+                           if "COLOR_0" in prim["attributes"]])  # fmt: skip
+    from kiln.export import srgb_to_linear
+
+    wood, gold, red = (np.array(srgb_to_linear(c)) for c in ("#a0663a", "#f2c14e", "#e8413c"))
+    pure = np.any([np.abs(cols[:, :3] - c).sum(axis=1) < 0.01 for c in (wood, gold, red)], axis=0)
+    between = cols[~pure, :3]
+    assert len(between) > 20
+    assert ((between >= np.minimum(wood, gold) - 0.03) & (between <= np.maximum(wood, gold) + 0.03)).all(axis=1).mean() > 0.9
+
+
+def test_maps_off_without_vertex_colors_warns(project: Project) -> None:
+    result = lint_paths(project, [write_model(project, MODEL.replace("normal_map: 256\n", "normal_map: 0\n"))])
+    assert "W134" in [f.rule for f in result.findings]

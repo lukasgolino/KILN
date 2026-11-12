@@ -267,6 +267,9 @@ class Model:
     resolution: float | None = None  # metres per mesh cell for this model, as is (not scaled by size); overrides the style
     max_cells: int | None = None  # mesh grid cells per axis at most; overrides the style
     normal_map: int = 0  # texels across the baked normal map (0: none)
+    normal_map_off: bool = False  # the model says normal_map: 0 itself (colour fades then go in the vertices)
+    fade_maps: bool = False  # the maps are on only for colour fades (none with relief or a normal_map of its own)
+    vertex_fades: bool = False  # colour fades per vertex (COLOR_0) instead of in the base colour map (#262)
     normal_strength: float = 1.0  # the map's tilt away from the mesh normal, scaled
     normal_strength_line: int | None = None  # normal_strength given with no map (yet): E003 unless the style brings one
     bake_parts: list[Geometry] | None = None  # every part's geometry in order, `detail` ones too (the normal map's field)
@@ -1174,8 +1177,11 @@ def _soft_colours(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
         return
     if model.source is not None:
         return
-    if not model.normal_map:
+    if model.normal_map_off and not model.relief:  # no maps asked: the fade goes in the vertex colours (#262)
+        model.vertex_fades = True
+    elif not model.normal_map:
         model.normal_map = RELIEF_MAP
+        model.fade_maps = True
 
 
 def apply_style(model: Model, color_blend: float, hard: frozenset[int] = frozenset(), can_bake: bool = True) -> list[Finding]:
@@ -1183,7 +1189,9 @@ def apply_style(model: Model, color_blend: float, hard: frozenset[int] = frozens
     doesn't set its own and isn't made hard (`hard`: builder.hard_parts) fades that far; the baked maps come on when one
     does (as for a part's own color_blend), unless baking isn't installed (`can_bake`: then the default is left off).
     Then a normal_strength with no map is an error."""
-    if color_blend > 0 and model.source is None and can_bake:
+    if not can_bake and model.fade_maps:  # no baking installed: the fades go in the vertex colours instead (#262)
+        model.normal_map, model.fade_maps, model.vertex_fades = 0, False, True
+    if color_blend > 0 and model.source is None and can_bake and not model.normal_map_off:
         for k, p in enumerate(model.parts):
             g = p.geometry
             if p.color_blend_set or g.op != "add" or g.blend <= 0 or p.hard or p.crisp or p.detail or k in hard:
@@ -1193,7 +1201,7 @@ def apply_style(model: Model, color_blend: float, hard: frozenset[int] = frozens
             if any(q.color != p.color for q in earlier):  # a border to fade across (a one-colour model bakes nothing)
                 p.color_blend = color_blend
         if any(p.color_blend > 0 for p in model.parts) and not model.normal_map:
-            model.normal_map = RELIEF_MAP
+            model.normal_map, model.fade_maps = RELIEF_MAP, True
     if model.normal_strength_line is not None and not model.normal_map:
         return [Finding("E003", "normal_strength goes with normal_map (the map it scales)", model.path, model.normal_strength_line or None,
                         "normal_strength")]  # fmt: skip
@@ -1995,6 +2003,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                   "the shapes, not triangles (needs kiln-gen[bake])", _line(data, "normal_map"), "normal_map")  # fmt: skip
     else:
         model.normal_map = int(normal_map)
+        model.normal_map_off = "normal_map" in data and normal_map == 0
     strength = data.get("normal_strength", 1.0)
     if not _num(strength) or not 0 <= float(strength) <= 4:
         ctx.error("E003", "normal_strength scales the baked normal map's tilt: 0 (flat) to 4, 1 as baked (0.5: softer grooves)",

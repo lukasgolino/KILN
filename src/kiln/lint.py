@@ -63,6 +63,7 @@ WARNING_RULES = {
     "W131": "a see-through material (alpha < 1) in an atlas project: the atlas draws every part opaque",
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
     "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
+    "W134": "colour fades go in the vertex colours here (no baked maps), but the project doesn't export vertex colours",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -233,7 +234,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                          "their own (covered by other parts, hard, glowing or under a decal)")  # fmt: skip
         if any(part.color_blend > 0 and part.color_blend_set for part in m.parts):  # (a style's default may find nothing to fade)
             lay = built.bake.layers if built.bake is not None else None
-            if lay is None or lay.mix is None or not (lay.mix > 0).any():
+            if (lay is None or lay.mix is None or not (lay.mix > 0).any()) and built.corner_fade is None:
                 first = next(part for part in m.parts if part.color_blend > 0 and part.color_blend_set)
                 warn("W127", "color_blend fades nothing here (and still bakes the maps): a fade needs a neighbour of another colour that "
                      "the part joins with a blend (not a crisp seam, a hard or glowing part, or a decal)", first.line, f"{first.where}.color_blend")  # fmt: skip
@@ -481,6 +482,13 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                                     "check it still fits, then `kiln mark <model> --current`", path, None, "style_version"))  # fmt: skip
             palette, _ = project.palette(model.palette)
             keep += variant_warnings(model, palette)
+            if model.vertex_fades and not project.config.vertex_colors:  # #262
+                first = next((p for p in model.parts if p.color_blend > 0), None)
+                keep.append(Finding("W134", "color_blend fades per vertex here (the model has no baked maps"
+                                    + (": normal_map: 0" if model.normal_map_off else ": baking isn't installed, pip install \"kiln-gen[bake]\"")
+                                    + "), but the project draws a material per colour (or an atlas), so the borders stay crisp in the glb: "
+                                    "set vertex_colors = true in kiln.toml, or let the model bake its maps", path,
+                                    first.line if first else None, f"{first.where}.color_blend" if first else "parts"))  # fmt: skip
             if project.config.atlas:  # one opaque material per model: glass can't be see-through there (#175)
                 see = sorted({p.material for p in model.parts if p.geometry.op == "add" and style.materials.get(p.material, MaterialPreset()).alpha < 1})
                 if see:

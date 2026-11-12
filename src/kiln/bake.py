@@ -42,11 +42,13 @@ class Layers:
     patches: list[int] = dataclass_field(default_factory=list)  # how many patches each relief entry has
     other: Array | None = None  # uint16: the paint group whose colour the texel fades toward (part color_blend); None: no fades
     mix: Array | None = None  # uint8: 255 x how much of that colour (0..0.5)
+    other2: Array | None = None  # uint16: a third colour's group, near a corner where three meet
+    mix2: Array | None = None  # uint8: 255 x how much of it
 
     def __getstate__(self) -> dict[str, Any]:  # in the mesh cache: mostly runs of one value, so packed (84 MB -> a few at 4096)
         state = dict(self.__dict__)
         for k in PACKED:
-            a = state[k]
+            a = state.get(k)
             if a is not None:
                 state[k] = (a.shape, a.dtype.str, zlib.compress(np.ascontiguousarray(a).tobytes(), 1))
         return state
@@ -60,7 +62,7 @@ class Layers:
 
 
 NO_GROUP = 65535
-PACKED = ("group", "entry", "along", "shade", "other", "mix")  # the per-texel arrays of Layers
+PACKED = ("group", "entry", "along", "shade", "other", "mix", "other2", "mix2")  # the per-texel arrays of Layers
 
 
 @dataclass
@@ -103,7 +105,12 @@ class Bake:
             count = np.maximum(np.bincount(own, minlength=len(table)), 1)[:, None]
             seen = np.stack([np.bincount(own, weights=linear[:, c], minlength=len(table)) for c in range(3)], axis=1) / count
             there = _oklab(seen)[toward]
-            linear[fading] = _from_oklab(_oklab(linear[fading]) * (1 - w[fading, None]) + there * w[fading, None])
+            w2 = lay.mix2[filled][fading] / 255.0 if lay.mix2 is not None and lay.other2 is not None else np.zeros(len(fading))
+            mixed = _oklab(linear[fading]) * (1 - w[fading] - w2)[:, None] + there * w[fading, None]
+            if w2.any():  # a corner where three colours meet
+                toward2 = np.minimum(lay.other2[filled][fading].astype(np.int64), len(table) - 1)  # type: ignore[index]
+                mixed += _oklab(seen)[toward2] * w2[:, None]
+            linear[fading] = _from_oklab(mixed)
         srgb = np.where(linear <= 0.0031308, linear * 12.92, 1.055 * np.maximum(linear, 1e-12) ** (1 / 2.4) - 0.055)
         image = np.zeros((self.size, self.size, 3), dtype=np.uint8)
         image[filled] = np.round(srgb * 255).clip(0, 255).astype(np.uint8)
@@ -379,11 +386,15 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
         if fade is not None:
             layers.other = np.zeros(width * height, dtype=np.uint16)
             layers.mix = np.zeros(width * height, dtype=np.uint8)
+            layers.other2 = np.zeros(width * height, dtype=np.uint16)
+            layers.mix2 = np.zeros(width * height, dtype=np.uint8)
             if fades:
                 tex, point, fface, fnormal = (np.concatenate([r[k] for r in fades]) for k in range(4))
-                toward, weight = fade.mix(point, fface, fnormal)
+                toward, weight, toward2, weight2 = fade.mix(point, fface, fnormal)
                 layers.other[tex] = toward.astype(np.uint16)
                 layers.mix[tex] = np.round(weight * 255).astype(np.uint8)
+                layers.other2[tex] = toward2.astype(np.uint16)
+                layers.mix2[tex] = np.round(weight2 * 255).astype(np.uint8)
         layers = replace(layers, **{k: getattr(layers, k).reshape(height, width) for k in PACKED if getattr(layers, k) is not None})
     image = np.round((out * 0.5 + 0.5) * 255).clip(0, 255).astype(np.uint8).reshape(height, width, 3)
     del out

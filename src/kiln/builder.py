@@ -43,7 +43,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 33  # bump when meshing/painting changes output
+BUILDER_VERSION = 34  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -418,6 +418,8 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
         phase("baking maps")  # (#300: it ran on under the skinning line, which looked stuck on its last part)
         built.bake = bake_normals(model, built, step, [inc for inc in groups_of if inc], kept, size, hinted("a smaller normal_map bakes faster"),
                                   lod=budget is not None)  # fmt: skip
+    elif model.vertex_fades:  # colour fades without the maps: per face corner (COLOR_0)
+        built.corner_fade = vertex_fade(model, built, step, [inc for inc in groups_of if inc], kept)
     return built
 
 
@@ -520,6 +522,72 @@ def _face_axes(model: Model, owner: Array) -> Array:
     return np.asarray(axes[owner])
 
 
+def border_fade(model: Model, built: Built, owner: Array, face_field: Array) -> Any:
+    """The colour borders that fade (#230, part color_blend): a kiln.fade.Fade, or None. `owner`: each face's nearest
+    adding part; `face_field`: its soft piece (-1: hard)."""
+    if not any(part.color_blend > 0 for part in model.parts):
+        return None
+    from kiln.fade import Fade
+
+    p = built.painted
+    hues: dict[str, int] = {}
+    colour = np.array([hues.setdefault(g.color, len(hues)) for g in p.groups])[p.face_group]
+    edges = np.sort(np.concatenate([p.faces[:, [0, 1]], p.faces[:, [1, 2]], p.faces[:, [2, 0]]]), axis=1)
+    face_of = np.tile(np.arange(len(p.faces)), 3)
+    order = np.lexsort((face_of, edges[:, 1], edges[:, 0]))
+    edges, face_of = edges[order], face_of[order]
+    pair = np.flatnonzero((edges[1:] == edges[:-1]).all(axis=1))  # an edge and its twin, next to each other
+    f1, f2 = face_of[pair], face_of[pair + 1]
+    asked = np.array([part.color_blend for part in model.parts])
+    joins = np.array([part.geometry.blend for part in model.parts])
+    crisp = np.array([part.color_blend_set and part.color_blend == 0 for part in model.parts])  # color_blend: 0 said "no fade here"
+    reach = np.where(crisp[owner[f1]] | crisp[owner[f2]], 0.0, np.maximum(asked[owner[f1]], asked[owner[f2]]))  # the wider of the two ...
+    smooth = joins[np.maximum(owner[f1], owner[f2])] > 0  # ... where the later part blends into the earlier (a crisp seam stays crisp)
+    plain = soft_faces(built, face_field)
+    keep = (colour[f1] != colour[f2]) & (owner[f1] != owner[f2]) & (reach > 0) & smooth & plain[f1] & plain[f2]
+    if not keep.any():
+        return None
+    f1, f2 = f1[keep], f2[keep]
+    tri = p.vertices[p.faces]
+    face_normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    face_normal /= np.maximum(np.linalg.norm(face_normal, axis=1, keepdims=True), 1e-18)
+    normal = face_normal[f1] + face_normal[f2]
+    normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-18)
+    return Fade(p.vertices[edges[pair[keep]]], np.stack([p.face_group[f1], p.face_group[f2]], axis=1),
+                np.stack([owner[f1], owner[f2]], axis=1), normal, reach[keep], owner)  # fmt: skip
+
+
+def vertex_fade(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int]) -> Any:
+    """Colour fades per face corner (#262: `normal_map: 0`, or no baking installed): per corner (F x 3) the paint
+    group it fades toward and how much, and a second near a three-colour corner (export.fade_colors mixes them, with a
+    variant's colours). None: nothing fades."""
+    p = built.painted
+    adding = [i for i, q in enumerate(model.parts) if q.geometry.op == "add"]
+    if not adding:
+        return None
+    centres = p.vertices[p.faces].mean(axis=1)
+    owner = np.asarray(adding)[field_of(model, step).nearest(adding, centres)[0]]
+    pieces = [*soft_pieces, *([i] for i in sorted(kept))]
+    piece_of = {i: k for k, inc in enumerate(pieces) for i in inc}
+    face_field = np.array([piece_of.get(int(i), -1) for i in owner], dtype=np.int64)
+    fade = border_fade(model, built, owner, face_field)
+    if fade is None:
+        return None
+    n = len(p.faces) * 3
+    corner_face = np.repeat(np.arange(len(p.faces)), 3)
+    points = p.vertices[p.faces].reshape(-1, 3)
+    normals = np.asarray(built.normals).reshape(-1, 3)
+    normals = normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+    o1, o2 = np.zeros(n, dtype=np.int64), np.zeros(n, dtype=np.int64)
+    w1, w2 = np.zeros(n), np.zeros(n)
+    near = np.flatnonzero(fade.touches(points))
+    if len(near):
+        o1[near], w1[near], o2[near], w2[near] = fade.mix(points[near], corner_face[near], normals[near])
+    if not (w1 > 0).any():
+        return None
+    return o1, w1, o2, w2
+
+
 def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int], size: int,
                  progress: Progress | None = None, lod: bool = False) -> Any:  # fmt: skip
     """The model's normal map. Each face is baked with its own piece's field, as it was meshed (a separate helmet's
@@ -570,34 +638,7 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
             axis = _face_axes(model, owner) if any(layer.flow == "along" for layer in model.relief) else None
             patches = relief.scatter(p.vertices, p.faces, built.normals, on, model.relief, axis)
         built.relief_patches = patches
-    fading = None
-    if adding and any(model.parts[i].color_blend > 0 for i in adding):  # colours that fade across part borders (#230)
-        from kiln.fade import Fade
-
-        hues: dict[str, int] = {}
-        colour = np.array([hues.setdefault(g.color, len(hues)) for g in p.groups])[p.face_group]
-        edges = np.sort(np.concatenate([p.faces[:, [0, 1]], p.faces[:, [1, 2]], p.faces[:, [2, 0]]]), axis=1)
-        face_of = np.tile(np.arange(len(p.faces)), 3)
-        order = np.lexsort((face_of, edges[:, 1], edges[:, 0]))
-        edges, face_of = edges[order], face_of[order]
-        pair = np.flatnonzero((edges[1:] == edges[:-1]).all(axis=1))  # an edge and its twin, next to each other
-        f1, f2 = face_of[pair], face_of[pair + 1]
-        asked = np.array([part.color_blend for part in model.parts])
-        joins = np.array([part.geometry.blend for part in model.parts])
-        crisp = np.array([part.color_blend_set and part.color_blend == 0 for part in model.parts])  # color_blend: 0 said "no fade here"
-        reach = np.where(crisp[owner[f1]] | crisp[owner[f2]], 0.0, np.maximum(asked[owner[f1]], asked[owner[f2]]))  # the wider of the two ...
-        smooth = joins[np.maximum(owner[f1], owner[f2])] > 0  # ... where the later part blends into the earlier (a crisp seam stays crisp)
-        plain = soft_faces(built, face_field)
-        keep = (colour[f1] != colour[f2]) & (owner[f1] != owner[f2]) & (reach > 0) & smooth & plain[f1] & plain[f2]
-        if keep.any():
-            f1, f2 = f1[keep], f2[keep]
-            tri = p.vertices[p.faces]
-            face_normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
-            face_normal /= np.maximum(np.linalg.norm(face_normal, axis=1, keepdims=True), 1e-18)
-            normal = face_normal[f1] + face_normal[f2]
-            normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-18)
-            fading = Fade(p.vertices[edges[pair[keep]]], np.stack([p.face_group[f1], p.face_group[f2]], axis=1),
-                          np.stack([owner[f1], owner[f2]], axis=1), normal, reach[keep], owner)  # fmt: skip
+    fading = border_fade(model, built, owner, face_field) if adding else None
     baked = bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
                       np.array(on) if model.relief else None, fading, progress)  # fmt: skip
     if patches is not None and len(patches) and any(layer.displace for layer in model.relief):

@@ -166,4 +166,7 @@ the fur, a tan chest, a sunburnt nose.
 - Colours mix in OKLab, half and half on the border, toward what the neighbour looks like (its fur, if it has
   relief). A part's own pattern stripes and gradient bands stay crisp.
 - Borders with hard parts, glowing materials and decals stay crisp. Lint W127: a `color_blend` that fades nothing.
-- Where three colours meet, each point fades toward the nearest border only.
+- Where three colours meet, the two others mix in by their own distances: all three meet as equals at the corner.
+- Without the maps (`normal_map: 0` in the model, or `kiln-gen[bake]` not installed) the fade goes per vertex
+  instead, in COLOR_0: set `vertex_colors = true` in kiln.toml (else lint W134: the glb keeps crisp borders). It is
+  as fine as the mesh (a few cells wide), with no fur under it.

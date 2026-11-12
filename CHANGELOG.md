@@ -24,10 +24,15 @@ before 1.0).
   foot (sole standing on `at`, toes, heel) as ordinary parts that blend into the arm or leg (#310).
 - `eye:` hardware: a recessed eye (a socket cut into the face, a ball sunk in it, a thin rim lining the edge, flush
   with the surface, optionally glowing) instead of a torus and a flattened ellipsoid that stand proud (#328).
+- `color_blend` without the baked maps: with `normal_map: 0` (or without `kiln-gen[bake]`) the fade goes in the
+  vertex colours (COLOR_0, `vertex_colors = true`), previews too; lint W134 when the project doesn't export vertex
+  colours (#262).
 - `kiln build <models> --no-dependents`: the models that place them (instances) keep their last build (#343).
 
 ### Fixed
 
+- Where three colours meet, a `color_blend` fade no longer flips its target at the bisector: both other colours
+  mix in by their own distances, a third each at the corner (#262).
 - A paint border across a smooth blend (a bare belly into fur) drew a thin shading line: each side took its own
   normal there, as at a real crease. Sides keep the surface's normal unless they turn more than 15 degrees from it.
   And relief layers that meet (an upper arm's and a forearm's) no longer each fade out toward the other: the fade runs
