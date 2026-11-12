@@ -53,6 +53,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `color_blend` | metres its colour fades into blended neighbours' (`making`) |
 | `density: 3` | weight on the triangle budget (0.25-8, default 1): about 3x the share of the budget it would get, at the same total (a face); 0.5 coarser. Not past its full-resolution mesh; hard and kept parts ignore it |
 | `cut: true` | remove this shape from everything before it (holes, slits, windows, eye sockets) |
+| `cut: [case, lid]` | cuts only the parts with these ids (`cut: lid`: one); those parts are then meshed as their own surface (crisp against the rest), so the pad under a watch case or a tray's screws stay whole |
 | `cut: true` + `color: black` | the walls the cut makes are painted (an inked groove, a clasp's lid line, panel lines; `material:` too); the surface round it keeps its colour. Not in `--draft` |
 | `intersect: true` | keep only what's inside this shape (trim) |
 | `mirror: x` | also on the other side of 0 (x, y, z or a list); same id |

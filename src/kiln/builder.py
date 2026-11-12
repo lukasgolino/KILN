@@ -776,7 +776,19 @@ def mesh_pieces(model: Model) -> tuple[list[list[int]], int]:
     # fitted shells (armour wrapping a body, a gap away) are their own pieces too: meshed with what they wrap, the thin
     # air gap between the two surfaces would tear both
     fitted = sorted({model.parts[i].id for i in adding if model.parts[i].geometry.fit is not None and model.parts[i].id not in separate})
-    own = set(separate) | set(fitted)
+    # parts a cut names (`cut: [case, lid]`, #209) are their own piece: in one shared surface a cut takes from all
+    # the parts before it, whatever it names (cuts naming the same ids share a piece)
+    taken = set(separate) | set(fitted)
+    scoped: list[set[str]] = []
+    for part in model.parts:
+        if part.geometry.op == "cut" and part.cut_only:
+            ids = {n for n in part.cut_only if n not in taken and n != ROOT_ID}
+            for group in [g for g in scoped if g & ids]:
+                scoped.remove(group)
+                ids |= group
+            if ids:
+                scoped.append(ids)
+    own = taken | {n for g in scoped for n in g}
     main = [i for i in adding if model.parts[i].id not in own]
     # union: per_bone (rigid skins): each bone's parts are one closed surface; neighbouring bones' surfaces overlap
     # instead of being cut along where they meet, so turning a joint can't open the mesh (#50)
@@ -785,6 +797,7 @@ def mesh_pieces(model: Model) -> tuple[list[list[int]], int]:
     all_pieces = [[i for i in main if model.parts[i].id == pid] for pid in bones] if per_bone else [main]
     n_main = len(all_pieces)
     all_pieces += [[i for i in adding if model.parts[i].id == pid] for pid in [*separate, *fitted]]
+    all_pieces += [piece for g in sorted(scoped, key=sorted) if (piece := [i for i in adding if model.parts[i].id in g])]
     return all_pieces, n_main
 
 

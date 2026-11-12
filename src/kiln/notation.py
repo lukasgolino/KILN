@@ -151,7 +151,7 @@ class Part:
     bevel: float = 0.0  # hard edges rounded in `segments` bands (a chamfer: one band)
     segments: int = 2
     fit: tuple[tuple[str, ...], float] | None = None  # a shell wrapping the parts with these ids, this far from them
-    cut_only: str | None = None  # a cut that only cuts the parts with this id
+    cut_only: tuple[str, ...] | None = None  # a cut that only cuts the parts with these ids (#209: several)
     blend_to: tuple[str, ...] | None = None  # blends only into the earlier parts with these ids (crisp against the rest)
     texture: Decal | None = None  # an image tiled over the whole part (project box | cylindrical), under its decal
     detail: bool = False  # only in the baked normal map (grooves, wrinkles, strands), never in the mesh
@@ -540,11 +540,13 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     cut_only = None
     for flag in ("cut", "intersect"):
         if flag in raw:
-            if flag == "cut" and isinstance(raw[flag], str) and NAME_RE.match(raw[flag]):
-                cut_only = raw[flag]  # cuts only the parts with this id (a helmet's face opening, not the face)
+            named = [raw[flag]] if isinstance(raw[flag], str) else raw[flag] if isinstance(raw[flag], list) and raw[flag] else None
+            if flag == "cut" and named is not None and all(isinstance(n, str) and NAME_RE.match(n) for n in named):
+                cut_only = tuple(named)  # cuts only the parts with these ids (a helmet's face opening, not the face; a tray's own bins)
                 op = flag if op == "add" else "conflict"
             elif not isinstance(raw[flag], bool):
-                ctx.error("E003", f"{flag} must be true or false" + (" (cut may also name the part id it cuts)" if flag == "cut" else ""), line, f"{where}.{flag}")
+                ctx.error("E003", f"{flag} must be true or false" + (" (cut may also name the part ids it cuts: cut: lid or cut: [case, lid])"
+                                                                     if flag == "cut" else ""), line, f"{where}.{flag}")  # fmt: skip
                 ok = False
             elif raw[flag]:
                 op = flag if op == "add" else "conflict"
@@ -2064,7 +2066,11 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                                                        and not q.detail)  # fmt: skip
             for part in model.parts:
                 if part.cut_only is not None:
-                    part.geometry.cut_only = frozenset(i for i, q in enumerate(model.parts) if q.id == part.cut_only and q.geometry.op == "add")
+                    known = {q.id for q in model.parts if q.geometry.op == "add"}
+                    missing = [n for n in part.cut_only if n not in known]
+                    if missing:
+                        ctx.error("E003", f"cut names {', '.join(missing)}: no part has that id (ids: {', '.join(sorted(known))})", part.line, f"{part.where}.cut")
+                    part.geometry.cut_only = frozenset(i for i, q in enumerate(model.parts) if q.id in part.cut_only and q.geometry.op == "add")
             for part in model.parts:
                 if part.fit is None:
                     continue

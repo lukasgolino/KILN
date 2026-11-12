@@ -29,7 +29,7 @@ def test_it_expands_to_a_fitted_shell_a_hem_and_a_cut(project: Project) -> None:
     assert len(shirt) == 2 and all(p.geometry.shell > 0 and p.geometry.fit is not None for p in shirt)  # the layer and its hem
     assert shirt[1].geometry.shell > shirt[0].geometry.shell  # the hem is thicker
     opening = model.parts[-1]
-    assert opening.geometry.op == "cut" and opening.cut_only == "shirt"
+    assert opening.geometry.op == "cut" and opening.cut_only == ("shirt",)
 
 
 def test_it_builds_a_layer_off_the_body(project: Project) -> None:
@@ -86,7 +86,7 @@ def test_a_shirt_over_trousers_and_a_mirrored_garment(project: Project) -> None:
     mirrored = TORSO.replace("    id: shirt\n", "    id: shirt\n    mirror: x\n    mirror_id: shirt_r\n").replace("at: [0, 1.05, 0.25]", "at: [0.1, 1.05, 0.25]")
     model, _, findings = load(project, mirrored)
     assert model is not None and not [f for f in findings if f.severity == "error"], findings
-    cuts = {p.cut_only: list(p.geometry.at) for p in model.parts if p.geometry.op == "cut"}
+    cuts = {(p.cut_only or ("",))[0]: list(p.geometry.at) for p in model.parts if p.geometry.op == "cut"}
     assert set(cuts) == {"shirt", "shirt_r"} and cuts["shirt"][0] == -cuts["shirt_r"][0]
 
 

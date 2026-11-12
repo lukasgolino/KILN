@@ -49,6 +49,9 @@ before 1.0).
 
 ### Added
 
+- `cut: [ids]`: a cut names the parts it cuts. Those parts are meshed as their own surface, so the cut keeps to
+  them in one model too (before, `cut: <id>` only held for separate or fitted parts: elsewhere it cut everything
+  before it) (#209).
 - A cut can take `color` (and `material`): the walls it makes are painted, smooth and hard parts alike (inked
   grooves, panel lines) (#178).
 - See-through materials: a preset's `alpha` (0.05-1; glTF BLEND, Godot transparency, the toon shader too, kept by
