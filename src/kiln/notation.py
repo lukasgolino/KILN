@@ -101,7 +101,7 @@ class Pattern:
     frame: str = "model"  # model: axes and positions in model space; part: in the part's own frame (follows rotate/aim)
     mix: tuple[str, str, float] | None = None  # a gradient band: (from, to, t): its colour is their OKLab mix (variants remix it)
     offset: tuple[float, float, float] = (0.0, 0.0, 0.0)  # stripes, checker, dots: the repeat shifted by this (metres)
-    jitter: float = 0.0  # dots: each dot moved up to this share of `size` from its grid place (seeded)
+    jitter: float = 0.0  # dots: each dot moved up to jitter/2 of a cell each way from its grid place (seeded)
     vary: float = 0.0  # dots: each dot's size varies by up to this share
     seed: int = 0
 
@@ -689,8 +689,9 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                 if q is None:
                     continue
                 if q.type == "dots":
-                    if seen and isinstance(r, dict) and "offset" not in r:
-                        q = replace(q, offset=(q.size / 2, q.size / 2, q.size / 2))
+                    if seen and isinstance(r, dict) and "offset" not in r:  # each its own place: 1/2, 1/3 ... of a cell along x, y, z
+                        frac = [(seen * a) % 1.0 for a in (0.5, 0.6180339887, 0.3819660113)]
+                        q = replace(q, offset=(q.size * frac[0], q.size * frac[1], q.size * frac[2]))
                     if isinstance(r, dict) and "seed" not in r:
                         q = replace(q, seed=k)
                     seen += 1
@@ -1173,8 +1174,10 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
         problems.append("jitter and vary are 0 to 1: dots moved and sized at random by up to that share")
     elif (jitter or vary) and raw["type"] != "dots":
         problems.append("jitter and vary are for dots")
-    if not isinstance(seed, int) or isinstance(seed, bool):
-        problems.append("seed is a whole number")
+    if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed <= 2**31 - 1:
+        problems.append("seed is a whole number, 0 to 2147483647")
+    if "offset" in raw and raw["type"] == "band":
+        problems.append("offset moves a repeat (stripes, checker, dots); a band is placed by at")
     if problems or c is None:
         if problems:
             ctx.error("E003", "pattern: " + "; ".join(problems), line, where)

@@ -136,8 +136,8 @@ material, id, mirror, ...) go to each.
 - `band`: one band of thickness `size` centred at `at` (one number: metres along `axis`, in model space): belts, trims,
   hat bands. E.g. `{ type: band, color: brown, size: 0.06, at: 0.4, axis: y }`: a belt 0.4 m up.
 - `checker`: checks `size` metres across.
-- `dots`: dots on a grid `size` metres apart, diameter `width` x size; `jitter`, `vary` (0-1) move and size them at
-  random (`seed`); `offset: [x, y, z]` shifts any repeat (a second dots pattern sits half a cell over by itself).
+- `dots`: dots on a grid `size` metres apart, diameter `width` x size; `jitter` (0-1: up to half that of a cell each
+  way) and `vary` (size +-) at random (`seed`); `offset: [x, y, z]` shifts a repeat (a 2nd dots pattern moves itself).
 
 ### Decals
 

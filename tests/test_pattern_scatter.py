@@ -50,9 +50,41 @@ def test_notation(project: Project) -> None:
     model, _, findings = load(project, TWO)
     assert model is not None and not findings, findings
     first, second = model.parts[0].patterns
-    assert first.offset == (0.0, 0.0, 0.0) and second.offset == (0.06, 0.06, 0.06)  # half a cell over by itself
-    for bad in ("jitter: 2", "offset: 0.1", "vary: -1", "seed: 1.5"):
+    assert first.offset == (0.0, 0.0, 0.0) and second.offset[0] == 0.06  # half a cell over by itself
+    for bad in ("jitter: 2", "offset: 0.1", "vary: -1", "seed: 1.5", "seed: 99999999999"):
         _, _, findings = load(project, TWO.replace("width: 0.4 }\n", f"width: 0.4, {bad} }}\n", 1))
         assert findings, bad
     _, _, findings = load(project, TWO.replace("{ type: dots, color: wood, size: 0.12, width: 0.4 }", "{ type: stripes, color: wood, size: 0.12, jitter: 0.5 }"))
     assert any("for dots" in f.message for f in findings), findings
+
+
+def test_the_cell_hash_is_fixed_and_unrelated_for_mirrored_cells() -> None:
+    from kiln.paint import _cell_random
+
+    grid = np.stack(np.meshgrid(*[np.arange(-20, 20)] * 3, indexing="ij"), axis=-1).reshape(-1, 3).astype(float)
+    assert len(np.unique(_cell_random(grid, 0)[:, 0])) == len(grid)  # (a cell and its sign-flipped twins used to agree)
+    fixed = _cell_random(np.array([[0.0, 0.0, 0.0], [1.0, -2.0, 3.0]]), 7)
+    assert np.allclose(fixed[:, 0], [0.227156, 0.475906], atol=1e-6)  # every jittered model's dots depend on these numbers
+
+
+def test_three_dots_patterns_all_show(project: Project) -> None:
+    three = TWO.replace("      - { type: dots, color: blue, size: 0.12, width: 0.4 }\n",
+                        "      - { type: dots, color: blue, size: 0.12, width: 0.4 }\n      - { type: dots, color: red, size: 0.12, width: 0.4 }\n")
+    model, _, findings = load(project, three)
+    assert model is not None and not findings, findings
+    offsets = [q.offset for q in model.parts[0].patterns]
+    assert len(set(offsets)) == 3  # each on its own place
+
+
+def test_offset_stripes_on_a_hard_part_are_cut_where_they_change(project: Project) -> None:
+    from kiln.paint import _border_planes
+
+    pat = Pattern("stripes", "#000000", "black", 0.1, (0.0, 1.0, 0.0), 0.5, offset=(0.0, 0.03, 0.0))
+    pts = np.array([[0.0, y, 0.0] for y in np.linspace(0, 0.4, 9)])
+    planes = _border_planes(pat, pts)
+    assert planes is not None
+    level = [float(-plane(np.zeros((1, 3)))[0]) for plane in planes]
+    f = _pattern_fn(pat)
+    assert all(abs(float(f(np.array([[0.0, y, 0.0]]))[0])) < 1e-9 for y in level)  # each cut where the colour changes
+    _, _, findings = load(project, TWO.replace("{ type: dots, color: wood, size: 0.12, width: 0.4 }", "{ type: band, color: wood, size: 0.05, at: 0.3, axis: y, offset: [0, 0.1, 0] }"))
+    assert any("a band is placed by at" in f.message for f in findings), findings

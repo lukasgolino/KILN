@@ -29,9 +29,11 @@ before 1.0).
 
 ### Added
 
-- Patterns: `offset: [x, y, z]` shifts stripes, checks and dots; dots take `jitter` and `vary` (0-1: moved and sized at
-  random, seeded by `seed`) for speckles and scattered spots. A second `dots` pattern in a list sits half a cell over
-  (it fell exactly under the first and never showed) (#194).
+- Patterns: `offset: [x, y, z]` shifts stripes, checks and dots; dots take `jitter` (each dot moved up to half that
+  of a cell each way) and `vary` (its size by up to that share), random per cell from `seed` (default: the pattern's
+  place in the list), for speckles and scattered spots; with `frame: part`, mirror sides and array copies scatter
+  alike. A second, third... `dots` pattern in a list without its own `offset` sits at its own place in the cell (they
+  fell exactly under the first and never showed) (#194).
 - `folds: { count, depth, from_y, to_y, sharp }` on a part: cloth folds round its own y axis, deepest at the hem and
   fading out higher up (robes, skirts, capes), as real shape (#204).
 - `garment` hardware: a layer of clothing fitted to earlier parts (a shell `gap` off their surface between `from_y`
