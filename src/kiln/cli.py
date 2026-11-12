@@ -466,7 +466,8 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     if args.variant:  # colours the variant left that go with ones it swaps (#205)
         from kiln.lint import variant_warnings
 
-        kin = variant_warnings(built.model, project.palette(built.model.palette)[0], args.variant)
+        disabled = set(project.config.lint_disable) | set(built.model.lint_disable)
+        kin = [f for f in variant_warnings(built.model, project.palette(built.model.palette)[0], args.variant) if f.rule not in disabled]
         for f in kin:
             out.say(f.format())
     size = args.size if args.size is not None else project.config.preview_size

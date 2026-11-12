@@ -48,8 +48,9 @@ before 1.0).
 ### Added
 
 - Variants swap whole palette ramps, shade for shade: `swap: { robes: golds }` (the palette's `ramps:`, same length;
-  a colour entry after it overrides one shade). Lint W130 (and `kiln preview --variant`) names colours a variant
-  leaves that go with one it swaps: the same ramp, or close in hue (#205).
+  colour entries win over ramps; a shade two ramps share is swapped only when named). Lint W130 (and
+  `kiln preview --variant`) names colours a variant leaves that go with one it swaps: the same ramp, or close in hue;
+  `skin: skin` keeps one quietly (#205).
 - `emission:` on a part: its own glow strength over its material preset's (#202).
 - Decals: `per_copy: true` on an arrayed part puts the decal on every copy (sharing one texture in the glb), and
   `texel` (metres per image pixel) sizes a decal from its image instead of `size` (#211).

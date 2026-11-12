@@ -527,27 +527,38 @@ def variant_warnings(model: Model, palette: dict[str, str], only: str | None = N
         lab = rgb_to_oklab(hex_to_rgb(hx))
         return math.hypot(lab[1], lab[2]), math.degrees(math.atan2(lab[2], lab[1]))
 
+    def same_ramp(a: str, c: str) -> str | None:  # a ramp both are in, but not a shade shared by several ramps (outlines)
+        shared = {hx for hx in (a, c) if sum(hx in r for r in ramps.values()) > 1}
+        return None if shared else next((r for r, hexes in ramps.items() if a in hexes and c in hexes), None)
+
+    def close_hue(a: str, c: str) -> bool:
+        (ca, ha), (cc, hc) = hue(a), hue(c)
+        return ca > KIN_CHROMA and cc > KIN_CHROMA and abs((ha - hc + 180) % 360 - 180) < KIN_HUE
+
+    def kin(a: str, b: str) -> bool:
+        return a == b or same_ramp(a, b) is not None or close_hue(a, b)
+
     out: list[Finding] = []
     for vname, swap in model.variants.items():
         if only is not None and vname != only:
             continue
-        changed = [a for a, b in swap.items() if a != b and a in used]
+        changed = [a for a, b in swap.items() if a in used and not kin(a, b)]  # (to a shade of its own: the hue stays)
         for c in used:
             if c in swap:
                 continue
             why = ""
             for a in changed:
-                ramp = next((r for r, hexes in ramps.items() if a in hexes and c in hexes), None)
+                ramp = same_ramp(a, c)
                 if ramp:
                     why = f"it is in ramp {ramp} with {names.get(a, a)}, which it swaps"
                     break
-                (ca, ha), (cc, hc) = hue(a), hue(c)
-                if ca > KIN_CHROMA and cc > KIN_CHROMA and abs((ha - hc + 180) % 360 - 180) < KIN_HUE:
+                if close_hue(a, c):
                     why = f"it is close in hue to {names.get(a, a)}, which it swaps"
                     break
             if why:
                 out.append(Finding("W130", f"variant {vname} leaves {names.get(c, c)} as it is, but {why}: swap it too, or swap "
-                                   "whole palette ramps by name (`swap: { robes: golds }`)", model.path, None, f"variants.{vname}.swap"))  # fmt: skip
+                                   "whole palette ramps by name (`swap: { robes: golds }`); to keep it, map it to itself "
+                                   f"(`{names.get(c, c)}: {names.get(c, c)}`)", model.path, None, f"variants.{vname}.swap"))  # fmt: skip
     return out
 
 
