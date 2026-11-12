@@ -24,7 +24,8 @@ before 1.0).
 
 - `skin_falloff` on a part (soft skins): the surface painted as its bone follows that bone alone away from its colour
   border (`0`), or fades over to it within that many metres; the border stays blended. A sleeve blended into the
-  chest no longer smears down the torso when the arm moves. Without it, weights are as before (#192).
+  chest no longer smears down the torso when the arm moves. Without it, weights are as before. Lint W129 when it
+  does nothing (a rigid skin, or a hard, kept, separate or cutting part) (#192).
 - `run` and `sneak` cycles: a faster walk leaning forward, and a crouched walk (thighs forward, knees bent, the body
   lowered and leaning) (#150).
 - `smooth: true` on tubes and locks: a centripetal Catmull-Rom curve through the points (8 straight pieces per span,
