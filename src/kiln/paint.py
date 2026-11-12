@@ -204,19 +204,66 @@ def _pattern_fn(p: Pattern, geometry: Geometry | None = None) -> ScalarFn:
         model_space = _pattern_fn(p)
         return lambda x: model_space(local(geometry, x))
     axis = np.array(p.axis)
+    shift = np.array(p.offset)
     if p.type == "stripes":
-        return lambda x: np.cos(2 * math.pi * (x @ axis) / p.size) - math.cos(math.pi * p.width)
+        return lambda x: np.cos(2 * math.pi * ((x - shift) @ axis) / p.size) - math.cos(math.pi * p.width)
     if p.type == "band":
         return lambda x: p.size / 2 - np.abs(x @ axis - p.at)
     if p.type == "checker":
-        return lambda x: np.prod(np.sin(math.pi * x / p.size + 1e-3), axis=1)
+        return lambda x: np.prod(np.sin(math.pi * (x - shift) / p.size + 1e-3), axis=1)
     radius = p.width * p.size / 2  # dots
 
-    def dots(x: Array) -> Array:
-        q = x / p.size
-        return radius - np.linalg.norm((q - np.round(q)) * p.size, axis=1)
+    if not p.jitter and not p.vary:
 
-    return dots
+        def dots(x: Array) -> Array:
+            q = (x - shift) / p.size
+            return radius - np.linalg.norm((q - np.round(q)) * p.size, axis=1)
+
+        return dots
+
+    reach = p.jitter / 2 + radius * (1 + p.vary) / p.size  # grid units: how far a dot can reach from its cell's place
+    near = (0, 1) if reach < 1.0 else (-1, 0, 1, 2)  # cells floor(q) .. floor(q) + 1 hold every dot that can reach q
+
+    def scattered(x: Array) -> Array:
+        """Each grid cell's dot moved (up to jitter/2 of a cell each way) and sized (by up to +-vary) at random from a
+        hash of the cell and the seed; every cell whose dot can reach a point is looked at, so a moved dot isn't cut
+        at its cell's edge."""
+        q = (x - shift) / p.size
+        base = np.floor(q)
+        best = np.full(len(x), -np.inf)
+        for dx in near:
+            for dy in near:
+                for dz in near:
+                    cell = base + np.array([dx, dy, dz])
+                    h = _cell_random(cell, p.seed)
+                    centre = cell + (h[:, :3] - 0.5) * p.jitter
+                    r = radius * (1.0 + (h[:, 3] * 2 - 1) * p.vary)
+                    best = np.maximum(best, r - np.linalg.norm((q - centre) * p.size, axis=1))
+        return best
+
+    return scattered
+
+
+def _mix64(z: Array) -> Array:
+    """splitmix64's finaliser on uint64 (wrapping): every input bit reaches every output bit."""
+    z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+    z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+    return np.asarray(z ^ (z >> np.uint64(31)))
+
+
+def _cell_random(cell: Array, seed: int) -> Array:
+    """(N, 4) values in [0, 1) from integer cells and a seed: the same cell and seed always give the same values on
+    every platform, and neighbouring or sign-flipped cells unrelated ones (#194)."""
+    c = cell.astype(np.int64).view(np.uint64)
+    with np.errstate(over="ignore"):
+        h = _mix64(np.full(len(cell), np.uint64(seed), dtype=np.uint64) * np.uint64(0x9E3779B97F4A7C15) + np.uint64(1))
+        for k in range(3):
+            h = _mix64(h ^ c[:, k] + np.uint64(0x9E3779B97F4A7C15) * np.uint64(k + 2))
+        out = np.empty((len(cell), 4))
+        for k in range(4):
+            h = _mix64(h + np.uint64(0x9E3779B97F4A7C15))
+            out[:, k] = (h >> np.uint64(11)).astype(np.float64) / float(1 << 53)
+    return out
 
 
 def _along_fn(p: Pattern, geometry: Geometry) -> ScalarFn:
@@ -545,12 +592,13 @@ def _border_planes(pat: Pattern, points: Array, geometry: Geometry | None = None
     axis = np.array(pat.axis, float)
     if pat.type == "band":
         levels = [pat.at - pat.size / 2, pat.at + pat.size / 2]
-    else:  # cos(2 pi t / size) = cos(pi width): t = size * (n +- width / 2)
-        t = points @ axis
+    else:  # cos(2 pi (t - shift) / size) = cos(pi width): t = shift + size * (n +- width / 2)
+        shift = float(np.array(pat.offset) @ axis)
+        t = points @ axis - shift
         first, last = math.floor(float(t.min()) / pat.size) - 1, math.ceil(float(t.max()) / pat.size) + 1
         if last - first > MAX_STRIPES:
             return None
-        levels = sorted({pat.size * (n + sgn * pat.width / 2) for n in range(first, last + 1) for sgn in (-1, 1)})
+        levels = sorted({shift + pat.size * (n + sgn * pat.width / 2) for n in range(first, last + 1) for sgn in (-1, 1)})
     def plane(c: float) -> Callable[[Array], Array]:
         return lambda x: np.asarray(x @ axis - c)
 
