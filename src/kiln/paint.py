@@ -599,9 +599,18 @@ def paint(painted: Regions, model: Model) -> Painted:
         owner, face_decal = owner[parent], face_decal[parent]
         centroid = vertices[faces].mean(axis=1)
         uvc = decal_uv(d, centroid)
-        turned = (_vertex_normals(vertices, faces) @ facing - DECAL_FACING)[faces].mean(axis=1)
+        vn = _vertex_normals(vertices, faces)
+        turned = (vn @ facing - DECAL_FACING)[faces].mean(axis=1)
+        tri = vertices[faces]
+        normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
+        # on a faceted surface (a hard part's flat sides) vertex normals average across the crisp edges: there the
+        # face's own normal decides, so a side square to the decal never takes its smeared projection
+        corner_mean = vn[faces].mean(axis=1)
+        smooth = (normal * corner_mean).sum(axis=1) > np.cos(np.radians(20)) * np.linalg.norm(corner_mean, axis=1)
+        facing_ok = np.where(smooth, turned > 0, normal @ facing > DECAL_FACING)
         depth = np.abs((centroid - np.array(d.at)) @ facing)
-        inside = (uvc >= 0).all(axis=1) & (uvc <= 1).all(axis=1) & (turned > 0) & (depth < max(d.size))
+        inside = (uvc >= 0).all(axis=1) & (uvc <= 1).all(axis=1) & facing_ok & (depth < max(d.size))
         mark = inside & np.isin(owner, list(own)) & (face_decal < 0)
         face_decal[mark] = len(decals)
         decals.append(d)

@@ -7,6 +7,7 @@ import pytest
 from conftest import write_model
 from PIL import Image
 
+from kiln.builder import field_of
 from kiln.lint import lint_paths
 from kiln.paint import DECAL_FACING
 from kiln.project import Project
@@ -65,15 +66,21 @@ def ring_quality(ring: np.ndarray) -> tuple[float, float]:
 @pytest.mark.parametrize("model", ["sleeve", "tilted"])
 def test_a_sleeve_border_is_a_clean_ring_at_any_budget(project: Project, budget: int, model: str) -> None:
     text = (SLEEVE if model == "sleeve" else TILTED).replace("BUDGET", str(budget))
-    p = lint_paths(project, [write_model(project, text)]).built["thing"].painted
+    built = lint_paths(project, [write_model(project, text)]).built["thing"]
+    p = built.painted
     names = [g.color_name.split("#")[0] for g in p.groups]
     border = border_points(p, names.index("wood"), names.index("blue"))
+    shapes = field_of(built.model, built.step).parts
+    exact = np.abs(shapes[0].distance(border) - shapes[1].distance(border))
+    assert float(exact.max()) < 0.0005, (model, budget, float(exact.max()))  # every border vertex on the exact border
     axis = np.array([0, 1.0, 0]) if model == "sleeve" else np.array([0.24 - 0.12, 0.63 - 0.36, 0.1 - 0.05])
     along = (border - border.mean(axis=0)) @ (axis / np.linalg.norm(axis))
     for ring in (border[along < 0], border[along > 0]):  # the sleeve's lower edge, and its top round the arm
         assert len(ring) >= 6, (model, budget)
         off, turn = ring_quality(ring)
-        assert off < 0.0007 and turn < 75, (model, budget, off, turn)  # flat (on the exact border), no sharp back-and-forth
+        assert turn < 60, (model, budget, turn)  # no sharp back-and-forth
+        if model == "sleeve":
+            assert off < 0.0007, (budget, off)  # coaxial: the exact border is a flat ring
 
 
 def test_a_decal_wrapping_a_side_ends_on_a_clean_line(project: Project) -> None:
@@ -106,3 +113,27 @@ def test_a_decal_edge_follows_its_rectangle(project: Project) -> None:
     xy = p.vertices[inside & outside][:, :2] - [0, 0.3]
     gap = np.abs(np.abs(xy) - 0.15).min(axis=1)  # distance to the nearer side of the 0.3 m square (seen along z)
     assert len(xy) >= 16 and float(gap.max()) < 0.003
+
+
+def test_a_border_cut_across_follows_what_paint_paints(project: Project) -> None:
+    """A cut after the sleeve takes part of its surface away: the border it leaves is where paint puts it."""
+    text = SLEEVE.replace("BUDGET", "900") + "  - torus: { at: [0, 0.45, 0], radius: 0.075, thickness: 0.012 }\n    cut: true\n"
+    built = lint_paths(project, [write_model(project, text)]).built["thing"]
+    p = built.painted
+    names = [g.color_name.split("#")[0] for g in p.groups]
+    border = border_points(p, names.index("wood"), names.index("blue"))
+    shapes = field_of(built.model, built.step).parts
+    sleeve = np.maximum(shapes[1].distance(border), -shapes[2].distance(border))  # the sleeve less the cut, as paint
+    arm = np.maximum(shapes[0].distance(border), -shapes[2].distance(border))
+    assert len(border) >= 6 and float(np.median(np.abs(sleeve - arm))) < 0.0005
+
+
+def test_a_decal_on_a_faceted_part_skips_sides_square_to_it(project: Project) -> None:
+    Image.new("RGBA", (64, 64), (250, 220, 40, 255)).save(project.root / "decals" / "square.png")
+    prism = "name: thing\nparts:\n  - cylinder: { at: [0, 0.3, 0], radius: 0.2, height: 0.4, sides: 8 }\n    color: blue\n    hard: true\n" \
+            "    decal: { image: decals/square.png, axis: z, at: [0, 0.3, 0.2], size: [0.5, 0.2] }\n"
+    p = lint_paths(project, [write_model(project, prism)]).built["thing"].painted
+    tri = p.vertices[p.faces[p.face_decal >= 0]]
+    normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    normal /= np.linalg.norm(normal, axis=1, keepdims=True)
+    assert len(tri) and float((normal @ np.array([0, 0, 1.0])).min()) > DECAL_FACING  # no decal on the sides square to it
