@@ -365,7 +365,8 @@ def _y_onto(d: np.ndarray) -> np.ndarray:
         return np.diag([1.0, -1.0, -1.0])
     v = np.cross(y, d)
     k = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    return np.eye(3) + k + k @ k / (1 + c)
+    out: np.ndarray = np.eye(3) + k + k @ k / (1 + c)
+    return out
 
 
 def _eye(spec: dict[str, Any], rest: dict[str, Any]) -> tuple[list[dict[str, Any]], str | None]:
