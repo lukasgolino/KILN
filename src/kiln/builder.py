@@ -43,7 +43,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 34  # bump when meshing/painting changes output
+BUILDER_VERSION = 35  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -639,8 +639,15 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
             patches = relief.scatter(p.vertices, p.faces, built.normals, on, model.relief, axis)
         built.relief_patches = patches
     fading = border_fade(model, built, owner, face_field) if adding else None
+    occ = None
+    from kiln.shade import effective
+
+    if (patches is not None or fading is not None) and effective(built).cavity > 0:  # shade paint per texel (#266)
+        from kiln.atlas import occlusion
+
+        occ = occlusion(built)
     baked = bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
-                      np.array(on) if model.relief else None, fading, progress)  # fmt: skip
+                      np.array(on) if model.relief else None, fading, progress, occ)  # fmt: skip
     if patches is not None and len(patches) and any(layer.displace for layer in model.relief):
         _displace(built, model, patches, on)
     return baked
@@ -1056,6 +1063,8 @@ def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int |
     # are sampled again on a cache hit, see motion_key) leave the meshes alone (#185)
     text = model.shape_text or model.text
     h.update(json.dumps([__version__, BUILDER_VERSION, text, shape_key(model, style, budget), sorted(palette.items()), budget]).encode())
+    if style.shade.cavity > 0:  # a colour map then keeps each texel's occlusion (#266); the strengths apply when it is written
+        h.update(b"cavity")
     for part in model.parts:
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())

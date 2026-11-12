@@ -49,6 +49,9 @@ before 1.0).
 
 ### Changed
 
+- Shade paint on a model with a base colour map (relief, `color_blend`) is painted per texel into the map, from
+  the normal map's normals and each texel's occlusion, with the same strengths; its mapped faces carry no COLOR_0
+  multiplier any more (no double shading). Fine grooves and relief now shade too (#266).
 - The `skin` style's hero budget is 60k (was 20k): a close-up character with relief fur and a readable face (#311).
 - `kiln lint` prints the static findings first (a `static checks:` line pointing at `--fast`), then builds the
   meshes for the rest; a long build ends with one line saying where its time went (`built in 156 s (meshing 12 s,

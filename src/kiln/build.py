@@ -28,6 +28,7 @@ from kiln.retarget import HUMANOID, OPTIONAL
 from kiln.rig import animation_poses
 from kiln.shade import FIELDS as SHADE_FIELDS
 from kiln.shade import effective as effective_shade
+from kiln.shade import texel_shade
 from kiln.style import Style
 from kiln.vendor.findings import Finding
 from kiln.vendor.gltf import read_glb
@@ -555,7 +556,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         group_colors = [g.color for g in built.painted.groups]
         color_png = f"{name}.color.png" if textured else None
         if color_png is not None:
-            write(out / "models" / color_png, built.bake.color_png(group_colors))
+            write(out / "models" / color_png, built.bake.color_png(group_colors, None, texel_shade(built, ao)))
         glb_data = to_glb(built, generator, None, project.config.vertex_colors, atlas, merge_rigid=project.config.merge_rigid,
                           normal_uri=normal_png, ao=ao, color_uri=color_png)  # fmt: skip
         write(glb, glb_data)
@@ -602,7 +603,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 variants[vname].update({k: f"models/{v}" for k, v in sorted(atlas_files[vname].items())})
             vcolor = f"{name}.{vname}.color.png" if textured else None
             if vcolor is not None:  # a variant's colours are in its own map
-                write(out / "models" / vcolor, built.bake.color_png(group_colors, swap))
+                write(out / "models" / vcolor, built.bake.color_png(group_colors, swap, texel_shade(built, ao)))
                 variants[vname]["color_map"] = {"png": f"models/{vcolor}", "size": [built.bake.width, built.bake.height]}
             if project.config.variant_glbs or textured:  # (a mapped model's variant scene needs the glb that names its map)
                 vpath = out / "models" / f"{name}.{vname}.glb"
@@ -627,7 +628,7 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 write(out / "models" / lod_png, lod_built.bake.png)
             lod_color = f"{name}.lod{k}.color.png" if lod_built.bake is not None and lod_built.bake.layers is not None else None
             if lod_color is not None:
-                write(out / "models" / lod_color, lod_built.bake.color_png([g.color for g in lod_built.painted.groups]))
+                write(out / "models" / lod_color, lod_built.bake.color_png([g.color for g in lod_built.painted.groups], None, texel_shade(lod_built, ao)))
             write(lpath, to_glb(lod_built, generator, None, project.config.vertex_colors, atlas, built.origin(), project.config.merge_rigid,
                                 normal_uri=lod_png, ao=ao, color_uri=lod_color))  # fmt: skip
             lods.append({"glb": lpath.relative_to(out).as_posix(), "triangles": lod_built.triangles})

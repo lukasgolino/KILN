@@ -171,15 +171,20 @@ def vertex_normals(built: Built) -> Array:
 
 def ambient_occlusion(built: Built, strength: float = AO_STRENGTH) -> Array:
     """(V,) multipliers in [1 - strength, 1] for every painted vertex (unused vertices get 1)."""
+    return np.round(1.0 - strength * occlusion(built), 4)  # rounded: the same multiplier whatever float noise the field adds
+
+
+def occlusion(built: Built) -> Array:
+    """(V,) occlusion in [0, 1] for every painted vertex (unused vertices get 0)."""
     p = built.painted
-    ao = np.ones(len(p.vertices))
+    occ = np.zeros(len(p.vertices))
     used = np.unique(p.faces)
     if not len(used):
-        return ao
+        return occ
     m = built.model
-    occlusion = _cavity(built, used) if m.source is not None or not m.parts else _field_occlusion(built, used)
-    ao[used] = 1.0 - strength * np.clip(occlusion, 0.0, 1.0)
-    return np.round(ao, 4)  # rounded: the same multiplier whatever float noise the field adds
+    found = _cavity(built, used) if m.source is not None or not m.parts else _field_occlusion(built, used)
+    occ[used] = np.clip(found, 0.0, 1.0)
+    return occ
 
 
 def _field_occlusion(built: Built, used: Array) -> Array:
