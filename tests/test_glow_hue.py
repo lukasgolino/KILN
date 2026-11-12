@@ -67,3 +67,67 @@ def test_the_preview_keeps_the_hue(project: Project) -> None:
     c = left / 255
     lab = _oklab(np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4).reshape(1, 3))[0]
     assert np.hypot(lab[1], lab[2]) > 0.04  # the pink stays pink (it went white: chroma 0)
+
+
+def test_a_decal_on_a_glowing_part_keeps_its_white_factor(project: Project) -> None:
+    from PIL import Image
+
+    Image.new("RGBA", (8, 8), (250, 220, 40, 255)).save(project.root / "decals" / "sq.png")
+    style = (project.root / "styles" / "fast.style.toml").read_text()
+    if "glow =" not in style:
+        (project.root / "styles" / "fast.style.toml").write_text(style + ("\n[materials]\n" if "[materials]" not in style else "\n") + "glow = { emission = 2.0 }\n")
+    text = GEMS.replace("    material: glow\n", "    material: glow\n    decal: { image: decals/sq.png, axis: z, at: [-0.3, 0.3, 0.15], size: [0.1, 0.1] }\n", 1)
+    write_model(project, text)
+    assert not build(project).errors
+    doc, _ = read_glb((project.output_dir / "models" / "thing.glb").read_bytes())
+    decal = [m for m in doc["materials"] if "decal" in m["name"]]
+    assert decal and decal[0]["pbrMetallicRoughness"]["baseColorFactor"] == [1.0, 1.0, 1.0, 1.0]
+
+
+def test_rims_find_their_preset_and_at_names_are_refused(tmp_path: object) -> None:
+    from pathlib import Path
+
+    from kiln.godot import APPLY_SCRIPT, ATLAS_SCRIPT
+    from kiln.style import load_style
+
+    for script in (APPLY_SCRIPT, ATLAS_SCRIPT):
+        assert 'get_slice("_", 0).get_slice("@", 0)' in script  # skin@0.5 still finds the skin preset's rim
+    folder = Path(str(tmp_path))
+    (folder / "x.style.toml").write_text('extends = "soft_toy"\n[materials]\n"glow@2" = { emission = 2.0 }\n')
+    bad, findings = load_style("x", folder)
+    assert bad is None and any("@" in f.message for f in findings)
+
+
+def test_emission_on_a_cut_is_refused(project: Project) -> None:
+    _, _, findings = load(project, GEMS + "  - box: { at: [0, 0.3, 0], size: [0.1, 0.1, 0.1] }\n    cut: true\n    emission: 1\n")
+    assert any(f.where == "parts[2].emission" for f in findings), findings
+
+
+def test_an_atlas_variant_glow_is_not_held_at_the_base_cap(tmp_path: object) -> None:
+    from pathlib import Path
+
+    from conftest import CONFIG, make_project
+
+    project = make_project(Path(str(tmp_path)) / "a", CONFIG + "atlas = true\n")
+    style = (project.root / "styles" / "fast.style.toml").read_text()
+    (project.root / "styles" / "fast.style.toml").write_text(style + ("\n[materials]\n" if "[materials]" not in style else "\n") + "glow = { emission = 2.0 }\n")
+    text = "name: thing\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.15 }\n    color: \"#ffa8c4\"\n    material: glow\n" \
+           "variants:\n  dark: { swap: { \"#ffa8c4\": \"#401020\" } }\n"
+    write_model(project, text)
+    result = build(project)
+    assert not result.errors, result.findings
+    doc, _ = read_glb((project.output_dir / "models" / "thing.glb").read_bytes())
+    strength = doc["materials"][0]["extensions"]["KHR_materials_emissive_strength"]["emissiveStrength"]
+    dark = srgb_to_linear("#401020")
+    assert abs(strength - glow_strength(dark, 2.0)) < 1e-6  # the variant's darker colour sets the shared strength
+
+
+def test_presets_read_a_part_emission_off_the_name() -> None:
+    from kiln.style import load_style
+
+    style, _ = load_style("soft_toy")
+    assert style is not None
+    base = style.materials["default"]
+    glow = style.materials.get("default@0.6")
+    assert glow is not None and glow.emission == 0.6 and glow.roughness == base.roughness
+    assert style.materials.get("default@x") == base  # a bad amount: the preset as it is, never None

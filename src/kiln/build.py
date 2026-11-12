@@ -496,14 +496,14 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
         ao = project.config.atlas_ao if built.bake is not None else 0.0  # ... and still gets the occlusion (#148)
         if project.config.atlas and built.bake is None:  # one layout for the model and its LODs; a texture set per variant
             cells = layout([built, *(b for _, _, b in lod_builts)])
-            glow = cells.glow_strength(built)
+            glow = cells.glow_strength(built, list(model.variants.values()))
             for vname, swap in [("", {}), *sorted(model.variants.items())]:
                 stem = f"{name}.{vname}" if vname else name
                 atlas_files[vname] = {"palette": f"{stem}.palette.png"}
                 write(out / "models" / f"{stem}.palette.png", cells.palette_png(swap, built.style.materials))
                 if glow > 0:
                     atlas_files[vname]["glow"] = f"{stem}.glow.png"
-                    write(out / "models" / f"{stem}.glow.png", cells.glow_png(built, swap))
+                    write(out / "models" / f"{stem}.glow.png", cells.glow_png(built, swap, list(model.variants.values())))
             atlas_files[""]["material"] = f"{name}.material.png"
             write(out / "models" / f"{name}.material.png", cells.material_png(built))
             if godot_root is not None and cells.has_rim(built):  # Godot's rim light per cell (glTF has no rim)

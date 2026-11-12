@@ -95,13 +95,13 @@ class Atlas:
         e = built.style.materials.get(m, built.style.materials["default"]).emission
         return glow_strength([_decode(v) for v in _rgb((swap or {}).get(c, c))], e) if e > 0 else 0.0
 
-    def glow_strength(self, built: Built) -> float:
-        """The largest emission of any cell (0: no glow texture). It becomes the emissive strength; texels hold
-        colour x emission / strength."""
-        return max((self._emission(built, c, m) for c, m in self.cells), default=0.0)
+    def glow_strength(self, built: Built, swaps: list[dict[str, str]] | None = None) -> float:
+        """The largest emission of any cell, in the base colours or any variant's (0: no glow texture). It becomes the
+        emissive strength the variants share; texels hold colour x emission / strength."""
+        return max((self._emission(built, c, m, swap) for swap in [{}, *(swaps or [])] for c, m in self.cells), default=0.0)
 
-    def glow_png(self, built: Built, swap: dict[str, str]) -> bytes:
-        strength = self.glow_strength(built)
+    def glow_png(self, built: Built, swap: dict[str, str], swaps: list[dict[str, str]] | None = None) -> bytes:
+        strength = self.glow_strength(built, swaps)
         values = []
         for c, m in self.cells:
             e = self._emission(built, c, m, swap) / strength if strength > 0 else 0.0

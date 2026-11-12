@@ -86,8 +86,8 @@ class Presets(dict[str, MaterialPreset]):
             base, _, amount = key.rpartition("@")
             try:
                 return replace(super().get(base, self.get("default", MaterialPreset())), emission=float(amount))
-            except ValueError:
-                return default
+            except ValueError:  # never written by the loader (it checks the number); the preset as it is
+                return super().get(base, default)
         return default
 
 
@@ -223,6 +223,9 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
         budgets = {}
     materials: dict[str, MaterialPreset] = Presets({"default": MaterialPreset()})
     for mname, spec in data.get("materials", {}).items():
+        if "@" in mname:
+            bad(f"a material preset's name can't hold @ ({mname!r}): parts write preset@strength for their own emission", f"materials.{mname}")
+            continue
         if not isinstance(spec, dict) or any(k not in ("roughness", "metallic", "emission", "rim") for k in spec) \
                 or not all(isinstance(v, int | float) and not isinstance(v, bool) and v >= 0 for v in spec.values()):
             bad("a material is { roughness = 0..1, metallic = 0..1, emission = 0.., rim = 0..1 }", f"materials.{mname}")

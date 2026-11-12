@@ -669,6 +669,9 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     material = "default"
     pattern = decal = texture = None
     patterns: tuple[Pattern, ...] = ()
+    if op != "add" and "emission" in raw:
+        ctx.error("E003", "emission makes a part glow: a cut has no surface of its own", line, f"{where}.emission")
+        ok = False
     if op == "add":
         c = _color(ctx, raw.get("color"), line, f"{where}.color") if "color" in raw else None
         if "color" not in raw:

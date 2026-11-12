@@ -98,7 +98,7 @@ func _ready() -> void:
 \t\t\t\t\tstandard.vertex_color_use_as_albedo = true  # vertex_colors = true: glTF colours are linear
 \t\t\t\tif source.emission_enabled and swap.has(hex):
 \t\t\t\t\tstandard.emission = albedo
-\t\t\t\tvar rim: float = rims.get(source.resource_name.get_slice("_", 0), 0.0)
+\t\t\t\tvar rim: float = rims.get(source.resource_name.get_slice("_", 0).get_slice("@", 0), 0.0)  # (glow@0.6: the glow preset)
 \t\t\t\tif rim > 0.0:
 \t\t\t\t\tstandard.rim_enabled = true
 \t\t\t\t\tstandard.rim = rim

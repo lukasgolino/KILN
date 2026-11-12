@@ -9,7 +9,8 @@ before 1.0).
 ### Changed
 
 - Glowing colours keep their hue: a glowing material's strength is capped per colour (its brightest channel x
-  strength at most 0.75) and its lit base colour is halved and more (x 0.3), in the glb, the atlas and the previews.
+  strength at most 0.75; past it Godot's tone curve bends the hue) and its lit base colour is dimmed (x 0.3), in the
+  glb, the atlas (variants included) and the previews.
   A pale pink at glow 2 rendered white in Godot and previews; now it stays pink (#202).
 
 - Decal cuts snap values within 1e-6 of a cut line onto it (no near-twin vertices beside a cut point); decal

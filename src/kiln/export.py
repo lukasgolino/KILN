@@ -69,7 +69,7 @@ class Built:
         return np.array([mid[0], lo[1], mid[2]]) if o == "base" else mid
 
 
-GLOW_PEAK = 0.75  # a glowing colour's brightest channel x its strength at most: past it the tone curve clips to white
+GLOW_PEAK = 0.75  # a glowing colour's brightest channel x its strength at most: past it Godot's tone curve bends the hue (measured: 1.0 shifts it up to 35 degrees, 0.75 under 25)
 GLOW_ALBEDO = 0.3  # a glowing part's lit colour, scaled: the glow carries it
 
 
@@ -185,7 +185,9 @@ class _Writer:
             mat["normalTexture"] = {"index": self.normal_map()}
         if preset.emission > 0:
             strength = glow_strength(rgb, preset.emission)
-            pbr["baseColorFactor"] = [*(c * GLOW_ALBEDO for c in rgb), 1.0]
+            if decal < 0:  # (a decal keeps its white factor: the image is its colour)
+                dim = [c * GLOW_ALBEDO for c in rgb] if "baseColorTexture" not in pbr else [GLOW_ALBEDO] * 3
+                pbr["baseColorFactor"] = [*dim, 1.0]
             mat["emissiveFactor"] = rgb
             if strength != 1.0:
                 mat["extensions"] = {"KHR_materials_emissive_strength": {"emissiveStrength": strength}}
