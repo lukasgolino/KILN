@@ -92,3 +92,12 @@ print the cell size each model got and what set it (model or style resolution, t
 manifest `step`, lint `--json` `cells`); a long build's meshing line says it too. Finer detail on a hero: `resolution: 0.004` and `max_cells: 640` in the model
 (lint W120 names the max_cells needed). Halving the cell size about doubles build time (`kiln docs build`); the budget still
 decides the final triangles.
+
+Placing other models (a desk with its props, a tray of screws): `instances: [{ model: screw, at: [x, y, z], rotate:
+[x, y, z], scale: 1, id: tray }]` at the top of the model. Each is that model's own build (its mesh at its own cell size
+and budget: fine screws stay fine in a coarse scene), merged in after the scene is built. `at`/`rotate` are in the
+scene's model space and place the instance's origin (its `origin:`, as its own glb); `id` is the part it moves with
+(default root; not mirrored). A scene `lod:` builds every instance at the same share of its triangles. Materials are
+read in the scene's style; an instance's decals, animations and skin aren't carried over, and a scene with a normal map
+or relief can't take instances yet (#295). `kiln build screw` rebuilds the models that place it. Missing models:
+E011; templates, terrains, scatters and circles (a model placing itself round about) are errors.

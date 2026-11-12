@@ -327,9 +327,15 @@ def _built(project: Project, name: str, draft: bool = False) -> Any:
         raise _usage(f"{model.name} is a scatter: `kiln preview {model.name}` shows it (it has no parts, poses or line-up mesh)")
     palette, _ = project.palette(model.palette)
     try:
-        if draft:  # its own cache folder: a draft never replaces the build's cached meshes
-            return build_cached(_drafted(model), style, palette, project.root / ".kiln-cache" / "draft")
-        return _with_occlusion(project, build_cached(model, style, palette, project.root / ".kiln-cache"))
+        from kiln.instances import InstanceError, place
+
+        try:  # instances (#171): placed in drafts too (as built: a draft is the scene's own quick look)
+            if draft:  # its own cache folder: a draft never replaces the build's cached meshes
+                return place(project, build_cached(_drafted(model), style, palette, project.root / ".kiln-cache" / "draft"))
+            built = place(project, build_cached(model, style, palette, project.root / ".kiln-cache"))
+        except InstanceError as exc:
+            raise _usage(str(exc), model.path) from None
+        return _with_occlusion(project, built)
     except ValueError as exc:
         from kiln.builder import build_error
 
@@ -474,6 +480,18 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     if size is not None and not 64 <= size <= 1024:
         raise _usage("--size is the tile size in pixels, 64-1024")
     tile = {"size": size} if size is not None else {}
+    frame = None
+    if args.frame_box:  # a box to frame the sheets on (#203, #212): x0,y0,z0,x1,y1,z1 metres
+        try:
+            corners = [float(v) for v in args.frame_box.split(",")]
+        except ValueError:
+            corners = []
+        if len(corners) != 6:
+            raise _usage("--frame-box is a box in model space: x0,y0,z0,x1,y1,z1 (metres), e.g. -0.5,0,-0.5,0.5,0.3,0.5")
+        frame = (tuple(map(min, corners[:3], corners[3:])), tuple(map(max, corners[:3], corners[3:])))
+    if (args.tight or frame is not None) and (args.closeup or args.pose or args.engine or args.fit or args.detach or args.vs is not None or args.effect):
+        raise _usage("--tight and --frame-box frame the turntable and --views sheets only (a closeup frames its part itself)")
+    tiles = pv.Tiles(pv.tile_background(built.style, args.bg), args.fill, args.tight, frame)
     want_views = args.views is not None or args.pitch is not None
     wanted_any = args.closeup or args.pose or args.vs is not None or args.engine or args.detach or args.fit or args.effect or want_views
     if args.ref_height is not None and not args.vs:
@@ -482,7 +500,7 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
         raise _usage("--at goes with --effect")
     if args.turntable or not wanted_any:
         path = folder / (f"turntable.{args.variant}.png" if args.variant else "turntable.png")
-        pv.turntable(built, swap=swap, **tile).save(path)
+        pv.turntable(built, swap=swap, tiles=tiles, **tile).save(path)
         outputs["turntable"] = display_path(path)
     yaws: list[tuple[str, float]] = []
     pitches: list[float] = []
@@ -496,12 +514,12 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
             raise _usage("--pitch is between -89 and 89 degrees")
     if want_views and not args.engine and not args.pose:  # with --engine or --pose, the views flags pick theirs
         path = folder / (f"views.{args.variant}.png" if args.variant else "views.png")
-        pv.views(built, yaws, pitches, size or 400, swap=swap).save(path)
+        pv.views(built, yaws, pitches, size or 400, swap=swap, tiles=tiles).save(path)
         outputs["views"] = display_path(path)
     for part in args.closeup or []:
         try:
             path = folder / f"closeup_{part}.png"
-            pv.closeup(built, part, **tile).save(path)
+            pv.closeup(built, part, tiles=tiles, **tile).save(path)
             outputs.setdefault("closeup", {})[part] = display_path(path)
         except KeyError:
             raise _usage(f"{name} has no part {part!r} (ids: {', '.join(built.model.ids)}, or a part's number in the file: 0-{len(built.model.parts) - 1})") from None
@@ -687,7 +705,9 @@ def cmd_lineup(args: argparse.Namespace, out: Output) -> int:
     builts = [_built(project, n) for n in names]
     project.preview_dir.mkdir(parents=True, exist_ok=True)
     path = project.preview_dir / "lineup.png"
-    pv.lineup(builts).save(path)
+    if not -10.0 <= args.pitch <= 90.0:
+        raise _usage("--pitch is degrees above the horizon, -10 to 90")
+    pv.lineup(builts, pitch=args.pitch).save(path)
     out.say(f"line-up: {display_path(path)}")
     out.result({"lineup": display_path(path), "models": names})
     return 0
@@ -1206,7 +1226,12 @@ def parser() -> argparse.ArgumentParser:
                    "degrees (counter-clockwise from the front); default all 8 with --pitch")  # fmt: skip
     s.add_argument("--pitch", metavar="DEG,...", help="with --views: degrees above the horizon, a row each (default 15)")
     s.add_argument("--size", type=int, metavar="PX", help="tile size in pixels (64-1024) for turntable, closeup and views (kiln.toml preview_size)")
-    s.add_argument("--closeup", action="append", metavar="PART")
+    s.add_argument("--closeup", action="append", metavar="PART", help="a part (bone) id, or a part's number in the parts: list (0 = the first)")
+    s.add_argument("--frame-box", metavar="X0,Y0,Z0,X1,Y1,Z1", help="frame the turntable/views on this box (metres): a region of a scene")
+    s.add_argument("--tight", action="store_true", help="each tile framed on what it shows (flat props, scenes); sizes then differ per tile")
+    s.add_argument("--fill", action="store_const", const=0.6, default=0.0,
+                   help="a neutral light from the camera (previews only, not the game's light): faces seen from below read")  # fmt: skip
+    s.add_argument("--bg", choices=("auto", "light", "dark"), default="auto", help="tile background (auto: dark for styles with a dark sky)")
     s.add_argument("--pose", action="append", metavar="ANIMATION")
     s.add_argument("--vs", nargs="?", const="", metavar="REF",
                    help="beside the style's inspiration images; with a .glb/.gltf: against that reference at one scale, with metrics")  # fmt: skip
@@ -1222,6 +1247,7 @@ def parser() -> argparse.ArgumentParser:
                    help="a quick coarse look while iterating (coarser mesh cells, rough colour edges, plain hard parts, no normal map): shapes and placement, not the final surface")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")
     s.add_argument("models", nargs="*")
+    s.add_argument("--pitch", type=float, default=8.0, metavar="DEG", help="degrees above the horizon (default 8; past 10: from above, each model framed on its footprint)")
     sub.add_parser("gallery", parents=[common], help="every model in one sheet")
     s = sub.add_parser("status", parents=[common], help="every model: class, status, style, review flags")
     s.add_argument("-v", "--verbose", action="store_true", help="one line per model (class, status, style) with its description")

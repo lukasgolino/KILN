@@ -49,6 +49,13 @@ before 1.0).
 
 ### Added
 
+- `instances:` place other models in a model (a desk with its props), each its own build at its own detail, merged
+  in after the scene is built (`at` in the scene's model space, at the instance's origin; LODs build each instance at
+  the same share; a partial build rebuilds the models placing a rebuilt one). Shared meshes, instances' decals and
+  maps, and scenes with normal maps: #295 (#171).
+- Preview framing and light: `--tight` (each tile on what it shows), `--frame-box` (a region), `--fill` (a neutral
+  light from the camera, previews only), `--bg auto|light|dark` (auto: dark for dark-sky styles), `kiln lineup
+  --pitch`; `--closeup NUMBER` documented (a part's place in `parts:`) (#180, #203, #212).
 - `cut: [ids]`: a cut names the parts it cuts. Those parts are meshed as their own surface, so the cut keeps to
   them in one model too (before, `cut: <id>` only held for separate or fitted parts: elsewhere it cut everything
   before it); they are split off only where the cut also reaches parts it doesn't name (#209).

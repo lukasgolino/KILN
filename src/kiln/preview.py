@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,59 @@ def sheet(title: str, subtitle: str, rows: list[tuple[str, list[tuple[str, Image
     return out
 
 
+DARK_TILE_BG = (38, 40, 50, 255)  # for low-key styles (a near-black sky): glow and dark looks judged on their own ground
+
+
+@dataclass(frozen=True)
+class Tiles:
+    """How preview tiles are drawn (#180, #203, #212): background, a neutral fill light from the camera, each tile
+    framed on its own projected bounds (`tight`) and a framing box (`frame`: (lo, hi) in model space) instead of
+    the whole model."""
+
+    bg: tuple[int, int, int, int] = TILE_BG
+    fill: float = 0.0
+    tight: bool = False
+    frame: tuple[tuple[float, ...], tuple[float, ...]] | None = None
+
+    def fit(self, built: Built) -> tuple[Array, float]:
+        if self.frame is not None:
+            lo, hi = np.asarray(self.frame[0], float), np.asarray(self.frame[1], float)
+            return (lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2 * 1.08
+        return _fit(built)
+
+    def render(self, built: Built, view: View, size: int, fit: tuple[Array, float], **kw: Any) -> Image.Image:
+        if self.tight:
+            fit = _tight(built, view, fit, self.frame)
+        return render(built, view, size, fit=fit, background=self.bg, fill=self.fill, **kw)
+
+
+def tile_background(style: Any, choice: str = "auto") -> tuple[int, int, int, int]:
+    """`--bg`: light, dark, or auto (dark when the style's sky is dark)."""
+    if choice == "light":
+        return TILE_BG
+    if choice == "dark":
+        return DARK_TILE_BG
+    sky = style.look.sky_top.lstrip("#")
+    r, g, b = (int(sky[i : i + 2], 16) / 255 for i in (0, 2, 4))
+    return DARK_TILE_BG if 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.25 else TILE_BG
+
+
+def _tight(built: Built, view: View, fit: tuple[Array, float], frame: tuple[tuple[float, ...], tuple[float, ...]] | None = None) -> tuple[Array, float]:
+    """A tile framed on what it shows (#212): the model's points (in the frame box, with one) projected on this view."""
+    centre, half = fit
+    right, up, _ = camera_basis(view)
+    v = built.painted.vertices
+    if frame is not None:
+        inside = np.all((v >= np.asarray(frame[0])) & (v <= np.asarray(frame[1])), axis=1)
+        v = v[inside] if inside.any() else np.array([frame[0], frame[1]], float)
+    x, y = (v - centre) @ right, (v - centre) @ up
+    cx, cy = (x.min() + x.max()) / 2, (y.min() + y.max()) / 2
+    return centre + right * cx + up * cy, max(float(x.max() - x.min()), float(y.max() - y.min()), built.step * 4) / 2 * 1.08
+
+
+PLAIN = Tiles()
+
+
 def fit_of(built: Built) -> tuple[Array, float]:
     """The framing every sheet of one model shares: (centre, half extent in metres); `preview --engine` uses it too."""
     return _fit(built)
@@ -80,13 +134,19 @@ def _fit(built: Built) -> tuple[Array, float]:
     return (lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2 * 1.08
 
 
-def turntable(built: Built, size: int = 220, swap: dict[str, str] | None = None) -> Image.Image:
-    fit = _fit(built)
+def _notes(tiles: Tiles) -> str:
+    out = [" · fill light" if tiles.fill else "", " · each tile framed on itself" if tiles.tight else "", " · framed on a box" if tiles.frame is not None else ""]
+    return "".join(out)
+
+
+def turntable(built: Built, size: int = 220, swap: dict[str, str] | None = None, tiles: Tiles | None = None) -> Image.Image:
+    tiles = tiles or PLAIN
+    fit = tiles.fit(built)
     rows = []
     for pitch, label in ((-20.0, "from below (-20 degrees)"), (15.0, "eye level (+15)"), (50.0, "from above (+50)")):
-        rows.append((label, [(n, render(built, View(yaw, pitch), size, swap=swap, fit=fit, background=TILE_BG)) for n, yaw in HEADINGS]))
+        rows.append((label, [(n, tiles.render(built, View(yaw, pitch), size, fit, swap=swap)) for n, yaw in HEADINGS]))
     m = built.model
-    return sheet(f"{m.name} turntable", f"style {built.style.name} · {built.triangles} triangles · {m.cls} · front = +Z", rows)
+    return sheet(f"{m.name} turntable", f"style {built.style.name} · {built.triangles} triangles · {m.cls} · front = +Z{_notes(tiles)}", rows)
 
 
 def heading(text: str) -> tuple[str, float]:
@@ -105,17 +165,21 @@ def heading(text: str) -> tuple[str, float]:
     return f"{degrees:g} deg", degrees % 360
 
 
-def views(built: Built, yaws: list[tuple[str, float]], pitches: list[float], size: int = 400, swap: dict[str, str] | None = None) -> Image.Image:
+def views(built: Built, yaws: list[tuple[str, float]], pitches: list[float], size: int = 400, swap: dict[str, str] | None = None,
+          tiles: Tiles | None = None) -> Image.Image:  # fmt: skip
     """The views asked for (#96): a row per pitch (degrees above the horizon), a tile per yaw, all at one scale."""
-    fit = _fit(built)
-    rows = [(f"{pitch:+g} degrees", [(n, render(built, View(yaw, pitch), size, swap=swap, fit=fit, background=TILE_BG)) for n, yaw in yaws])
-            for pitch in pitches]  # fmt: skip
+    tiles = tiles or PLAIN
+    fit = tiles.fit(built)
+    rows = [(f"{pitch:+g} degrees", [(n, tiles.render(built, View(yaw, pitch), size, fit, swap=swap)) for n, yaw in yaws]) for pitch in pitches]
     m = built.model
-    return sheet(f"{m.name} views", f"style {built.style.name} · {built.triangles} triangles · {m.cls} · front = +Z", rows)
+    return sheet(f"{m.name} views", f"style {built.style.name} · {built.triangles} triangles · {m.cls} · front = +Z{_notes(tiles)}", rows)
 
 
-def closeup(built: Built, part_id: str, size: int = 260) -> Image.Image:
-    """One part (bone) filling the view, in place: what a close camera (a kill cam, a dialogue shot) sees."""
+def closeup(built: Built, part_id: str, size: int = 260, tiles: Tiles | None = None) -> Image.Image:
+    """One part (bone) filling the view, in place: what a close camera (a kill cam, a dialogue shot) sees. A number
+    is a part's place in the file's `parts:` list (0 = the first), so a hat or a face can be framed apart from the
+    bone it moves with."""
+    tiles = tiles or PLAIN
     p = built.painted
     faces = np.array([p.groups[g].bone == part_id for g in p.face_group])
     if built.skin == "none" or part_id.isdigit():  # no bones, or a part by its number in the file: the parts' own boxes
@@ -132,7 +196,8 @@ def closeup(built: Built, part_id: str, size: int = 260) -> Image.Image:
     fit = ((lo + hi) / 2, max(float(np.linalg.norm(hi - lo)) / 2 * 1.3, built.step * 8))
     rows = []
     for pitch in (-15.0, 15.0, 45.0):
-        rows.append((f"{part_id} in place, {pitch:+g} degrees", [(n, render(built, View(yaw, pitch), size, fit=fit, background=TILE_BG)) for n, yaw in HEADINGS[::2] + HEADINGS[1::2][:2]]))
+        rows.append((f"{part_id} in place, {pitch:+g} degrees", [(n, render(built, View(yaw, pitch), size, fit=fit, background=tiles.bg, fill=tiles.fill))
+                                                                 for n, yaw in HEADINGS[::2] + HEADINGS[1::2][:2]]))  # fmt: skip
     return sheet(f"{built.model.name} closeup: {part_id}", "framed on the part; other parts may cover it, as in the game", rows)
 
 
@@ -299,10 +364,17 @@ def _floor_grid(tile: Image.Image, view: View, fit: tuple[Array, float], floor: 
         draw.line([screen(x0, z), screen(x1, z)], fill=GRID, width=1)
 
 
-def lineup(builts: list[Built], height_px: int = 480) -> Image.Image:
-    """Models side by side at one scale (pixels per metre), standing on one ground line, with a 1 m bar."""
+LINEUP_PITCH = 8.0
+GROUND_PITCH = 10.0  # line-ups seen from higher than this have no ground line: each model framed on its own footprint
+
+
+def lineup(builts: list[Built], height_px: int = 480, pitch: float = LINEUP_PITCH) -> Image.Image:
+    """Models side by side at one scale (pixels per metre), standing on one ground line, with a 1 m bar. From higher
+    up (`pitch` past 10 degrees: flat props, #212; the ground-line crop would cut deep footprints) each is framed on its own projected size, still at one scale."""
     if not builts:
         return sheet("line-up", "no models", [])
+    if pitch > GROUND_PITCH:
+        return _lineup_above(builts, height_px, pitch)
     margin = 24
     tallest = max(float(b.bounds()[1][1]) for b in builts)
     ppm = (height_px - margin - 30) / max(tallest, 0.5)
@@ -314,7 +386,7 @@ def lineup(builts: list[Built], height_px: int = 480) -> Image.Image:
         side = max(height_px, width_px)
         half = side / ppm / 2
         centre = np.array([(lo[0] + hi[0]) / 2, half - margin / ppm, (lo[2] + hi[2]) / 2])  # ground `margin` px above the bottom
-        full = render(b, View(25.0, 8.0), side, fit=(centre, half), background=TILE_BG)
+        full = render(b, View(25.0, pitch), side, fit=(centre, half), background=TILE_BG)
         left = (side - width_px) // 2
         tiles.append((b.model.name, full.crop((left, side - height_px, left + width_px, side))))
     gap = 6
@@ -322,7 +394,7 @@ def lineup(builts: list[Built], height_px: int = 480) -> Image.Image:
     out = Image.new("RGB", (width, height_px + 80), BG)
     draw = ImageDraw.Draw(out)
     draw.text((10, 10), "line-up", fill=TEXT, font=_font(20))
-    draw.text((10, 36), f"same scale: {ppm:.0f} px per metre, all standing on one ground line", fill=DIM, font=_font(13))
+    draw.text((10, 36), f"same scale: {ppm:.0f} px per metre, all standing on one ground line, seen from {pitch:g} degrees up", fill=DIM, font=_font(13))
     top = 64
     ground = top + height_px - margin
     x = 70
@@ -337,6 +409,28 @@ def lineup(builts: list[Built], height_px: int = 480) -> Image.Image:
         draw.line([(34 if k % 5 else 28, y), (46 if k % 5 else 52, y)], fill=TEXT, width=1)
     draw.text((26, ground - ppm - 18), "1 m", fill=TEXT, font=_font(13))
     return out
+
+
+def _lineup_above(builts: list[Built], height_px: int, pitch: float) -> Image.Image:
+    view = View(25.0, pitch)
+    right, up, _ = camera_basis(view)
+    spans = []
+    for b in builts:
+        v = b.painted.vertices
+        x, y = v @ right, v @ up
+        spans.append((float(x.min()), float(x.max()), float(y.min()), float(y.max())))
+    tallest = max(y1 - y0 for _, _, y0, y1 in spans)
+    ppm = (height_px - 30) / max(tallest, 0.05)
+    tiles = []
+    for b, (x0, x1, y0, y1) in zip(builts, spans, strict=True):
+        width_px = max(int((x1 - x0) * 1.1 * ppm) + 16, int(_font(13).getlength(b.model.name)) + 12)
+        side = max(height_px, width_px)
+        half = side / ppm / 2
+        centre = right * (x0 + x1) / 2 + up * (y0 + y1) / 2
+        full = render(b, view, side, fit=(centre, half), background=TILE_BG)
+        left, top = (side - width_px) // 2, (side - height_px) // 2
+        tiles.append((b.model.name, full.crop((left, top, left + width_px, top + height_px))))
+    return sheet("line-up", f"same scale: {ppm:.0f} px per metre, seen from {pitch:g} degrees up (each on its own footprint)", [("", tiles)])
 
 
 def gallery(builts: list[Built], size: int = 200) -> Image.Image:
