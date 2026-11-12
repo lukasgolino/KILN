@@ -29,6 +29,7 @@ from kiln.sdf import (
     SHAPES,
     Copy,
     Field,
+    Folds,
     Geometry,
     Noise,
     axis_rotation,
@@ -58,7 +59,7 @@ CYCLES = ("walk", "waddle", "run", "sneak", "hop", "bob", "spin", "swing", "brea
 INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"id", "color", "material", "blend", "color_blend", "density", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
-               "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr", "on"}  # fmt: skip
+               "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr", "on", "folds"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -617,6 +618,19 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             ok = False
         else:
             noise = Noise(float(n["amount"]), float(n.get("scale", 0.2)), int(n.get("seed", index)))
+    fold = None
+    if "folds" in raw:
+        fr = raw["folds"]
+        keys = ("count", "depth", "from_y", "to_y", "sharp")
+        good = isinstance(fr, dict) and not any(k not in keys for k in fr) and isinstance(fr.get("count"), int) and not isinstance(fr.get("count"), bool) \
+            and 2 <= fr["count"] <= 64 and _num(fr.get("depth")) and 0 < fr["depth"] <= 0.2 and all(_num(fr.get(k, 0.0)) for k in ("from_y", "to_y")) \
+            and "from_y" in fr and "to_y" in fr and fr["to_y"] > fr["from_y"] and _num(fr.get("sharp", 0.5)) and 0 <= fr.get("sharp", 0.5) <= 1
+        if not good:
+            ctx.error("E003", "folds is { count: 12 (2-64), depth: metres (e.g. 0.02), from_y: the hem's height, to_y: where they fade out "
+                      "(model space, from_y < to_y), sharp: 0-1 (0.5) }: cloth folds round the part's own y axis", line, f"{where}.folds")  # fmt: skip
+            ok = False
+        else:
+            fold = Folds(int(fr["count"]), float(fr["depth"]), float(fr["from_y"]), float(fr["to_y"]), float(fr.get("sharp", 0.5)))
     mirror_raw = raw.get("mirror")
     mirror: tuple[int, ...] = ()
     if mirror_raw is not None:
@@ -771,7 +785,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         exact = hard is True or raw.get("blend") == "none" or "sides" in spec or bool(bevel or chamfer)  # fewer for exact
         params["points"] = smooth_path(params["points"], HARD_PATH_STEPS if exact else PATH_STEPS)  # polygons (a union of pieces)
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
-                    op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale)  # fmt: skip
+                    op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale, folds=fold)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
                    "texture": texture, "color_blend": float(color_blend), "color_blend_set": "color_blend" in raw, "density": float(density), "on": on,
@@ -1105,7 +1119,7 @@ def _reflect(g: Geometry, axis: int) -> Geometry:
     rotation = flip @ (g.rotation if g.rotation is not None else np.eye(3))
     copies = tuple(c if c is IDENTITY else Copy(flip @ c.rotation @ flip, c.pivot @ flip, c.offset @ flip) for c in g.copies)
     return Geometry(g.shape, g.params, g.at @ flip, rotation, (), copies, g.op, g.blend, g.shell, g.twist, g.noise, g.shell_side, g.open,
-                    scale=g.scale, blend_to=g.blend_to)
+                    scale=g.scale, blend_to=g.blend_to, folds=g.folds)
 
 
 def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern | None:

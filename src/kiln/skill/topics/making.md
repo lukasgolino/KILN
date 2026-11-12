@@ -151,6 +151,14 @@ arm's id (`fit: [upperarm_l]`, `id: upperarm_l`, mirrored) move with the arms (a
 the body garment with `id: chest`. Openings need a garment id that isn't a wrapped part's. Walls under two mesh cells
 break up (lint W102): keep `thickness` at least twice the mesh step.
 
+## Cloth folds: `folds`
+
+Robes, skirts, capes and curtains: `folds: { count: 12, depth: 0.03, from_y: 0, to_y: 1.0, sharp: 0.5 }` on a part (a
+cone, a lathe, a cylinder) runs `count` vertical folds round its own y axis, `depth` metres deep at `from_y` (the
+hem, model height) and fading out by `to_y` (where the cloth hangs from); `sharp` 0 gives round waves, 1 narrow ridges
+between wide hollows. The hem comes out scalloped. They are real shape, so they show in silhouette and in Godot without
+a normal map; keep `depth` at least two mesh cells.
+
 ## Relief: fur without parts
 
 Fur, and any coat of small overlapping tufts, is a `relief:` layer on one smooth body, never hundreds of clump

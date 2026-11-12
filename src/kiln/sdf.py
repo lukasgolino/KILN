@@ -550,6 +550,32 @@ class Noise:
     seed: int
 
 
+@dataclass(frozen=True)
+class Folds:
+    """Cloth folds (#204): `count` vertical folds round the part's own y axis, up to `depth` deep at `from_y` (the
+    hem, model space) fading to none at `to_y` (where the cloth hangs from)."""
+
+    count: int
+    depth: float
+    from_y: float
+    to_y: float
+    sharp: float = 0.5  # 0: smooth waves; up to 1: narrow ridges between wide hollows
+
+
+def folds(p: Array, f: Folds, at: Array, rotation: Array | None) -> Array:
+    """How far inward each point's folds move the surface: (0..1 profile round the axis) x (depth fading with height)."""
+    q = p - at
+    if rotation is not None:
+        q = q @ rotation
+    theta = np.arctan2(q[:, 2], q[:, 0])
+    wave = 0.5 - 0.5 * np.cos(f.count * theta)  # 0 on a ridge, 1 in a hollow
+    profile = wave ** (1.0 / (1.0 + 2.0 * f.sharp))  # sharper: hollows widen, ridges narrow
+    span = f.to_y - f.from_y
+    t = np.clip((p[:, 1] - f.from_y) / span, 0.0, 1.0) if span else np.zeros(len(p))
+    fade = (1.0 - t) ** 1.5  # deepest at the hem
+    return np.asarray(f.depth * profile * fade)
+
+
 def noise(p: Array, n: Noise) -> Array:
     """Deterministic smooth 3D noise in about [-1, 1]: a few octaves of products of sine waves along fixed random
     directions (seeded), so rocks and bark look lumpy without textures."""
@@ -590,6 +616,7 @@ class Geometry:
     cut_only: frozenset[int] | None = None  # cuts: only these adding parts (indices); None = everything before it
     blend_to: frozenset[int] | None = None  # adding parts (earlier) it blends into; the rest it meets crisply
     scale: Array | None = None  # (3,) stretch in the part's own frame (after rotate and twist): an approximate distance
+    folds: Folds | None = None  # cloth folds (#204): applied after the shape, like noise
 
     def open_plane(self) -> float:
         """Where the open side is cut, along its axis in the local frame: the shape's centre (0), except a lathe
@@ -612,7 +639,7 @@ class Geometry:
         return self._distance(p, filled)
 
     def _distance(self, p: Array, filled: bool) -> Array:
-        if jit.AVAILABLE and self.shape in jit.SHAPE_IDS and len(p) >= jit.MIN_POINTS:
+        if jit.AVAILABLE and self.shape in jit.SHAPE_IDS and self.folds is None and len(p) >= jit.MIN_POINTS:
             return jit.distance(self, p, filled)
         if self.mirror:
             p = p.copy()
@@ -642,6 +669,8 @@ class Geometry:
             best = self._shelled(best)
         if self.noise is not None:
             best = best + self.noise.amount * noise(p, self.noise)
+        if self.folds is not None:
+            best = best + folds(p, self.folds, self.at, self.rotation)
         return best
 
     def _shelled(self, d: Array) -> Array:

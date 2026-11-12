@@ -29,6 +29,8 @@ before 1.0).
 
 ### Added
 
+- `folds: { count, depth, from_y, to_y, sharp }` on a part: cloth folds round its own y axis, deepest at the hem and
+  fading out higher up (robes, skirts, capes), as real shape (#204).
 - `garment` hardware: a layer of clothing fitted to earlier parts (a shell `gap` off their surface between `from_y`
   and `to_y`, open at the hem and neck), with an optional thicker `hem` band and `openings` cut through it alone
   (mirrored with the garment). A fitted shell may now wrap an earlier fitted shell (a shirt over trousers) and parts of

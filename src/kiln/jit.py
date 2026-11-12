@@ -76,7 +76,7 @@ def set_threads(n: int) -> None:
 
 
 def supported(g: Geometry) -> bool:
-    return AVAILABLE and g.shape in SHAPE_IDS and g.fit is None
+    return AVAILABLE and g.shape in SHAPE_IDS and g.fit is None and g.folds is None  # (folds: numpy only)
 
 
 def _pack_shape(g: Geometry) -> tuple[Array, Array, Array]:
