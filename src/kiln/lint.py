@@ -295,9 +295,9 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         low = v[np.argmin(v[:, 1])]
         adding = [i for i, q in enumerate(m.parts) if q.geometry.op == "add"]
         culprit = m.parts[adding[int((field or field_of(m, built.step)).nearest(adding, low[None, :])[0][0])]] if adding else None
-        named = (f" at [{low[0]:.2f}, {low[1]:.3f}, {low[2]:.2f}], under {culprit.id if culprit.id != ROOT_ID else 'part ' + str(culprit.index)}"
+        dip_at = (f" at [{low[0]:.2f}, {low[1]:.3f}, {low[2]:.2f}], under {culprit.id if culprit.id != ROOT_ID else 'part ' + str(culprit.index)}"
                  if culprit is not None else "")  # fmt: skip
-        warn("W123", f"the built mesh dips to y = {float(lo[1]) * 1000:.3g} mm{named}, below the ground (blends and meshing can push it under the "
+        warn("W123", f"the built mesh dips to y = {float(lo[1]) * 1000:.3g} mm{dip_at}, below the ground (blends and meshing can push it under the "
              f"shapes' bottom): set origin: ground to lift the exported mesh onto y = 0, or raise {'that part' if culprit else 'the lowest parts'} "
              f"by {-float(lo[1]) * 1000:.2g} mm", culprit.line if culprit else None, culprit.where if culprit else "")  # fmt: skip
     limits = CLASS_SIZES.get(m.cls)
