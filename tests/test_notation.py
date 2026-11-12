@@ -361,6 +361,7 @@ def test_e007_cycle_reports_its_line(project: Project) -> None:
         ("animations:\n  Idle: { poses: [{}] }\n  idle: { poses: [{}] }", "animations.idle", "differ only in case"),
         ("animations:\n  x: { fps: 12 }", "animations.x", "or both"),
         ("animations:\n  x: { fps: 500, poses: [{}] }", "animations.x", "fps (1-120)"),
+        ("animations:\n  x: { frames: 16, cycle: { type: bob, part: a } }", "animations.x", "frames goes inside the cycle"),
         ("animations:\n  x: { poses: [] }", "animations.x.poses", "a list of poses"),
         ("animations:\n  x: { poses: [{ zz: { rotate: [0, 0, 1] } }] }", "animations.x.poses[0].zz", "unknown part id 'zz'"),
         ("animations:\n  x: { poses: [{ a: { turn: [0, 0, 1] } }] }", "animations.x.poses[0].a", "offset: [x, y, z]"),

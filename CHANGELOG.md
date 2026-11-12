@@ -36,6 +36,8 @@ before 1.0).
 
 ### Fixed
 
+- `frames:` written on an animation instead of inside its `cycle:` now says where it goes (E008); the docs show it
+  inside the cycle (#318).
 - Scatter-scene previews draw a placed relief (or colour-faded) model with its colour map, sampled at the corners,
   instead of flat paint. Gibs of a relief model keep their fur and fades on a quarter-size map of their own instead
   of flat colours (#349).

@@ -38,7 +38,7 @@ the chain bends at rest; a straight leg's knee forward, other straight chains' j
 reach per part; reach sets its child's turn. Raise a wand overhead: `upperarm_r: { reach: [-0.2, 2.1, 0.1] }` (a one-part arm: `arm_r: { aim: ... }`); reach on a part without exactly one child part is lint W132.
 `kiln preview <m> --pose <anim> --json` lists each part's end per frame (`ends`) to check a pose without looking.
 
-Cycles (8 frames unless `frames:`):
+Cycles (8 frames unless the cycle says `frames:`, inside it: `walk: { cycle: { type: walk, frames: 16 } }`):
 
 | type | options (defaults) |
 |---|---|

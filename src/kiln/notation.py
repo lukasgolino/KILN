@@ -1818,7 +1818,10 @@ def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, huma
         loop = spec.get("loop", True)
         interp = spec.get("interpolation", "linear")
         if bad or not _num(fps) or not 0 < fps <= 120 or not isinstance(loop, bool) or interp not in INTERPOLATIONS:
-            ctx.error("E008", "animation fields: fps (1-120), loop (true/false), interpolation (linear|step), poses or cycle", aline, where)
+            hint = ""
+            if "frames" in bad:  # (#318) a cycle's frame count goes inside it
+                hint = ": frames goes inside the cycle, e.g. walk: { cycle: { type: walk, frames: 16 } }; a poses animation has one frame per pose"
+            ctx.error("E008", "animation fields: fps (1-120), loop (true/false), interpolation (linear|step), poses or cycle" + hint, aline, where)
             continue
         poses: list[dict[str, PartPose]] = []
         if "poses" in spec:
