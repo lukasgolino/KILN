@@ -89,3 +89,69 @@ def test_preview_pose_json_gives_bone_ends(project: Project, monkeypatch: pytest
     assert code == 0, out
     ends = out["ends"]["pose"]
     assert np.linalg.norm(np.array(ends["lower"][0]) - np.array([0.45, 1.2, 0.1])) < 2e-3
+
+
+TURNED = """\
+name: thing
+class: character
+parts:
+  - capsule: { from: [0, 0.3, 0], to: [0, 0.9, 0], radius: 0.15 }
+    id: chest
+    color: red
+  - capsule: { from: [0.2, 0.8, 0], to: [0.5, 0.8, 0], radius: 0.04 }
+    id: arm
+    color: blue
+rig:
+  chest: { pivot: [0, 0.3, 0] }
+  arm: { pivot: [0.2, 0.8, 0], parent: chest }
+animations:
+  pose: { fps: 4, poses: [{ chest: { rotate: [0, YAW, 0] }, arm: { aim: [0.3, 0.8, 1.5] } }] }
+"""
+
+
+@pytest.mark.parametrize("yaw", [0, 30, 45, -60, -90])
+def test_aim_under_a_turned_parent_keeps_the_arm_upright(project: Project, yaw: int) -> None:
+    a = np.radians(yaw)  # the arm's joint once the chest turns, and a point straight ahead of it (a quarter turn about y)
+    pivot = np.array([0.2 * np.cos(a), 0.8, -0.2 * np.sin(a)])
+    goal = pivot + np.array([0.0, 0.0, 1.0])
+    built = built_of(project, TURNED.replace("YAW", str(yaw)).replace("[0.3, 0.8, 1.5]", f"[{goal[0]:.9f}, {goal[1]:.9f}, {goal[2]:.9f}]"))
+    sk = built.skeleton
+    t = built.tracks[0]
+    from kiln.rig import world_matrices
+
+    arm = world_matrices(sk, t.translation[0], t.rotation[0], t.scale[0])[sk.index("arm")][:3, :3]
+    assert arm @ np.array([0.0, 1.0, 0.0]) @ np.array([0.0, 1.0, 0.0]) > 0.9  # not rolled over (#200 review)
+    tip = _tip(built, "arm")
+    want = goal - pivot
+    assert np.degrees(np.arccos((tip - pivot) @ want / np.linalg.norm(tip - pivot) / np.linalg.norm(want))) < 0.5
+
+
+def test_reach_inside_a_cycle_follows_the_moving_root(project: Project) -> None:
+    goal = [0.45, 1.2, 0.1]
+    text = ARM.format(pose=f"{{ upper: {{ reach: {goal} }} }}").replace(
+        "  pose: { fps: 4, poses:", "  pose: { fps: 4, cycle: { type: bob, parts: [root], amount: 0.1 }, poses:")
+    built = built_of(project, text)
+    for f in range(built.tracks[0].frames):
+        sk = built.skeleton
+        end = bone_end(sk, sk.index("lower"))
+        assert end is not None
+        assert np.linalg.norm(_world(built, "lower", end, f) - np.array(goal)) < 2e-3, f
+
+
+def test_lint_says_when_reach_only_aims(project: Project) -> None:
+    from kiln.lint import lint_paths
+
+    path = write_model(project, ARM.format(pose="{ lower: { reach: [0.6, 1.0, 0] } }"))
+    found = [f for f in lint_paths(project, [path]).findings if f.rule == "W132"]
+    assert len(found) == 1 and "lower" in found[0].message
+
+
+@pytest.mark.parametrize("b", [90.0, -90.0])
+def test_euler_at_the_gimbal_reads_the_turn_back(b: float) -> None:
+    from kiln.rig import _euler_of
+    from kiln.sdf import rotation_matrix
+
+    rng = np.random.default_rng(1)
+    for c in (-150.0, -45.0, 10.0, 120.0):
+        r = rotation_matrix((0.0, b, c)) + rng.normal(0, 1e-13, (3, 3))  # rounding noise where cos(y) = 0
+        assert np.abs(rotation_matrix(_euler_of(r)) - r).max() < 1e-6, c

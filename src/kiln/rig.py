@@ -258,10 +258,7 @@ def _euler(axis: Array, degrees: float) -> tuple[float, float, float]:
     """PartPose angles (rotation_matrix's x, y, z: R = Rz Ry Rx) of a turn about `axis`."""
     from kiln.sdf import axis_rotation
 
-    r = axis_rotation(np.asarray(axis, float), degrees)
-    b = math.asin(max(-1.0, min(1.0, -float(r[2, 0]))))
-    a, c = math.atan2(float(r[2, 1]), float(r[2, 2])), math.atan2(float(r[1, 0]), float(r[0, 0]))
-    return math.degrees(a), math.degrees(b), math.degrees(c)
+    return _euler_of(axis_rotation(np.asarray(axis, float), degrees))
 
 
 def _swing_axis(direction: Array | None) -> Array:
@@ -294,8 +291,13 @@ def animation_poses(anim: Animation, model: Model, skeleton: Skeleton | None = N
 
 
 def _euler_of(r: Array) -> tuple[float, float, float]:
-    """PartPose angles (rotation_matrix's x, y, z: R = Rz Ry Rx) of a rotation matrix."""
-    b = math.asin(max(-1.0, min(1.0, -float(r[2, 0]))))
+    """PartPose angles (rotation_matrix's x, y, z: R = Rz Ry Rx) of a rotation matrix. At y = +-90 degrees x and z
+    turn about one axis: all of it goes to z (x = 0), read from entries that hold it exactly, not from rounding
+    noise (which flipped a straight-forward arm's roll by 180 degrees, #200)."""
+    cos_b = math.hypot(float(r[0, 0]), float(r[1, 0]))
+    b = math.atan2(-float(r[2, 0]), cos_b)
+    if cos_b < 1e-6:
+        return 0.0, math.degrees(b), math.degrees(math.atan2(-float(r[0, 1]), float(r[1, 1])))
     a, c = math.atan2(float(r[2, 1]), float(r[2, 2])), math.atan2(float(r[1, 0]), float(r[0, 0]))
     return math.degrees(a), math.degrees(b), math.degrees(c)
 

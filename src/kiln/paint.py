@@ -522,13 +522,20 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
             if not cut_parts:
                 continue
 
-            def wall_values(x: Array, j: int = j, cut_parts: list[int] = cut_parts, reach: float = reach) -> Array:
+            after = [i for i in adding if i > j]
+
+            def wall_values(x: Array, j: int = j, cut_parts: list[int] = cut_parts, after: list[int] = after, reach: float = reach) -> Array:
                 before = np.min([owners.part_distance(i, x) for i in cut_parts], axis=0)
                 d_cut = owners.part_distance(j, x)
-                return np.maximum(before + d_cut, np.abs(d_cut) - reach)  # < 0: the wall (the crease at the rim is 0)
+                v = np.maximum(before + d_cut, np.abs(d_cut) - reach)  # < 0: the wall (the crease at the rim is 0)
+                if after:  # not a part placed after the cut (a rod laid in the groove): its own surface keeps its paint
+                    v = np.maximum(v, reach / 2 - np.min([owners.part_distance(i, x) for i in after], axis=0))
+                return v
 
-            vertices, faces, negative, parent = split(vertices, faces, wall_values(vertices), owner >= 0)
+            mine = np.isin(owner, sorted({part_group[i] for i in cut_parts}))
+            vertices, faces, negative, parent = split(vertices, faces, wall_values(vertices), mine)
             owner = owner[parent]
+            negative &= mine[parent]
             wall = model.parts[j]
             for g in sorted(set(owner[negative].tolist())):
                 key = PaintGroup(groups[g].bone, wall.color, wall.color_name, wall.material)

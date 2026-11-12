@@ -61,6 +61,7 @@ WARNING_RULES = {
     "W129": "skin_falloff does nothing here (not a soft skin, or a hard, kept, separate or cutting part)",
     "W130": "a variant leaves a colour as it is that goes with one it swaps (same ramp, or close in hue): a seam in the old colour",
     "W131": "a see-through material (alpha < 1) in an atlas project: the atlas draws every part opaque",
+    "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -89,7 +90,7 @@ CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than a
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
 BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127", "W128", "W129")  # fmt: skip
+               "W124", "W125", "W126", "W127", "W128", "W129", "W132")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -99,6 +100,19 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
 
     def warn(rule: str, message: str, line: int | None = None, where: str = "") -> None:
         out.append(Finding(rule, message, m.path, line, where))
+
+    for aname, anim in m.animations.items():  # reach needs a two-part chain (#200)
+        for pose in anim.poses:
+            for pid, pp in pose.items():
+                if pp.reach is not None and pid in {b.name for b in built.skeleton.bones}:
+                    i = built.skeleton.index(pid)
+                    if sum(b.parent == i for b in built.skeleton.bones) != 1:
+                        warn("W132", f"animation {aname}: {pid} has {sum(b.parent == i for b in built.skeleton.bones)} child parts, so reach only "
+                             "points it (aim); reach goes on the upper of two parts (upper arm + forearm)", None, f"animations.{aname}")  # fmt: skip
+                        break
+            else:
+                continue
+            break
 
     field: Field | None = None
     if m.source is None:

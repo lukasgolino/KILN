@@ -41,3 +41,12 @@ def test_a_plain_cut_paints_nothing(project: Project) -> None:
 def test_paint_on_intersects_and_material_alone_are_refused(project: Project, extra: str) -> None:
     text = "name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.6, 0.4, 0.6] }\n    color: red\n  - box: { at: [0, 0.4, 0], size: [0.1, 0.1, 0.1] }\n" + extra
     assert any(f.rule == "E003" for f in errors_of(project, text)), extra
+
+
+def test_a_part_laid_in_the_groove_keeps_its_colour(project: Project) -> None:
+    text = GROOVE.format(hard="") + "  - capsule: { from: [0, 0.37, -0.2], to: [0, 0.37, 0.2], radius: 0.025 }\n    color: blue\n"
+    p = built_of(project, text).painted
+    blue = np.array([p.groups[g].color == "#2f6fd0" for g in p.face_group])
+    c = p.vertices[p.faces].mean(axis=1)
+    rod = (np.hypot(c[:, 0], c[:, 1] - 0.37) < 0.028) & (np.abs(c[:, 2]) < 0.18) & (c[:, 1] > 0.35)
+    assert rod.any() and blue[rod].mean() > 0.7  # the rod is blue, not the groove's black (was 0; the rest: groove faces near it)

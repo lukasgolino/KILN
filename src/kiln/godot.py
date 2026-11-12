@@ -112,7 +112,7 @@ func _ready() -> void:
 \t\t\t\t\tstandard.rim = rim
 \t\t\t\t\tstandard.rim_tint = 0.6
 \t\t\t\tmaterial = standard
-\t\t\tif outline > 0.0:
+\t\t\tif outline > 0.0 and source.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED:  # (glass: no shell seen through it)
 \t\t\t\tvar edge := ShaderMaterial.new()
 \t\t\t\tedge.shader = outline_shader
 \t\t\t\tedge.set_shader_parameter("width", outline)

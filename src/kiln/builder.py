@@ -780,8 +780,12 @@ def mesh_pieces(model: Model) -> tuple[list[list[int]], int]:
     # the parts before it, whatever it names (cuts naming the same ids share a piece)
     taken = set(separate) | set(fitted)
     scoped: list[set[str]] = []
-    for part in model.parts:
+    for j, part in enumerate(model.parts):
         if part.geometry.op == "cut" and part.cut_only:
+            lo, hi = part.geometry.bounds()
+            others = [q for q in model.parts[:j] if q.geometry.op == "add" and q.id not in part.cut_only and q.id not in taken]
+            if not any(np.all(q.geometry.bounds()[0] <= hi) and np.all(q.geometry.bounds()[1] >= lo) for q in others):
+                continue  # it reaches only what it names: they can stay in the shared surface (eye sockets in a body keep its blends)
             ids = {n for n in part.cut_only if n not in taken and n != ROOT_ID}
             for group in [g for g in scoped if g & ids]:
                 scoped.remove(group)
