@@ -171,6 +171,51 @@ def soft_weights(points: Array, model: Model, field: Field, skeleton: Skeleton, 
     return order.astype(np.int64), top
 
 
+def own_bone(points: Array, faces: Array, face_bone: Array, joints: Array, weights: Array, falloff: dict[int, float],
+             soft: int | None = None) -> tuple[Array, Array]:
+    """Parts with `skin_falloff` (#192): a vertex painted with such a part's bone goes over to that bone alone as it
+    gets `falloff` metres (straight line) from where its paint meets another bone's (0: at once); that border keeps
+    its blend. A sleeve blended into the chest then moves with the arm instead of smearing down the side. Only the
+    first `soft` vertices (hard parts' are set apart afterwards)."""
+    n = len(points) if soft is None else soft
+    corner_bone = np.repeat(face_bone, 3)
+    corners = faces.reshape(-1)
+    v_bone = np.full(len(points), -1)
+    v_bone[corners] = corner_bone
+    mixed = np.zeros(len(points), dtype=bool)  # vertices where faces of different bones meet
+    np.logical_or.at(mixed, corners, corner_bone != v_bone[corners])
+    joints, weights = joints.copy(), weights.copy()
+    for bone, f in falloff.items():
+        inner = np.flatnonzero((v_bone[:n] == bone) & ~mixed[:n])
+        if not len(inner):
+            continue
+        if f <= 0:
+            s = np.ones(len(inner))
+        else:  # the distance to this bone's own border (its faces' mixed vertices), chunked both ways (memory)
+            touches = np.zeros(len(points), dtype=bool)
+            touches[faces[face_bone == bone].reshape(-1)] = True
+            border = points[mixed & touches]
+            r = np.full(len(inner), np.inf)
+            for a in range(0, len(inner), 2048):
+                for b in range(0, len(border), 2048):
+                    gap = np.linalg.norm(points[inner[a : a + 2048]][:, None, :] - border[None, b : b + 2048], axis=2)
+                    r[a : a + 2048] = np.minimum(r[a : a + 2048], gap.min(axis=1))
+            s = np.clip(r / f, 0.0, 1.0)
+            s = s * s * (3 - 2 * s)  # smoothstep
+        mine = joints[inner] == bone
+        w = weights[inner] * (1 - s)[:, None]
+        w[mine] += np.broadcast_to(s[:, None], mine.shape)[mine]
+        missing = np.flatnonzero(~mine.any(axis=1))
+        if len(missing):  # the bone wasn't among its four: it takes the weakest slot
+            slot = np.argmin(w[missing], axis=1)
+            joints[inner[missing], slot] = bone
+            w[missing, slot] = s[missing]
+        weights[inner] = w / np.maximum(w.sum(axis=1, keepdims=True), 1e-12)
+    joints[weights <= 0] = 0  # glTF: unused influences point at joint 0
+    weights[weights <= 0] = 0.0
+    return joints, weights
+
+
 # --- animations -----------------------------------------------------------------------------------------------
 
 
