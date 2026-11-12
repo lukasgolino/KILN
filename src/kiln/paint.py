@@ -512,6 +512,37 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
             progress("painting: borders, colour groups done", g + 1, len(groups))
     vertices, faces, owner, pattern_groups = _patterns(vertices, faces, owner, model, adding, groups, group_index, part_group,
                                                       lambda x: _project(field, x), progress=progress)  # fmt: skip
+    # a cut with a colour paints the walls it makes (#178): where the cut, not the parts it cuts, is the surface
+    walls = [j for j, part in enumerate(model.parts) if part.wall and (include is None or any(i < j and _cuts(model, j, i) for i in adding))]
+    if walls and len(faces):
+        edges = vertices[faces[:, [1, 2, 0]]] - vertices[faces]
+        reach = 2.0 * float(np.median(np.linalg.norm(edges, axis=2)))  # a few triangles off the cut's surface at most
+        for j in walls:
+            cut_parts = [i for i in adding if i < j and _cuts(model, j, i)]
+            if not cut_parts:
+                continue
+
+            after = [i for i in adding if i > j]
+
+            def wall_values(x: Array, j: int = j, cut_parts: list[int] = cut_parts, after: list[int] = after, reach: float = reach) -> Array:
+                before = np.min([owners.part_distance(i, x) for i in cut_parts], axis=0)
+                d_cut = owners.part_distance(j, x)
+                v = np.maximum(before + d_cut, np.abs(d_cut) - reach)  # < 0: the wall (the crease at the rim is 0)
+                if after:  # not a part placed after the cut (a rod laid in the groove): its own surface keeps its paint
+                    v = np.maximum(v, reach / 2 - np.min([owners.part_distance(i, x) for i in after], axis=0))
+                return v
+
+            mine = np.isin(owner, sorted({part_group[i] for i in cut_parts}))
+            vertices, faces, negative, parent = split(vertices, faces, wall_values(vertices), mine)
+            owner = owner[parent]
+            negative &= mine[parent]
+            wall = model.parts[j]
+            for g in sorted(set(owner[negative].tolist())):
+                key = PaintGroup(groups[g].bone, wall.color, wall.color_name, wall.material)
+                if key not in group_index:
+                    group_index[key] = len(groups)
+                    groups.append(key)
+                owner[negative & (owner == g)] = group_index[key]
     # `under`: what a detachable (separate) part covers is painted (hair under a helmet), seen once it falls off
     if rigged and include is not None:
         for pid, entry in sorted(model.rig.items()):
@@ -572,11 +603,21 @@ def _groups(model: Model, adding: list[int], rigged: bool, protect: frozenset[in
     return groups, group_index, part_group
 
 
-def hard_regions(mesh: Mesh, face_part: Array, model: Model, rigged: bool) -> Regions:
-    """Paint groups of a hard mesh: every polygon knows its part, so no cutting is needed (patterns still are)."""
+def hard_regions(mesh: Mesh, face_part: Array, model: Model, rigged: bool, walls: Array | None = None) -> Regions:
+    """Paint groups of a hard mesh: every polygon knows its part, so no cutting is needed (patterns still are).
+    `walls`: per face, the coloured cut that made it (-1: none): painted in the cut's colour (#178)."""
     adding = sorted({int(i) for i in face_part})
     groups, group_index, part_group = _groups(model, adding, rigged, frozenset())
     owner = np.array([part_group[int(i)] for i in face_part], dtype=np.int64).reshape(-1)
+    if walls is not None:
+        for j in sorted(set(walls[walls >= 0].tolist())):
+            cut = model.parts[j]
+            for g in sorted(set(owner[walls == j].tolist())):
+                key = PaintGroup(groups[g].bone, cut.color, cut.color_name, cut.material)
+                if key not in group_index:
+                    group_index[key] = len(groups)
+                    groups.append(key)
+                owner[(walls == j) & (owner == g)] = group_index[key]
     vertices, faces, owner, pattern_groups = _patterns(mesh.vertices, mesh.faces, owner, model, adding, groups, group_index, part_group,
                                                       lambda x: x, flat=True)  # flat faces: new points are already on them  # fmt: skip
     return Regions(Mesh(vertices, faces), owner, groups, part_group, pattern_groups)

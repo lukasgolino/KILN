@@ -27,7 +27,7 @@ from kiln.packs import lock_findings
 from kiln.project import Project
 from kiln.retarget import JOINTS
 from kiln.sdf import Array, Field, Geometry, part_thickness
-from kiln.style import Style
+from kiln.style import MaterialPreset, Style
 from kiln.vendor.findings import Finding
 
 WARNING_RULES = {
@@ -60,6 +60,8 @@ WARNING_RULES = {
     "W128": "a round part got so few triangles that it reads as a polygon (many small parts share one budget)",
     "W129": "skin_falloff does nothing here (not a soft skin, or a hard, kept, separate or cutting part)",
     "W130": "a variant leaves a colour as it is that goes with one it swaps (same ramp, or close in hue): a seam in the old colour",
+    "W131": "a see-through material (alpha < 1) in an atlas project: the atlas draws every part opaque",
+    "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -88,7 +90,7 @@ CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than a
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
 BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127", "W128", "W129")  # fmt: skip
+               "W124", "W125", "W126", "W127", "W128", "W129", "W132")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -98,6 +100,19 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
 
     def warn(rule: str, message: str, line: int | None = None, where: str = "") -> None:
         out.append(Finding(rule, message, m.path, line, where))
+
+    for aname, anim in m.animations.items():  # reach needs a two-part chain (#200)
+        for pose in anim.poses:
+            for pid, pp in pose.items():
+                if pp.reach is not None and pid in {b.name for b in built.skeleton.bones}:
+                    i = built.skeleton.index(pid)
+                    if sum(b.parent == i for b in built.skeleton.bones) != 1:
+                        warn("W132", f"animation {aname}: {pid} has {sum(b.parent == i for b in built.skeleton.bones)} child parts, so reach only "
+                             "points it (aim); reach goes on the upper of two parts (upper arm + forearm)", None, f"animations.{aname}")  # fmt: skip
+                        break
+            else:
+                continue
+            break
 
     field: Field | None = None
     if m.source is None:
@@ -379,7 +394,7 @@ def _moved(m: Model, anim: str) -> set[str]:
     from kiln.rig import animation_poses
 
     poses = animation_poses(a, m)
-    return {name for pose in poses for name, pp in pose.items() if any(pp.rotate)}
+    return {name for pose in poses for name, pp in pose.items() if any(pp.rotate) or pp.aim is not None or pp.reach is not None}
 
 
 def _build_job(job: tuple[Model, Style, dict[str, str], Path]) -> Built | str:
@@ -458,6 +473,11 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                                     "check it still fits, then `kiln mark <model> --current`", path, None, "style_version"))  # fmt: skip
             palette, _ = project.palette(model.palette)
             keep += variant_warnings(model, palette)
+            if project.config.atlas:  # one opaque material per model: glass can't be see-through there (#175)
+                see = sorted({p.material for p in model.parts if p.geometry.op == "add" and style.materials.get(p.material, MaterialPreset()).alpha < 1})
+                if see:
+                    keep.append(Finding("W131", f"{', '.join(see)} {'is' if len(see) == 1 else 'are'} see-through (alpha < 1), but atlas = true draws "
+                                        "every part with one opaque material: make the glass its own model, or drop atlas", path, None, "parts"))  # fmt: skip
         loaded.append((path, model, style, palette, keep))
     names = {p.name.split(".")[0] for p in project.model_paths()}
     for path, model, _, _, keep in loaded:  # an effect's emitters are other models in the project

@@ -240,9 +240,9 @@ def test_e003_bad_part_values(part: str, where: str, words: str) -> None:
 
 
 def test_e003_cut_parts_have_no_paint() -> None:
-    _, findings = parse("name: m\nparts:\n  - sphere: { radius: 1 }\n    color: red\n  - sphere: { radius: 0.5 }\n    cut: true\n    color: red\n")
-    f = only(findings, "E003")
-    assert f.where == "parts[1].color" and "removes material" in f.message
+    _, findings = parse("name: m\nparts:\n  - sphere: { radius: 1 }\n    color: red\n  - sphere: { radius: 0.5 }\n    cut: true\n    id: hole\n")
+    f = only(findings, "E003")  # (a cut's color paints its walls, #178; an id, pattern or decal it can't have)
+    assert f.where == "parts[1].id" and "removes material" in f.message
 
 
 @pytest.mark.parametrize(

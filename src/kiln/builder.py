@@ -41,7 +41,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 27  # bump when meshing/painting changes output
+BUILDER_VERSION = 28  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -194,13 +194,14 @@ def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[
     out = []
     for include, mesh in zip(pieces, meshes, strict=True):
         part = mesh.face_part.copy()
+        walls = np.array([int(t) if 0 <= t < len(model.parts) and model.parts[int(t)].wall else -1 for t in part], dtype=np.int64)  # (#178)
         # faces a cut made (a hole's walls) belong to the part they're in
         foreign = ~np.isin(part, sorted(include))
         if foreign.any():
             centres = mesh.vertices[mesh.faces[foreign]].mean(axis=1)
             own = sorted(include)
             part[foreign] = np.asarray(own)[field.nearest(own, centres, absolute=False)[0]]
-        out.append(hard_regions(Mesh(mesh.vertices, mesh.faces), part, model, rigged))
+        out.append(hard_regions(Mesh(mesh.vertices, mesh.faces), part, model, rigged, walls))
     return out, meshes
 
 
@@ -775,7 +776,23 @@ def mesh_pieces(model: Model) -> tuple[list[list[int]], int]:
     # fitted shells (armour wrapping a body, a gap away) are their own pieces too: meshed with what they wrap, the thin
     # air gap between the two surfaces would tear both
     fitted = sorted({model.parts[i].id for i in adding if model.parts[i].geometry.fit is not None and model.parts[i].id not in separate})
-    own = set(separate) | set(fitted)
+    # parts a cut names (`cut: [case, lid]`, #209) are their own piece: in one shared surface a cut takes from all
+    # the parts before it, whatever it names (cuts naming the same ids share a piece)
+    taken = set(separate) | set(fitted)
+    scoped: list[set[str]] = []
+    for j, part in enumerate(model.parts):
+        if part.geometry.op == "cut" and part.cut_only:
+            lo, hi = part.geometry.bounds()
+            others = [q for q in model.parts[:j] if q.geometry.op == "add" and q.id not in part.cut_only and q.id not in taken]
+            if not any(np.all(q.geometry.bounds()[0] <= hi) and np.all(q.geometry.bounds()[1] >= lo) for q in others):
+                continue  # it reaches only what it names: they can stay in the shared surface (eye sockets in a body keep its blends)
+            ids = {n for n in part.cut_only if n not in taken and n != ROOT_ID}
+            for group in [g for g in scoped if g & ids]:
+                scoped.remove(group)
+                ids |= group
+            if ids:
+                scoped.append(ids)
+    own = taken | {n for g in scoped for n in g}
     main = [i for i in adding if model.parts[i].id not in own]
     # union: per_bone (rigid skins): each bone's parts are one closed surface; neighbouring bones' surfaces overlap
     # instead of being cut along where they meet, so turning a joint can't open the mesh (#50)
@@ -784,6 +801,7 @@ def mesh_pieces(model: Model) -> tuple[list[list[int]], int]:
     all_pieces = [[i for i in main if model.parts[i].id == pid] for pid in bones] if per_bone else [main]
     n_main = len(all_pieces)
     all_pieces += [[i for i in adding if model.parts[i].id == pid] for pid in [*separate, *fitted]]
+    all_pieces += [piece for g in sorted(scoped, key=sorted) if (piece := [i for i in adding if model.parts[i].id in g])]
     return all_pieces, n_main
 
 

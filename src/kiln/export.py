@@ -183,11 +183,14 @@ class _Writer:
         mat["name"] += color
         if self.b.bake is not None and decal < 0:
             mat["normalTexture"] = {"index": self.normal_map()}
+        if preset.alpha < 1:  # see-through (glass): blended at its alpha (#175)
+            pbr["baseColorFactor"][3] = preset.alpha
+            mat["alphaMode"] = "BLEND"
         if preset.emission > 0:
             strength = glow_strength(rgb, preset.emission)
             if decal < 0:  # (a decal keeps its white factor: the image is its colour)
                 dim = [c * GLOW_ALBEDO for c in rgb] if "baseColorTexture" not in pbr else [GLOW_ALBEDO] * 3
-                pbr["baseColorFactor"] = [*dim, 1.0]
+                pbr["baseColorFactor"] = [*dim, preset.alpha]
             mat["emissiveFactor"] = rgb
             if strength != 1.0:
                 mat["extensions"] = {"KHR_materials_emissive_strength": {"emissiveStrength": strength}}

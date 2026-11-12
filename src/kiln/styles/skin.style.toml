@@ -44,6 +44,7 @@ gold = { roughness = 0.5, metallic = 0.45 }
 horn = { roughness = 0.6 }
 eye = { roughness = 0.3 }
 glass = { roughness = 0.15 }
+clear = { roughness = 0.1, alpha = 0.35 }          # see-through: windows, bottles, watch crystals (its own part)
 glow = { roughness = 0.6, emission = 2.0 }
 
 [shade]

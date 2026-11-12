@@ -36,6 +36,7 @@ class MaterialPreset:
     metallic: float = 0.0
     emission: float = 0.0  # glow strength (multiplies the part's colour)
     rim: float = 0.0  # soft-light rim (Godot: rim), 0..1
+    alpha: float = 1.0  # < 1: see-through (glass), blended (glTF alphaMode BLEND) (#175)
 
 
 FILMIC_WHITE = 3.0  # Godot's tonemap_white in every look kit, so its Filmic curve is the previews' exactly (#161)
@@ -226,9 +227,10 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
         if "@" in mname:
             bad(f"a material preset's name can't hold @ ({mname!r}): parts write preset@strength for their own emission", f"materials.{mname}")
             continue
-        if not isinstance(spec, dict) or any(k not in ("roughness", "metallic", "emission", "rim") for k in spec) \
-                or not all(isinstance(v, int | float) and not isinstance(v, bool) and v >= 0 for v in spec.values()):
-            bad("a material is { roughness = 0..1, metallic = 0..1, emission = 0.., rim = 0..1 }", f"materials.{mname}")
+        if not isinstance(spec, dict) or any(k not in ("roughness", "metallic", "emission", "rim", "alpha") for k in spec) \
+                or not all(isinstance(v, int | float) and not isinstance(v, bool) and v >= 0 for v in spec.values()) \
+                or not 0.05 <= spec.get("alpha", 1.0) <= 1:
+            bad("a material is { roughness = 0..1, metallic = 0..1, emission = 0.., rim = 0..1, alpha = 0.05..1 (see-through) }", f"materials.{mname}")
             continue
         materials[mname] = MaterialPreset(**{k: float(v) for k, v in spec.items()})
     look_raw = data.get("look", {})

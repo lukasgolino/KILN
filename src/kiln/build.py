@@ -108,7 +108,7 @@ def model_entry(built: Built, out: Path, glb: Path, merged: bool = False) -> dic
     for t in built.tracks:
         animations[t.name] = {"gltf_name": gltf_name(t.name, t.loop), "fps": t.fps, "frames": t.frames, "loop": t.loop,
                               "interpolation": t.interpolation, "duration": _f(t.frames / t.fps)}  # fmt: skip
-        poses = animation_poses(m.animations[t.name], m) if t.name in m.animations else []
+        poses = animation_poses(m.animations[t.name], m, sk) if t.name in m.animations else []
         first = poses[0] if poses else {}
         start = {pid: {"rotate": [_f(v) for v in pose.rotate], "offset": [_f(v) for v in pose.offset]}
                  for pid, pose in sorted(first.items()) if max(map(abs, (*pose.rotate, *pose.offset))) > 1e-4}  # fmt: skip

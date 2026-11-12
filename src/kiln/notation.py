@@ -151,7 +151,7 @@ class Part:
     bevel: float = 0.0  # hard edges rounded in `segments` bands (a chamfer: one band)
     segments: int = 2
     fit: tuple[tuple[str, ...], float] | None = None  # a shell wrapping the parts with these ids, this far from them
-    cut_only: str | None = None  # a cut that only cuts the parts with this id
+    cut_only: tuple[str, ...] | None = None  # a cut that only cuts the parts with these ids (#209: several)
     blend_to: tuple[str, ...] | None = None  # blends only into the earlier parts with these ids (crisp against the rest)
     texture: Decal | None = None  # an image tiled over the whole part (project box | cylindrical), under its decal
     detail: bool = False  # only in the baked normal map (grooves, wrinkles, strands), never in the mesh
@@ -164,6 +164,7 @@ class Part:
     uv: UVSpec | None = None  # texture coordinates projected from its shape (kiln.uv)
     patterns: tuple[Pattern, ...] = ()  # painted in order (a later one paints over earlier ones)
     attr: tuple[tuple[str, float], ...] = ()  # named numbers exported per vertex (shader keys: heat, opacity)
+    wall: bool = False  # a cut with a colour: it paints the walls it makes (an inked groove, panel lines) (#178)
 
 
 @dataclass(frozen=True)
@@ -183,6 +184,9 @@ class PartPose:
     offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     rotate: tuple[float, float, float] = (0.0, 0.0, 0.0)  # degrees, about the part's pivot
     scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    aim: tuple[float, float, float] | None = None  # model-space point the bone points at (its rotate is solved per frame, #200)
+    reach: tuple[float, float, float] | None = None  # two-bone IK: this bone and its child bend so the child's end gets there
+    pole: tuple[float, float, float] | None = None  # (reach) model-space point the middle joint bends toward
 
 
 @dataclass
@@ -318,6 +322,10 @@ def _vec(v: Any, n: int = 3) -> tuple[float, ...] | None:
     if isinstance(v, list) and len(v) == n and all(_num(x) for x in v):
         return tuple(float(x) for x in v)
     return None
+
+
+def _point3(v: tuple[float, ...] | None) -> tuple[float, float, float] | None:
+    return None if v is None else (v[0], v[1], v[2])
 
 
 def _check_value(kind: str, v: Any) -> Any:
@@ -532,11 +540,13 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     cut_only = None
     for flag in ("cut", "intersect"):
         if flag in raw:
-            if flag == "cut" and isinstance(raw[flag], str) and NAME_RE.match(raw[flag]):
-                cut_only = raw[flag]  # cuts only the parts with this id (a helmet's face opening, not the face)
+            named = [raw[flag]] if isinstance(raw[flag], str) else raw[flag] if isinstance(raw[flag], list) and raw[flag] else None
+            if flag == "cut" and named is not None and all(isinstance(n, str) and NAME_RE.match(n) for n in named):
+                cut_only = tuple(named)  # cuts only the parts with these ids (a helmet's face opening, not the face; a tray's own bins)
                 op = flag if op == "add" else "conflict"
             elif not isinstance(raw[flag], bool):
-                ctx.error("E003", f"{flag} must be true or false" + (" (cut may also name the part id it cuts)" if flag == "cut" else ""), line, f"{where}.{flag}")
+                ctx.error("E003", f"{flag} must be true or false" + (" (cut may also name the part ids it cuts: cut: lid or cut: [case, lid])"
+                                                                     if flag == "cut" else ""), line, f"{where}.{flag}")  # fmt: skip
                 ok = False
             elif raw[flag]:
                 op = flag if op == "add" else "conflict"
@@ -739,9 +749,23 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                 ok = False
     else:
         for paint in ("color", "material", "pattern", "gradient", "decal", "texture", "id"):
-            if paint in raw:
-                ctx.error("E003", f"a {op} part removes material: it has no {paint}", line, f"{where}.{paint}")
+            if paint in raw and not (op == "cut" and paint in ("color", "material")):
+                ctx.error("E003", f"a {op} part removes material: it has no {paint}" + (" (a cut's color paints the walls it makes)" if op == "cut" else ""),
+                          line, f"{where}.{paint}")  # fmt: skip
                 ok = False
+        if op == "cut" and "color" in raw:  # paints the walls it makes (#178)
+            c = _color(ctx, raw["color"], line, f"{where}.color")
+            material = raw.get("material", "default")
+            if not isinstance(material, str) or material not in ctx.materials:
+                ctx.error("E005", f"unknown material {material!r}; the style has: {', '.join(sorted(ctx.materials))}", line, f"{where}.material")
+                ok = False
+            if c is None:
+                ok = False
+            else:
+                color = c
+        elif op == "cut" and "material" in raw:
+            ctx.error("E003", "a cut's material goes with its color (the walls it paints)", line, f"{where}.material")
+            ok = False
     loose = raw.get("loose", False)
     if not isinstance(loose, bool):
         ctx.error("E003", "loose must be true or false (true: this part may float free; lint W103 ignores it)", line, f"{where}.loose")
@@ -837,7 +861,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
                    "texture": texture, "color_blend": float(color_blend), "color_blend_set": "color_blend" in raw, "density": float(density), "on": on,
-                   "skin_falloff": None if skin_falloff is None else float(skin_falloff)}  # fmt: skip
+                   "skin_falloff": None if skin_falloff is None else float(skin_falloff), "wall": op == "cut" and "color" in raw}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])
@@ -1515,8 +1539,16 @@ def _pose(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, where: str) -> d
         if part_id not in ids:
             ctx.error("E008", f"unknown part id {part_id!r} (ids: {', '.join(sorted(ids))})", line, pwhere)
             return None
-        if not isinstance(change, dict) or any(k not in ("offset", "rotate", "scale") for k in change):
-            ctx.error("E008", "a part's pose is { offset: [x, y, z] metres, rotate: [x, y, z] degrees, scale: s | [x, y, z] }", line, pwhere)
+        if not isinstance(change, dict) or any(k not in ("offset", "rotate", "scale", "aim", "reach", "pole") for k in change):
+            ctx.error("E008", "a part's pose is { offset: [x, y, z] metres, rotate: [x, y, z] degrees, scale: s | [x, y, z] }, or instead of "
+                      "rotate aim: [x, y, z] (point it there) / reach: [x, y, z] (two-bone IK, pole: [x, y, z])", line, pwhere)  # fmt: skip
+            return None
+        targets = {k: _vec(change[k]) for k in ("aim", "reach", "pole") if k in change}
+        if any(v is None for v in targets.values()):
+            ctx.error("E008", "aim, reach and pole are model-space points [x, y, z] (metres)", line, pwhere)
+            return None
+        if len({"aim", "reach", "rotate"} & set(change)) > 1 or ("pole" in change and "reach" not in change) or (targets and part_id == ROOT_ID):
+            ctx.error("E008", "a part's pose takes one of rotate, aim and reach (pole goes with reach); the root has none", line, pwhere)
             return None
         offset = _vec(change.get("offset", [0, 0, 0]))
         rotate = _vec(change.get("rotate", [0, 0, 0]))
@@ -1525,7 +1557,9 @@ def _pose(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, where: str) -> d
         if offset is None or rotate is None or scale is None or min(scale) <= 0:
             ctx.error("E008", "offset and rotate are [x, y, z]; scale is a number or [x, y, z] (> 0)", line, pwhere)
             return None
-        out[str(part_id)] = PartPose((offset[0], offset[1], offset[2]), (rotate[0], rotate[1], rotate[2]), (scale[0], scale[1], scale[2]))
+        aim, reach, pole = (_point3(targets.get(k)) for k in ("aim", "reach", "pole"))
+        out[str(part_id)] = PartPose((offset[0], offset[1], offset[2]), (rotate[0], rotate[1], rotate[2]), (scale[0], scale[1], scale[2]),
+                                     aim=aim, reach=reach, pole=pole)  # fmt: skip
     return out
 
 
@@ -1813,7 +1847,7 @@ def _fold_unrevealed(data: dict[Any, Any]) -> dict[Any, Any]:
         changed = dict(raw)
         if raw.get("id") in into:
             changed["id"] = into[raw["id"]]
-        if isinstance(raw.get("cut"), str):
+        if isinstance(raw.get("cut"), str | list):  # (cut: [hair, head] too, #209)
             changed["cut"] = ref(raw["cut"])
         if "fit" in raw:
             changed["fit"] = _relined(raw["fit"], {**raw["fit"], "to": ref(raw["fit"].get("to"))}) if isinstance(raw["fit"], dict) else ref(raw["fit"])
@@ -2032,7 +2066,11 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                                                        and not q.detail)  # fmt: skip
             for part in model.parts:
                 if part.cut_only is not None:
-                    part.geometry.cut_only = frozenset(i for i, q in enumerate(model.parts) if q.id == part.cut_only and q.geometry.op == "add")
+                    known = {q.id for q in model.parts if q.geometry.op == "add"}
+                    missing = [n for n in part.cut_only if n not in known]
+                    if missing:
+                        ctx.error("E003", f"cut names {', '.join(missing)}: no part has that id (ids: {', '.join(sorted(known))})", part.line, f"{part.where}.cut")
+                    part.geometry.cut_only = frozenset(i for i, q in enumerate(model.parts) if q.id in part.cut_only and q.geometry.op == "add")
             for part in model.parts:
                 if part.fit is None:
                     continue

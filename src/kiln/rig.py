@@ -28,6 +28,7 @@ class Bone:
     meta: dict[str, object]
     separate: bool
     sockets: dict[str, Array] = field(default_factory=dict)  # name -> model-space point at rest
+    end: Array | None = None  # the far end at rest (its limb's axis end, or its box's far end): where `aim` points it (#200)
 
 
 @dataclass
@@ -138,7 +139,11 @@ def build_skeleton(model: Model, field: Field) -> Skeleton:
         parent = -1 if pid == ROOT_ID else order.index(parent_of[pid])
         meta = {k: list(v) if isinstance(v, tuple) else v for k, v in entry.meta} if entry else {}
         sockets = {k: np.array(v, float) for k, v in entry.sockets} if entry else {}
-        bones.append(Bone(pid, parent, pivots[pid], meta, bool(entry and entry.separate), sockets))
+        end = None
+        if pid != ROOT_ID:
+            limb = ends(pid)
+            end = limb[1] if limb is not None else default_far(pid)
+        bones.append(Bone(pid, parent, pivots[pid], meta, bool(entry and entry.separate), sockets, end))
     return Skeleton(bones)
 
 
@@ -253,10 +258,7 @@ def _euler(axis: Array, degrees: float) -> tuple[float, float, float]:
     """PartPose angles (rotation_matrix's x, y, z: R = Rz Ry Rx) of a turn about `axis`."""
     from kiln.sdf import axis_rotation
 
-    r = axis_rotation(np.asarray(axis, float), degrees)
-    b = math.asin(max(-1.0, min(1.0, -float(r[2, 0]))))
-    a, c = math.atan2(float(r[2, 1]), float(r[2, 2])), math.atan2(float(r[1, 0]), float(r[0, 0]))
-    return math.degrees(a), math.degrees(b), math.degrees(c)
+    return _euler_of(axis_rotation(np.asarray(axis, float), degrees))
 
 
 def _swing_axis(direction: Array | None) -> Array:
@@ -280,11 +282,116 @@ def animation_poses(anim: Animation, model: Model, skeleton: Skeleton | None = N
     repeat over the cycle's frames and a part named in a pose follows the pose instead of the cycle (walk legs +
     carrying arms). With the skeleton, gaits keep the planted foot on the ground."""
     if anim.cycle is None:
-        return anim.poses
-    frames = expand_cycle(anim, model, skeleton)
-    if not anim.poses:
+        frames = anim.poses
+    else:
+        frames = expand_cycle(anim, model, skeleton)
+        if anim.poses:
+            frames = [{**frame, **anim.poses[i % len(anim.poses)]} for i, frame in enumerate(frames)]
+    return _solve_targets(frames, skeleton) if skeleton is not None else frames
+
+
+def _euler_of(r: Array) -> tuple[float, float, float]:
+    """PartPose angles (rotation_matrix's x, y, z: R = Rz Ry Rx) of a rotation matrix. At y = +-90 degrees x and z
+    turn about one axis: all of it goes to z (x = 0), read from entries that hold it exactly, not from rounding
+    noise (which flipped a straight-forward arm's roll by 180 degrees, #200)."""
+    cos_b = math.hypot(float(r[0, 0]), float(r[1, 0]))
+    b = math.atan2(-float(r[2, 0]), cos_b)
+    if cos_b < 1e-6:
+        return 0.0, math.degrees(b), math.degrees(math.atan2(-float(r[0, 1]), float(r[1, 1])))
+    a, c = math.atan2(float(r[2, 1]), float(r[2, 2])), math.atan2(float(r[1, 0]), float(r[0, 0]))
+    return math.degrees(a), math.degrees(b), math.degrees(c)
+
+
+def _arc(u: Array, v: Array) -> Array:
+    """The shortest rotation taking direction u to direction v."""
+    from kiln.sdf import axis_rotation
+
+    u, v = u / np.linalg.norm(u), v / np.linalg.norm(v)
+    axis = np.cross(u, v)
+    if np.linalg.norm(axis) < 1e-9:
+        if float(u @ v) > 0:
+            return np.eye(3)
+        axis = np.cross(u, [1.0, 0.0, 0.0] if abs(u[0]) < 0.9 else [0.0, 1.0, 0.0])
+    return axis_rotation(axis, math.degrees(math.atan2(float(np.linalg.norm(np.cross(u, v))), float(u @ v))))
+
+
+def bone_end(skeleton: Skeleton, i: int) -> Array | None:
+    """Where bone i points at rest: its only child's joint, else its own far end."""
+    children = [j for j, b in enumerate(skeleton.bones) if b.parent == i]
+    return skeleton.bones[children[0]].pivot if len(children) == 1 else skeleton.bones[i].end
+
+
+def bone_ends(skeleton: Skeleton, track: Track, frames: list[int] | None = None) -> dict[str, list[list[float]]]:
+    """Each bone's end (where `aim` points it: its only child's joint, else its far end) in model space per frame:
+    what a pose put where (#200)."""
+    out: dict[str, list[list[float]]] = {}
+    for f in frames if frames is not None else range(track.frames):
+        mats = skin_matrices(skeleton, track.translation[f], track.rotation[f], track.scale[f])
+        for i, b in enumerate(skeleton.bones):
+            end = bone_end(skeleton, i)
+            if end is not None:
+                out.setdefault(b.name, []).append([round(float(v), 4) for v in (mats[i] @ np.append(end, 1.0))[:3]])
+    return out
+
+
+def _solve_targets(frames: list[dict[str, PartPose]], skeleton: Skeleton) -> list[dict[str, PartPose]]:
+    """`aim` and `reach` (#200) turned into each frame's rotations, parents first: `aim` turns a bone (the shortest
+    way from where its parent leaves it) so it points at a model-space point; `reach` bends a bone and its only
+    child (an upper arm and forearm) so the child's end is at the point, the middle joint toward `pole` (default: the
+    way the chain bends at rest; a straight leg's knee forward, any other straight chain's joint back)."""
+    from dataclasses import replace
+
+    if not any(pp.aim is not None or pp.reach is not None for pose in frames for pp in pose.values()):
         return frames
-    return [{**frame, **anim.poses[i % len(anim.poses)]} for i, frame in enumerate(frames)]
+    bones = skeleton.bones
+    children = {i: [j for j, b in enumerate(bones) if b.parent == i] for i in range(len(bones))}
+    out = []
+    for frame in frames:
+        pose = dict(frame)
+        rot: dict[int, Array] = {}  # world rotation
+        lin: dict[int, Array] = {}  # world rotation x scale (what moves a child's joint)
+        pos: dict[int, Array] = {}  # world joint position
+        for i, b in enumerate(bones):
+            pp = pose.get(b.name, PartPose())
+            up_r, up_l, up_p = (rot[b.parent], lin[b.parent], pos[b.parent]) if b.parent >= 0 else (np.eye(3), np.eye(3), np.zeros(3))
+            here = up_p + up_l @ (skeleton.rest_translation(i) + np.array(pp.offset))
+            target, rest_end = (np.array(pp.aim), bone_end(skeleton, i)) if pp.aim is not None else (None, None)
+            if pp.reach is not None:
+                goal = np.array(pp.reach)
+                kids = children[i]
+                tip = bone_end(skeleton, kids[0]) if len(kids) == 1 else None
+                if tip is None:  # no single child: point the bone itself there
+                    target, rest_end = goal, bone_end(skeleton, i)
+                else:
+                    k = kids[0]
+                    a = float(np.linalg.norm(bones[k].pivot - b.pivot))
+                    c = float(np.linalg.norm(tip - bones[k].pivot))
+                    to = goal - here
+                    d = min(max(float(np.linalg.norm(to)), abs(a - c) + 1e-6), a + c - 1e-6)
+                    u = to / max(float(np.linalg.norm(to)), 1e-9)
+                    if pp.pole is not None:
+                        side = np.array(pp.pole) - here
+                    else:
+                        line = tip - b.pivot
+                        bend = bones[k].pivot - b.pivot
+                        bend = bend - line * float(bend @ line) / max(float(line @ line), 1e-12)
+                        side = up_r @ bend if np.linalg.norm(bend) > 1e-3 * a else np.array([0.0, 0.0, 1.0 if "leg" in b.name else -1.0])
+                    side = side - u * float(side @ u)
+                    if np.linalg.norm(side) < 1e-9:
+                        side = np.cross(u, [1.0, 0.0, 0.0] if abs(u[0]) < 0.9 else [0.0, 1.0, 0.0])
+                    side /= np.linalg.norm(side)
+                    cos_a = (a * a + d * d - c * c) / (2 * a * d)
+                    joint = here + a * (cos_a * u + math.sqrt(max(0.0, 1 - cos_a * cos_a)) * side)
+                    target, rest_end = joint, bones[k].pivot
+                    pose[bones[k].name] = replace(pose.get(bones[k].name, PartPose()), rotate=(0.0, 0.0, 0.0), aim=(float(goal[0]), float(goal[1]), float(goal[2])))
+            if target is not None and rest_end is not None and np.linalg.norm(target - here) > 1e-9:
+                spin = _arc(up_r @ (rest_end - b.pivot), target - here)
+                pp = replace(pp, rotate=_euler_of(up_r.T @ spin @ up_r))
+                pose[b.name] = pp
+            r = rotation_matrix(pp.rotate)
+            rot[i], lin[i], pos[i] = up_r @ r, up_l @ (r * np.array(pp.scale)[None, :]), here
+        out.append(pose)
+    return out
 
 
 def _planted(thigh: dict[str, float], shin: dict[str, float], pivot: dict[str, Array], parent: dict[str, str],

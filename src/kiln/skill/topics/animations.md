@@ -30,6 +30,14 @@ swings backwards with positive x and forwards with negative x; a drawbridge hing
 positive x. About z: negative raises a right arm (-X side), positive raises a left arm. About y: positive turns
 left (counter-clockwise seen from above).
 
+Point instead of turning: `aim: [x, y, z]` (a model-space point, metres) turns the part so it points there (from its
+pivot to its only child's joint, else its own far end), the shortest way from where its parent leaves it.
+`reach: [x, y, z]` on the upper of two parts (upper arm + forearm, thigh + shin) bends both so the lower one's end is
+on the point (out of reach: straight toward it); `pole: [x, y, z]` picks where the middle joint goes (default: the way
+the chain bends at rest; a straight leg's knee forward, other straight chains' joint back). One of rotate, aim and
+reach per part; reach sets its child's turn. Raise a wand overhead: `upperarm_r: { reach: [-0.2, 2.1, 0.1] }` (a one-part arm: `arm_r: { aim: ... }`); reach on a part without exactly one child part is lint W132.
+`kiln preview <m> --pose <anim> --json` lists each part's end per frame (`ends`) to check a pose without looking.
+
 Cycles (8 frames unless `frames:`):
 
 | type | options (defaults) |

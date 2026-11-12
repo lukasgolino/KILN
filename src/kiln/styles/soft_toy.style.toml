@@ -36,6 +36,7 @@ metal = { roughness = 0.55, metallic = 0.35 }       # toy metal: no sky mirror
 gold = { roughness = 0.45, metallic = 0.5 }
 leaf = { roughness = 0.8 }
 glass = { roughness = 0.1 }
+clear = { roughness = 0.05, alpha = 0.35 }          # see-through: windows, bottles, watch crystals (its own part)
 glow = { roughness = 0.5, emission = 2.0 }
 
 [look]

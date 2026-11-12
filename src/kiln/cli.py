@@ -519,11 +519,16 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     for anim in args.pose or []:  # check every clip first: no sheet is written when one asks for a frame it lacks
         if anim in tracks and pose_frames is not None and any(not 0 <= f < tracks[anim].frames for f in pose_frames):
             raise _usage(f"--frame: {anim} has frames 0-{tracks[anim].frames - 1} (the frames apply to every --pose)")
+    ends: dict[str, Any] = {}
     for anim in args.pose or []:
         try:
             path = folder / (f"pose_{anim}.{args.variant}.png" if args.variant else f"pose_{anim}.png")
             pv.filmstrip(built, anim, args.size or 200, pose_views, pose_frames, swap).save(path)
             outputs.setdefault("pose", {})[anim] = display_path(path)
+            if anim in tracks:  # (--json) where each bone ends up, per frame: check a pose without looking (#200)
+                from kiln.rig import bone_ends
+
+                ends[anim] = bone_ends(built.skeleton, tracks[anim], pose_frames)
         except KeyError:
             raise _usage(f"{name} has no animation {anim!r} (animations: {', '.join(built.model.animations) or 'none'})") from None
         except ValueError as exc:
@@ -574,7 +579,7 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     if args.draft:
         _stamp_drafts(outputs)
     out.result({"model": name, "outputs": outputs, "triangles": built.triangles, **({"draft": True} if args.draft else {}),
-                **({"warnings": [f.to_dict() for f in kin]} if kin else {}),
+                **({"warnings": [f.to_dict() for f in kin]} if kin else {}), **({"ends": ends} if ends else {}),
                 **({"compare": metrics} if metrics else {})})  # fmt: skip
     return 0
 

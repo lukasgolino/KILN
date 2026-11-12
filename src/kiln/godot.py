@@ -66,6 +66,14 @@ extends Node3D
 # Materials are made once and shared by every instance (and every model) with the same source and settings.
 static var _shared: Dictionary = {}
 
+static func _see_through(shader: Shader) -> Shader:  # the toon shader with the material's alpha (glass)
+\tvar key := "alpha|%d" % shader.get_instance_id()
+\tif not _shared.has(key):
+\t\tvar glass := Shader.new()
+\t\tglass.code = shader.code.replace("\\tEMISSION =", "\\tALPHA = albedo.a;\\n\\tEMISSION =")
+\t\t_shared[key] = glass
+\treturn _shared[key]
+
 func _ready() -> void:
 \tfor node in find_children("*", "MeshInstance3D", true, false):
 \t\tvar mesh_instance := node as MeshInstance3D
@@ -78,7 +86,7 @@ func _ready() -> void:
 \t\t\tvar albedo := source.albedo_color
 \t\t\tvar hex := source.resource_name.get_slice("#", 1)
 \t\t\tif swap.has(hex) and source.albedo_texture == null:
-\t\t\t\talbedo = swap[hex]
+\t\t\t\talbedo = Color(swap[hex], source.albedo_color.a)  # (glass keeps its see-through)
 \t\t\tvar key := "%d|%s|%s|%d|%s|%s|%s" % [source.get_instance_id(), shader_kind, albedo.to_html(), bands, outline, outline_color.to_html(), rims]
 \t\t\tif _shared.has(key):
 \t\t\t\tmesh_instance.set_surface_override_material(i, _shared[key])
@@ -86,7 +94,7 @@ func _ready() -> void:
 \t\t\tvar material: Material
 \t\t\tif shader_kind == "toon":
 \t\t\t\tvar toon := ShaderMaterial.new()
-\t\t\t\ttoon.shader = toon_shader
+\t\t\t\ttoon.shader = toon_shader if source.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED else _see_through(toon_shader)
 \t\t\t\ttoon.set_shader_parameter("albedo", albedo)
 \t\t\t\ttoon.set_shader_parameter("emission", Vector3(source.emission.r, source.emission.g, source.emission.b) * source.emission_energy_multiplier if source.emission_enabled else Vector3.ZERO)
 \t\t\t\ttoon.set_shader_parameter("bands", bands)
@@ -104,7 +112,7 @@ func _ready() -> void:
 \t\t\t\t\tstandard.rim = rim
 \t\t\t\t\tstandard.rim_tint = 0.6
 \t\t\t\tmaterial = standard
-\t\t\tif outline > 0.0:
+\t\t\tif outline > 0.0 and source.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED:  # (glass: no shell seen through it)
 \t\t\t\tvar edge := ShaderMaterial.new()
 \t\t\t\tedge.shader = outline_shader
 \t\t\t\tedge.set_shader_parameter("width", outline)

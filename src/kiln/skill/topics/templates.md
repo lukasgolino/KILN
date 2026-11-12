@@ -21,7 +21,7 @@ animations:
 
 or `kiln new model sergeant --extends body_stocky,head_bearded,helmet_nasal,armour_cape`. Their colours are the
 library palette `people` (found without copying; copy it into palettes/ to change it). `extends` takes a list (bases
-combine in order); `cut: <id>` cuts only that id (a helmet's face opening, not the face); `fit: { to: [ids] }` wraps
+combine in order); `cut: <id>` (or `[ids]`) cuts only those ids (a helmet's face opening, not the face); `fit: { to: [ids] }` wraps
 several parts. Fitted shells are their own meshes.
 
 The heads' hair is the id `hair`, folded into `head` (`fold: true`, see Rig and skin), so helmets fit over it and
