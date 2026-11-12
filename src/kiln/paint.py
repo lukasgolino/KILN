@@ -585,16 +585,27 @@ def paint(painted: Regions, model: Model) -> Painted:
         d = part.decal
         g = part_group[i]
         own = {g, *pattern_groups.get(g, ())}
+        # pattern colour groups are shared by every part painting those colours (#146): of the faces in them, only
+        # those nearest this part (of the parts sharing them) are its own
+        sharing = [j for j in adding if j in part_group and {part_group[j], *pattern_groups.get(part_group[j], ())} & own]
+
+        def mine(vertices: Array, faces: Array, i: int = i, sharing: list[int] = sharing) -> Array:
+            if len(sharing) < 2:
+                return np.ones(len(faces), dtype=bool)
+            c = vertices[faces].mean(axis=1)
+            d_all = np.stack([np.abs(model.parts[j].geometry.distance(c)) for j in sharing])
+            return np.asarray(np.array(sharing)[np.argmin(d_all, axis=0)] == i)
+
         facing, _, _ = _decal_frame(d)
         for column, bound in ((0, 0.0), (0, 1.0), (1, 0.0), (1, 1.0)):
-            sel = np.isin(owner, list(own))
+            sel = np.isin(owner, list(own)) & mine(vertices, faces)
             uv = decal_uv(d, vertices)
             values = uv[:, column] - bound if bound == 0.0 else bound - uv[:, column]
             vertices, faces, _, parent = split(vertices, faces, values, sel)
             owner, face_decal = owner[parent], face_decal[parent]
         # and along where the surface turns past DECAL_FACING from the decal's way (#191: a decal wrapping round a side
         # ended on whole triangles, a stepped edge): smooth vertex normals give a clean line
-        sel = np.isin(owner, list(own))
+        sel = np.isin(owner, list(own)) & mine(vertices, faces)
         vertices, faces, _, parent = split(vertices, faces, _vertex_normals(vertices, faces) @ facing - DECAL_FACING, sel)
         owner, face_decal = owner[parent], face_decal[parent]
         centroid = vertices[faces].mean(axis=1)
@@ -611,7 +622,7 @@ def paint(painted: Regions, model: Model) -> Painted:
         facing_ok = np.where(smooth, turned > 0, normal @ facing > DECAL_FACING)
         depth = np.abs((centroid - np.array(d.at)) @ facing)
         inside = (uvc >= 0).all(axis=1) & (uvc <= 1).all(axis=1) & facing_ok & (depth < max(d.size))
-        mark = inside & np.isin(owner, list(own)) & (face_decal < 0)
+        mark = inside & np.isin(owner, list(own)) & mine(vertices, faces) & (face_decal < 0)
         face_decal[mark] = len(decals)
         decals.append(d)
     # textures: every face of the part's own group not under its decal (its pattern colours paint over it); one entry
