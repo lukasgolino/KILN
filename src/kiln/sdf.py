@@ -348,16 +348,23 @@ def torus(p: Array, s: dict[str, Any]) -> Array:
     return np.sqrt(ring * ring + p[:, 1] * p[:, 1]) - s["thickness"]
 
 
-PATH_STEPS = 8  # segments per span of a smooth tube or lock
+# Segments per span of a smooth tube or lock (soft parts; hard ones are a union of exact pieces, so fewer). Cached
+# builds key on the model's text, not on these: bump builder.BUILDER_VERSION when changing them or smooth_path.
+PATH_STEPS = 8
+HARD_PATH_STEPS = 3
 
 
 def smooth_path(points: list[list[float]], steps: int = PATH_STEPS) -> list[list[float]]:
     """A centripetal Catmull-Rom curve through every point (no loops or cusps on uneven spacing), as `steps` straight
-    segments per span; the ends are extended by mirroring their neighbours."""
+    segments per span. Open paths: the ends are extended by mirroring their neighbours; a closed one (first point =
+    last) wraps round, so the join is as smooth as the rest. Repeated points make a zero-length span (no NaN)."""
     pts = np.asarray(points, float)
     if len(pts) < 3:
         return [list(map(float, q)) for q in pts]
-    ext = np.concatenate([[2 * pts[0] - pts[1]], pts, [2 * pts[-1] - pts[-2]]])
+    if len(pts) > 3 and float(np.linalg.norm(pts[0] - pts[-1])) < 1e-9:
+        ext = np.concatenate([[pts[-2]], pts, [pts[1]]])
+    else:
+        ext = np.concatenate([[2 * pts[0] - pts[1]], pts, [2 * pts[-1] - pts[-2]]])
     out = [pts[0]]
     for i in range(1, len(ext) - 2):
         p0, p1, p2, p3 = ext[i - 1], ext[i], ext[i + 1], ext[i + 2]

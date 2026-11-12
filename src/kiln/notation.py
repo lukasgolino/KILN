@@ -22,7 +22,20 @@ from kiln.mesher import CELL_LIMIT
 from kiln.retarget import REQUIRED, JointMap
 from kiln.scatter import Scatter
 from kiln.scatter import parse as parse_scatter
-from kiln.sdf import IDENTITY, SHAPES, Copy, Field, Geometry, Noise, axis_rotation, rotation_matrix, smooth_path, smooth_profile
+from kiln.sdf import (
+    HARD_PATH_STEPS,
+    IDENTITY,
+    PATH_STEPS,
+    SHAPES,
+    Copy,
+    Field,
+    Geometry,
+    Noise,
+    axis_rotation,
+    rotation_matrix,
+    smooth_path,
+    smooth_profile,
+)
 from kiln.shade import parse as parse_shade
 from kiln.terrain import Terrain
 from kiln.terrain import parse as parse_terrain
@@ -467,8 +480,6 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if missing:
         ctx.error("E003", f"{kind} needs {', '.join(missing)} ({sdef.help})", line, swhere)
         ok = False
-    if kind in ("tube", "lock") and "points" in params and params.pop("smooth", False):
-        params["points"] = smooth_path(params["points"])  # a curve through the points, as short straight pieces
     if kind == "lathe" and "profile" in params and params.get("smooth", True):
         if "smooth" not in spec:
             params["hard_profile"] = params["profile"]  # hard lathes keep the outline's corners unless asked
@@ -747,6 +758,9 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     open_axis = None
     if open_side is not None:
         open_axis = (AXES[open_side[-1]], -1.0 if open_side.startswith("-") else 1.0)
+    if kind in ("tube", "lock") and params.pop("smooth", False):  # a curve through the points, as short straight pieces;
+        exact = hard is True or raw.get("blend") == "none" or "sides" in spec or bool(bevel or chamfer)  # fewer for exact
+        params["points"] = smooth_path(params["points"], HARD_PATH_STEPS if exact else PATH_STEPS)  # polygons (a union of pieces)
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,

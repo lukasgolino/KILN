@@ -39,3 +39,33 @@ def test_notation_and_build(project: Project) -> None:
     assert built.triangles > 0
     _, _, findings = load(project, tube.replace("smooth: true", "smooth: 2"))
     assert [f.where for f in findings] == ["parts[0].tube.smooth"], findings
+
+
+def test_a_closed_path_wraps_without_a_kink_and_repeated_points_are_fine() -> None:
+    ring = [[np.cos(a), 0.5, np.sin(a)] for a in np.linspace(0, 2 * np.pi, 7)]
+    ring[-1] = ring[0]
+    curve = np.asarray(smooth_path(ring))
+    steps = np.diff(curve, axis=0)
+    first, last = steps[0] / np.linalg.norm(steps[0]), steps[-1] / np.linalg.norm(steps[-1])
+    assert float(first @ last) > np.cos(np.radians(15))  # the join turns like any other piece
+    repeated = np.asarray(smooth_path([WAVE[0], WAVE[1], WAVE[1], WAVE[2]]))
+    assert np.isfinite(repeated).all() and np.allclose(repeated[[0, PATH_STEPS, 2 * PATH_STEPS, 3 * PATH_STEPS]], [WAVE[0], WAVE[1], WAVE[1], WAVE[2]])
+
+
+def test_mirrored_and_hard_smooth_tubes(project: Project) -> None:
+    import time
+
+    from kiln.sdf import HARD_PATH_STEPS
+
+    pts = ", ".join(f"[{x + 0.1}, {y}, {z}]" for x, y, z in WAVE)
+    soft = f"name: thing\nparts:\n  - tube: {{ points: [{pts}], radius: 0.03, smooth: true }}\n    color: wood\n    mirror_id: other\n    mirror: x\n"
+    model, _, findings = load(project, soft)
+    assert model is not None and not findings, findings
+    a, b = (np.asarray(p.geometry.params["points"]) for p in model.parts)
+    assert np.allclose(a, b)  # the twin reflects the same curve (in its placement)
+    hard = soft.replace("    color: wood\n", "    color: wood\n    blend: none\n", 1)
+    model, _, _ = load(project, hard)
+    assert model is not None and len(model.parts[0].geometry.params["points"]) == 1 + 4 * HARD_PATH_STEPS
+    start = time.perf_counter()
+    built = lint_paths(project, [write_model(project, hard)]).built["thing"]
+    assert built.triangles < 1200 and time.perf_counter() - start < 30
