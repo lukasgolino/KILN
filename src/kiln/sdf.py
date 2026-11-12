@@ -550,6 +550,34 @@ class Noise:
     seed: int
 
 
+@dataclass(frozen=True)
+class Folds:
+    """Cloth folds (#204): `count` vertical folds round the part's own y axis, up to `depth` deep at `from_y` (the
+    hem, model space) fading to none at `to_y` (where the cloth hangs from)."""
+
+    count: int
+    depth: float
+    from_y: float
+    to_y: float
+    sharp: float = 0.5  # 0: smooth waves; up to 1: narrow ridges between wide hollows
+
+
+def folds(q: Array, f: Folds, base_y: float) -> Array:
+    """How far inward folds move the surface at points `q` in the part's own frame (its y axis is the folds' axis):
+    the profile round the axis (0 on a ridge, 1 in a hollow; `sharp` narrows the ridges, with a finite slope) x the
+    depth, which fades from `from_y` to `to_y` measured along that axis (`base_y` + local y: model heights for an
+    upright part) and is capped at a quarter of the fold spacing there (2 pi r / count), so the field stays a usable
+    bound near the axis and at high counts."""
+    r = np.hypot(q[:, 0], q[:, 2])
+    theta = np.arctan2(q[:, 2], q[:, 0])
+    wave = 0.5 - 0.5 * np.cos(f.count * theta)
+    profile = 1.0 - (1.0 - wave) ** (1.0 + 2.0 * f.sharp)
+    span = f.to_y - f.from_y
+    t = np.clip((base_y + q[:, 1] - f.from_y) / span, 0.0, 1.0) if span else np.zeros(len(q))
+    depth = np.minimum(f.depth, 0.25 * 2 * np.pi * r / f.count) * (1.0 - t) ** 1.5
+    return np.asarray(depth * profile)
+
+
 def noise(p: Array, n: Noise) -> Array:
     """Deterministic smooth 3D noise in about [-1, 1]: a few octaves of products of sine waves along fixed random
     directions (seeded), so rocks and bark look lumpy without textures."""
@@ -590,6 +618,7 @@ class Geometry:
     cut_only: frozenset[int] | None = None  # cuts: only these adding parts (indices); None = everything before it
     blend_to: frozenset[int] | None = None  # adding parts (earlier) it blends into; the rest it meets crisply
     scale: Array | None = None  # (3,) stretch in the part's own frame (after rotate and twist): an approximate distance
+    folds: Folds | None = None  # cloth folds (#204): applied after the shape, like noise
 
     def open_plane(self) -> float:
         """Where the open side is cut, along its axis in the local frame: the shape's centre (0), except a lathe
@@ -612,7 +641,7 @@ class Geometry:
         return self._distance(p, filled)
 
     def _distance(self, p: Array, filled: bool) -> Array:
-        if jit.AVAILABLE and self.shape in jit.SHAPE_IDS and len(p) >= jit.MIN_POINTS:
+        if jit.AVAILABLE and self.shape in jit.SHAPE_IDS and self.folds is None and len(p) >= jit.MIN_POINTS:
             return jit.distance(self, p, filled)
         if self.mirror:
             p = p.copy()
@@ -631,6 +660,8 @@ class Geometry:
             if self.scale is not None:  # a bound, not exact: the shape's distance times the smallest stretch
                 q = q / self.scale
             d = fn(q, self.params)
+            if self.folds is not None:  # each copy folds round its own axis, before any shell (the wall moves, it isn't eaten)
+                d = d + folds(q, self.folds, float(self.at[1]))
             shrink = float(self.scale.min()) if self.scale is not None else 1.0
             if self.scale is not None:
                 d = d * shrink

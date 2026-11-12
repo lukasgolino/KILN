@@ -332,7 +332,7 @@ def regions(mesh: Mesh, model: Model, field: Field, rigged: bool, include: list[
     later = {i: [j for j in range(i + 1, len(model.parts)) if model.parts[j].geometry.op != "add" and _cuts(model, j, i)] for i in adding}
     # borders between parts follow their smooth shapes: noise roughens the surface, not the colour edges on it (#100)
     # (`owners`; the mesh's own field, noise and all, still places new vertices on the surface)
-    owners = Field([replace(g, noise=None) for g in field.parts], field.margin, field.active) if any(g.noise for g in field.parts) else field
+    owners = Field([replace(g, noise=None, folds=None) for g in field.parts], field.margin, field.active) if any(g.noise or g.folds for g in field.parts) else field
 
     def group_distances(points: Array) -> Array:
         if not len(points):
@@ -562,11 +562,11 @@ def _part_distance(model: Model, i: int, points: Array) -> Array:
     from dataclasses import replace
 
     g = model.parts[i].geometry
-    d = (replace(g, noise=None) if g.noise is not None else g).distance(points)
+    d = (replace(g, noise=None, folds=None) if g.noise is not None or g.folds is not None else g).distance(points)
     for j in range(i + 1, len(model.parts)):
         gj = model.parts[j].geometry
         if gj.op != "add" and _cuts(model, j, i):
-            dj = (replace(gj, noise=None) if gj.noise is not None else gj).distance(points)
+            dj = (replace(gj, noise=None, folds=None) if gj.noise is not None or gj.folds is not None else gj).distance(points)
             d = np.maximum(d, -dj if gj.op == "cut" else dj)
     return np.asarray(d)
 
