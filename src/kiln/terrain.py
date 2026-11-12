@@ -980,7 +980,7 @@ TOON_LIGHT = """uniform int bands = 3;
 void light() {
 \tfloat n = clamp((dot(NORMAL, LIGHT) + 0.15) / 1.15, 0.0, 0.999);
 \tfloat lit = floor(n * float(bands)) / float(bands - 1);
-\tDIFFUSE_LIGHT += vec3(lit) * ATTENUATION * LIGHT_COLOR * 0.9;
+\tDIFFUSE_LIGHT += vec3(lit) * ATTENUATION * LIGHT_COLOR / PI * 0.9;  // LIGHT_COLOR carries x PI (for a PBR / PI): without it the bands were PI x too bright (#183)
 }
 """
 

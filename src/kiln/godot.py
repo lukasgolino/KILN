@@ -35,7 +35,7 @@ void fragment() {
 void light() {
 \tfloat n = clamp((dot(NORMAL, LIGHT) + 0.15) / 1.15, 0.0, 0.999);
 \tfloat lit = floor(n * float(bands)) / float(bands - 1);
-\tDIFFUSE_LIGHT += vec3(lit) * ATTENUATION * LIGHT_COLOR * 0.9;
+\tDIFFUSE_LIGHT += vec3(lit) * ATTENUATION * LIGHT_COLOR / PI * 0.9;  // LIGHT_COLOR carries x PI (for a PBR / PI): without it the bands were PI x too bright (#183)
 }
 """
 
@@ -177,7 +177,7 @@ def _toon_light(look: Look) -> str:
         lines.append("\tfloat shadow = LIGHT_IS_DIRECTIONAL ? step(0.5, ATTENUATION) : ATTENUATION;  // received shadows: the darkest band")
     else:
         lines.append("\tfloat shadow = ATTENUATION;")
-    lines += ["\tfloat shade = lit * shadow;", "\tDIFFUSE_LIGHT += vec3(shade) * LIGHT_COLOR * 0.9;"]
+    lines += ["\tfloat shade = lit * shadow;", "\tDIFFUSE_LIGHT += vec3(shade) * LIGHT_COLOR / PI * 0.9;  // LIGHT_COLOR carries x PI (for a PBR / PI): without it the bands were PI x too bright (#183)"]
     if look.toon_shadow_color:
         lines += ["\tif (LIGHT_IS_DIRECTIONAL) {",
                   "\t\tDIFFUSE_LIGHT += shadow_color.rgb * (1.0 - shade);  // the sun's missing light, in the shadow colour",
@@ -186,7 +186,7 @@ def _toon_light(look: Look) -> str:
         lines += ["\tvec3 halfway = normalize(LIGHT + VIEW);",
                   "\tfloat blob = step(1.0 - 0.08 * ROUGHNESS * ROUGHNESS, dot(NORMAL, halfway)) * step(0.0, dot(NORMAL, LIGHT));",
                   "\t// a white blob: diffuse light is multiplied by the albedo afterwards (specular_disabled keeps the plain toon's ambient)",
-                  "\tDIFFUSE_LIGHT += LIGHT_COLOR * specular * (1.0 - ROUGHNESS) * blob * shadow / max(ALBEDO, vec3(0.05));"]
+                  "\tDIFFUSE_LIGHT += LIGHT_COLOR / PI * specular * (1.0 - ROUGHNESS) * blob * shadow / max(ALBEDO, vec3(0.05));"]
     return "\n".join(lines) + "\n}\n"
 
 
