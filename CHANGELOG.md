@@ -8,6 +8,8 @@ before 1.0).
 
 ### Changed
 
+- Docs (making): when to choose hard parts (mechanical props: flat faces, holes), and how toy metal picks up the
+  ground's colour and how to get cool cartoon steel (#176).
 - Glowing colours keep their hue: a glowing material's strength is capped per colour (its brightest channel x
   strength at most 0.75; past it Godot's tone curve bends the hue) and its lit base colour is dimmed (x 0.3), in the
   glb, the atlas (variants included) and the previews.
@@ -47,6 +49,9 @@ before 1.0).
 
 ### Added
 
+- Poses point parts at model-space points: `aim: [x, y, z]`, and two-bone IK `reach: [x, y, z]` (`pole:` for the
+  middle joint) on an upper arm or thigh; `kiln preview --pose --json` gives each part's end per frame (`ends`)
+  (#200). The manifest's `start` poses now come from the solved frames (with the skeleton, as the glb).
 - Variants swap whole palette ramps, shade for shade: `swap: { robes: golds }` (the palette's `ramps:`, same length;
   colour entries win over ramps; a shade two ramps share is swapped only when named). Lint W130 (and
   `kiln preview --variant`) names colours a variant leaves that go with one it swaps: the same ramp, or close in hue;

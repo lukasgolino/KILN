@@ -19,7 +19,12 @@ Making a model: plan in metres, scaffold, parts, lint, look, fit with the rest; 
      `gradient` or `pattern` on each of many parts, many hard parts (more so with bevels and many sides).
      `kiln preview <name> --draft` while shapes are moving.
    - Every colour is a palette name. Materials are the style's presets (plastic, fabric, skin, leather, wood, stone,
-     metal, gold, leaf, glass, rubber, paint, glow).
+     metal, gold, leaf, glass, rubber, paint, glow). Toy styles' `metal` is part metallic: faces turned down or away
+     take a little of the ground's warm colour. For cool cartoon steel pick a blue-grey and `plastic`, or add a preset
+     with `metallic` 0.1-0.2 (`kiln docs styles`).
+   - Mechanical props (flat faces, holes, bolts, panels): `hard: true` parts (with `bevel`). Smooth parts blend and
+     then get reduced to the budget, so big flats come out dented and holes jagged; hard parts keep flats flat and
+     edges straight. Smooth parts are for organic shapes (bodies, cloth, food, rocks).
    - Big plain areas read better with geometry than patterns: planks, trims and shields as parts. Patterns cost
      triangles (W110); keep them for clothes and small props.
    - Things meant to float (flames, bees, sparks, rubble bits): `loose: true` on the part, so W103 stays meaningful.
