@@ -26,6 +26,10 @@ Characters, rigs, skins and sockets; rig notation.
 - Gameplay data on parts: `rig: { helmet: { meta: { hitzone: head, detachable: true, socket: [0, 1.6, 0.1] } } }` ->
   node metadata in Godot and in the manifest, which also gives every part's box (`aabb`) for hit zones.
 - Detachables (`separate: true`) are meshed on their own, so they may overlap the body and leave no hole when removed.
+- Soft skins weigh each vertex by its distance to every bone's parts, softly over the blend: a sleeve blended into the
+  chest half-follows the chest when the arm lifts (a smear down the side). `skin_falloff: 0` on the part keeps the
+  surface painted as its bone on that bone alone away from the colour border (or fades over to it within that many
+  metres, e.g. 0.03); the border itself stays blended. Set it on the chest too to keep the torso still.
 - Points the game needs on a part (a weapon's muzzle, a hand slot, a catapult's load, a seat): `sockets` in the rig
   entry; they become nodes that move with the part.
 

@@ -35,7 +35,7 @@ from kiln.mesher import (
 )
 from kiln.notation import ROOT_ID, Decal, Model, Part
 from kiln.paint import Painted, PaintGroup, Regions, corner_normals, hard_regions, paint, regions
-from kiln.rig import Bone, Skeleton, build_skeleton, soft_weights, tracks
+from kiln.rig import Bone, Skeleton, build_skeleton, own_bone, soft_weights, tracks
 from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
@@ -326,6 +326,12 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     if model.skin == "soft":
         phase("skinning")
         joints, weights = soft_weights(painted.vertices, model, field, skeleton, step, hinted("skin: rigid or fewer parts skins faster"))
+        names = [b.name for b in skeleton.bones]
+        falloff = {names.index(p.id): p.skin_falloff for p in model.parts if p.skin_falloff is not None and p.id in names}
+        if falloff:  # skin_falloff: painted surface follows its own bone away from its border (#192)
+            face_bone = np.array([names.index(g.bone) if g.bone in names else -1 for g in painted.groups])[painted.face_group]
+            joints, weights = own_bone(painted.vertices, painted.faces, face_bone, joints, weights,
+                                       {b: min(f for q in model.parts if q.id == names[b] and (f := q.skin_falloff) is not None) for b in falloff})
         if len(painted.vertices) > n_soft:  # hard parts don't bend: each vertex follows its own part's bone
             names = [b.name for b in skeleton.bones]
             bone = np.zeros(len(painted.vertices), dtype=np.int64)
