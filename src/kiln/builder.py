@@ -41,7 +41,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 28  # bump when meshing/painting changes output
+BUILDER_VERSION = 29  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -311,7 +311,7 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
                                   [p for p, _ in kept_cut], [n for _, n in kept_cut])  # fmt: skip
     n_soft = len(painted.vertices) if painted is not None else 0
     if hard_cut:
-        hard_painted = [paint(r, model) for r in hard_cut]
+        hard_painted = [paint(r, model, hard=True) for r in hard_cut]
         hard_normals = [hard_corner_normals(HardMesh(hp.vertices, hp.faces, hp.face_group, _face_normals(hp), np.zeros(0, np.int64)),
                                             style.smooth, style.sharp_angle) for hp in hard_painted]  # fmt: skip
         painted, normals = _merge([painted] if painted is not None else [], [normals] if len(normals) else [], hard_painted, hard_normals)

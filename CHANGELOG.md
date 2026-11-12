@@ -8,6 +8,13 @@ before 1.0).
 
 ## [0.23.0] - 2026-11-12
 
+Look and features. Relief layers (fur as patches in baked maps), colour that fades across part borders, shade
+paint, part density, a skin style preset, garments, cloth folds, patterns (offsets, jittered dots, pixel motifs),
+per-copy decals, glow that keeps its hue, see-through materials, painted and scoped cuts, aim and two-bone IK in
+poses, gaits with bending knees and elbows, instances (models placed in a model), variant ramp swaps, and preview
+framing; toon previews now match Godot (toon models are darker in Godot: see Fixed). Most meshes with colour
+borders or decals change a little and every cached build is rebuilt once.
+
 ### Added
 
 - `instances:` place other models in a model (a desk with its props), each its own build at its own detail, merged
@@ -119,10 +126,8 @@ before 1.0).
   strength at most 0.75; past it Godot's tone curve bends the hue) and its lit base colour is dimmed (x 0.3), in the
   glb, the atlas (variants included) and the previews.
   A pale pink at glow 2 rendered white in Godot and previews; now it stays pink (#202).
-
 - Decal cuts snap values within 1e-6 of a cut line onto it (no near-twin vertices beside a cut point); decal
   meshes may change slightly; cached builds are rebuilt once (#211).
-
 - `kiln docs parts` split in two: `parts` (shapes and part options) and `surfaces` (hard surfaces, hardware, patterns,
   decals, textures). The topic had hit its size budget; the details cut to fit it are back (#270).
 
@@ -134,9 +139,6 @@ before 1.0).
 
 ### Fixed
 
-- A decal on a faceted (hard) part drew its facing-limit line through flat faces: extra triangles for nothing (the
-  face's own normal decides there); a face counts as smooth only when each corner's normal agrees with it. A
-  decal-heavy hard watch case 3170 -> 2202 triangles (2192 in 0.22.0).
 - Toon: `kiln preview` and Godot agree (#183). The Godot toon shader took the sun at PI x its strength (Godot's
   `LIGHT_COLOR` carries a PI for PBR's divide), so toon bands came out washed and clipped (gold went yellow); they
   now light as the preview and the standard shader do. **Toon models are darker in Godot than before**: the
@@ -147,8 +149,9 @@ before 1.0).
 - Colour borders along blends zigzagged at lower budgets (a sawtooth on a sleeve's edge from about 1200 triangles
   down): thinning a border to the budget left its vertices either side of it. Each vertex where two plain colours meet
   now goes back onto the exact border after reducing (along the surface, at most half an edge). And a decal that wraps
-  round a side ended on whole triangles (a stepped edge): it is cut along where the surface turns away too. Meshes
-  with colour borders or decals change a little; cached builds are rebuilt once (#191).
+  round a side ended on whole triangles (a stepped edge): it is cut along where the surface turns away too, within
+  its rectangle and on smooth surfaces (a hard part's flat faces: their own normal decides). Meshes with colour
+  borders or decals change a little; cached builds are rebuilt once (#191).
 - The built-in walk on a humanoid (`skeleton: humanoid`) moved only the hips: its legs and arms default to
   upperleg/upperarm now, its knees and elbows bend (knees fold while the leg swings forward), its feet stay level,
   and the body rides so the planted foot stays on the ground. Listing `legs:` / `arms:` keeps the humanoid defaults
