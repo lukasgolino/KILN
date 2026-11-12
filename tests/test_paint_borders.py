@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from conftest import write_model
+from conftest import built_of, write_model
 from PIL import Image
 
 from kiln.builder import field_of
@@ -83,10 +83,11 @@ def test_a_sleeve_border_is_a_clean_ring_at_any_budget(project: Project, budget:
             assert off < 0.0007, (budget, off)  # coaxial: the exact border is a flat ring
 
 
-def test_a_decal_wrapping_a_side_ends_on_a_clean_line(project: Project) -> None:
+@pytest.mark.parametrize(("radius", "budget"), [(0.2, None), (0.05, None), (0.05, 200)])  # a thin or coarse drum too
+def test_a_decal_wrapping_a_side_ends_on_a_clean_line(project: Project, radius: float, budget: int | None) -> None:
     Image.new("RGBA", (64, 64), (250, 220, 40, 255)).save(project.root / "decals" / "square.png")
-    drum = "name: thing\nparts:\n  - cylinder: { at: [0, 0.3, 0], radius: 0.2, height: 0.4 }\n    color: blue\n" \
-           "    decal: { image: decals/square.png, axis: z, at: [0, 0.3, 0.2], size: [0.6, 0.2] }\n"
+    drum = f"name: thing\n{f'budget: {budget}' if budget else ''}\nparts:\n  - cylinder: {{ at: [0, 0.3, 0], radius: {radius}, height: 0.4 }}\n" \
+           f"    color: blue\n    decal: {{ image: decals/square.png, axis: z, at: [0, 0.3, {radius}], size: [{3 * radius}, 0.2] }}\n"
     p = lint_paths(project, [write_model(project, drum)]).built["thing"].painted
     on = p.face_decal >= 0
     inside = np.zeros(len(p.vertices), dtype=bool)
@@ -95,9 +96,9 @@ def test_a_decal_wrapping_a_side_ends_on_a_clean_line(project: Project) -> None:
     outside[p.faces[~on].reshape(-1)] = True
     edge = p.vertices[inside & outside]
     side = edge[np.abs(edge[:, 1] - 0.3) < 0.095]  # off the rectangle's top and bottom: where it turns away round the drum
-    assert len(side) >= 4
+    assert len(side) >= (4 if budget is None else 1)  # (a coarse drum: few points between the rectangle's corners)
     facing = side[:, 2] / np.linalg.norm(side[:, [0, 2]], axis=1)  # the drum's normal . z there
-    assert float(np.abs(facing - DECAL_FACING).max()) < 0.06  # on the facing limit, not stepped along triangles
+    assert float(np.abs(facing - DECAL_FACING).max()) < 0.1, (radius, budget)  # on the facing limit, not stepped along triangles
 
 
 def test_a_decal_edge_follows_its_rectangle(project: Project) -> None:
@@ -137,3 +138,18 @@ def test_a_decal_on_a_faceted_part_skips_sides_square_to_it(project: Project) ->
     normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
     normal /= np.linalg.norm(normal, axis=1, keepdims=True)
     assert len(tri) and float((normal @ np.array([0, 0, 1.0])).min()) > DECAL_FACING  # no decal on the sides square to it
+
+
+def test_a_decal_draws_no_facing_line_through_flat_faces(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+    """On a hard part the face's own normal decides; a facing-limit line through its flat faces (vertex normals
+    average across crisp edges) only added triangles (+45% on a decal-heavy hard watch case)."""
+    from kiln import paint
+
+    Image.new("RGBA", (8, 8), (250, 220, 40, 255)).save(project.root / "decals" / "top.png")
+    text = ("name: NAME\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.6, 0.4, 0.6] }\n    color: red\n    hard: true\n"
+            "    decal: { image: decals/top.png, axis: y, at: [0, 0.4, 0], size: [0.7, 0.7] }\n")  # fmt: skip
+    counts = []
+    for k, limit in enumerate((0.25, -2.0)):  # -2: no facing line at all (each build its own model: its own cache entry)
+        monkeypatch.setattr(paint, "DECAL_FACING", limit)
+        counts.append(built_of(project, text.replace("NAME", f"thing{k}"), f"thing{k}").triangles)
+    assert counts[0] == counts[1], counts

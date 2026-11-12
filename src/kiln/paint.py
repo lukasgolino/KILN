@@ -748,6 +748,24 @@ def _part_distance(model: Model, i: int, points: Array) -> Array:
     return np.asarray(d)
 
 
+def _face_normals(vertices: Array, faces: Array) -> Array:
+    tri = vertices[faces]
+    normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    return np.asarray(normal / np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12))
+
+
+def _smooth_faces(vertices: Array, faces: Array, vn: Array, hard: bool = False) -> Array:
+    """Faces of a smooth surface, not faceted ones whose vertex normals average across crisp edges: their corners'
+    mean normal within 20 degrees of their own. On a hard piece every corner must be (on a coarse box the area
+    weighting can pull the mean back toward the face); on a smooth one that would also catch a thin or coarse
+    curved surface (a 6 cm cylinder at a low budget), which must keep its clean facing-limit edge (#191)."""
+    normal = _face_normals(vertices, faces)
+    if hard:
+        return np.asarray((np.einsum("fj,fkj->fk", normal, vn[faces]) > np.cos(np.radians(20))).all(axis=1))
+    corner_mean = vn[faces].mean(axis=1)
+    return np.asarray((normal * corner_mean).sum(axis=1) > np.cos(np.radians(20)) * np.linalg.norm(corner_mean, axis=1))
+
+
 DECAL_FACING = 0.25  # a decal stops where the surface turns this far from its way (cos of ~75 degrees)
 
 
@@ -761,8 +779,9 @@ def _vertex_normals(vertices: Array, faces: Array) -> Array:
     return np.asarray(acc / np.maximum(np.linalg.norm(acc, axis=1, keepdims=True), 1e-12))
 
 
-def paint(painted: Regions, model: Model) -> Painted:
-    """Decals on top of the paint groups (cut after decimation: their borders are straight)."""
+def paint(painted: Regions, model: Model, hard: bool = False) -> Painted:
+    """Decals on top of the paint groups (cut after decimation: their borders are straight). `hard`: a hard piece
+    (exact polygons): faceted faces are told apart by every corner, not their mean."""
     vertices, faces, owner = painted.mesh.vertices, painted.mesh.faces, painted.owner
     groups, part_group, pattern_groups = painted.groups, painted.part_group, painted.pattern_groups
     adding = [i for i, part in enumerate(model.parts) if part.geometry.op == "add"]
@@ -818,20 +837,21 @@ def paint(painted: Regions, model: Model) -> Painted:
             # and along where the surface turns past DECAL_FACING from the decal's way (#191: a decal wrapping round a side
             # ended on whole triangles, a stepped edge): smooth vertex normals give a clean line
             sel = np.isin(owner, list(own)) & ~theirs & around_decal(vertices, faces)
-            turn = _vertex_normals(vertices, faces) @ facing - DECAL_FACING
+            vn = _vertex_normals(vertices, faces)
+            sel &= _smooth_faces(vertices, faces, vn, hard)  # (faceted faces: their own normal decides below, no line through them)
+            corner_uv = decal_uv(d, vertices)[faces]  # only where the rectangle is: the line elsewhere marks nothing
+            sel &= ((corner_uv >= -1e-6) & (corner_uv <= 1 + 1e-6)).all(axis=2).any(axis=1)
+            turn = vn @ facing - DECAL_FACING
             vertices, faces, _, parent = split(vertices, faces, np.where(np.abs(turn) < 1e-6, 0.0, turn), sel)
             owner, face_decal, theirs = owner[parent], face_decal[parent], theirs[parent]
             centroid = vertices[faces].mean(axis=1)
             uvc = decal_uv(d, centroid)
             vn = _vertex_normals(vertices, faces)
             turned = (vn @ facing - DECAL_FACING)[faces].mean(axis=1)
-            tri = vertices[faces]
-            normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
-            normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
+            normal = _face_normals(vertices, faces)
             # on a faceted surface (a hard part's flat sides) vertex normals average across the crisp edges: there the
             # face's own normal decides, so a side square to the decal never takes its smeared projection
-            corner_mean = vn[faces].mean(axis=1)
-            smooth = (normal * corner_mean).sum(axis=1) > np.cos(np.radians(20)) * np.linalg.norm(corner_mean, axis=1)
+            smooth = _smooth_faces(vertices, faces, vn, hard)
             facing_ok = np.where(smooth, turned > 0, normal @ facing > DECAL_FACING)
             depth = np.abs(((c.to_local(centroid) if c is not None else centroid) - np.array(d.at)) @ facing_local)
             inside = (uvc >= 0).all(axis=1) & (uvc <= 1).all(axis=1) & facing_ok & (depth < max(d.size))

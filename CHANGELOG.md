@@ -6,52 +6,14 @@ before 1.0).
 
 ## [Unreleased]
 
-### Performance
+## [0.23.0] - 2026-11-12
 
-- Hard parts join faster: a BSP node tests each polygon's box (made once, carried down the tree) against its plane
-  in one numpy pass and splits only the polygons the plane crosses; output is the same polygon for polygon. The
-  82-hard-part desk scene's hard pass 47 -> 28 s (#214).
-
-### Changed
-
-- Docs (making): when to choose hard parts (mechanical props: flat faces, holes), and how toy metal picks up the
-  ground's colour and how to get cool cartoon steel (#176).
-- Glowing colours keep their hue: a glowing material's strength is capped per colour (its brightest channel x
-  strength at most 0.75; past it Godot's tone curve bends the hue) and its lit base colour is dimmed (x 0.3), in the
-  glb, the atlas (variants included) and the previews.
-  A pale pink at glow 2 rendered white in Godot and previews; now it stays pink (#202).
-
-- Decal cuts snap values within 1e-6 of a cut line onto it (no near-twin vertices beside a cut point); decal
-  meshes may change slightly; cached builds are rebuilt once (#211).
-
-- `kiln docs parts` split in two: `parts` (shapes and part options) and `surfaces` (hard surfaces, hardware, patterns,
-  decals, textures). The topic had hit its size budget; the details cut to fit it are back (#270).
-
-### Fixed
-
-- Toon: `kiln preview` and Godot agree (#183). The Godot toon shader took the sun at PI x its strength (Godot's
-  `LIGHT_COLOR` carries a PI for PBR's divide), so toon bands came out washed and clipped (gold went yellow); they
-  now light as the preview and the standard shader do. **Toon models are darker in Godot than before**: the
-  palette as written. The preview's outlines are the inverted hull Godot draws (outward only, the set width), not
-  a line twice as wide across each edge. Engine parity mean OKLab gap 0.16 -> 0.03.
-- A decal on a part with a `gradient` or `pattern` also cut and marked other parts' faces painted in the same colours
-  (their band and stripe colours are shared): it now keeps to the faces nearest its own part (#146).
-- Colour borders along blends zigzagged at lower budgets (a sawtooth on a sleeve's edge from about 1200 triangles
-  down): thinning a border to the budget left its vertices either side of it. Each vertex where two plain colours meet
-  now goes back onto the exact border after reducing (along the surface, at most half an edge). And a decal that wraps
-  round a side ended on whole triangles (a stepped edge): it is cut along where the surface turns away too. Meshes
-  with colour borders or decals change a little; cached builds are rebuilt once (#191).
-- The built-in walk on a humanoid (`skeleton: humanoid`) moved only the hips: its legs and arms default to
-  upperleg/upperarm now, its knees and elbows bend (knees fold while the leg swings forward), its feet stay level,
-  and the body rides so the planted foot stays on the ground. Listing `legs:` / `arms:` keeps the humanoid defaults
-  off; other models bend what `knees:` / `elbows:` name. `wave` on a humanoid raises upperarm_r (it turned the whole
-  model). A model without lower limbs and without the humanoid skeleton walks as before. Cached builds are rebuilt
-  once (#150).
-- `normal_map: 2048` wrote a 2140x2138 texture: the packer's atlas came out up to 10% over the size asked for and
-  was written as it was. The map is now exactly the size asked for, square, with the charts and their padding
-  inside it (packed again at a lower texel density until they fit). Texel density changes with it: about 20% lower
-  at 256 and 512, where the old maps overshot most, and a few per cent higher from 1024 up. Cached builds with a
-  normal map are rebuilt once (#151).
+Look and features. Relief layers (fur as patches in baked maps), colour that fades across part borders, shade
+paint, part density, a skin style preset, garments, cloth folds, patterns (offsets, jittered dots, pixel motifs),
+per-copy decals, glow that keeps its hue, see-through materials, painted and scoped cuts, aim and two-bone IK in
+poses, gaits with bending knees and elbows, instances (models placed in a model), variant ramp swaps, and preview
+framing; toon previews now match Godot (toon models are darker in Godot: see Fixed). Most meshes with colour
+borders or decals change a little and every cached build is rebuilt once.
 
 ### Added
 
@@ -155,6 +117,52 @@ before 1.0).
 - Lint W125: the mesh's UV charts don't fit the normal map (many separate pieces in a small map, where the padding
   between charts alone fills it). The packer now stops trying when the atlas stops shrinking and squeezes its
   smallest try into the map; the warning says by how much and what size to ask for.
+
+### Changed
+
+- Docs (making): when to choose hard parts (mechanical props: flat faces, holes), and how toy metal picks up the
+  ground's colour and how to get cool cartoon steel (#176).
+- Glowing colours keep their hue: a glowing material's strength is capped per colour (its brightest channel x
+  strength at most 0.75; past it Godot's tone curve bends the hue) and its lit base colour is dimmed (x 0.3), in the
+  glb, the atlas (variants included) and the previews.
+  A pale pink at glow 2 rendered white in Godot and previews; now it stays pink (#202).
+- Decal cuts snap values within 1e-6 of a cut line onto it (no near-twin vertices beside a cut point); decal
+  meshes may change slightly; cached builds are rebuilt once (#211).
+- `kiln docs parts` split in two: `parts` (shapes and part options) and `surfaces` (hard surfaces, hardware, patterns,
+  decals, textures). The topic had hit its size budget; the details cut to fit it are back (#270).
+
+### Performance
+
+- Hard parts join faster: a BSP node tests each polygon's box (made once, carried down the tree) against its plane
+  in one numpy pass and splits only the polygons the plane crosses; output is the same polygon for polygon. The
+  82-hard-part desk scene's hard pass 47 -> 28 s (#214).
+
+### Fixed
+
+- Toon: `kiln preview` and Godot agree (#183). The Godot toon shader took the sun at PI x its strength (Godot's
+  `LIGHT_COLOR` carries a PI for PBR's divide), so toon bands came out washed and clipped (gold went yellow); they
+  now light as the preview and the standard shader do. **Toon models are darker in Godot than before**: the
+  palette as written. The preview's outlines are the inverted hull Godot draws (outward only, the set width), not
+  a line twice as wide across each edge. Engine parity mean OKLab gap 0.16 -> 0.03.
+- A decal on a part with a `gradient` or `pattern` also cut and marked other parts' faces painted in the same colours
+  (their band and stripe colours are shared): it now keeps to the faces nearest its own part (#146).
+- Colour borders along blends zigzagged at lower budgets (a sawtooth on a sleeve's edge from about 1200 triangles
+  down): thinning a border to the budget left its vertices either side of it. Each vertex where two plain colours meet
+  now goes back onto the exact border after reducing (along the surface, at most half an edge). And a decal that wraps
+  round a side ended on whole triangles (a stepped edge): it is cut along where the surface turns away too, within
+  its rectangle and on smooth surfaces (a hard part's flat faces: their own normal decides). Meshes with colour
+  borders or decals change a little; cached builds are rebuilt once (#191).
+- The built-in walk on a humanoid (`skeleton: humanoid`) moved only the hips: its legs and arms default to
+  upperleg/upperarm now, its knees and elbows bend (knees fold while the leg swings forward), its feet stay level,
+  and the body rides so the planted foot stays on the ground. Listing `legs:` / `arms:` keeps the humanoid defaults
+  off; other models bend what `knees:` / `elbows:` name. `wave` on a humanoid raises upperarm_r (it turned the whole
+  model). A model without lower limbs and without the humanoid skeleton walks as before. Cached builds are rebuilt
+  once (#150).
+- `normal_map: 2048` wrote a 2140x2138 texture: the packer's atlas came out up to 10% over the size asked for and
+  was written as it was. The map is now exactly the size asked for, square, with the charts and their padding
+  inside it (packed again at a lower texel density until they fit). Texel density changes with it: about 20% lower
+  at 256 and 512, where the old maps overshot most, and a few per cent higher from 1024 up. Cached builds with a
+  normal map are rebuilt once (#151).
 
 ## [0.22.0] - 2026-11-11
 
@@ -942,7 +950,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/lukasgolino/kiln/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/lukasgolino/kiln/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/lukasgolino/kiln/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/lukasgolino/kiln/compare/v0.19.0...v0.20.0

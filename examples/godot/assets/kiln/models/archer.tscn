@@ -15,7 +15,7 @@ void fragment() {
 void light() {
 	float n = clamp((dot(NORMAL, LIGHT) + 0.15) / 1.15, 0.0, 0.999);
 	float lit = floor(n * float(bands)) / float(bands - 1);
-	DIFFUSE_LIGHT += vec3(lit) * ATTENUATION * LIGHT_COLOR * 0.9;
+	DIFFUSE_LIGHT += vec3(lit) * ATTENUATION * LIGHT_COLOR / PI * 0.9;  // LIGHT_COLOR carries x PI (for a PBR / PI): without it the bands were PI x too bright (#183)
 }
 "
 
@@ -48,6 +48,14 @@ extends Node3D
 # Materials are made once and shared by every instance (and every model) with the same source and settings.
 static var _shared: Dictionary = {}
 
+static func _see_through(shader: Shader) -> Shader:  # the toon shader with the material's alpha (glass)
+	var key := \"alpha|%d\" % shader.get_instance_id()
+	if not _shared.has(key):
+		var glass := Shader.new()
+		glass.code = shader.code.replace(\"\\tEMISSION =\", \"\\tALPHA = albedo.a;\\n\\tEMISSION =\")
+		_shared[key] = glass
+	return _shared[key]
+
 func _ready() -> void:
 	for node in find_children(\"*\", \"MeshInstance3D\", true, false):
 		var mesh_instance := node as MeshInstance3D
@@ -60,7 +68,7 @@ func _ready() -> void:
 			var albedo := source.albedo_color
 			var hex := source.resource_name.get_slice(\"#\", 1)
 			if swap.has(hex) and source.albedo_texture == null:
-				albedo = swap[hex]
+				albedo = Color(swap[hex], source.albedo_color.a)  # (glass keeps its see-through)
 			var key := \"%d|%s|%s|%d|%s|%s|%s\" % [source.get_instance_id(), shader_kind, albedo.to_html(), bands, outline, outline_color.to_html(), rims]
 			if _shared.has(key):
 				mesh_instance.set_surface_override_material(i, _shared[key])
@@ -68,7 +76,7 @@ func _ready() -> void:
 			var material: Material
 			if shader_kind == \"toon\":
 				var toon := ShaderMaterial.new()
-				toon.shader = toon_shader
+				toon.shader = toon_shader if source.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED else _see_through(toon_shader)
 				toon.set_shader_parameter(\"albedo\", albedo)
 				toon.set_shader_parameter(\"emission\", Vector3(source.emission.r, source.emission.g, source.emission.b) * source.emission_energy_multiplier if source.emission_enabled else Vector3.ZERO)
 				toon.set_shader_parameter(\"bands\", bands)
@@ -80,13 +88,13 @@ func _ready() -> void:
 					standard.vertex_color_use_as_albedo = true  # vertex_colors = true: glTF colours are linear
 				if source.emission_enabled and swap.has(hex):
 					standard.emission = albedo
-				var rim: float = rims.get(source.resource_name.get_slice(\"_\", 0), 0.0)
+				var rim: float = rims.get(source.resource_name.get_slice(\"_\", 0).get_slice(\"@\", 0), 0.0)  # (glow@0.6: the glow preset)
 				if rim > 0.0:
 					standard.rim_enabled = true
 					standard.rim = rim
 					standard.rim_tint = 0.6
 				material = standard
-			if outline > 0.0:
+			if outline > 0.0 and source.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED:  # (glass: no shell seen through it)
 				var edge := ShaderMaterial.new()
 				edge.shader = outline_shader
 				edge.set_shader_parameter(\"width\", outline)

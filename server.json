@@ -5,12 +5,12 @@
   "description": "Smooth stylised 3D game models written as text: lint, preview and build glTF and Godot scenes.",
   "repository": { "url": "https://github.com/lukasgolino/kiln", "source": "github" },
   "websiteUrl": "https://kiln3d.dev/",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "kiln-gen",
-      "version": "0.22.0",
+      "version": "0.23.0",
       "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
       "packageArguments": [
