@@ -103,7 +103,8 @@ def test_lint_reports_errors_and_warnings(in_project: Project, capsys: pytest.Ca
     assert main(["lint", "--fast", "bad"]) == 1
     assert "--fast: the findings that need the built model" in capsys.readouterr().out
     assert main(["lint", "good"]) == 0
-    assert "--fast" not in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert "were not looked for" not in printed and printed.index("static checks:") < printed.index("W106")  # (#186) static first
     code, result = run_json(["lint", "nope"], capsys)
     assert code == 1 and "no model 'nope'" in result["findings"][0]["message"]
 
@@ -561,3 +562,11 @@ def test_the_fast_lints_list_of_skipped_rules_is_the_built_checks_rules() -> Non
 
     given = set(re.findall(r'"([EW]\d{3})"', inspect.getsource(lint.geometry_warnings)))
     assert given and given | {"E009"} == set(lint.BUILT_RULES)
+
+
+def test_preview_draft_under_a_big_budget(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#299: a hero budget above the draft mesh's face count (nothing to reduce) was E009 from the simplifier."""
+    text = arms_text("hero", "soft").replace("name: hero\n", "name: hero\nbudget: 60000\n").replace("    blend: 0.04\n", "    blend: 0.04\n    density: 2\n")
+    write_model(in_project, text, "hero")
+    code, result = run_json(["preview", "hero", "--draft", "--views", "front", "--size", "64"], capsys)
+    assert code == 0, result

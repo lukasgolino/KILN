@@ -64,7 +64,7 @@ anything that changes output.
 - 2026-10-20: KILN exists because PAGAN's voxel meshes didn't give the smooth "normal 3D" look (decided; PAGAN 3D
   frozen at v0.9.0). Free only: Claude (Max) writes text, KILN builds it; no paid generators (Tripo rejected).
 - 2026-10-20: Signed distance fields with smooth unions: shapes an LLM can place well, joints that look sculpted.
-  Spike v1/v2 (spike/) showed the Dear Passengers family is reachable; verdict: "much better, let's make that".
+  Spike v1/v2 (spike/) showed the soft vinyl-toy family is reachable; verdict: "much better, let's make that".
 - 2026-10-20: No Blender in the core (optional at most). Meshing is dual contouring in numpy (sharp corners where
   shapes have them), decimation is fast-simplification (MIT, quadric), output via PAGAN's deterministic glb writer.
 - 2026-10-20: Colour borders are cut into the mesh along where two parts' distances are equal (and along pattern
@@ -210,7 +210,8 @@ anything that changes output.
   image, green up). UVs come from xatlas (optional extra `bake`; deterministic; faces stay in order). `detail` parts
   leave model.parts at parse time (model.bake_parts keeps all, in order; cut_only/blend_to renumbered on copies).
   Godot toon scenes get a normal-mapped shader only for models with a map (other output unchanged). Atlas + normal map
-  is refused for now: Godot's StandardMaterial3D samples both on UV1.
+  was refused at first (Godot's StandardMaterial3D samples both on UV1); since #148 (0.23.0) such a model keeps a
+  material per colour instead of the atlas and carries its map.
 - 2026-11-06: #124: Godot 4.7's Compatibility renderer decodes the vertex colour attribute from sRGB once more
   (measured offscreen: unshaded linear 0.254 shows as 0.251 instead of 0.541; `vertex_color_is_srgb` is a no-op there).
   The glb keeps linear COLOR_0 (glTF); the generated scene script of a model with COLOR_0 sRGB-encodes each mesh's
@@ -222,3 +223,6 @@ anything that changes output.
   and the registry's GitHub OIDC login: no tokens in the repo. `mcp` became a dependency so registry clients can run
   `uvx kiln-gen mcp` (no extras in registry entries). server.json's versions are tested against pyproject.
 - 2026-11-09: #225: relicensed under Apache-2.0 (explicit patent grant); releases up to 0.20.0 stay MIT.
+- 2026-11-12: 0.23.0 (look and features). Toon lighting in Godot divides LIGHT_COLOR by PI (#183: it was PI x too
+  bright; toon models got darker, matching the preview). Work goes in merge trains (several issues per PR, one review
+  and one CI round per train). Commercial game names never go in this repo or its issues (look references stay private).

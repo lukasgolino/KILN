@@ -12,7 +12,7 @@ Start of every session, a new project, kiln.toml and the project layout.
 
 New project: ask the owner (one batch, each with your recommended default):
 - the game and the camera (how close does it get? that decides how much detail matters);
-- the style: a preset (`kiln style list`: soft_toy = Dear Passengers / Fall Guys, low_poly, toon, clay, diorama) or
+- the style: a preset (`kiln style list`: soft_toy = vinyl toys, low_poly, toon, clay, diorama) or
   inspirations. With inspirations, ask for 3-6 screenshots into `styles/<name>/inspiration/`, look at them, and write a
   style that `extends` the closest preset (`kiln docs styles`);
 - the palette (the starter `palettes/main.pal.yaml`, or their colours);

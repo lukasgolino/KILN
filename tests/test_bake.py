@@ -84,6 +84,24 @@ def test_bake_is_deterministic() -> None:
     assert a.png == b.png and np.array_equal(a.uv, b.uv)
 
 
+def test_supersampling_only_where_the_surface_turns_matches_supersampling_everywhere(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#300: texels whose own normal stays with the mesh's skip the four-sample filter; the map stays the same."""
+    import io
+
+    from PIL import Image
+
+    v, f, n = ball_mesh()
+    one = np.zeros(len(f), np.int64)
+    adaptive = bk.bake([GROOVED], one, v, f, n, 128, 0.02)
+    monkeypatch.setattr(bk, "SUPERSAMPLE_COS", 2.0)  # every texel supersampled, as before
+    full = bk.bake([GROOVED], one, v, f, n, 128, 0.02)
+    a, b = (np.asarray(Image.open(io.BytesIO(x.png))).astype(float) / 255 * 2 - 1 for x in (adaptive, full))
+    a /= np.linalg.norm(a, axis=2, keepdims=True)
+    b /= np.linalg.norm(b, axis=2, keepdims=True)
+    angle = np.degrees(np.arccos(np.clip((a * b).sum(axis=2), -1, 1)))
+    assert angle.mean() < 0.2 and np.percentile(angle, 99.9) < 5, (angle.mean(), angle.max())
+
+
 MODEL = """\
 name: thing
 normal_map: 256

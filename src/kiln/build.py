@@ -437,11 +437,12 @@ def _with_dependents(project: Project, paths: list[Path]) -> list[Path]:
     return out
 
 
-def build(project: Project, only_valid: bool = True, progress: Callable[[str], None] | None = None, paths: list[Path] | None = None) -> BuildResult:
+def build(project: Project, only_valid: bool = True, progress: Callable[[str], None] | None = None, paths: list[Path] | None = None,
+          dependents: bool = True) -> BuildResult:  # fmt: skip
     """Build every model (or only the models at `paths`: the rest keep what the last build wrote) into the output dir."""
     out = project.output_dir
     result = BuildResult(out)
-    if paths is not None:
+    if paths is not None and dependents:  # (--no-dependents: the scenes placing them keep their last build, #343)
         paths = _with_dependents(project, paths)
     lint: LintResult = lint_project(project) if paths is None else lint_paths(project, paths)
     result.findings = list(lint.findings)

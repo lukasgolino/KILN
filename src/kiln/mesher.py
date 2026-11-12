@@ -612,6 +612,8 @@ def simplify_plain(cut_v: Array, cut_f: Array, budget: int) -> tuple[Array, Arra
     v, f = cut_v, cut_f
     mapping = np.arange(len(cut_v))
     for _ in range(4):
+        if int(budget) >= len(f):  # already within it (a draft's coarse mesh under a hero's budget, #299)
+            break
         out_v, out_f, collapses = fast_simplification.simplify(
             v, f.astype(np.int32), target_count=int(budget), agg=6.0, return_collapses=True, preserve_border=True
         )

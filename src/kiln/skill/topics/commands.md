@@ -6,7 +6,7 @@ Every command and its flags.
 
 `kiln init [dir] --style soft_toy` · `kiln new model <name> --template bean|prop|empty --class C` ·
 `kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM [--frame N,N]] [--vs] [--detach] [--fit] [--effect [--at T,T,...]] [--engine] [--variant V] [--views front,34,side,back] [--pitch 5,30] [--size PX] [--draft] [--tight] [--frame-box X0,Y0,Z0,X1,Y1,Z1] [--fill] [--bg auto|light|dark]` ·
-`kiln lineup [models] [--pitch DEG]` · `kiln gallery` · `kiln build [models] [--verify-godot]` (named models only: the others keep their last output) · `kiln status` ·
+`kiln lineup [models] [--pitch DEG]` · `kiln gallery` · `kiln build [models] [--verify-godot] [--no-dependents]` (named models only, and the models placing them: the others keep their last output) · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
 `kiln config show|get|set` · `kiln import <file> --licence L` (.glb/.gltf; .fbx/.blend/.obj with Blender 4.x) · `kiln pack list|add|search|import` · `kiln credits` · `kiln doctor` ·
 `kiln docs [topic...] [--search words]` (these docs: list, print one, find paragraphs) · `kiln skill install` · `kiln mcp`. Every command takes `--json` (before or after the command). `--closeup` takes a part

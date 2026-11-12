@@ -60,6 +60,7 @@ class Phases:
         self.on = os.environ.get(PROGRESS_ENV) == "1"
         self.last = 0.0  # when the last line was printed (seconds into the build)
         self.current = "meshing"
+        self.phase_name = "meshing"  # the phase as named (current also takes its progress lines)
         self.loud = False  # print every phase line at once (a big model: MANY_PARTS)
         self.phase_start = self.start  # when the current phase began (ETAs)
         self._warned: set[str] = set()  # phases that already said they'll be long
@@ -68,6 +69,7 @@ class Phases:
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._beat: threading.Thread | None = None
+        self.times: list[tuple[str, float]] = []  # (phase, seconds) of the phases done (#186: the summary line)
 
     def __enter__(self) -> Phases:
         if self.on:
@@ -79,6 +81,19 @@ class Phases:
         self._stop.set()
         if self._beat is not None:
             self._beat.join()
+        self._close_phase()
+        total = time.monotonic() - self.start
+        if self.on and total >= QUIET_SECONDS and not exc[0]:  # where a long build's time went, in one line (#186)
+            parts = ", ".join(f"{name} {seconds:.0f} s" for name, seconds in self.times if seconds >= 0.5)
+            print(f"kiln: {self.name}: built in {total:.0f} s ({parts})", file=sys.stderr, flush=True)
+
+    def _close_phase(self) -> None:
+        now = time.monotonic()
+        name = self.phase_name
+        if self.times and self.times[-1][0] == name:
+            self.times[-1] = (name, self.times[-1][1] + now - self.phase_start)
+        else:
+            self.times.append((name, now - self.phase_start))
 
     def _heartbeat(self) -> None:
         while not self._stop.wait(min(1.0, QUIET_SECONDS / 4)):
@@ -100,8 +115,11 @@ class Phases:
                 self.last = elapsed
                 print(f"kiln: {self.name}: {what} ({elapsed:.0f} s)", file=sys.stderr, flush=True)
 
-    def __call__(self, what: str) -> None:
+    def __call__(self, what: str, name: str | None = None) -> None:
+        """A new phase: `what` for its progress lines, `name` (short) for the summary line (default: `what`)."""
+        self._close_phase()
         self.current = what
+        self.phase_name = name or what
         self.phase_start = time.monotonic()
         self._eta = self._counter = None
         if self.on:

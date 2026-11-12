@@ -41,7 +41,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 29  # bump when meshing/painting changes output
+BUILDER_VERSION = 30  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -255,7 +255,7 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     hard_cut: list[Regions] = []
     hard_meshes: list[HardMesh] = []
     if hard_pieces:  # its own phase (#174): exact polygons joined one by one, whatever the cell size
-        phase(f"joining {len(hard)} hard part{'s' * (len(hard) != 1)}")
+        phase(f"joining {len(hard)} hard part{'s' * (len(hard) != 1)}", "joining hard parts")
         hard_cut, hard_meshes = build_hard(model, style, field, hard_pieces, target * (HARD_SHARE if any_soft else 1.0), rigged,
                                            hinted("fewer hard parts, or fewer sides on round ones, join faster", HARD_GROWTH))  # fmt: skip
     hard_triangles = sum(r.mesh.triangles for r in hard_cut)
@@ -265,10 +265,10 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     smooth = sum(len(g) for g in groups_of) + len(kept)  # the adding parts meshed here: not hard ones, not cuts
     meshing = hinted("a coarser resolution or fewer parts meshes faster")
     if pieces or kept:  # a model of hard parts only has nothing to mesh: no phase, no "0 triangles" (#174)
-        phase(f"meshing {smooth} part{'s' * (smooth != 1)} at {step * 1000:.3g} mm cells ({reason})")
+        phase(f"meshing {smooth} part{'s' * (smooth != 1)} at {step * 1000:.3g} mm cells ({reason})", "meshing")
     meshes = [dual_contour(f, step, meshing) for _, f in pieces]
     if pieces:
-        phase(f"meshed at {step * 1000:.3g} mm: {sum(m.triangles for m in meshes)} triangles")
+        phase(f"meshed at {step * 1000:.3g} mm: {sum(m.triangles for m in meshes)} triangles", "meshing")
     kept_cut, kept_hidden = _kept(model, style, field, sorted(kept), step, target, meshes, rigged)
     kept_triangles = sum(len(p.faces) for p, _ in kept_cut)
     if sum(m.triangles for m in meshes) + hard_triangles + kept_triangles == 0:
@@ -294,11 +294,11 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
             dense = max((model.parts[i].density for i in adding), default=1.0)  # dense parts (#232) need the triangles to take
             preshape = PRESHAPE * max(dense, 1.0)
             live = [(include, f, decimate(f, mesh, max(200, round(preshape * soft_target * mesh.triangles / total)), step)) for include, f, mesh in live]
-        phase(f"painting {len(adding)} parts")
+        phase(f"painting {len(adding)} parts", "painting")
         cut, region_piece = _join([regions(mesh, model, f, rigged, include, protect, hinted("fewer gradient or pattern parts paint faster"), model.draft)
                                    for include, f, mesh in live])  # fmt: skip
         fields = [f for _, f, _ in live]
-        phase(f"reducing to {soft_target} triangles")
+        phase(f"reducing to {soft_target} triangles", "reducing")
         painted, normals, hidden, lost = _decimate(model, style, fields, cut, region_piece, step, soft_target, [inc for inc, _, _ in live], full_areas,
                                                    hinted("a coarser resolution (fewer raw triangles) reduces faster"))  # fmt: skip
     floating = 1
@@ -351,7 +351,8 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
                   floating, hidden, lost, asked)  # fmt: skip
     if model.normal_map:
         size = model.normal_map if budget is None else max(256, model.normal_map // 2)  # a LOD: its own, smaller map
-        built.bake = bake_normals(model, built, step, [inc for inc in groups_of if inc], kept, size)
+        phase("baking maps")  # (#300: it ran on under the skinning line, which looked stuck on its last part)
+        built.bake = bake_normals(model, built, step, [inc for inc in groups_of if inc], kept, size, hinted("a smaller normal_map bakes faster"))
     return built
 
 
@@ -364,7 +365,8 @@ def soft_faces(built: Built, face_field: Array) -> Array:
     return np.asarray((face_field >= 0) & ~glows & (p.face_decal < 0))
 
 
-def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int], size: int) -> Any:
+def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int], size: int,
+                 progress: Progress | None = None) -> Any:  # fmt: skip
     """The model's normal map. Each face is baked with its own piece's field, as it was meshed (a separate helmet's
     opening, a bone's own surface), plus the detail parts: those with the id of one of the piece's parts, and every
     detail cut. Kept parts get their own field; hard parts (exact polygons) keep their mesh normals."""
@@ -427,7 +429,7 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
             fading = Fade(p.vertices[edges[pair[keep]]], np.stack([p.face_group[f1], p.face_group[f2]], axis=1),
                           np.stack([owner[f1], owner[f2]], axis=1), normal, reach[keep], owner)  # fmt: skip
     return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
-                     np.array(on) if model.relief else None, fading)  # fmt: skip
+                     np.array(on) if model.relief else None, fading, progress)  # fmt: skip
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],

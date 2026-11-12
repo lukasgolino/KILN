@@ -220,9 +220,20 @@ def cmd_lint(args: argparse.Namespace, out: Output) -> int:
     project = load_project(start=Path(args.paths[0]) if args.paths else None)
     paths = [_model_path(project, p) for p in args.paths] if args.paths else project.model_paths()
     start = _progress_on(out)
+    shown: set[Any] = set()
+    if not args.fast and not out.as_json:  # what needs no mesh, at once; the mesh checks follow (#186)
+        quick = lint_paths(project, paths, geometry=False)
+        for f in quick.findings:
+            out.say(f.format())
+        shown = set(quick.findings)
+        failing = {f.path for f in quick.errors}
+        if len(failing) < len(paths):  # (a model with an error isn't built: nothing to say for it)
+            out.say(f"static checks: {len(quick.errors)} errors, {len(quick.warnings)} warnings; now building the meshes for the "
+                    f"rest (kiln lint --fast stops here; lint shares its builds with preview and build)")  # fmt: skip
     result = lint_paths(project, paths, geometry=not args.fast)
     for f in result.findings:
-        out.say(f.format())
+        if f not in shown:
+            out.say(f.format())
     seconds = time.monotonic() - start
     meshed = {n: b for n, b in result.built.items() if b.step_reason}
     if meshed and len(meshed) <= MESH_LINES:  # what each model was meshed at, and why (#223)
@@ -252,8 +263,10 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
     project = _require_project()
     progress = (lambda s: print(f"kiln: {s}", file=sys.stderr)) if not out.as_json else None
     paths = [_model_path(project, m) for m in args.models] if args.models else None
+    if args.no_dependents and paths is None:
+        raise _usage("--no-dependents goes with models named: kiln build <models> --no-dependents")
     start = _progress_on(out)
-    result = build(project, progress=progress, paths=paths)
+    result = build(project, progress=progress, paths=paths, dependents=not args.no_dependents)
     seconds = time.monotonic() - start
     for f in result.findings:
         out.say(f.format())
@@ -1219,6 +1232,7 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("build", parents=[common], help="build every model (or the ones named) into the output dir")
     s.add_argument("models", nargs="*", help="only these models; the others keep what the last build wrote")
     s.add_argument("--verify-godot", action="store_true", help="load everything in headless Godot afterwards")
+    s.add_argument("--no-dependents", action="store_true", help="with models named: don't rebuild the models that place them (instances); they keep their last build")
     s = sub.add_parser("preview", parents=[common], help="preview sheets for one model (default: turntable)")
     s.add_argument("model")
     s.add_argument("--turntable", action="store_true", help="8 sides x 3 heights (the default sheet when nothing else is asked for)")
