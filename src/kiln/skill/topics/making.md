@@ -140,10 +140,16 @@ A shirt, a robe or a jumper over a soft body, as its own layer (a hem, an open n
 ```
 
 It wraps the earlier parts with those ids: a shell `thickness` thick, `gap` off their surface, between `from_y` (the
-hem) and `to_y` (default: their own extent); it is open where it ends (the hem, the neck, the cuffs where the wrapped
-arms leave its height range). `hem` adds a thicker band at the bottom. `openings` are boxes cut through the garment
-alone, so it needs its own `id` (on a rigged character, give it a rig entry with `parent: chest`). Walls under two mesh
-cells break up (lint W102): keep `thickness` at least twice the mesh step.
+hem) and `to_y` (default: their own extent); it is open where it ends horizontally (the hem, the neck, and the cuffs of
+arms hanging down; a T-posed arm's sleeve ends closed). List every part under it: an unlisted part pokes through.
+`hem` adds a band twice that tall at the bottom, a little thicker. An earlier garment can be wrapped too (a shirt over
+trousers: `fit: [chest, trousers]`). `openings` are boxes cut through the garment alone, so it needs an `id` of its
+own; a mirrored garment (`mirror`, `mirror_id`) gets them mirrored.
+
+On a rigged, soft-skinned character a garment moves with the bone of its `id`: sleeves as their own garments with the
+arm's id (`fit: [upperarm_l]`, `id: upperarm_l`, mirrored) move with the arms (and wholly with `skin_falloff: 0`);
+the body garment with `id: chest`. Openings need a garment id that isn't a wrapped part's. Walls under two mesh cells
+break up (lint W102): keep `thickness` at least twice the mesh step.
 
 ## Relief: fur without parts
 

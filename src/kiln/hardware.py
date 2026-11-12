@@ -89,7 +89,9 @@ def _garment(spec: dict[str, Any], rest: dict[str, Any], earlier: list[tuple[str
     room = float(gap) + float(thick) + 0.02  # the box reaches past the wall all round, except at its hem and top
     centre = [(lo[0] + hi[0]) / 2, (y0 + y1) / 2, (lo[2] + hi[2]) / 2]
     size = [float(hi[0] - lo[0]) + 2 * room, float(y1 - y0), float(hi[2] - lo[2]) + 2 * room]
-    rest = {k: v for k, v in rest.items() if k not in ("at", "rotate", "hard")}
+    dropped = [k for k in ("at", "rotate", "hard") if k in rest]
+    if dropped:
+        return [], f"garment takes no {', '.join(dropped)}: it sits on the parts it fits (from_y, to_y give its extent; it is soft cloth)"
     garment_id = rest.get("id")
     out: list[dict[str, Any]] = [{**rest, "box": {"at": [float(v) for v in centre], "size": size}, "shell": float(thick),
                                    "fit": {"to": list(ids), "gap": float(gap)}}]  # fmt: skip
@@ -104,9 +106,15 @@ def _garment(spec: dict[str, Any], rest: dict[str, Any], earlier: list[tuple[str
         at, osize = (_vec(o.get("at")), _vec(o.get("size"))) if isinstance(o, dict) else (None, None)
         if at is None or osize is None or min(osize) <= 0 or any(key not in ("at", "size") for key in o):
             return [], f"garment openings[{k}] is {{ at: [x, y, z], size: [w, h, d] }} (cut through the garment)"
-        if not isinstance(garment_id, str):
-            return [], "garment openings cut the garment alone: give it an id (e.g. id: shirt)"
+        if not isinstance(garment_id, str) or garment_id in ids:
+            return [], ("garment openings cut the garment alone: give it an id of its own (e.g. id: shirt), not one of the parts it "
+                        "fits (the cut would open those too)")  # fmt: skip
         out.append({"box": {"at": at, "size": osize}, "cut": garment_id})
+        twin, axis = rest.get("mirror_id"), rest.get("mirror")
+        if isinstance(twin, str) and isinstance(axis, str) and axis.lstrip("+-") in AXES:  # the mirrored garment's opening too
+            flipped = list(at)
+            flipped[AXES[axis.lstrip("+-")]] *= -1
+            out.append({"box": {"at": flipped, "size": osize}, "cut": twin})
     return out, None
 
 

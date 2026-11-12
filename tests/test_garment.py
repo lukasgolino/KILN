@@ -54,3 +54,45 @@ def test_errors(project: Project) -> None:
         assert any(why in f.message for f in findings), (bad, findings)
     _, _, findings = load(project, TORSO.replace("    id: shirt\n", ""))
     assert any("give it an id" in f.message for f in findings), findings
+
+
+def test_a_sleeve_on_a_rigged_arm_skins_to_the_arm(project: Project) -> None:
+    from test_retarget import HERO
+
+    sleeve = "  - garment: { fit: [upperarm_l], gap: 0.006, thickness: 0.02, hem: 0 }\n    id: upperarm_l\n    mirror: x\n    mirror_id: upperarm_r\n" \
+             "    color: blue\nFALLOFF"
+
+    def arm_weight(falloff: str) -> float:
+        text = HERO.split("animations:")[0].replace("rig:\n", sleeve.replace("FALLOFF", falloff) + "rig:\n", 1)
+        built = lint_paths(project, [write_model(project, text.replace("name: thing\n", "name: thing\nresolution: 0.008\nbudget: 8000\n", 1))]).built["thing"]
+        p = built.painted
+        arm = [b.name for b in built.skeleton.bones].index("upperarm_l")
+        blue = [g for g, grp in enumerate(p.groups) if grp.color_name.split("#")[0] == "blue" and grp.bone == "upperarm_l"]
+        v = np.unique(p.faces[np.isin(p.face_group, blue)])
+        assert built.joints is not None and built.weights is not None and len(v)
+        return float(np.median(np.where(built.joints[v] == arm, built.weights[v], 0).sum(axis=1)))
+
+    assert arm_weight("") > 0.6  # the sleeve is the arm's bone (its id): mostly the arm's, blending at the shoulder
+    assert arm_weight("    skin_falloff: 0\n") > 0.95  # and wholly with skin_falloff
+
+
+def test_a_shirt_over_trousers_and_a_mirrored_garment(project: Project) -> None:
+    layered = TORSO.replace("  - garment:", "  - garment: { fit: [body], gap: 0.01, from_y: 0.5, to_y: 0.9, hem: 0 }\n    id: trousers\n    color: wood\n  - garment:", 1) \
+        .replace("fit: [body], gap: 0.01, from_y: 0.75", "fit: [body, trousers], gap: 0.01, from_y: 0.75", 1)
+    model, _, findings = load(project, layered)
+    assert model is not None and not [f for f in findings if f.severity == "error"], findings
+    shirt = next(p for p in model.parts if p.id == "shirt")
+    assert shirt.geometry.fit is not None and len(shirt.geometry.fit[0]) == 2  # the trousers' wall is wrapped too
+    mirrored = TORSO.replace("    id: shirt\n", "    id: shirt\n    mirror: x\n    mirror_id: shirt_r\n").replace("at: [0, 1.05, 0.25]", "at: [0.1, 1.05, 0.25]")
+    model, _, findings = load(project, mirrored)
+    assert model is not None and not [f for f in findings if f.severity == "error"], findings
+    cuts = {p.cut_only: list(p.geometry.at) for p in model.parts if p.geometry.op == "cut"}
+    assert set(cuts) == {"shirt", "shirt_r"} and cuts["shirt"][0] == -cuts["shirt_r"][0]
+
+
+def test_an_id_clash_with_openings_and_dropped_fields_are_errors(project: Project) -> None:
+    _, _, findings = load(project, TORSO.replace("    id: shirt\n", "    id: body\n"))
+    assert any("not one of the parts it fits" in f.message for f in findings), findings
+    for extra in ("    rotate: [0, 10, 0]\n", "    hard: true\n"):
+        _, _, findings = load(project, TORSO.replace("    id: shirt\n", "    id: shirt\n" + extra))
+        assert any("garment takes no" in f.message for f in findings), (extra, findings)
