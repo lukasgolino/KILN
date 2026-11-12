@@ -235,6 +235,12 @@ def render(
         rough = np.array([pr.roughness for pr in presets])[g]
         metal = np.array([pr.metallic for pr in presets])[g]
         emit = np.array([pr.emission for pr in presets])[g]
+        if (emit > 0).any():  # as export: a glowing colour's strength capped so it keeps its hue, its lit colour dimmed (#202)
+            from kiln.export import GLOW_ALBEDO, GLOW_PEAK
+
+            glowing = emit > 0
+            emit = np.where(glowing, np.minimum(emit, GLOW_PEAK / np.maximum(lit_albedo.max(axis=1), 1e-6)), 0.0)
+            albedo = np.where(glowing[:, None], albedo * GLOW_ALBEDO, albedo)
         rim = np.array([pr.rim for pr in presets])[g]
         sun = rotation_matrix((look.sun_pitch, look.sun_yaw, 0.0)) @ np.array([0.0, 0.0, -1.0])  # light travel direction
         to_light = -sun / np.linalg.norm(sun)

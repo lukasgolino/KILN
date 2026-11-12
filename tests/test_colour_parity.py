@@ -21,6 +21,7 @@ COLOURS = {"white": "#f4f4f0", "grey": "#8a93a3", "red": "#e8413c", "orange": "#
            "blue": "#2f6fd0", "navy": "#2b3a67", "skin": "#f1b48c", "brown": "#6b4a2f"}  # fmt: skip
 MATERIALS = ["default", "plastic", "fabric", "metal"]
 TILE = 256
+GLOW_GAP = 0.1  # glow spheres: bloom spreads differently, so a looser gap than the lit grid's
 
 
 def oklab(rgb: np.ndarray) -> np.ndarray:
@@ -47,28 +48,32 @@ def test_filmic_is_godots_curve_at_the_look_kits_white() -> None:
         assert float(_filmic(np.array(x))) == pytest.approx(godot(x, FILMIC_WHITE))
 
 
-def _centres(sheet: Path) -> dict[tuple[str, str], np.ndarray]:
+def _centres(sheet: Path, materials: list[str] = MATERIALS) -> dict[tuple[str, str], np.ndarray]:
     from kiln.preview import TILE_BG
 
     image = np.asarray(Image.open(sheet).convert("RGB")).astype(float)
     ys, xs = np.nonzero((image == np.array(TILE_BG[:3])).all(axis=2))  # the first tile's corner, wherever the title wraps
     top, left = int(ys.min()), int(xs.min())
     tile = image[top : top + TILE, left : left + TILE]
-    lo, hi = np.array([-1.225, 0.02, -0.1]), np.array([1.225, 0.97, 0.1])
+    lo, hi = np.array([-1.225, 0.02, -0.1]), np.array([1.225, 0.12 + (len(materials) - 1) * 0.25 + 0.1, 0.1])
     centre, half = (lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2 * 1.08
     scale = TILE / (2 * half)
     out = {}
-    for j, material in enumerate(MATERIALS):
+    for j, material in enumerate(materials):
         for i, colour in enumerate(COLOURS):
             px, py = int(TILE / 2 + ((i - 4.5) * 0.25 - centre[0]) * scale), int(TILE / 2 - (0.12 + j * 0.25 - centre[1]) * scale)
             out[(material, colour)] = tile[py - 2 : py + 3, px - 2 : px + 3].reshape(-1, 3).mean(axis=0)
     return out
 
 
-@RENDER
-@pytest.mark.parametrize("renderer", ["forward_plus", "gl_compatibility"])
-@pytest.mark.parametrize("style", ["soft_toy", pytest.param("toon", marks=pytest.mark.xfail(reason="#183: toon bands and outlines differ", strict=True))])
-def test_engine_render_matches_the_preview(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, renderer: str, style: str) -> None:
+def _grid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, renderer: str, style: str, materials: list[str]) -> list[tuple[tuple[str, str], float]]:
+    """The calibration grid built, previewed and rendered in Godot: each sphere's OKLab gap between the two."""
+    soft, engine = _renders(tmp_path, monkeypatch, renderer, style, materials)
+    return [(k, float(np.linalg.norm(oklab(engine[k]) - oklab(soft[k])))) for k in soft]
+
+
+def _renders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, renderer: str, style: str, materials: list[str]) -> tuple[dict[tuple[str, str], np.ndarray], dict[tuple[str, str], np.ndarray]]:
+    """(preview, Godot) sRGB colour at each sphere's centre."""
     from kiln.cli import main
 
     (tmp_path / "project.godot").write_text(f'config_version=5\n[rendering]\nrenderer/rendering_method="{renderer}"\n')
@@ -76,12 +81,33 @@ def test_engine_render_matches_the_preview(tmp_path: Path, monkeypatch: pytest.M
     assert main(["init", "art", "--style", style]) == 0
     art = tmp_path / "art"
     parts = [f"  - sphere: {{ at: [{(i - 4.5) * 0.25:.3f}, {0.12 + j * 0.25:.3f}, 0], radius: 0.1 }}\n    color: {c}\n    material: {m}"
-             for j, m in enumerate(MATERIALS) for i, c in enumerate(COLOURS)]  # fmt: skip
+             for j, m in enumerate(materials) for i, c in enumerate(COLOURS)]  # fmt: skip
     (art / "models" / "calib.kiln.yaml").write_text("name: calib\nclass: prop\nparts:\n" + "\n".join(parts) + "\n")
     monkeypatch.chdir(art)
     assert main(["build", "calib"]) == 0
     assert main(["preview", "calib", "--views", "front", "--pitch", "0", "--size", str(TILE)]) == 0
     assert main(["preview", "calib", "--engine", "--views", "front", "--pitch", "0", "--size", str(TILE)]) == 0
-    soft, engine = _centres(art / "previews/calib/views.png"), _centres(art / "previews/calib/engine.png")
-    gaps = [float(np.linalg.norm(oklab(engine[k]) - oklab(soft[k]))) for k in soft]
+    return _centres(art / "previews/calib/views.png", materials), _centres(art / "previews/calib/engine.png", materials)
+
+
+@RENDER
+@pytest.mark.parametrize("renderer", ["forward_plus", "gl_compatibility"])
+@pytest.mark.parametrize("style", ["soft_toy", pytest.param("toon", marks=pytest.mark.xfail(reason="#183: toon bands and outlines differ", strict=True))])
+def test_engine_render_matches_the_preview(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, renderer: str, style: str) -> None:
+    gaps = [g for _, g in _grid(tmp_path, monkeypatch, renderer, style, MATERIALS)]
     assert np.mean(gaps) < 0.035, f"mean OKLab gap {np.mean(gaps):.3f}, worst {max(gaps):.3f}"
+
+
+@RENDER
+@pytest.mark.parametrize("renderer", ["forward_plus", "gl_compatibility"])
+def test_glowing_colours_match_and_keep_their_hue(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, renderer: str) -> None:
+    """#202: glowing colours keep their colour in Godot (the hue and most of the chroma of the palette colour), and
+    the preview stays near it (bloom spreads a little differently: a looser gap than the lit grid's)."""
+    soft, engine = _renders(tmp_path, monkeypatch, renderer, "soft_toy", [*MATERIALS, "glow"])
+    keys = [k for k in soft if k[0] == "glow" and k[1] not in ("white", "grey")]  # (white and grey have no hue to keep)
+    source = {k: oklab(np.array([int(COLOURS[k[1]][i : i + 2], 16) for i in (1, 3, 5)], dtype=float)) for k in keys}
+    chroma = [float(np.hypot(*oklab(engine[k])[1:]) / np.hypot(*source[k][1:])) for k in keys]
+    hue = [abs(float(np.degrees(np.angle(complex(*oklab(engine[k])[1:]) / complex(*source[k][1:]))))) for k in keys]
+    assert np.mean(chroma) > 0.6 and max(hue) < 25, f"glow in Godot: chroma kept {np.mean(chroma):.2f}, worst hue shift {max(hue):.0f} degrees"
+    gaps = [float(np.linalg.norm(oklab(engine[k]) - oklab(soft[k]))) for k in keys]
+    assert np.mean(gaps) < GLOW_GAP, f"glow: mean OKLab gap {np.mean(gaps):.3f}, worst {max(gaps):.3f}"

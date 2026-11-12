@@ -22,6 +22,7 @@ from kiln.sdf import Array, Field
 
 if TYPE_CHECKING:
     from kiln.export import Built
+    from kiln.style import MaterialPreset
 
 CELL = 4  # pixels per cell side (a multiple of 4: GPU block compression keeps a cell one colour)
 COLUMNS = 16
@@ -72,26 +73,39 @@ class Atlas:
         image.save(buf, format="PNG", optimize=False)
         return buf.getvalue()
 
-    def palette_png(self, swap: dict[str, str]) -> bytes:
-        return self._png([_rgb(swap.get(c, c)) for c, _ in self.cells])
+    def palette_png(self, swap: dict[str, str], presets: dict[str, MaterialPreset] | None = None) -> bytes:
+        """The cells' colours; a glowing preset's cell dimmed as its material's base colour is (#202)."""
+        from kiln.export import GLOW_ALBEDO
+
+        def cell(c: str, m: str) -> tuple[int, int, int]:
+            rgb = _rgb(swap.get(c, c))
+            preset = presets.get(m, presets["default"]) if presets is not None else None
+            return tuple(_encode(_decode(v) * GLOW_ALBEDO) for v in rgb) if preset is not None and preset.emission > 0 else rgb  # type: ignore[return-value]
+
+        return self._png([cell(c, m) for c, m in self.cells])
 
     def material_png(self, built: Built) -> bytes:
         presets = built.style.materials
         return self._png([(0, _byte(p.roughness), _byte(p.metallic)) for p in (presets.get(m, presets["default"]) for _, m in self.cells)])
 
-    def glow_strength(self, built: Built) -> float:
-        """The largest emission of any cell's preset (0: no glow texture). It becomes the emissive strength; texels
-        hold colour x emission / strength."""
-        presets = built.style.materials
-        return max((presets.get(m, presets["default"]).emission for _, m in self.cells), default=0.0)
+    def _emission(self, built: Built, c: str, m: str, swap: dict[str, str] | None = None) -> float:
+        """A cell's emissive strength, capped per colour as the material's is (export.glow_strength)."""
+        from kiln.export import glow_strength
 
-    def glow_png(self, built: Built, swap: dict[str, str]) -> bytes:
-        presets = built.style.materials
-        strength = self.glow_strength(built)
+        e = built.style.materials.get(m, built.style.materials["default"]).emission
+        return glow_strength([_decode(v) for v in _rgb((swap or {}).get(c, c))], e) if e > 0 else 0.0
+
+    def glow_strength(self, built: Built, swaps: list[dict[str, str]] | None = None) -> float:
+        """The largest emission of any cell, in the base colours or any variant's (0: no glow texture). It becomes the
+        emissive strength the variants share; texels hold colour x emission / strength."""
+        return max((self._emission(built, c, m, swap) for swap in [{}, *(swaps or [])] for c, m in self.cells), default=0.0)
+
+    def glow_png(self, built: Built, swap: dict[str, str], swaps: list[dict[str, str]] | None = None) -> bytes:
+        strength = self.glow_strength(built, swaps)
         values = []
         for c, m in self.cells:
-            e = presets.get(m, presets["default"]).emission / strength
-            values.append(tuple(_encode(_decode(v) * e) for v in _rgb(swap.get(c, c))))
+            e = self._emission(built, c, m, swap) / strength if strength > 0 else 0.0
+            values.append(tuple(_encode(_decode(v) * min(e, 1.0)) for v in _rgb(swap.get(c, c))))
         return self._png(values)  # type: ignore[arg-type]
 
     def has_rim(self, built: Built) -> bool:

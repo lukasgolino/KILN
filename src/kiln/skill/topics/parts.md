@@ -48,6 +48,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `id` | bone/node name (lowercase). Parts sharing an id move together. No id = `root`. |
 | `color` | palette colour name (required for adding parts) |
 | `material` | style preset: default, plastic, paint, fabric, skin, leather, rubber, wood, stone, metal, gold, leaf, glass, glow |
+| `emission: 0.6` | this part's glow strength over its preset's (eyes softer than a crystal). A glowing colour's strength is capped so it keeps its hue (its brightest channel x strength at most 0.75), so for bright colours a higher number changes nothing (a dark red can glow at 3, a pale pink tops out under 1); its lit colour is dimmed: the glow carries it |
 | `blend` | smooth-union radius in metres with everything before it (cuts/intersects: smooth edge) |
 | `color_blend` | metres its colour fades into blended neighbours' (`making`) |
 | `density: 3` | weight on the triangle budget (0.25-8, default 1): about 3x the share of the budget it would get, at the same total (a face); 0.5 coarser. Not past its full-resolution mesh; hard and kept parts ignore it |
