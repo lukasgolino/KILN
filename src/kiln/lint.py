@@ -105,14 +105,14 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     def warn(rule: str, message: str, line: int | None = None, where: str = "") -> None:
         out.append(Finding(rule, message, m.path, line, where))
 
-    patterned = [k for k, q in enumerate(m.parts) if q.patterns and q.geometry.op == "add"]
-    if patterned and m.source is None:  # a pattern that misses its part (#326)
+    with_patterns = [k for k, q in enumerate(m.parts) if q.patterns and q.geometry.op == "add"]
+    if with_patterns and m.source is None:  # a pattern that misses its part (#326)
         from kiln.paint import _pattern_fn
 
         pv = built.painted
         adding = [k for k, q in enumerate(m.parts) if q.geometry.op == "add"]
         owner = np.asarray(adding)[field_of(m, built.step).nearest(adding, pv.vertices[pv.faces].mean(axis=1))[0]]
-        for k in patterned:
+        for k in with_patterns:
             part = m.parts[k]
             mine = pv.vertices[np.unique(pv.faces[owner == k])]
             if not len(mine):
