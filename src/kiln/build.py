@@ -183,9 +183,14 @@ def gib_models(model: Model) -> list[tuple[str, Model]]:
         else:
             ids = set(entry.gib)
         parts = [p for p in model.parts if p.id in ids and (p.fit is None or set(p.fit[0]) <= ids)]
+        present = {p.id for p in parts}
+        relief = [replace(r, on=[i for i in r.on if i in present]) for r in model.relief if not r.on or any(i in present for i in r.on)]
+        fades = any(p.color_blend > 0 for p in parts)
+        # its fur and colour fades too, on a quarter-size map (#349: debris had flat colours)
+        maps = max(256, model.normal_map // 4) if model.normal_map and (relief or fades) else 0
         sub = replace(model, name=f"{model.name}.gib.{part_id}", parts=parts, rig={}, skin="none", animations={}, variants={}, lod=(),
                       effect=None, animation_library=None, animations_only=False, node_prefix="", source=None,
-                      normal_map=0, bake_parts=None, detail=[], bake_index=[], detail_ids={},  # debris: no map of its own
+                      normal_map=maps, relief=relief, bake_parts=None, detail=[], bake_index=[], detail_ids={},
                       text=f"{model.text}\n# gib {part_id}: {' '.join(sorted(ids))}",
                       shape_text=f"{model.shape_text}\n# gib {part_id}: {' '.join(sorted(ids))}", motion_text="", library_text="")  # fmt: skip
         out.append((part_id, sub))

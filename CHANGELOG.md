@@ -36,6 +36,9 @@ before 1.0).
 
 ### Fixed
 
+- Scatter-scene previews draw a placed relief (or colour-faded) model with its colour map, sampled at the corners,
+  instead of flat paint. Gibs of a relief model keep their fur and fades on a quarter-size map of their own instead
+  of flat colours (#349).
 - Where three colours meet, a `color_blend` fade no longer flips its target at the bisector: both other colours
   mix in by their own distances, a third each at the corner (#262).
 - A paint border across a smooth blend (a bare belly into fur) drew a thin shading line: each side took its own
@@ -64,6 +67,8 @@ before 1.0).
 
 ### Performance
 
+- A base colour map is written in 0.7 s instead of 1.6 s at 2048, with half the memory: the padding grows only
+  where it fills (the same bytes), float32 colours and an sRGB table (#349).
 - Parts with `folds` use the compiled distance too (they took the numpy path for every field pass: about 2x on a
   model with one folded robe); the same values to 1e-9 (#281).
 - Joined hard parts are kept in the build cache every 8 joins; a rebuild resumes at the last unchanged one, so moving a

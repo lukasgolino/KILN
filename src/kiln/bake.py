@@ -100,38 +100,49 @@ class Bake:
         swap = swap or {}
         lay = self.layers
         filled = lay.group != NO_GROUP
-        table = np.array([list(srgb_to_linear(swap.get(c, c))) for c in group_colors] or [[1.0, 1.0, 1.0]])
-        own = np.minimum(lay.group[filled].astype(np.int64), len(table) - 1)
-        stamped = relief.Stamp(np.zeros(0), lay.shade[filled] / 255.0, lay.entry[filled].astype(np.int64), lay.along[filled] / 255.0)
+        table = np.array([list(srgb_to_linear(swap.get(c, c))) for c in group_colors] or [[1.0, 1.0, 1.0]], dtype=np.float32)
+        own = np.minimum(lay.group[filled], len(table) - 1).astype(np.intp)
+        f255 = np.float32(1 / 255)  # float32 throughout: a 4096 map is 16M texels (#349)
+        stamped = relief.Stamp(np.zeros(0), lay.shade[filled] * f255, lay.entry[filled], lay.along[filled] * f255)
         colors = [(swap.get(a, a) if a else a, swap.get(b, b) if b else b) for a, b in lay.colors]
         linear = relief.colour(stamped, table[own], colors)
         if lay.other is not None and lay.mix is not None:  # colours fading across part borders: mixed in OKLab, fur and all
-            w = lay.mix[filled] / 255.0
+            w = lay.mix[filled] * f255
             fading = np.flatnonzero(w > 0)
             toward = np.minimum(lay.other[filled][fading].astype(np.int64), len(table) - 1)
             # toward what the neighbour looks like, fur and all: the mean colour of its group's texels (not its bare paint)
             count = np.maximum(np.bincount(own, minlength=len(table)), 1)[:, None]
             seen = np.stack([np.bincount(own, weights=linear[:, c], minlength=len(table)) for c in range(3)], axis=1) / count
             there = _oklab(seen)[toward]
-            w2 = lay.mix2[filled][fading] / 255.0 if lay.mix2 is not None and lay.other2 is not None else np.zeros(len(fading))
+            w2 = lay.mix2[filled][fading] * f255 if lay.mix2 is not None and lay.other2 is not None else np.zeros(len(fading))
             mixed = _oklab(linear[fading]) * (1 - w[fading] - w2)[:, None] + there * w[fading, None]
             if w2.any():  # a corner where three colours meet
                 toward2 = np.minimum(lay.other2[filled][fading].astype(np.int64), len(table) - 1)  # type: ignore[index]
                 mixed += _oklab(seen)[toward2] * w2[:, None]
             linear[fading] = _from_oklab(mixed)
         if shade is not None and shade.on and lay.up is not None:
-            ny = lay.up[filled] / 127.0
+            ny = lay.up[filled] * np.float32(1 / 127)
             mult = (1.0 - shade.top * (1.0 - np.maximum(ny, 0.0))) * (1.0 - shade.under * np.maximum(-ny, 0.0))
             if shade.cavity > 0 and lay.occ is not None:
-                mult = mult * (1.0 - shade.cavity * lay.occ[filled] / 255.0)
-            linear = linear * mult[:, None]
-        srgb = np.where(linear <= 0.0031308, linear * 12.92, 1.055 * np.maximum(linear, 1e-12) ** (1 / 2.4) - 0.055)
+                mult = mult * (1.0 - shade.cavity * lay.occ[filled] * f255)
+            linear *= mult.astype(np.float32)[:, None]
         image = np.zeros((self.size, self.size, 3), dtype=np.uint8)
-        image[filled] = np.round(srgb * 255).clip(0, 255).astype(np.uint8)
+        image[filled] = _srgb8(linear)
         image = _grow(image, filled, GROW, empty=(128, 128, 128))
         buf = io.BytesIO()
         Image.fromarray(image, "RGB").save(buf, format="PNG", optimize=False)
         return buf.getvalue()
+
+
+SRGB_STEPS = 1 << 14  # linear values quantised this finely before the sRGB table: every 8-bit code is still reached
+
+
+def _srgb8(linear: Array) -> Array:
+    """Linear 0..1 to 8-bit sRGB through a table (the power function on every texel was a good part of a map's time)."""
+    lin = np.arange(SRGB_STEPS + 1, dtype=np.float64) / SRGB_STEPS
+    table = np.round(np.where(lin <= 0.0031308, lin * 12.92, 1.055 * lin ** (1 / 2.4) - 0.055) * 255).clip(0, 255).astype(np.uint8)
+    idx = np.clip(linear * SRGB_STEPS + 0.5, 0, SRGB_STEPS).astype(np.intp)
+    return np.asarray(table[idx])
 
 
 def available() -> bool:
@@ -480,23 +491,28 @@ def _from_oklab(lab: Array) -> Array:
 
 def _grow(image: Array, filled: Array, steps: int, empty: tuple[int, int, int] = FLAT) -> Array:
     """Spread chart colours `steps` texels past their borders (each empty texel: the mean of its filled neighbours,
-    no wrapping round the map's edges); texels further out are flat."""
+    no wrapping round the map's edges); texels further out are flat. Only the texels each step fills are touched
+    (#349: the whole-image passes took most of a colour map's time)."""
     img = image.astype(np.float32)
     done = filled.copy()
     h, w = done.shape
     for _ in range(steps):
-        acc = np.zeros_like(img)
-        cnt = np.zeros(done.shape, dtype=np.float32)
-        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            ys, yd = (slice(0, h - 1), slice(1, h)) if dy == 1 else (slice(1, h), slice(0, h - 1)) if dy == -1 else (slice(0, h), slice(0, h))
-            xs, xd = (slice(0, w - 1), slice(1, w)) if dx == 1 else (slice(1, w), slice(0, w - 1)) if dx == -1 else (slice(0, w), slice(0, w))
-            acc[yd, xd] += img[ys, xs] * done[ys, xs, None]
-            cnt[yd, xd] += done[ys, xs]
-        new = ~done & (cnt > 0)
-        if not new.any():
+        cnt = np.zeros((h, w), dtype=np.uint8)
+        cnt[:-1] += done[1:]
+        cnt[1:] += done[:-1]
+        cnt[:, :-1] += done[:, 1:]
+        cnt[:, 1:] += done[:, :-1]
+        ys, xs = np.nonzero(~done & (cnt > 0))
+        if not len(ys):
             break
-        img[new] = acc[new] / cnt[new][:, None]
-        done |= new
+        acc = np.zeros((len(ys), img.shape[2]), dtype=np.float32)
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):  # the neighbour below, above, right, left: the old sum's order
+            ny, nx = ys + dy, xs + dx
+            ok = np.flatnonzero((ny >= 0) & (ny < h) & (nx >= 0) & (nx < w))
+            ok = ok[done[ny[ok], nx[ok]]]
+            acc[ok] += img[ny[ok], nx[ok]]
+        img[ys, xs] = acc / cnt[ys, xs].astype(np.float32)[:, None]
+        done[ys, xs] = True
     img[~done] = empty
     return np.round(img).astype(np.uint8)
 

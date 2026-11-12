@@ -416,3 +416,35 @@ def test_narrow_patches_warn(project: Project) -> None:
     text = MODEL.replace("    width: 0.08\n", "    width: 0.006\n").replace("    length: 0.12\n", "    length: 0.02\n")
     found = [f for f in lint_paths(project, [write_model(project, text)]).findings if f.rule == "W133"]
     assert len(found) == 1 and found[0].where == "relief[0].width"
+
+
+def test_scatter_previews_read_the_colour_map(project: Project) -> None:
+    """#349: a placed relief model in a scatter sheet shows its colour map (sampled at the corners), not flat paint."""
+    from kiln.export import srgb_to_linear
+    from kiln.lint import lint_paths
+    from kiln.preview import corner_colors
+
+    built = lint_paths(project, [write_model(project, MODEL)]).built["thing"]
+    assert built.bake is not None and built.bake.layers is not None
+    c = corner_colors(built).reshape(-1, 3)
+    flat = np.array([srgb_to_linear(g.color) for g in built.painted.groups])
+    off = np.min([np.abs(c - f).sum(axis=1) for f in flat], axis=0) > 0.02
+    assert off.mean() > 0.05  # fur colours and shading show
+
+
+def test_gibs_keep_their_fur(project: Project) -> None:
+    """#349: a gib of a relief model gets a quarter-size map with the layers on its parts; one without fur gets none."""
+    from kiln.build import gib_models
+
+    text = MODEL.replace("normal_map: 256", "normal_map: 1024") + "rig:\n  body: { gib: [body] }\n  head: { gib: [head] }\n"
+    model, _ = ok_model(project, text)
+    gibs = dict(gib_models(model))
+    assert gibs["body"].normal_map == 256 and [r.on for r in gibs["body"].relief] == [["body"]]
+    assert gibs["head"].normal_map == 0 and not gibs["head"].relief
+    from kiln.build import build
+    from kiln.vendor.gltf import read_glb
+
+    write_model(project, text)
+    assert not build(project).errors
+    doc, _ = read_glb((project.output_dir / "models" / "thing.gib.body.glb").read_bytes())
+    assert len(doc.get("images", [])) == 2  # its normal map and its colour map, embedded

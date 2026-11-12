@@ -555,12 +555,25 @@ def _instances(groups: list[Any], sources: dict[str, tuple[Built, dict[str, str]
 
 def corner_colors(built: Built, swap: dict[str, str] | None = None) -> Array:
     """A built model's paint colours per face corner (linear), with a variant's swap."""
-    from kiln.export import srgb_to_linear
+    from kiln.export import fade_colors, srgb_to_linear
 
     swap = swap or {}
-    table = np.array([srgb_to_linear(swap.get(g.color, g.color)) for g in built.painted.groups])
-    out = np.repeat(table[built.painted.face_group][:, None, :], 3, axis=1)
-    if built.ao is not None:  # shade paint / occlusion per corner, as the engine shows it
+    p = built.painted
+    table = np.array([srgb_to_linear(swap.get(g.color, g.color)) for g in p.groups])
+    out = np.repeat(table[p.face_group][:, None, :], 3, axis=1)
+    mapped = None
+    if built.bake is not None and built.bake.layers is not None:  # relief, fades: the base colour map at each corner (#349)
+        from kiln.render import _mapped_colours
+        from kiln.shade import texel_shade
+
+        mapped = texel_shade(built, built.ao_strength)
+        n = len(p.faces)
+        corners = _mapped_colours(built.bake, np.repeat(np.arange(n), 3), np.tile(np.eye(3), (n, 1)), [g.color for g in p.groups], swap, mapped)
+        out = corners.reshape(n, 3, 3)
+    elif built.corner_fade is not None:  # colour fades per vertex (#262)
+        faded = fade_colors(built, swap)
+        out = out if faded is None else faded
+    if built.ao is not None and mapped is None:  # shade paint / occlusion per corner, as the engine shows it
         out = out * built.ao[:, :, None]
     return out
 
