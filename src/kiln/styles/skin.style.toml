@@ -4,7 +4,8 @@ The painted look of a stylised third-person character: matte materials (no plast
 softly where parts blend (belly into body, muzzle into face), darker crevices and undersides, lit tops.
 Characters: build the body from a few big blended shapes (blend 0.04-0.1); add fur, scales or feathers as `relief:`
 layers on the body rather than as parts (`kind: fur`, length about a tenth of the body's height, width half that);
-give the face parts `density: 2-3` so the face reads up close. Eyes, teeth and claws: `color_blend: 0` and a crisp
+give the face parts `density: 2-3` (or a face `resolution:`) so the face reads up close; a close-up hero is
+made at `kind: hero` (60k). Eyes, teeth and claws: `color_blend: 0` and a crisp
 seam (blend 0) keep them sharp. Colours: a muted, slightly warm palette; one accent colour.
 Props: chunky, worn shapes; paint wear with shade, not with extra parts.
 """
@@ -19,7 +20,7 @@ color_blend = 0.03                 # every smooth part that blends fades its col
 default = 6000
 prop = 4000
 character = 12000
-hero = 20000
+hero = 60000                       # a close-up character: relief fur and a readable face
 creature = 12000
 vehicle = 14000
 machine = 16000

@@ -40,6 +40,7 @@ before 1.0).
 
 ### Changed
 
+- The `skin` style's hero budget is 60k (was 20k): a close-up character with relief fur and a readable face (#311).
 - `kiln lint` prints the static findings first (a `static checks:` line pointing at `--fast`), then builds the
   meshes for the rest; a long build ends with one line saying where its time went (`built in 156 s (meshing 12 s,
   ..., baking maps 112 s)`). Full lint stays the default (#186).
