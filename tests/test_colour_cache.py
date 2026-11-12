@@ -64,3 +64,58 @@ def test_merging_colours_builds_again(project: Project, counted: list[int]) -> N
     _build(project, "red", "blue", "gold")
     _build(project, "red", "red", "gold")  # two parts now share a colour: the paint borders change
     assert len(counted) == 2
+
+
+GRAD = """\
+name: thing
+parts:
+  - box: {{ at: [0, 0.3, 0], size: [0.4, 0.6, 0.4] }}
+    color: {a}
+    gradient: {{ to: {t}, steps: 3 }}
+  - sphere: {{ at: [0, 0.8, 0], radius: 0.15 }}
+    color: {b}
+    blend: 0.05
+"""
+
+
+def _grad(project: Project, a: str, t: str, b: str) -> Built:
+    write_model(project, GRAD.format(a=a, t=t, b=b))
+    model, style, _ = project.load(project.models_dir / "thing.kiln.yaml")
+    assert model is not None and style is not None
+    palette, _ = project.palette(model.palette)
+    return builder.build_cached(model, style, palette, project.root / ".kiln-cache")
+
+
+def _colours(b: Built) -> list[tuple[str, str]]:
+    return sorted((g.color, g.color_name) for g in b.painted.groups)
+
+
+@pytest.mark.parametrize(("first", "then"), [(("red", "blue", "gold"), ("green", "blue", "gold")),  # gradient bands are mixes
+                                             (("red", "blue", "gold"), ("red", "blue", "blue"))])  # a hex shared with a to:  # fmt: skip
+def test_gradients_come_back_as_a_cold_build(project: Project, first: tuple[str, str, str], then: tuple[str, str, str]) -> None:
+    import shutil
+
+    _grad(project, *first)
+    warm = _grad(project, *then)
+    shutil.rmtree(project.root / ".kiln-cache")
+    assert _colours(warm) == _colours(_grad(project, *then))
+
+
+def test_a_palette_edit_of_a_gradient_colour(project: Project) -> None:
+    import shutil
+
+    _grad(project, "red", "wood", "gold")
+    pal = project.root / "palettes" / "main.pal.yaml"
+    pal.write_text(pal.read_text().replace("#a0663a", "#123456"))
+    from kiln.project import load_project
+
+    fresh = load_project(project.root)
+    warm = _grad(fresh, "red", "wood", "gold")
+    shutil.rmtree(fresh.root / ".kiln-cache")
+    assert _colours(warm) == _colours(_grad(load_project(fresh.root), "red", "wood", "gold"))
+
+
+def test_one_pickle_per_model(project: Project) -> None:
+    for a in ("red", "green", "white", "gold"):
+        _build(project, a, "blue", "wood")
+    assert len(list((project.root / ".kiln-cache").glob("thing.base.*.pickle"))) == 1

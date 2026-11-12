@@ -175,7 +175,10 @@ def test_locks_and_ellipsoids_agree_in_both_paths() -> None:
 
 
 @pytest.mark.parametrize("shape", ["cone: { at: [0, 0.4, 0], radius: 0.3, radius_top: 0.12, height: 0.8 }",
-                                   "cylinder: { at: [0.1, 0.4, 0], radius: 0.25, height: 0.6 }"])  # fmt: skip
+                                   "cylinder: { at: [0.1, 0.4, 0], radius: 0.25, height: 0.6 }",
+                                   "cylinder: { at: [0.1, 0.4, 0], radius: 0.25, height: 0.6 }\n    rotate: [20, 30, 10]",
+                                   "cone: { at: [0.3, 0.4, 0], radius: 0.2, radius_top: 0.1, height: 0.6 }\n    array: { count: 3, around: y }",
+                                   "cylinder: { at: [0, 0.4, 0], radius: 0.25, height: 0.6 }\n    scale: [1, 1.5, 0.8]"])  # fmt: skip
 def test_folds_in_the_compiled_path_match_numpy(shape: str) -> None:
     """#281: the fold term in the kernel, the same as sdf.folds per copy, before the shell."""
     from conftest import parse
@@ -195,3 +198,24 @@ def test_folds_in_the_compiled_path_match_numpy(shape: str) -> None:
     finally:
         jit.AVAILABLE = True
     assert np.abs(compiled - plain).max() < 1e-9
+
+
+def test_scaled_parts_agree_in_both_paths() -> None:
+    """#238 review: scaled parts' distances run short outside their box too (any shape)."""
+    from conftest import parse
+
+    from kiln.builder import field_of
+
+    spheres = "".join(f"  - sphere: {{ at: [{0.015 * k - 0.3:.3f}, 0.5, 0.22], radius: 0.03 }}\n    scale: [1, 4, 1]\n    color: red\n    blend: 0.03\n"
+                      for k in range(40))  # fmt: skip
+    model, findings = parse("name: m\nparts:\n  - ellipsoid: { at: [0, 0.5, 0], radii: [0.25, 0.4, 0.2] }\n    color: red\n" + spheres)
+    assert model is not None, findings
+    field = field_of(model, 0.01)
+    p = np.random.default_rng(4).uniform([-0.6, -0.1, -0.5], [0.6, 1.2, 0.8], (20000, 3))
+    compiled = field.distance(p)
+    jit.AVAILABLE = False
+    try:
+        plain = field.distance(p)
+    finally:
+        jit.AVAILABLE = True
+    assert np.abs(compiled - plain).max() < 1e-6

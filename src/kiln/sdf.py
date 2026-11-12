@@ -796,8 +796,9 @@ class Field:
         d = outside + pad
         if near.any():
             d[near] = g.distance(p[near])
-            if g.shape in ("ellipsoid", "lock"):  # their distance runs short away from them; the box's holds (#238)
-                d[near] = np.where(outside[near] > 0, np.maximum(d[near], outside[near]), d[near])  # (inside the box: as it is)
+            # outside its box a part is never nearer than the box: locks, ellipsoids and scaled parts' distances run short
+            # there, and the box skips assume they don't (#238); inside the box it stays as it is
+            d[near] = np.where(outside[near] > 0, np.maximum(d[near], outside[near]), d[near])
         return d
 
     def nearest(self, parts: list[int], p: Array, absolute: bool = True) -> tuple[Array, Array]:
