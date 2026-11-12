@@ -758,12 +758,14 @@ def paint(painted: Regions, model: Model) -> Painted:
             facing = c.rotation @ facing_local if c is not None else facing_local  # the way it faces on this copy
             d = replace(base_decal, copy=_copy_key(c)) if c is not None else base_decal
 
-            def around_decal(vertices: Array, faces: Array, d: Decal = d) -> Array:
+            def around_decal(vertices: Array, faces: Array, d: Decal = d, facing_local: Array = facing_local) -> Array:
                 """Faces round this decal's rectangle (a per-copy decal: its own copy's, not the others')."""
                 if d.copy is None:
                     return np.ones(len(faces), dtype=bool)
-                uv = decal_uv(d, vertices[faces].mean(axis=1))
-                return np.asarray((uv > -0.5).all(axis=1) & (uv < 1.5).all(axis=1))
+                c_local = _copy_of(d).to_local(vertices[faces].mean(axis=1))
+                uv = decal_uv(replace(d, copy=None), c_local)
+                depth = np.abs((c_local - np.array(d.at)) @ facing_local)
+                return np.asarray((uv > -0.5).all(axis=1) & (uv < 1.5).all(axis=1) & (depth < 2 * max(d.size)))
 
             for column, bound in ((0, 0.0), (0, 1.0), (1, 0.0), (1, 1.0)):
                 sel = np.isin(owner, list(own)) & ~theirs & around_decal(vertices, faces)
