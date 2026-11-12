@@ -1,0 +1,70 @@
+description = "Stylised game skins: hand-painted matte surfaces, soft colour fades, shaded crevices, fur as relief"
+notes = """
+The painted look of a stylised third-person character: matte materials (no plastic shine, no rim), colours that fade
+softly where parts blend (belly into body, muzzle into face), darker crevices and undersides, lit tops.
+Characters: build the body from a few big blended shapes (blend 0.04-0.1); add fur, scales or feathers as `relief:`
+layers on the body rather than as parts (`kind: fur`, length about a tenth of the body's height, width half that);
+give the face parts `density: 2-3` so the face reads up close. Eyes, teeth and claws: `color_blend: 0` and a crisp
+seam (blend 0) keep them sharp. Colours: a muted, slightly warm palette; one accent colour.
+Props: chunky, worn shapes; paint wear with shade, not with extra parts.
+"""
+
+[shape]
+smooth = true
+sharp_angle = 45
+resolution = 0.008
+color_blend = 0.03                 # every smooth part that blends fades its colour 3 cm into its neighbours'
+
+[budgets]
+default = 6000
+prop = 4000
+character = 12000
+hero = 20000
+creature = 12000
+vehicle = 14000
+machine = 16000
+building = 24000
+nature = 8000
+
+[materials]
+default = { roughness = 0.85 }
+skin = { roughness = 0.9 }
+fur = { roughness = 0.95 }
+fabric = { roughness = 0.92 }
+leather = { roughness = 0.8 }
+wood = { roughness = 0.85 }
+stone = { roughness = 0.95 }
+cloth = { roughness = 0.92 }
+plastic = { roughness = 0.7 }
+rubber = { roughness = 0.85 }
+leaf = { roughness = 0.85 }
+paint = { roughness = 0.75 }
+metal = { roughness = 0.6, metallic = 0.3 }
+gold = { roughness = 0.5, metallic = 0.45 }
+horn = { roughness = 0.6 }
+eye = { roughness = 0.3 }
+glass = { roughness = 0.15 }
+glow = { roughness = 0.6, emission = 2.0 }
+
+[shade]
+cavity = 0.3                       # crevices darker
+top = 0.12                         # the top keeps its colour, sides a little darker
+under = 0.1                        # undersides darker still
+
+[look]
+shader = "standard"
+tonemapper = "filmic"
+exposure = 1.05
+saturation = 1.05
+contrast = 1.0
+ssao = true
+glow = false
+ambient = 1.15                     # high ambient: the shade paint, not the light, gives the form
+sky_top = "#7fa3c8"
+sky_horizon = "#d6dfe6"
+ground = "#9a9480"
+sun_pitch = -50.0
+sun_yaw = 35.0
+sun_energy = 0.9
+sun_color = "#fff2e0"
+shadows = true

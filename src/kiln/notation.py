@@ -147,6 +147,7 @@ class Part:
     texture: Decal | None = None  # an image tiled over the whole part (project box | cylindrical), under its decal
     detail: bool = False  # only in the baked normal map (grooves, wrinkles, strands), never in the mesh
     color_blend: float = 0.0  # metres: its colour fades into its neighbours' over this distance from their border (base colour map)
+    color_blend_set: bool = False  # the part gave color_blend itself (else the style's [shape] color_blend may apply)
     density: float = 1.0  # weight on the triangle budget in its surface (3: three times the triangles per area of the rest)
     on: OnSurface | None = None  # placed on the blended surface of earlier parts (resolved once all parts are read)
     skin_falloff: float | None = None  # soft skins: metres over which other bones pull on this part's surface (#192)
@@ -238,6 +239,7 @@ class Model:
     max_cells: int | None = None  # mesh grid cells per axis at most; overrides the style
     normal_map: int = 0  # texels across the baked normal map (0: none)
     normal_strength: float = 1.0  # the map's tilt away from the mesh normal, scaled
+    normal_strength_line: int | None = None  # normal_strength given with no map (yet): E003 unless the style brings one
     bake_parts: list[Geometry] | None = None  # every part's geometry in order, `detail` ones too (the normal map's field)
     detail: list[Geometry] = field(default_factory=list)  # the `detail` parts (only in bake_parts)
     bake_index: list[int] = field(default_factory=list)  # part i is bake_parts[bake_index[i]]
@@ -772,7 +774,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
-                   "texture": texture, "color_blend": float(color_blend), "density": float(density), "on": on,
+                   "texture": texture, "color_blend": float(color_blend), "color_blend_set": "color_blend" in raw, "density": float(density), "on": on,
                    "skin_falloff": None if skin_falloff is None else float(skin_falloff)}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
@@ -1041,6 +1043,28 @@ def _soft_colours(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
         return
     if not model.normal_map:
         model.normal_map = RELIEF_MAP
+
+
+def apply_style(model: Model, color_blend: float, hard: frozenset[int] = frozenset(), can_bake: bool = True) -> list[Finding]:
+    """A style's [shape] color_blend (#262): every smooth adding part that blends into an earlier part of another colour,
+    doesn't set its own and isn't made hard (`hard`: builder.hard_parts) fades that far; the baked maps come on when one
+    does (as for a part's own color_blend), unless baking isn't installed (`can_bake`: then the default is left off).
+    Then a normal_strength with no map is an error."""
+    if color_blend > 0 and model.source is None and can_bake:
+        for k, p in enumerate(model.parts):
+            g = p.geometry
+            if p.color_blend_set or g.op != "add" or g.blend <= 0 or p.hard or p.crisp or p.detail or k in hard:
+                continue
+            earlier = [q for j, q in enumerate(model.parts[:k]) if q.geometry.op == "add" and not q.detail
+                       and (g.blend_to is None or j in g.blend_to)]  # fmt: skip
+            if any(q.color != p.color for q in earlier):  # a border to fade across (a one-colour model bakes nothing)
+                p.color_blend = color_blend
+        if any(p.color_blend > 0 for p in model.parts) and not model.normal_map:
+            model.normal_map = RELIEF_MAP
+    if model.normal_strength_line is not None and not model.normal_map:
+        return [Finding("E003", "normal_strength goes with normal_map (the map it scales)", model.path, model.normal_strength_line or None,
+                        "normal_strength")]  # fmt: skip
+    return []
 
 
 def _split_detail(ctx: _Ctx, model: Model) -> None:
@@ -1763,10 +1787,10 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     if not _num(strength) or not 0 <= float(strength) <= 4:
         ctx.error("E003", "normal_strength scales the baked normal map's tilt: 0 (flat) to 4, 1 as baked (0.5: softer grooves)",
                   _line(data, "normal_strength"), "normal_strength")  # fmt: skip
-    elif "normal_strength" in data and not model.normal_map and "relief" not in data and not _fades(data.get("parts")):
-        ctx.error("E003", "normal_strength goes with normal_map (the map it scales)", _line(data, "normal_strength"), "normal_strength")
     else:
         model.normal_strength = float(strength)
+        if "normal_strength" in data and not model.normal_map and "relief" not in data and not _fades(data.get("parts")):
+            model.normal_strength_line = _line(data, "normal_strength") or 0  # no map yet: the style may still bring one (apply_style)
     if "shade" in data:
         shade, shade_error = parse_shade(data["shade"])
         if shade_error:
