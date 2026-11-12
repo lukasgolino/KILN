@@ -115,6 +115,8 @@ class Decal:
     at: tuple[float, float, float]
     size: tuple[float, float]  # width, height in metres on the surface (a texture: one tile)
     project: str = "planar"  # planar: a decal; box, cylindrical: a texture tiled over the whole part
+    per_copy: bool = False  # on an arrayed part: the decal on every copy, placed as on the first
+    copy: tuple[float, ...] | None = None  # a per-copy decal's copy: its rotation (9), pivot (3), offset (3), so points map back
 
 
 @dataclass(frozen=True)
@@ -712,6 +714,10 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         if "decal" in raw:
             decal = _parse_decal(ctx, raw["decal"], line, f"{where}.decal")
             ok = ok and decal is not None
+            if decal is not None and decal.per_copy and "array" not in raw:
+                ctx.error("E003", "decal per_copy puts it on every copy of an array: this part has no array (a mirror's other side is "
+                          "its mirror image: use mirror_id for a decal there)", line, f"{where}.decal")  # fmt: skip
+                ok = False
         if "texture" in raw:
             texture = _parse_texture(ctx, raw["texture"], line, f"{where}.texture", at)
             ok = ok and texture is not None
@@ -828,7 +834,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             at_m = list(decal.at)
             at_m[mirror[0]] = -at_m[mirror[0]]
             axis_m = decal.axis if decal.axis.lstrip("-") != "xyz"[mirror[0]] else (decal.axis[1:] if decal.axis.startswith("-") else "-" + decal.axis)
-            twin_decal = Decal(decal.image, axis_m, (at_m[0], at_m[1], at_m[2]), decal.size)
+            twin_decal = replace(decal, axis=axis_m, at=(at_m[0], at_m[1], at_m[2]))  # (per_copy and the rest kept)
         twin_fields = dict(hard_fields)
         if texture is not None:  # the tiling's centre mirrored too
             t_at = list(texture.at)
@@ -1295,20 +1301,28 @@ def _parse_gradient(ctx: _Ctx, raw: Any, kind: str, params: dict[str, Any], colo
 
 def _parse_decal(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal | None:
     if not isinstance(raw, dict) or not isinstance(raw.get("image"), str):
-        ctx.error("E003", "decal is { image: decals/logo.png, axis: z, at: [x, y, z], size: [w, h] }", line, where)
+        ctx.error("E003", "decal is { image: decals/logo.png, axis: z, at: [x, y, z], size: [w, h] or texel: metres per pixel }", line, where)
         return None
     axis = raw.get("axis", "z")
-    at, size = _vec(raw.get("at")), _vec(raw.get("size"), 2)
-    bad = [k for k in raw if k not in ("image", "axis", "at", "size")]
-    if axis not in ("x", "-x", "y", "-y", "z", "-z") or at is None or size is None or min(size) <= 0 or bad:
-        ctx.error("E003", "decal: axis x|-x|y|-y|z|-z (the way it faces), at: [x, y, z] (its centre), size: [w, h] metres", line, where)
+    at, size = _vec(raw.get("at")), _vec(raw.get("size"), 2) if "size" in raw else None
+    texel, per_copy = raw.get("texel"), raw.get("per_copy", False)
+    bad = [k for k in raw if k not in ("image", "axis", "at", "size", "texel", "per_copy")]
+    sized = ("size" in raw) != ("texel" in raw) and (size is not None and min(size) > 0 if "size" in raw else _num(texel) and float(texel or 0) > 0)
+    if axis not in ("x", "-x", "y", "-y", "z", "-z") or at is None or not sized or bad or not isinstance(per_copy, bool):
+        ctx.error("E003", "decal: axis x|-x|y|-y|z|-z (the way it faces), at: [x, y, z] (its centre), size: [w, h] metres or texel: "
+                  "metres per image pixel (one of them), per_copy: true (on every copy of an array)", line, where)  # fmt: skip
         return None
     base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
     image = (base / raw["image"]).resolve()
     if not image.is_file():
         ctx.error("E011", f"decal image {raw['image']} not found (paths are relative to the project folder)", line, f"{where}.image")
         return None
-    return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]))
+    if size is None:  # from the image's pixels: the same texel size on every prop (#211)
+        from PIL import Image
+
+        with Image.open(image) as img:
+            size = (img.width * float(texel or 0), img.height * float(texel or 0))
+    return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]), per_copy=bool(per_copy))
 
 
 TEXTURE_KEYS = ("image", "project", "size", "texel", "at", "axis")

@@ -148,7 +148,7 @@ class _Writer:
         self.normal_uri = normal_uri  # the normal map as a file next to the glb (shared by variants), else embedded
         self.doc = Document(generator)
         self.materials: dict[tuple[str, str, int], int] = {}
-        self.textures: dict[tuple[int, str], int] = {}
+        self.textures: dict[tuple[str, str, str], int] = {}
         self.sampler: dict[tuple[bool, bool], int] = {}  # (nearest, repeat) -> sampler
 
     def color(self, hex_color: str) -> str:
@@ -214,10 +214,10 @@ class _Writer:
         return self.atlas_material
 
     def texture(self, decal: int, base_color: str) -> int:
-        key = (decal, base_color)
+        d = self.b.painted.decals[decal]
+        key = (str(d.image), d.project, base_color)  # one texture per image and colour: per-copy decals share it (#211)
         if key in self.textures:
             return self.textures[key]
-        d = self.b.painted.decals[decal]
         image = Image.open(d.image).convert("RGBA")
         backdrop = Image.new("RGBA", image.size, tuple(int(base_color[i : i + 2], 16) for i in (1, 3, 5)) + (255,))
         backdrop.alpha_composite(image)
@@ -265,13 +265,19 @@ class _Writer:
         names: dict[str, str] = {}
         for g in p.groups:
             names.setdefault(g.color, g.color_name.split("#")[0])
-        keys = [(self.color(p.groups[g].color), names[p.groups[g].color], p.groups[g].material, int(dec))
+        # per-copy decals (#211) that differ only in their copy share one material: the first such decal stands for them
+        canon = list(range(len(p.decals)))
+        for i, d in enumerate(p.decals):
+            if d.copy is not None:
+                canon[i] = next(j for j, e in enumerate(p.decals[: i + 1]) if e.copy is not None and (e.image, e.project, e.axis, e.size, e.at)
+                                == (d.image, d.project, d.axis, d.size, d.at))  # fmt: skip
+        keys = [(self.color(p.groups[g].color), names[p.groups[g].color], p.groups[g].material, canon[int(dec)] if int(dec) >= 0 else -1)
                 for g, dec in zip(p.face_group[faces_idx], p.face_decal[faces_idx], strict=True)]  # fmt: skip
         face_color = [k[0] for k in keys]
         if self.atlas is not None:  # one primitive for every non-decal face; the mesh doesn't depend on the swap
             atlas = self.atlas.atlas
             groups = p.groups
-            keys = [("", "atlas", "", -1) if int(dec) < 0 else (groups[g].color, names[groups[g].color], groups[g].material, int(dec))
+            keys = [("", "atlas", "", -1) if int(dec) < 0 else (groups[g].color, names[groups[g].color], groups[g].material, canon[int(dec)])
                     for g, dec in zip(p.face_group[faces_idx], p.face_decal[faces_idx], strict=True)]  # fmt: skip
             face_color = [str(atlas.index(groups[g].color, groups[g].material)) if int(dec) < 0 else "" for g, dec in
                           zip(p.face_group[faces_idx], p.face_decal[faces_idx], strict=True)]  # fmt: skip
@@ -304,7 +310,16 @@ class _Writer:
                 rows = np.concatenate([rows, np.round(self.b.bake.uv[sel].reshape(-1, 2), 7), np.round(self.b.bake.tangent[sel].reshape(-1, 4), 5)],
                                       axis=1)  # fmt: skip
             decal_col = rows.shape[1]
-            if key[3] >= 0 and p.decals[key[3]].project != "planar":  # a texture's UVs per corner: split along its seam
+            per_corner = key[3] >= 0 and (p.decals[key[3]].project != "planar" or p.decals[key[3]].copy is not None)
+            if per_corner and p.decals[key[3]].copy is not None:  # per-copy decals: each face's own copy's UVs
+                own = p.face_decal[sel]
+                corners = p.vertices[p.faces[sel]]
+                uvs = np.zeros((len(sel), 3, 2))
+                for d in np.unique(own):
+                    m = own == d
+                    uvs[m] = decal_uv(p.decals[int(d)], corners[m].reshape(-1, 3)).reshape(-1, 3, 2)
+                rows = np.concatenate([rows, np.round(uvs.reshape(-1, 2), 6)], axis=1)
+            elif per_corner:  # a texture's UVs per corner: split along its seam
                 rows = np.concatenate([rows, np.round(corner_uv(p.decals[key[3]], p.vertices[p.faces[sel]]).reshape(-1, 2), 6)], axis=1)
             ao_col = rows.shape[1]
             if self.ao is not None:  # the shade multiplier per corner (it only differs where the normal does: no new splits)
@@ -341,7 +356,7 @@ class _Writer:
                 tangent[:, :3] /= np.maximum(np.linalg.norm(tangent[:, :3], axis=1, keepdims=True), 1e-12)
                 attributes["TANGENT"] = self.doc.accessor(tangent.astype(np.float32), target=ARRAY_BUFFER)
             if key[3] >= 0:
-                tiled = p.decals[key[3]].project != "planar"
+                tiled = p.decals[key[3]].project != "planar" or p.decals[key[3]].copy is not None
                 uv = unique[:, decal_col : decal_col + 2] if tiled else decal_uv(p.decals[key[3]], p.vertices[vidx])
                 attributes["TEXCOORD_0"] = self.doc.accessor(uv.astype(np.float32), target=ARRAY_BUFFER)  # decals: no normal map
             if self.face_uv is not None:

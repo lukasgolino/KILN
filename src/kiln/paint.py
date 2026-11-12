@@ -16,7 +16,7 @@ import numpy as np
 
 from kiln.mesher import Mesh
 from kiln.notation import Decal, Model, Part, Pattern
-from kiln.sdf import Array, Field, Geometry
+from kiln.sdf import Array, Copy, Field, Geometry
 from kiln.usage import Progress
 
 ScalarFn = Callable[[Array], Array]
@@ -365,9 +365,22 @@ def _decal_frame(d: Decal) -> tuple[Array, Array, Array]:
     return facing, u / np.linalg.norm(u), up
 
 
+def _copy_of(d: Decal) -> Copy:
+    """A per-copy decal's copy (kept as plain numbers on the decal, so decals compare and hash)."""
+    assert d.copy is not None
+    k = np.asarray(d.copy, dtype=float)
+    return Copy(k[:9].reshape(3, 3), k[9:12], k[12:15])
+
+
+def _copy_key(c: Copy) -> tuple[float, ...]:
+    return tuple(float(v) for v in np.concatenate([np.asarray(c.rotation).reshape(-1), c.pivot, c.offset]))
+
+
 def decal_uv(d: Decal, points: Array) -> Array:
     """Image coordinates: a decal's 0..1 over its rectangle; a texture's tile coordinates (unbounded: the image
     repeats). Cylindrical: u is the arc length round `axis` (so texels keep their size on any radius), v along it."""
+    if d.copy is not None:  # a per-copy decal: its copy's points back in the first copy's frame
+        points = _copy_of(d).to_local(points)
     rel = points - np.array(d.at)
     if d.project == "cylindrical":
         a = "xyz".index(d.axis)
@@ -739,35 +752,51 @@ def paint(painted: Regions, model: Model) -> Painted:
                 if len(near):
                     best[near] = np.minimum(best[near], _part_distance(model, j, c[near]))
             theirs[ask] = best < mine_d
-        facing, _, _ = _decal_frame(d)
-        for column, bound in ((0, 0.0), (0, 1.0), (1, 0.0), (1, 1.0)):
-            sel = np.isin(owner, list(own)) & ~theirs
-            uv = decal_uv(d, vertices)
-            values = uv[:, column] - bound if bound == 0.0 else bound - uv[:, column]
-            vertices, faces, _, parent = split(vertices, faces, values, sel)
+        base_decal = d
+        facing_local, _, _ = _decal_frame(d)
+        for c in (part.geometry.copies if d.per_copy and len(part.geometry.copies) > 1 else (None,)):  # #211: on every copy
+            facing = c.rotation @ facing_local if c is not None else facing_local  # the way it faces on this copy
+            d = replace(base_decal, copy=_copy_key(c)) if c is not None else base_decal
+
+            def around_decal(vertices: Array, faces: Array, d: Decal = d, facing_local: Array = facing_local) -> Array:
+                """Faces round this decal's rectangle (a per-copy decal: its own copy's, not the others')."""
+                if d.copy is None:
+                    return np.ones(len(faces), dtype=bool)
+                c_local = _copy_of(d).to_local(vertices[faces].mean(axis=1))
+                uv = decal_uv(replace(d, copy=None), c_local)
+                depth = np.abs((c_local - np.array(d.at)) @ facing_local)
+                return np.asarray((uv > -0.5).all(axis=1) & (uv < 1.5).all(axis=1) & (depth < 2 * max(d.size)))
+
+            for column, bound in ((0, 0.0), (0, 1.0), (1, 0.0), (1, 1.0)):
+                sel = np.isin(owner, list(own)) & ~theirs & around_decal(vertices, faces)
+                uv = decal_uv(d, vertices)
+                values = uv[:, column] - bound if bound == 0.0 else bound - uv[:, column]
+                values = np.where(np.abs(values) < 1e-6, 0.0, values)  # a vertex on the line is the cut's point (no near-twin beside it)
+                vertices, faces, _, parent = split(vertices, faces, values, sel)
+                owner, face_decal, theirs = owner[parent], face_decal[parent], theirs[parent]
+            # and along where the surface turns past DECAL_FACING from the decal's way (#191: a decal wrapping round a side
+            # ended on whole triangles, a stepped edge): smooth vertex normals give a clean line
+            sel = np.isin(owner, list(own)) & ~theirs & around_decal(vertices, faces)
+            turn = _vertex_normals(vertices, faces) @ facing - DECAL_FACING
+            vertices, faces, _, parent = split(vertices, faces, np.where(np.abs(turn) < 1e-6, 0.0, turn), sel)
             owner, face_decal, theirs = owner[parent], face_decal[parent], theirs[parent]
-        # and along where the surface turns past DECAL_FACING from the decal's way (#191: a decal wrapping round a side
-        # ended on whole triangles, a stepped edge): smooth vertex normals give a clean line
-        sel = np.isin(owner, list(own)) & ~theirs
-        vertices, faces, _, parent = split(vertices, faces, _vertex_normals(vertices, faces) @ facing - DECAL_FACING, sel)
-        owner, face_decal, theirs = owner[parent], face_decal[parent], theirs[parent]
-        centroid = vertices[faces].mean(axis=1)
-        uvc = decal_uv(d, centroid)
-        vn = _vertex_normals(vertices, faces)
-        turned = (vn @ facing - DECAL_FACING)[faces].mean(axis=1)
-        tri = vertices[faces]
-        normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
-        normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
-        # on a faceted surface (a hard part's flat sides) vertex normals average across the crisp edges: there the
-        # face's own normal decides, so a side square to the decal never takes its smeared projection
-        corner_mean = vn[faces].mean(axis=1)
-        smooth = (normal * corner_mean).sum(axis=1) > np.cos(np.radians(20)) * np.linalg.norm(corner_mean, axis=1)
-        facing_ok = np.where(smooth, turned > 0, normal @ facing > DECAL_FACING)
-        depth = np.abs((centroid - np.array(d.at)) @ facing)
-        inside = (uvc >= 0).all(axis=1) & (uvc <= 1).all(axis=1) & facing_ok & (depth < max(d.size))
-        mark = inside & np.isin(owner, list(own)) & ~theirs & (face_decal < 0)
-        face_decal[mark] = len(decals)
-        decals.append(d)
+            centroid = vertices[faces].mean(axis=1)
+            uvc = decal_uv(d, centroid)
+            vn = _vertex_normals(vertices, faces)
+            turned = (vn @ facing - DECAL_FACING)[faces].mean(axis=1)
+            tri = vertices[faces]
+            normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+            normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
+            # on a faceted surface (a hard part's flat sides) vertex normals average across the crisp edges: there the
+            # face's own normal decides, so a side square to the decal never takes its smeared projection
+            corner_mean = vn[faces].mean(axis=1)
+            smooth = (normal * corner_mean).sum(axis=1) > np.cos(np.radians(20)) * np.linalg.norm(corner_mean, axis=1)
+            facing_ok = np.where(smooth, turned > 0, normal @ facing > DECAL_FACING)
+            depth = np.abs(((c.to_local(centroid) if c is not None else centroid) - np.array(d.at)) @ facing_local)
+            inside = (uvc >= 0).all(axis=1) & (uvc <= 1).all(axis=1) & facing_ok & (depth < max(d.size))
+            mark = inside & np.isin(owner, list(own)) & ~theirs & (face_decal < 0)
+            face_decal[mark] = len(decals)
+            decals.append(d)
     # textures: every face of the part's own group not under its decal (its pattern colours paint over it); one entry
     # per texture: the side (box) or the wrap (cylindrical) is worked out per face (corner_uv)
     for i in adding:
