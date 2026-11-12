@@ -8,6 +8,8 @@ before 1.0).
 
 ### Fixed
 
+- A decal on a part with a `gradient` or `pattern` also cut and marked other parts' faces painted in the same colours
+  (their band and stripe colours are shared): it now keeps to the faces nearest its own part (#146).
 - Colour borders along blends zigzagged at lower budgets (a sawtooth on a sleeve's edge from about 1200 triangles
   down): thinning a border to the budget left its vertices either side of it. Each vertex where two plain colours meet
   now goes back onto the exact border after reducing (along the surface, at most half an edge). And a decal that wraps
