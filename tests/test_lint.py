@@ -307,3 +307,11 @@ def test_w123_names_the_part_that_dips(project: Project) -> None:
     result = lint_paths(project, [write_model(project, text)])
     w = [f for f in result.findings if f.rule == "W123"]
     assert w and "under foot" in w[0].message and w[0].where == "parts[1]", [f.format() for f in result.findings]
+
+
+def test_w136_a_band_that_misses_its_part(project: Project) -> None:
+    """#326: a band placed off the part paints nothing: W136 says so (and where `at` is measured from)."""
+    base = "name: thing\nparts:\n  - cylinder: { at: [0, 0.5, 0], radius: 0.2, height: 1.0 }\n    color: red\n    pattern: { type: band, color: blue, axis: y, at: AT, size: 0.1 }\n"
+    hit = warnings(lint(project, base.replace("AT", "0.5")))
+    miss = lint_paths(project, [write_model(project, base.replace("AT", "1.6"))]).findings
+    assert "W136" not in hit and any(f.rule == "W136" and "measured from" in f.message for f in miss), [f.format() for f in miss]

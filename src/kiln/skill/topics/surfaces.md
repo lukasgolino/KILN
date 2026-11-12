@@ -51,7 +51,8 @@ material, id, mirror, ...) go to each.
 
 - `stripes`: bands across `axis`, one every `size` metres, `width` = fraction in the second colour.
 - `band`: one band of thickness `size` centred at `at` (one number: metres along `axis`, in model space): belts, trims,
-  hat bands. E.g. `{ type: band, color: brown, size: 0.06, at: 0.4, axis: y }` = a belt 0.4 m above the ground.
+  hat bands. E.g. `{ type: band, color: brown, size: 0.06, at: 0.4, axis: y }` = a belt 0.4 m above the ground
+  (with `frame: part`, from the part's own `at`). A pattern that misses its part's surface is lint W136.
 - `checker`: checks `size` metres across.
 - `dots`: dots on a grid `size` metres apart, diameter `width` x size; `jitter` (0-1: up to half that of a cell each
   way) and `vary` (size +-) at random (`seed`); `offset: [x, y, z]` shifts a repeat (a 2nd dots pattern moves itself).
@@ -59,7 +60,7 @@ material, id, mirror, ...) go to each.
   space bare, any other character painted; top row first) or `image: trims/key.png` (alpha over half painted, or with
   no transparency its dark pixels; up to 256x64). Each cell is `size` metres tall along `axis` (heights along the axis,
   not the slope: a shallow cone stretches them; a flat brim takes none), the band centred on `at` (from the part's
-  centre: `frame: part` is the default here); `repeat` times round, or `auto` (the default: about square cells at the
+  own `at`, its origin: `frame: part` is the default here; a lathe's origin, not the middle of its profile); `repeat` times round, or `auto` (the default: about square cells at the
   part's widest radius). It reads left to right seen from outside, like a cylindrical texture; a mirrored part reads
   mirrored. Near the axis (a cone's tip, a cap) columns too narrow aren't painted. One colour per pattern: list several
   for more. Smooth parts only (a hard part with one is an error). E.g. `{ type: pixel, color: gold, size: 0.02, at: -0.1,

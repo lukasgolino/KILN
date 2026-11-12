@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- Lint W136: a band, pixel or stripes pattern that paints nothing on its part; the docs say a pixel band's `at` is
+  from the part's own `at` (a lathe's origin) (#326).
 - Motif prints: `texture: { motif: { images, count, scale, rotate, seed } }` scatters multicolour stamps over a
   seamless, seeded tile made in KILN (a floral shirt), tiled like any texture (#312).
 - Material `grain` and `grain_size` in a style: a fine bumpy finish in the normals (rough cloth, felt) without

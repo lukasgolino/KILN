@@ -63,6 +63,7 @@ WARNING_RULES = {
     "W131": "a see-through material (alpha < 1) in an atlas project: the atlas draws every part opaque",
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
     "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
+    "W136": "a pattern paints nothing: it misses the part's surface (a band's `at` or a pixel strip's place)",
     "W135": "a limb is fused to another branch of a soft-skinned body at rest, away from its joint: posing it stretches the skin",
     "W134": "colour fades go in the vertex colours here (no baked maps), but the project doesn't export vertex colours",
 }
@@ -93,7 +94,7 @@ CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than a
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
 BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135")  # fmt: skip
+               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135", "W136")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -104,6 +105,26 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     def warn(rule: str, message: str, line: int | None = None, where: str = "") -> None:
         out.append(Finding(rule, message, m.path, line, where))
 
+    patterned = [k for k, q in enumerate(m.parts) if q.patterns and q.geometry.op == "add"]
+    if patterned and m.source is None:  # a pattern that misses its part (#326)
+        from kiln.paint import _pattern_fn
+
+        pv = built.painted
+        adding = [k for k, q in enumerate(m.parts) if q.geometry.op == "add"]
+        owner = np.asarray(adding)[field_of(m, built.step).nearest(adding, pv.vertices[pv.faces].mean(axis=1))[0]]
+        for k in patterned:
+            part = m.parts[k]
+            mine = pv.vertices[np.unique(pv.faces[owner == k])]
+            if not len(mine):
+                continue
+            for j, pat in enumerate(part.patterns):
+                if pat.type not in ("band", "pixel", "stripes") or pat.mix is not None:
+                    continue  # (dots and checkers land between vertices; a gradient's thin bands are its own business)
+                if not (np.asarray(_pattern_fn(pat, part.geometry)(mine)) >= 0).any():
+                    where = f"{part.where}.pattern" if len(part.patterns) == 1 else f"{part.where}.patterns[{j}]"
+                    hint = (" (a band's `at` is measured from the model's origin along its axis; with frame: part, from the part's own `at`, "
+                            "a lathe's origin, not the middle of its profile)" if pat.type in ("band", "pixel") else "")
+                    warn("W136", f"pattern {pat.type} ({pat.color_name}) paints nothing on part {k}: it misses the part's surface{hint}", part.line, where)
     if built.skin == "soft":  # limbs fused to the body at rest (#255)
         from kiln.fused import fused_limbs
 
