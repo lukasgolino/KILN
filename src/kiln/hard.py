@@ -88,6 +88,17 @@ class Polygon:
     def flipped(self) -> Polygon:
         return Polygon(tuple(reversed(self.points)), self.plane.flipped(), self.tag)
 
+    def box(self) -> tuple[float, float, float, float, float, float]:
+        """Its box's centre and half sizes, made once (#214: a polygon is tested against many planes on its way down)."""
+        try:
+            return self.__dict__["_box"]  # type: ignore[no-any-return]
+        except KeyError:
+            xs, ys, zs = zip(*self.points, strict=True)
+            x0, x1, y0, y1, z0, z1 = min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
+            box = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2)
+            object.__setattr__(self, "_box", box)
+            return box
+
 
 def polygon(points: Sequence[Point], tag: int) -> Polygon | None:
     pts: list[Point] = []
@@ -168,16 +179,65 @@ def _extent(polys: list[Polygon]) -> tuple[float, float, float, float, float, fl
     return ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2)
 
 
+SORT_MIN = 24  # polygons: from this many on, their boxes are tested against the plane in one numpy pass
+Boxes = Array  # (N, 6): each polygon's box centre and half sizes, in the order of its list
+
+
+def _boxes(polys: list[Polygon]) -> Boxes:
+    return np.array([p.box() for p in polys]) if polys else np.zeros((0, 6))
+
+
+def _split_all(plane: Plane, polys: list[Polygon], boxes: Boxes | None, co_front: list[Polygon], co_back: list[Polygon],
+               front: list[Polygon], back: list[Polygon]) -> tuple[Boxes | None, Boxes | None]:  # fmt: skip
+    """_split of each polygon in order (the lists come out as they always did), but a polygon whose box lies clear of
+    the plane by CLEAR goes to its side without a test per point: what every point's own test (against EPS) would
+    say (#214). Returns the boxes of `front` and `back` (when `boxes` is given and they are fresh lists)."""
+    if boxes is None or len(polys) < SORT_MIN:
+        for p in polys:
+            _split(plane, p, co_front, co_back, front, back)
+        return None, None
+    n = plane.normal
+    mid = boxes[:, 0] * n[0] + boxes[:, 1] * n[1] + boxes[:, 2] * n[2] - plane.w
+    reach = boxes[:, 3] * abs(n[0]) + boxes[:, 4] * abs(n[1]) + boxes[:, 5] * abs(n[2])
+    sides = ((mid - reach > CLEAR) * 1 + (mid + reach < -CLEAR) * 2).tolist()
+    src_f: list[int] = []  # each output polygon's row in `boxes`, -1: a new piece (boxed afresh)
+    src_b: list[int] = []
+    for i, (p, side) in enumerate(zip(polys, sides, strict=True)):
+        if side == 1:
+            front.append(p)
+            src_f.append(i)
+        elif side == 2:
+            back.append(p)
+            src_b.append(i)
+        else:
+            nf, nb = len(front), len(back)
+            _split(plane, p, co_front, co_back, front, back)
+            src_f += [-1] * (len(front) - nf)
+            src_b += [-1] * (len(back) - nb)
+    return _rows(boxes, src_f, front), _rows(boxes, src_b, back)
+
+
+def _rows(boxes: Boxes, src: list[int], polys: list[Polygon]) -> Boxes | None:
+    if len(src) != len(polys):  # (a list shared with co-planar ones: not tracked)
+        return None
+    idx = np.asarray(src, dtype=np.int64)
+    out = boxes[np.maximum(idx, 0)] if len(idx) else np.zeros((0, 6))
+    for k in np.flatnonzero(idx < 0).tolist():
+        out[k] = polys[k].box()
+    return out
+
+
 class _Node:
     """A BSP node, made when first reached: `pending` holds the polygons its subtree is built from until then."""
 
-    __slots__ = ("plane", "front", "back", "pending")
+    __slots__ = ("plane", "front", "back", "pending", "boxes")
 
-    def __init__(self, pending: list[Polygon]) -> None:
+    def __init__(self, pending: list[Polygon], boxes: Boxes | None = None) -> None:
         self.plane: Plane | None = None
         self.front: _Node | None = None
         self.back: _Node | None = None
         self.pending: list[Polygon] | None = pending
+        self.boxes = boxes  # the pending polygons' boxes (made on first use)
 
     def expand(self) -> None:
         """This node's plane (its first polygon's) and its children, each holding its side's polygons."""
@@ -191,12 +251,13 @@ class _Node:
         on: list[Polygon] = []  # in the plane: they make no subtree
         front: list[Polygon] = []
         back: list[Polygon] = []
-        for p in polys:
-            _split(self.plane, p, on, on, front, back)
+        boxes = self.boxes if self.boxes is not None else (_boxes(polys) if len(polys) >= SORT_MIN else None)
+        self.boxes = None
+        fb, bb = _split_all(self.plane, polys, boxes, on, on, front, back)
         if front:
-            self.front = _Node(front)
+            self.front = _Node(front, fb)
         if back:
-            self.back = _Node(back)
+            self.back = _Node(back, bb)
 
 
 class _Tree:
@@ -242,8 +303,7 @@ class _Tree:
                 continue
             front: list[Polygon] = []
             back: list[Polygon] = []
-            for p in polys:
-                _split(plane, p, front, back, front, back)
+            _split_all(plane, polys, _boxes(polys) if len(polys) >= SORT_MIN else None, front, back, front, back)
             if ahead is not None:
                 stack.append((ahead, front, _extent(front)))
             else:
