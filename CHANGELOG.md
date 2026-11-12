@@ -53,6 +53,8 @@ before 1.0).
 
 ### Fixed
 
+- Docs: textures over 256 px are filtered smoothly with mipmaps, uncapped; a cylindrical texture's v = 0 is at its
+  `at` (#321).
 - `band: { fit: ... }` round a surface that isn't round (a belt round hips and belly) hugs it as a fitted shell
   instead of a cylinder sized to its farthest point (a flange at the back); `fit` takes a list of ids. Round ones
   (barrels, posts) keep their exact hard ring (#316).

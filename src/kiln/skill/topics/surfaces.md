@@ -90,7 +90,9 @@ takes it from the side it faces (its main normal direction, no blending), uprigh
 round `axis` through `at` (u = arc length: texels keep their size), caps taken flat; seam at -z for `axis: y`, -y
 for x, -x for z (it shows unless the circumference is whole tiles). `at`: the part's centre by default. Cylindrical
 can't follow `mirror`/`array` copies: use `mirror_id` or `box`. Tile: `size: [w, h]` metres or `texel:` metres per
-pixel. It repeats; images <= 256 px are crisp (pixel art on smooth shapes). Clear pixels show the part's colour
+pixel. It repeats; images up to 256 px on their longer side are crisp (nearest filtering, no mipmaps: pixel art on
+smooth shapes); larger ones are filtered smoothly (linear, with mipmaps), at full size: no cap, so keep them as small
+as the look needs. Cylindrical: v = 0 is at the part's `at` height, the image's bottom row toward low y. Clear pixels show the part's colour
 (after swaps); its pattern colours paint over it; a `decal` replaces it there. `triplanar`: box UVs in the glb, but
 KILN's Godot scenes (standard looks) and the previews blend the three projections by the surface's facing, so no seam
 shows where box would switch sides (a sleeve's side).
