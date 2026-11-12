@@ -153,11 +153,15 @@ break up (lint W102): keep `thickness` at least twice the mesh step.
 
 ## Cloth folds: `folds`
 
-Robes, skirts, capes and curtains: `folds: { count: 12, depth: 0.03, from_y: 0, to_y: 1.0, sharp: 0.5 }` on a part (a
-cone, a lathe, a cylinder) runs `count` vertical folds round its own y axis, `depth` metres deep at `from_y` (the
-hem, model height) and fading out by `to_y` (where the cloth hangs from); `sharp` 0 gives round waves, 1 narrow ridges
-between wide hollows. The hem comes out scalloped. They are real shape, so they show in silhouette and in Godot without
-a normal map; keep `depth` at least two mesh cells.
+Robes, skirts, capes and curtains: `folds: { count: 12, depth: 0.03, from_y: 0, to_y: 1.0, sharp: 0.5 }` on a smooth
+part (a cone, a lathe, a cylinder; count 2-48, depth up to 0.1) runs `count` vertical folds round its own y axis,
+`depth` metres deep at `from_y` (the hem) and fading out by `to_y` (where the cloth hangs from); `sharp` 0 gives
+round waves, 1 narrow ridges between wide hollows. The hem comes out scalloped. Heights run along the part's own axis
+(model heights for an upright part; each `array` copy folds round its own). A fold is never deeper than a quarter of
+the fold spacing there (2 pi r / count), so near the axis and with many folds they get shallower. They are real
+shape: they show in silhouette and in Godot without a normal map; keep `depth` at least two mesh cells. A shell's wall
+folds with them; a fitted shell can't fold (fold the parts it wraps); hard parts can't; colour borders follow the
+unfolded shapes (a belt doesn't wiggle).
 
 ## Relief: fur without parts
 

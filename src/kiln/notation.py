@@ -623,10 +623,10 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         fr = raw["folds"]
         keys = ("count", "depth", "from_y", "to_y", "sharp")
         good = isinstance(fr, dict) and not any(k not in keys for k in fr) and isinstance(fr.get("count"), int) and not isinstance(fr.get("count"), bool) \
-            and 2 <= fr["count"] <= 64 and _num(fr.get("depth")) and 0 < fr["depth"] <= 0.2 and all(_num(fr.get(k, 0.0)) for k in ("from_y", "to_y")) \
+            and 2 <= fr["count"] <= 48 and _num(fr.get("depth")) and 0 < fr["depth"] <= 0.1 and all(_num(fr.get(k, 0.0)) for k in ("from_y", "to_y")) \
             and "from_y" in fr and "to_y" in fr and fr["to_y"] > fr["from_y"] and _num(fr.get("sharp", 0.5)) and 0 <= fr.get("sharp", 0.5) <= 1
         if not good:
-            ctx.error("E003", "folds is { count: 12 (2-64), depth: metres (e.g. 0.02), from_y: the hem's height, to_y: where they fade out "
+            ctx.error("E003", "folds is { count: 12 (2-48), depth: metres (e.g. 0.02, at most 0.1), from_y: the hem's height, to_y: where they fade out "
                       "(model space, from_y < to_y), sharp: 0-1 (0.5) }: cloth folds round the part's own y axis", line, f"{where}.folds")  # fmt: skip
             ok = False
         else:
@@ -732,8 +732,8 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                       line, where)  # fmt: skip
             ok = False
     asks_hard = crisp or bool(bevel or chamfer) or "sides" in spec
-    if ok and (hard is True or (hard is None and asks_hard)) and (twist or noise is not None or scale is not None):
-        ctx.error("E003", "a hard part (sides, bevel, chamfer, blend: none or hard: true) can't twist, scale or have noise: those need the "
+    if ok and (hard is True or (hard is None and asks_hard)) and (twist or noise is not None or fold is not None or scale is not None):
+        ctx.error("E003", "a hard part (sides, bevel, chamfer, blend: none or hard: true) can't twist, scale or have noise or folds: those need the "
                   "smooth field",
                   line, where)  # fmt: skip
         ok = False
@@ -776,6 +776,10 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             ok = False
         else:
             fit = (tuple(str(x) for x in f_ids), float(f_gap))
+    if fit is not None and fold is not None:
+        ctx.error("E003", "folds shape a part's own surface: a fitted shell's wall follows the parts it wraps; fold those, or drop fit",
+                  line, f"{where}.folds")  # fmt: skip
+        ok = False
     if not ok:
         return []
     open_axis = None

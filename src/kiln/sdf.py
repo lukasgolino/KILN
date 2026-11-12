@@ -562,18 +562,20 @@ class Folds:
     sharp: float = 0.5  # 0: smooth waves; up to 1: narrow ridges between wide hollows
 
 
-def folds(p: Array, f: Folds, at: Array, rotation: Array | None) -> Array:
-    """How far inward each point's folds move the surface: (0..1 profile round the axis) x (depth fading with height)."""
-    q = p - at
-    if rotation is not None:
-        q = q @ rotation
+def folds(q: Array, f: Folds, base_y: float) -> Array:
+    """How far inward folds move the surface at points `q` in the part's own frame (its y axis is the folds' axis):
+    the profile round the axis (0 on a ridge, 1 in a hollow; `sharp` narrows the ridges, with a finite slope) x the
+    depth, which fades from `from_y` to `to_y` measured along that axis (`base_y` + local y: model heights for an
+    upright part) and is capped at a quarter of the fold spacing there (2 pi r / count), so the field stays a usable
+    bound near the axis and at high counts."""
+    r = np.hypot(q[:, 0], q[:, 2])
     theta = np.arctan2(q[:, 2], q[:, 0])
-    wave = 0.5 - 0.5 * np.cos(f.count * theta)  # 0 on a ridge, 1 in a hollow
-    profile = wave ** (1.0 / (1.0 + 2.0 * f.sharp))  # sharper: hollows widen, ridges narrow
+    wave = 0.5 - 0.5 * np.cos(f.count * theta)
+    profile = 1.0 - (1.0 - wave) ** (1.0 + 2.0 * f.sharp)
     span = f.to_y - f.from_y
-    t = np.clip((p[:, 1] - f.from_y) / span, 0.0, 1.0) if span else np.zeros(len(p))
-    fade = (1.0 - t) ** 1.5  # deepest at the hem
-    return np.asarray(f.depth * profile * fade)
+    t = np.clip((base_y + q[:, 1] - f.from_y) / span, 0.0, 1.0) if span else np.zeros(len(q))
+    depth = np.minimum(f.depth, 0.25 * 2 * np.pi * r / f.count) * (1.0 - t) ** 1.5
+    return np.asarray(depth * profile)
 
 
 def noise(p: Array, n: Noise) -> Array:
@@ -658,6 +660,8 @@ class Geometry:
             if self.scale is not None:  # a bound, not exact: the shape's distance times the smallest stretch
                 q = q / self.scale
             d = fn(q, self.params)
+            if self.folds is not None:  # each copy folds round its own axis, before any shell (the wall moves, it isn't eaten)
+                d = d + folds(q, self.folds, float(self.at[1]))
             shrink = float(self.scale.min()) if self.scale is not None else 1.0
             if self.scale is not None:
                 d = d * shrink
@@ -669,8 +673,6 @@ class Geometry:
             best = self._shelled(best)
         if self.noise is not None:
             best = best + self.noise.amount * noise(p, self.noise)
-        if self.folds is not None:
-            best = best + folds(p, self.folds, self.at, self.rotation)
         return best
 
     def _shelled(self, d: Array) -> Array:

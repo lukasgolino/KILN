@@ -63,7 +63,7 @@ def hard_parts(model: Model, style: Style) -> frozenset[int]:
     out = set()
     for i, p in enumerate(model.parts):
         g = p.geometry
-        if g.op != "add" or g.shape not in HARD_SHAPES or g.twist or g.noise is not None or g.scale is not None or g.blend_to is not None or (g.shell and g.shape not in SHELL_SHAPES) \
+        if g.op != "add" or g.shape not in HARD_SHAPES or g.twist or g.noise is not None or g.folds is not None or g.scale is not None or g.blend_to is not None or (g.shell and g.shape not in SHELL_SHAPES) \
                 or g.fit is not None:
             continue
         if p.hard is not None:
@@ -117,7 +117,7 @@ def hard_spec(part: Part, style: Style, level: int = 0) -> HardSpec:
 
 def _hard_cut_applies(g: Geometry, include: frozenset[int]) -> bool:
     """A cut or intersect that is made in polygons on the piece `include`."""
-    return g.shape in HARD_SHAPES and not g.twist and g.noise is None and g.scale is None and not (g.shell and g.shape not in SHELL_SHAPES) \
+    return g.shape in HARD_SHAPES and not g.twist and g.noise is None and g.folds is None and g.scale is None and not (g.shell and g.shape not in SHELL_SHAPES) \
         and (g.cut_only is None or bool(g.cut_only & include))  # fmt: skip
 
 
@@ -716,7 +716,7 @@ def _snap_borders(vertices: Array, faces: Array, face_group: Array, model: Model
     for piece in np.unique(region_piece[a]):
         sel = region_piece[a] == piece
         field = fields[int(piece)]
-        owners = Field([replace(g, noise=None) for g in field.parts], field.margin, field.active) if any(g.noise for g in field.parts) else field
+        owners = Field([replace(g, noise=None, folds=None) for g in field.parts], field.margin, field.active) if any(g.noise or g.folds for g in field.parts) else field
         idx, ga, gb = border[sel], a[sel], b[sel]
 
         def group_distance(g: int, x: Array, owners: Field = owners) -> Array:
