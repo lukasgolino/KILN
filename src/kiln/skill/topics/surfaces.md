@@ -26,7 +26,7 @@ bands shade round and designed edges stay crisp.
 
 ## Hardware
 
-Written like a shape, each stands for several ordinary parts (hard by default; `hand`, `foot` and `garment` soft); the part's other fields (colour,
+Written like a shape, each stands for several ordinary parts (hard by default; `hand`, `foot` and `garment` soft; `eye` a cut, a ball and a ring); the part's other fields (colour,
 material, id, mirror, ...) go to each.
 
 | hardware | meaning |
@@ -39,6 +39,7 @@ material, id, mirror, ...) go to each.
 | `garment: { fit: [chest, spine], from_y, to_y, hem, openings }` | a fitted layer of clothing round earlier parts, open at the hem and neck (`making` has the full field list and the rigged-character setup) |
 | `hand: { at: [x, y, z], length: 0.2, fingers: 4, curl: 30, spread: 8, nail: 0.02, nail_color: black }` | a soft hand from the wrist: palm, curled tapered fingers, thumb, claws; fingers point -y, palm -x, thumb +z (`rotate`, `mirror`); `width`, `thumb`, `knuckles` |
 | `foot: { at: [x, y, z], length: 0.26, toes: 5, curl: 10, nail: 0 }` | a soft foot whose sole stands on `at` (under the ankle): sole, toes pointing +z, heel; `width`, `spread`, `heel`, `nail_color` |
+| `eye: { at: [x, y, z], facing: [0, 0, 1], radius: 0.03, depth: 0.4, rim: 0.15, rim_color: teal, rim_emission: 1, in: head }` | a recessed eye: a socket cut into `in` (walls in the part's colour), a ball of the part's colour sunk `depth` x radius behind the surface, a thin rim lining the socket's edge, flush (not proud); `at` on the face, `facing` out of it; `rim: 0` for none |
 
 ## Patterns
 

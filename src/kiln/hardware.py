@@ -11,7 +11,7 @@ import numpy as np
 
 from kiln.sdf import Geometry, rotation_matrix
 
-HARDWARE = ("rivets", "band", "planks", "bolt", "slit", "garment", "hand", "foot")
+HARDWARE = ("rivets", "band", "planks", "bolt", "slit", "garment", "hand", "foot", "eye")
 AXES = {"x": 0, "y": 1, "z": 2}
 HELP = {
     "rivets": "rivets: { count: 8, along: [[x, y, z], ...] (a path, model space) or around: { center: [x, y, z], radius, axis: y }, size: 0.03 }",
@@ -26,6 +26,9 @@ HELP = {
             "nail_color } (with rotate; fingers point -y, the palm faces -x, the thumb +z: a left hand hanging at the side)",
     "foot": "foot: { at: [x, y, z] (the back of the sole, under the ankle), length: 0.26 (heel to toe tip), width (0.42 x length), toes: 5 (1-6), curl: 10 (degrees, down), "
             "spread: 6, nail: 0 (claw length), nail_color, heel: true } (with rotate; toes point +z, the sole down)",
+    "eye": "eye: { at: [x, y, z] (on the face's surface), facing: [0, 0, 1] (out of the face), radius: 0.03, depth: 0.4 (the ball's front sits this share "
+           "of radius behind the surface), rim: 0.15 (share of radius; 0: none), rim_color, rim_material, rim_emission, in: head (the part(s) it is cut "
+           "into; default: every earlier part) } (the part's colour is the ball's)",
 }
 
 
@@ -131,6 +134,8 @@ def expand(kind: str, spec: Any, raw: dict[str, Any], earlier: list[tuple[str, G
     rest = {k: v for k, v in raw.items() if k != kind}
     if kind in ("hand", "foot"):  # soft flesh: blended into the arm or leg
         return _limb_end(kind, spec, rest)
+    if kind == "eye":
+        return _eye(spec, rest)
     if kind == "garment":  # cloth: a fitted shell (soft), not hard metal
         return _garment(spec, rest, earlier)
     rest.setdefault("hard", True)
@@ -345,6 +350,72 @@ def _nail(pts: list[np.ndarray], palm_side: np.ndarray, radius: float, length: f
     tip = pts[-1] + d * length * 0.85 + palm_side * length * 0.25
     base = pts[-1] - d * radius * 0.6 - palm_side * radius * 0.35
     return {"cone": {"aim": [place(base), place(tip)], "radius": round(radius, 6)}}
+
+
+EYE_KEYS = ("at", "facing", "radius", "depth", "rim", "rim_color", "rim_material", "rim_emission", "in")
+
+
+def _y_onto(d: np.ndarray) -> np.ndarray:
+    """The rotation matrix turning +y onto the unit vector `d` (the shortest turn)."""
+    y = np.array([0.0, 1.0, 0.0])
+    c = float(y @ d)
+    if c > 1 - 1e-12:
+        return np.eye(3)
+    if c < -1 + 1e-12:
+        return np.diag([1.0, -1.0, -1.0])
+    v = np.cross(y, d)
+    k = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    return np.eye(3) + k + k @ k / (1 + c)
+
+
+def _eye(spec: dict[str, Any], rest: dict[str, Any]) -> tuple[list[dict[str, Any]], str | None]:
+    """A recessed eye: a round socket cut into the face (a short cylinder along `facing`), a ball sunk in it whose
+    front sits `depth` x radius behind the surface, and a thin rim lining the socket's edge, seated flush (its outer
+    half inside the face), so nothing stands proud of the surface."""
+    help_ = HELP["eye"]
+    if any(k not in EYE_KEYS for k in spec):
+        return [], help_
+    at = _vec(_get(spec, "at", rest.pop("at", None)))
+    facing = _vec(_get(spec, "facing", [0, 0, 1]))
+    radius, depth, rim = _get(spec, "radius", 0.03), _get(spec, "depth", 0.4), _get(spec, "rim", 0.15)
+    into = _get(spec, "in")
+    into = [into] if isinstance(into, str) else into
+    if at is None or facing is None or float(np.linalg.norm(facing)) < 1e-9 or not _num(radius) or radius <= 0 \
+            or not _num(depth) or not 0 <= depth <= 2 or not _num(rim) or not 0 <= rim <= 0.5 \
+            or (into is not None and (not isinstance(into, list) or not into or not all(isinstance(i, str) for i in into))):
+        return [], help_
+    rest.pop("rotate", None)
+    f = np.asarray(facing, float) / float(np.linalg.norm(facing))
+    turn = _y_onto(f)
+    rot = [round(float(v), 6) for v in _euler(turn)]
+    o = np.asarray(at, float)
+    r, sunk = float(radius), float(depth) * float(radius)
+
+    def pt(v: np.ndarray) -> list[float]:
+        return [round(float(x), 6) for x in v]
+
+    base = {k: v for k, v in rest.items() if k not in ("color", "material", "emission", "id", "blend")}
+    out: list[dict[str, Any]] = []
+    back = sunk + r * 0.98  # down to the ball's centre, so its front half fills the socket's floor
+    height = back + r  # and out past a curved face
+    out.append({**base, "cylinder": {"at": pt(o + f * (height / 2 - back)), "radius": round(r, 6), "height": round(height, 6), "rotate": rot},
+                "cut": into if into is not None else True, **({"color": rest["color"]} if "color" in rest else {})})  # walls in the ball's colour
+    ball = {k: v for k, v in rest.items() if k != "blend"}
+    ball["blend"] = "none"
+    out.append({**ball, "sphere": {"at": pt(o - f * (sunk + r * 0.98)), "radius": round(r * 0.98, 6)}})
+    if rim:
+        ring = {**base, "blend": "none"}
+        if "rim_color" in spec:
+            ring["color"] = spec["rim_color"]
+        elif "color" in rest:
+            ring["color"] = rest["color"]
+        if "rim_material" in spec:
+            ring["material"] = spec["rim_material"]
+        if "rim_emission" in spec:
+            ring["emission"] = spec["rim_emission"]
+        t = r * float(rim) / 2
+        out.append({**ring, "torus": {"at": pt(o - f * t * 1.2), "radius": round(r, 6), "thickness": round(t, 6), "rotate": rot}})
+    return out, None
 
 
 def _euler(m: np.ndarray) -> list[float]:

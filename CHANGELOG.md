@@ -22,6 +22,8 @@ before 1.0).
   (#301). The docs list `kind: fur` (#307); folds, relief and colour fades moved to `kiln docs surfaces`.
 - `hand:` and `foot:` hardware: a soft hand (palm, curled tapered fingers, thumb, claws with their own colour) or
   foot (sole standing on `at`, toes, heel) as ordinary parts that blend into the arm or leg (#310).
+- `eye:` hardware: a recessed eye (a socket cut into the face, a ball sunk in it, a thin rim lining the edge, flush
+  with the surface, optionally glowing) instead of a torus and a flattened ellipsoid that stand proud (#328).
 - `kiln build <models> --no-dependents`: the models that place them (instances) keep their last build (#343).
 
 ### Fixed

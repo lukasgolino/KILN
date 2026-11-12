@@ -176,3 +176,34 @@ def test_hand_and_foot_errors(project: Project) -> None:
     for hw in ("hand: { fingers: 9 }", "hand: { toes: 3 }", "foot: { length: -1 }", "foot: { spread: 90 }", "hand: { thumb: 2 }"):
         errs = errors_of(project, base.replace("{hw}", hw))
         assert any("E003" in f.format() for f in errs), (hw, [f.format() for f in errs])
+
+
+EYE = """\
+name: thing
+parts:
+  - sphere: { at: [0, 0.5, 0], radius: 0.25 }
+    id: head
+    color: white
+  - eye: { at: [0.09, 0.56, 0.217], facing: [0.36, 0.24, 0.9], radius: 0.05, rim: 0.2, rim_color: red, in: head }
+    color: black
+    mirror: x
+"""
+
+
+def test_eye_is_a_socket_a_sunk_ball_and_a_flush_rim(project: Project) -> None:
+    model, style = ok_model(project, EYE)
+    socket, ball, rim = model.parts[1:]
+    assert socket.geometry.op == "cut" and ball.crisp and rim.geometry.shape == "torus"
+    built = build_model(model, style, palette=project.palette(None)[0])
+    c = colours(built)
+    assert c.get("black", 0) > 20 and c.get("red", 0) > 10
+    v = built.painted.vertices
+    r = np.linalg.norm(v - np.array([0.0, 0.5, 0.0]), axis=1)
+    assert float(r.max()) < 0.25 + 0.006  # nothing proud of the face
+
+
+def test_eye_errors(project: Project) -> None:
+    base = "name: thing\nparts:\n  - sphere: { radius: 0.3 }\n    color: white\n  - {hw}\n    color: black\n"
+    for hw in ("eye: { radius: 0.03 }", "eye: { at: [0, 0, 0.3], facing: [0, 0, 0] }", "eye: { at: [0, 0, 0.3], rim: 2 }", "eye: { at: [0, 0, 0.3], iris: 1 }"):
+        errs = errors_of(project, base.replace("{hw}", hw))
+        assert any("E003" in f.format() for f in errs), (hw, [f.format() for f in errs])
