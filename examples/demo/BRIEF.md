@@ -8,7 +8,7 @@ KILN's demo: two toy worlds in one style, to show what text-made models look lik
 - **Genre and core loop:** none (a showcase)
 - **Camera:** third person, close enough to see faces
 - **Style:** soft_toy (see STYLE.md)
-- **Inspirations:** Dear Passengers, Fall Guys (soft rounded toys, bright colours, soft light)
+- **Inspirations:** soft rounded toys, bright colours, soft light
 
 ## Characters and key assets
 

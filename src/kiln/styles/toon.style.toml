@@ -1,4 +1,4 @@
-description = "Toon: cel-shaded bands and dark outlines on smooth shapes (Wind Waker, Sable-lite)"
+description = "Toon: cel-shaded bands and dark outlines on smooth shapes (cel-shaded adventure games)"
 notes = """
 Shapes: smooth and simple; outlines draw the silhouette, so keep parts readable at a distance. Avoid noise.
 Colours: bright and flat, 2-3 per object; the cel bands do the shading.

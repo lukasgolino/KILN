@@ -94,7 +94,7 @@ crevice where it was attached is open once it comes off). With `vertex_colors = 
 COLOR_0 holds the colours times the shade, so an engine recolouring from the manifest's `swap` table matches by
 colour within a tolerance, or turns `variant_glbs` on (each variant its own shaded glb).
 
-Every toon key is off by default (today's plain cel look). Wind Waker / Sable-style: `toon_softness = 0.2`,
+Every toon key is off by default (today's plain cel look). A painterly cel look: `toon_softness = 0.2`,
 `toon_shadow_color` a cool mid tone, `toon_specular = 0.6` on glossy materials, `toon_shadows = "band"`,
 `outline_space = "pixels"` with `outline = 2` and `outline_color = "darken"`. Previews follow every key except
 `toon_shadows` (the software renderer has no cast shadows; `kiln preview --engine` shows them in Forward+ and Mobile

@@ -44,7 +44,7 @@ animations:
 ## One model, any style
 
 A project picks a **style**: how shapes become meshes (smooth or faceted), triangle budgets, material presets and
-the look kit (lighting, tonemapping, outlines). The same model text below is soft toy (Dear Passengers, Fall Guys),
+the look kit (lighting, tonemapping, outlines). The same model text below is soft toy (vinyl figures),
 low poly and toon. Make your own from inspiration images.
 
 ![The same models in soft_toy, low_poly and toon](https://raw.githubusercontent.com/lukasgolino/kiln/main/docs/styles.png)

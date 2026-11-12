@@ -1,4 +1,4 @@
-description = "Low poly: faceted flat-shaded shapes, few triangles, flat colours (Kenney, Monument Valley)"
+description = "Low poly: faceted flat-shaded shapes, few triangles, flat colours (low-poly asset packs, geometric puzzle games)"
 notes = """
 Shapes: simple silhouettes that read from far away; facets ARE the detail, so avoid tiny parts (< 0.05 m vanish).
 Prefer boxes, cylinders, cones and wedges with little rounding; blend sparingly. 4-8 colours per scene, no gradients.
