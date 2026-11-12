@@ -115,7 +115,10 @@ class Project:
             return None, None, findings
         model, mf = load_model(path, palette, set(style.materials))
         if model is not None:
-            apply_style(model, style.color_blend)
+            from kiln import bake
+            from kiln.builder import hard_parts
+
+            mf += apply_style(model, style.color_blend, hard_parts(model, style) if style.color_blend > 0 else frozenset(), bake.available())
         if model is not None and model.animation_library is not None:
             mf += self._library(model)
         return model, style, findings + mf

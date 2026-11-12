@@ -33,7 +33,7 @@ notes = """Shapes, proportions, colours, materials, lighting in words (agents fo
 smooth = true                  # false = faceted (flat normals)
 sharp_angle = 50               # smooth styles: edges sharper than this stay crisp
 resolution = 0.008             # metres per mesh cell for a ~1 m model (finer = rounder, slower)
-color_blend = 0.0              # metres: every smooth part that blends fades its colour into its neighbours' (a part's own wins)
+color_blend = 0.0              # metres: smooth parts blending into another colour fade into it (a part's own wins; 0 there: crisp)
 max_cells = 256                # mesh cells across a model at most (64-1024): bigger models get coarser cells past it
 scale_with_size = true         # models over 1 m get resolution x sqrt(size); false: resolution as is
 
@@ -131,5 +131,8 @@ relief:
   - { on: [body, head], length: 0.07, width: 0.035, lift: 0.006 }
 ```
 
-Eyes, teeth and claws: a crisp seam (no `blend`) keeps them out of the fade, or `color_blend: 0` on the part.
+Eyes, teeth and claws: a crisp seam (no `blend`) keeps them out of the fade, or `color_blend: 0` on the part (that
+border stays crisp from both sides). The style's fade skips parts made hard (`hard_surface`, `bevel`, `blend: none`)
+and parts blending only into their own colour (a one-colour prop bakes no map), and stays off when baking isn't
+installed (`kiln-gen[bake]`).
 

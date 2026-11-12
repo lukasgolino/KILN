@@ -410,7 +410,8 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
         f1, f2 = face_of[pair], face_of[pair + 1]
         asked = np.array([part.color_blend for part in model.parts])
         joins = np.array([part.geometry.blend for part in model.parts])
-        reach = np.maximum(asked[owner[f1]], asked[owner[f2]])  # the wider of the two parts' fades ...
+        crisp = np.array([part.color_blend_set and part.color_blend == 0 for part in model.parts])  # color_blend: 0 said "no fade here"
+        reach = np.where(crisp[owner[f1]] | crisp[owner[f2]], 0.0, np.maximum(asked[owner[f1]], asked[owner[f2]]))  # the wider of the two ...
         smooth = joins[np.maximum(owner[f1], owner[f2])] > 0  # ... where the later part blends into the earlier (a crisp seam stays crisp)
         plain = soft_faces(built, face_field)
         keep = (colour[f1] != colour[f2]) & (owner[f1] != owner[f2]) & (reach > 0) & smooth & plain[f1] & plain[f2]
