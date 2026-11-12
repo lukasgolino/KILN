@@ -1917,8 +1917,11 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 wanted = set(part.fit[0])
                 if part.twin_of is not None:  # a mirrored copy wraps the mirrored parts (the right arm, not the left)
                     wanted = {next((q.id for q in model.parts if q.twin_of == to), to) for to in wanted}
-                targets = tuple(q.geometry for q in model.parts if q.id in wanted and q.id != part.id and q.geometry.op == "add" and q.fit is None
-                                and not q.detail)  # fmt: skip
+                k = next(j for j, q in enumerate(model.parts) if q is part)
+                # the parts with those ids, itself and later shells aside: an earlier fitted shell may be wrapped in turn
+                # (a shirt over trousers, #193), and a part may wrap parts of its own id (a sleeve on the arm's bone)
+                targets = tuple(q.geometry for j, q in enumerate(model.parts) if q.id in wanted and q is not part and q.geometry.op == "add"
+                                and (q.fit is None or j < k) and not (q.id == part.id and q.fit is not None) and not q.detail)  # fmt: skip
                 if not targets:
                     if not model.template:  # a template (a helmet) may fit parts another template brings (a head)
                         ctx.error("E003", f"fit: no other part has id {', '.join(part.fit[0])} (it wraps the parts with those ids)", part.line,

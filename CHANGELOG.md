@@ -29,6 +29,10 @@ before 1.0).
 
 ### Added
 
+- `garment` hardware: a layer of clothing fitted to earlier parts (a shell `gap` off their surface between `from_y`
+  and `to_y`, open at the hem and neck), with an optional thicker `hem` band and `openings` cut through it alone
+  (mirrored with the garment). A fitted shell may now wrap an earlier fitted shell (a shirt over trousers) and parts of
+  its own id (a sleeve on the arm's bone, which then moves with the arm) (#193).
 - The `skin` style preset: stylised game skins with matte materials, colours that fade where parts blend, shade paint
   (darker crevices and undersides) and a soft look kit; fur as relief and face `density` in its notes and worked
   example (`kiln docs styles`) (#233).

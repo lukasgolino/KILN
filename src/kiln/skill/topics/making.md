@@ -128,6 +128,29 @@ twin is placed as its mirror image (`mirror: x` folds it as usual). A walk that 
 error (E003), as are `on` with `array` (the copies wouldn't follow the surface: a part per spot) and on hardware
 parts (give them `at`). Hardware after a placed part sees it placed.
 
+## Clothing: `garment`
+
+A shirt, a robe or a jumper over a soft body, as its own layer (a hem, an open neck, a placket) rather than paint:
+
+```yaml
+  - garment: { fit: [chest, spine, upperarm_l, upperarm_r], from_y: 0.9, to_y: 1.42, gap: 0.008, thickness: 0.02, hem: 0.015,
+               openings: [{ at: [0, 1.3, 0.2], size: [0.05, 0.2, 0.1] }] }
+    id: shirt
+    color: shirt_blue
+```
+
+It wraps the earlier parts with those ids: a shell `thickness` thick, `gap` off their surface, between `from_y` (the
+hem) and `to_y` (default: their own extent); it is open where it ends horizontally (the hem, the neck, and the cuffs of
+arms hanging down; a T-posed arm's sleeve ends closed). List every part under it: an unlisted part pokes through.
+`hem` adds a band twice that tall at the bottom, a little thicker. An earlier garment can be wrapped too (a shirt over
+trousers: `fit: [chest, trousers]`). `openings` are boxes cut through the garment alone, so it needs an `id` of its
+own; a mirrored garment (`mirror`, `mirror_id`) gets them mirrored.
+
+On a rigged, soft-skinned character a garment moves with the bone of its `id`: sleeves as their own garments with the
+arm's id (`fit: [upperarm_l]`, `id: upperarm_l`, mirrored) move with the arms (and wholly with `skin_falloff: 0`);
+the body garment with `id: chest`. Openings need a garment id that isn't a wrapped part's. Walls under two mesh cells
+break up (lint W102): keep `thickness` at least twice the mesh step.
+
 ## Relief: fur without parts
 
 Fur, and any coat of small overlapping tufts, is a `relief:` layer on one smooth body, never hundreds of clump
