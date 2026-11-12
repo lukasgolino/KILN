@@ -49,6 +49,8 @@ before 1.0).
 
 ### Added
 
+- A cut can take `color` (and `material`): the walls it makes are painted, smooth and hard parts alike (inked
+  grooves, panel lines) (#178).
 - See-through materials: a preset's `alpha` (0.05-1; glTF BLEND, Godot transparency, the toon shader too, kept by
   variant recolours; previews dither it) and a `clear` preset in the built-in styles (`glass` stays opaque, so
   existing models don't change). Lint W131: see-through parts in an atlas project are drawn opaque (#175).

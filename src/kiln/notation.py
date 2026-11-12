@@ -164,6 +164,7 @@ class Part:
     uv: UVSpec | None = None  # texture coordinates projected from its shape (kiln.uv)
     patterns: tuple[Pattern, ...] = ()  # painted in order (a later one paints over earlier ones)
     attr: tuple[tuple[str, float], ...] = ()  # named numbers exported per vertex (shader keys: heat, opacity)
+    wall: bool = False  # a cut with a colour: it paints the walls it makes (an inked groove, panel lines) (#178)
 
 
 @dataclass(frozen=True)
@@ -746,9 +747,23 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                 ok = False
     else:
         for paint in ("color", "material", "pattern", "gradient", "decal", "texture", "id"):
-            if paint in raw:
-                ctx.error("E003", f"a {op} part removes material: it has no {paint}", line, f"{where}.{paint}")
+            if paint in raw and not (op == "cut" and paint in ("color", "material")):
+                ctx.error("E003", f"a {op} part removes material: it has no {paint}" + (" (a cut's color paints the walls it makes)" if op == "cut" else ""),
+                          line, f"{where}.{paint}")  # fmt: skip
                 ok = False
+        if op == "cut" and "color" in raw:  # paints the walls it makes (#178)
+            c = _color(ctx, raw["color"], line, f"{where}.color")
+            material = raw.get("material", "default")
+            if not isinstance(material, str) or material not in ctx.materials:
+                ctx.error("E005", f"unknown material {material!r}; the style has: {', '.join(sorted(ctx.materials))}", line, f"{where}.material")
+                ok = False
+            if c is None:
+                ok = False
+            else:
+                color = c
+        elif op == "cut" and "material" in raw:
+            ctx.error("E003", "a cut's material goes with its color (the walls it paints)", line, f"{where}.material")
+            ok = False
     loose = raw.get("loose", False)
     if not isinstance(loose, bool):
         ctx.error("E003", "loose must be true or false (true: this part may float free; lint W103 ignores it)", line, f"{where}.loose")
@@ -844,7 +859,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
                    "texture": texture, "color_blend": float(color_blend), "color_blend_set": "color_blend" in raw, "density": float(density), "on": on,
-                   "skin_falloff": None if skin_falloff is None else float(skin_falloff)}  # fmt: skip
+                   "skin_falloff": None if skin_falloff is None else float(skin_falloff), "wall": op == "cut" and "color" in raw}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
         mirrored = _reflect(geom, mirror[0])

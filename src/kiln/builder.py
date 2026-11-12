@@ -194,13 +194,14 @@ def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[
     out = []
     for include, mesh in zip(pieces, meshes, strict=True):
         part = mesh.face_part.copy()
+        walls = np.array([int(t) if 0 <= t < len(model.parts) and model.parts[int(t)].wall else -1 for t in part], dtype=np.int64)  # (#178)
         # faces a cut made (a hole's walls) belong to the part they're in
         foreign = ~np.isin(part, sorted(include))
         if foreign.any():
             centres = mesh.vertices[mesh.faces[foreign]].mean(axis=1)
             own = sorted(include)
             part[foreign] = np.asarray(own)[field.nearest(own, centres, absolute=False)[0]]
-        out.append(hard_regions(Mesh(mesh.vertices, mesh.faces), part, model, rigged))
+        out.append(hard_regions(Mesh(mesh.vertices, mesh.faces), part, model, rigged, walls))
     return out, meshes
 
 
