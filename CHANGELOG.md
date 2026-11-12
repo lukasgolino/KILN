@@ -15,6 +15,10 @@ before 1.0).
 
 ### Fixed
 
+- A paint border across a smooth blend (a bare belly into fur) drew a thin shading line: each side took its own
+  normal there, as at a real crease. Sides keep the surface's normal unless they turn more than 15 degrees from it.
+  And relief layers that meet (an upper arm's and a forearm's) no longer each fade out toward the other: the fade runs
+  to where the fur ends, so no bare band at the elbow (#302).
 - Relief no longer draws stepped streaks where the surface faces along the flow (the top of a round shoulder under
   `flow: down`, the underside of a heel): there the flow can't lie in the surface, so the patches thin out and shrink
   as they do toward an edge, instead of all pointing one fixed way (#303).

@@ -93,6 +93,7 @@ def scatter(vertices: Array, faces: Array, normals: Array, face_on: list[Array],
     parts: list[list[Array]] = [[] for _ in range(10)]
     colors: list[tuple[str | None, str | None]] = []
     asked = 0
+    covered = np.any(np.stack(face_on), axis=0) if face_on else np.zeros(len(faces), dtype=bool)  # every layer's faces
     for k, (on, r) in enumerate(zip(face_on, entries, strict=True)):
         colors.append((r.color, r.color_to))
         idx = np.flatnonzero(on)
@@ -118,7 +119,9 @@ def scatter(vertices: Array, faces: Array, normals: Array, face_on: list[Array],
         size = 1 + r.jitter * (rng.random_sample(len(pick)) - 0.5)
         turn = np.radians(ANGLE) * r.jitter * (rng.random_sample(len(pick)) * 2 - 1)
         chance = rng.random_sample(len(pick))
-        edge = _edge_distance(vertices, faces, on, points) if r.fade > 0 else np.full(len(pick), np.inf)
+        # the fade runs toward where the fur ends, not toward a neighbouring layer's faces (an upper arm's layer meeting
+        # the forearm's left a bare band at the elbow, #302)
+        edge = _edge_distance(vertices, faces, covered, points) if r.fade > 0 else np.full(len(pick), np.inf)
         full = np.clip(edge / r.fade, 0.0, 1.0) if r.fade > 0 else np.ones(len(pick))
         # where the surface faces along the flow (a shoulder's top under flow: down) the flow barely lies in it: its
         # direction swings or falls back to one fixed axis, a stepped streak of patches all pointing one way; there the
