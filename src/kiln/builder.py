@@ -43,7 +43,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 32  # bump when meshing/painting changes output
+BUILDER_VERSION = 33  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -415,7 +415,8 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     if model.normal_map:
         size = model.normal_map if budget is None else max(256, model.normal_map // 2)  # a LOD: its own, smaller map
         phase("baking maps")  # (#300: it ran on under the skinning line, which looked stuck on its last part)
-        built.bake = bake_normals(model, built, step, [inc for inc in groups_of if inc], kept, size, hinted("a smaller normal_map bakes faster"))
+        built.bake = bake_normals(model, built, step, [inc for inc in groups_of if inc], kept, size, hinted("a smaller normal_map bakes faster"),
+                                  lod=budget is not None)  # fmt: skip
     return built
 
 
@@ -428,8 +429,33 @@ def soft_faces(built: Built, face_field: Array) -> Array:
     return np.asarray((face_field >= 0) & ~glows & (p.face_decal < 0))
 
 
+_BASE_PATCHES: dict[str, Any] = {}  # model name -> its full build's relief patches, for its LODs (set by build_cached)
+
+
+def _face_axes(model: Model, owner: Array) -> Array:
+    """Per face, its part's own axis (a capsule's from -> to, a cylinder's or cone's y), pointing out from the model's
+    middle (an arm's from the shoulder to the hand): what `flow: along` follows. Zero for other shapes."""
+    from kiln.rig import limb_segment
+
+    lo, hi = np.min([g.bounds()[0] for g in (q.geometry for q in model.parts) if g.op == "add"], axis=0), \
+        np.max([g.bounds()[1] for g in (q.geometry for q in model.parts) if g.op == "add"], axis=0)  # fmt: skip
+    middle = (lo + hi) / 2
+    axes = np.zeros((len(model.parts), 3))
+    for i, part in enumerate(model.parts):
+        seg = limb_segment(part.geometry) if part.geometry.op == "add" else None
+        if seg is None:
+            continue
+        a, b = seg
+        if np.linalg.norm(b - middle) < np.linalg.norm(a - middle):
+            a, b = b, a
+        d = b - a
+        if np.linalg.norm(d) > 1e-9:
+            axes[i] = d / np.linalg.norm(d)
+    return np.asarray(axes[owner])
+
+
 def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int], size: int,
-                 progress: Progress | None = None) -> Any:  # fmt: skip
+                 progress: Progress | None = None, lod: bool = False) -> Any:  # fmt: skip
     """The model's normal map. Each face is baked with its own piece's field, as it was meshed (a separate helmet's
     opening, a bone's own surface), plus the detail parts: those with the id of one of the piece's parts, and every
     detail cut. Kept parts get their own field; hard parts (exact polygons) keep their mesh normals."""
@@ -471,7 +497,13 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
             if layer.exclude:
                 sel &= ~np.isin(ids, layer.exclude)
             on.append(sel)
-        patches = relief.scatter(p.vertices, p.faces, built.normals, on, model.relief)
+        base = _BASE_PATCHES.get(model.name) if lod else None
+        if base is not None:  # a LOD: the full build's patches, so the pattern is the same at every level (#261)
+            patches = base
+        else:
+            axis = _face_axes(model, owner) if any(layer.flow == "along" for layer in model.relief) else None
+            patches = relief.scatter(p.vertices, p.faces, built.normals, on, model.relief, axis)
+        built.relief_patches = patches
     fading = None
     if adding and any(model.parts[i].color_blend > 0 for i in adding):  # colours that fade across part borders (#230)
         from kiln.fade import Fade
@@ -500,8 +532,29 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
             normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-18)
             fading = Fade(p.vertices[edges[pair[keep]]], np.stack([p.face_group[f1], p.face_group[f2]], axis=1),
                           np.stack([owner[f1], owner[f2]], axis=1), normal, reach[keep], owner)  # fmt: skip
-    return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
-                     np.array(on) if model.relief else None, fading, progress)  # fmt: skip
+    baked = bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
+                      np.array(on) if model.relief else None, fading, progress)  # fmt: skip
+    if patches is not None and len(patches) and any(layer.displace for layer in model.relief):
+        _displace(built, model, patches, on)
+    return baked
+
+
+def _displace(built: Built, model: Model, patches: Any, on: list[Array]) -> None:
+    """`displace: true` layers move the mesh out by their height (tufts break the silhouette, #261). Each vertex of the
+    faces a layer covers moves along its normal; the corner normals stay, so the normal map isn't counted twice."""
+    from kiln import relief
+
+    p = built.painted
+    moving = [k for k, layer in enumerate(model.relief) if layer.displace]
+    sub = patches.select(np.isin(patches.entry, moving))
+    vn = np.zeros_like(p.vertices)
+    np.add.at(vn, p.faces.reshape(-1), built.normals.reshape(-1, 3))
+    vn /= np.maximum(np.linalg.norm(vn, axis=1, keepdims=True), 1e-12)
+    allowed = np.zeros((len(model.relief), len(p.vertices)), dtype=bool)
+    for k in moving:
+        allowed[k, np.unique(p.faces[on[k]])] = True
+    stamped, _ = relief.stamp(sub, p.vertices, vn, allowed=allowed)
+    p.vertices = p.vertices + vn * stamped.height[:, None]
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],
@@ -1021,6 +1074,8 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
                 _store(built, path)
         if not built.step_reason and model.source is None:  # cached before builds kept it
             built.step_reason = mesh_cells(field_of(model, built.step), model, style)[2]
+        if budget is None and model.relief:
+            _BASE_PATCHES[model.name] = getattr(built, "relief_patches", None)
         return built
     global _hard_cache
     _hard_cache = cache_dir / "hard"
@@ -1029,6 +1084,8 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
     finally:
         _hard_cache = None
     _prune_hard(cache_dir / "hard")
+    if budget is None and model.relief:
+        _BASE_PATCHES[model.name] = built.relief_patches
     built.motion_key = motion_key(model)
     cache_dir.mkdir(parents=True, exist_ok=True)
     for old in cache_dir.glob(f"{prefix}*.pickle"):

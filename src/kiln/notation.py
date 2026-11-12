@@ -236,6 +236,7 @@ class Relief:
     under: float = 0.3  # 0..1: how much darker the surface is just below a tip
     seed: int = 1
     fade: float = 0.06  # metres: patches thin out and shrink over this distance toward the edge of `on`
+    displace: bool = False  # also move the mesh by the layer's height: tufts break the silhouette (#261)
 
 
 @dataclass(frozen=True)
@@ -1044,11 +1045,12 @@ def _place_on(ctx: _Ctx, model: Model, done: set[int]) -> None:
                 twin.geometry.at, twin.geometry.rotation, twin.geometry.copies = r.at, r.rotation, r.copies
 
 
-RELIEF_FIELDS = {"on", "on_colors", "except", "kind", "length", "width", "lift", "density", "flow", "tips", "jitter", "color", "color_to", "under", "seed", "fade"}
+RELIEF_FIELDS = {"on", "on_colors", "except", "displace", "kind", "length", "width", "lift", "density", "flow", "tips", "jitter", "color", "color_to", "under", "seed", "fade"}
 RELIEF_RANGES = {"length": (0.005, 2.0, "metres along the flow"), "width": (0.005, 2.0, "metres across the flow"),
                  "lift": (0.0005, 0.1, "metres the tip stands off the surface"), "density": (0.1, 6.0, "1 just covers the surface, more overlaps"),
                  "jitter": (0.0, 1.0, "variation of size and angle"), "under": (0.0, 1.0, "how much darker the surface is under a tip"),
                  "fade": (0.0, 2.0, "metres over which patches thin out toward the edge of `on`")}  # fmt: skip
+RELIEF_KINDS = ("fur", "scales", "feathers", "shingles")
 RELIEF_MAP = 1024  # the baked maps' size when a model has relief but no normal_map
 
 
@@ -1091,10 +1093,14 @@ def _parse_relief(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
             ctx.error("E003", f"relief on: no smooth part has id {', '.join(missing)} (ids: {', '.join(sorted(ids)) or 'none'}; a mirrored "
                       "part's twin has its own mirror_id)", eline, f"{where}.on")  # fmt: skip
             ok = False
-        if entry.get("kind", "fur") != "fur":
-            ctx.error("E003", "relief kind is fur (flat patches with notched, pointed tips)", eline, f"{where}.kind")
+        if entry.get("kind", "fur") not in RELIEF_KINDS:
+            ctx.error("E003", "relief kind is fur (notched, pointed tips), scales (round), feathers (one point, a rib) or shingles "
+                      "(a straight edge)", eline, f"{where}.kind")  # fmt: skip
             ok = False
-        layer = Relief(list(on), exclude=list(excluded))
+        if not isinstance(entry.get("displace", False), bool):
+            ctx.error("E003", "relief displace is true or false (true: the mesh moves out by the layer too)", eline, f"{where}.displace")
+            ok = False
+        layer = Relief(list(on), exclude=list(excluded), kind=str(entry.get("kind", "fur")), displace=entry.get("displace") is True)
         raw_colors = entry.get("on_colors", [])
         raw_colors = [raw_colors] if isinstance(raw_colors, str) else raw_colors
         if not isinstance(raw_colors, list):
@@ -1122,12 +1128,13 @@ def _parse_relief(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
             else:
                 setattr(layer, key, value)
         flow = entry.get("flow", "down")
-        if flow in ("down", "up"):
+        if flow in ("down", "up", "along"):
             layer.flow = flow
         elif isinstance(flow, list) and len(flow) == 3 and all(_num(v) for v in flow) and any(float(v) != 0 for v in flow):
             layer.flow = (float(flow[0]), float(flow[1]), float(flow[2]))
         else:
-            ctx.error("E003", "relief flow is the way the patches point, root to tip: down, up, or a direction [x, y, z]", eline, f"{where}.flow")
+            ctx.error("E003", "relief flow is the way the patches point, root to tip: down, up, along (each part's own axis, out from the "
+                      "body), or a direction [x, y, z]", eline, f"{where}.flow")  # fmt: skip
             ok = False
         for key in ("color", "color_to"):
             if key in entry:

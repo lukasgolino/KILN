@@ -113,7 +113,11 @@ triangles (a 12-part cub with three layers builds in 30 s). Needs `kiln-gen[bake
 relief:
   - on: [body, arm_l, arm_r, leg_l, leg_r]   # ids of the smooth parts it covers (a mirror twin by its own mirror_id)
     # or on_colors: [fur, fur_dark]: only faces painted in those colours (alone: on every smooth part; with on:, both);
-    # except: [face, chest]: ids left bare. kind: fur (the only kind so far).
+    # except: [face, chest]: ids left bare. kind: fur (notched tips), scales (a round lobe), feathers (one point,
+    # a rib) or shingles (a straight edge). flow: along follows each part's own axis out from the body (fur down an
+    # arm whichever way it points). displace: true also moves the mesh out by the layer (tufts break the silhouette;
+    # the mesh must be fine enough to show them). LODs stamp the full build's patches. Lint W133: patches under four
+    # texels wide blur out.
     length: 0.08      # metres, root to tip along the flow (default 0.09)
     width: 0.045      # metres across (0.05)
     lift: 0.007       # metres the tip stands off the surface (0.008): the depth of the shading

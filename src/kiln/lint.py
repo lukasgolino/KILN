@@ -62,6 +62,7 @@ WARNING_RULES = {
     "W130": "a variant leaves a colour as it is that goes with one it swaps (same ramp, or close in hue): a seam in the old colour",
     "W131": "a see-through material (alpha < 1) in an atlas project: the atlas draws every part opaque",
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
+    "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -90,7 +91,7 @@ CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than a
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
 BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127", "W128", "W129", "W132")  # fmt: skip
+               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -214,6 +215,13 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                 if t is not None and t < 2 * texel:
                     warn("W121", f"a detail {g.shape} is {t:.3g} m thick, under two texels of the {m.normal_map} map ({2 * texel:.3g} m): it "
                          "won't show; make it thicker or the map bigger")  # fmt: skip
+        if m.relief and m.normal_map:  # patches narrower than four texels blur out in the map (#261)
+            lo, hi = built.bounds()
+            texel = texel_size(float((hi - lo).max()), m.normal_map)
+            for k, layer in enumerate(m.relief):
+                if layer.width < 4 * texel:
+                    warn("W133", f"relief layer {k} is {layer.width:.3g} m wide, under four texels of the {m.normal_map} map "
+                         f"({4 * texel:.3g} m): its patches blur out; make them wider or the map bigger", None, f"relief[{k}].width")  # fmt: skip
         if built.bake is not None and built.bake.fit < 1.0:
             warn("W125", f"the mesh's UV charts don't fit the {m.normal_map} normal map (the padding between them alone fills it): they "
                  f"were squeezed to {built.bake.fit * 100:.0f}%, so detail blurs and charts can bleed at a distance; use normal_map: "

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
-from conftest import load, make_project, write_model
+from conftest import load, make_project, ok_model, write_model
 from PIL import Image
 
 from kiln import bake as bk
@@ -72,7 +73,7 @@ def test_notation_defaults_and_the_bare_on_key(project: Project) -> None:
     ("length: 0.12", "length: 9", "relief[0].length"),
     ("density: 1.5", "density: 1.5\n    tips: 0", "relief[0].tips"),
     ("density: 1.5", "density: 1.5\n    flow: sideways", "relief[0].flow"),
-    ("density: 1.5", "density: 1.5\n    kind: scales", "relief[0].kind"),
+    ("density: 1.5", "density: 1.5\n    kind: plates", "relief[0].kind"),
     ("density: 1.5", "density: 1.5\n    colour: red", "relief[0].colour"),
     ("density: 1.5", "density: 1.5\n    color: nope", "relief[0].color"),
     ("density: 1.5", "density: 1.5\n    color_to: red", "relief[0].color_to"),
@@ -341,3 +342,77 @@ def test_relief_selection_errors(project: Project) -> None:
     for select, where in (("except: [nope]", "relief[0].on"), ("on_colors: [mauve]", "relief[0].on_colors"), ("on: []", "relief[0].on")):
         text = MODEL.replace("  - on: [body]\n", f"  - on: [body]\n    {select}\n" if not select.startswith("on:") else f"  - {select}\n")
         assert any(f.where == where for f in errors_of(project, text)), select
+
+
+def _one(kind: int) -> rl.Patches:
+    return rl.Patches(np.zeros((1, 3)), np.array([[0.0, 0.0, 1.0]]), np.array([[0.0, -1.0, 0.0]]), np.array([[1.0, 0.0, 0.0]]),
+                      np.array([0.1]), np.array([0.03]), np.array([0.01]), np.array([3]), np.array([0.5]), np.array([0]),
+                      [(None, None)], [kind])  # fmt: skip
+
+
+def test_kinds_draw_their_own_outlines() -> None:
+    """#261: scales a round lobe, feathers one point, shingles a straight edge, fur notched tips."""
+    side = np.array([[0.027, -0.05, 0.0]])  # 0.9 of the half width out, half way down the patch
+    middle = np.array([[0.0, -0.085, 0.0]])  # near the tip line in the middle
+    h = {k: (rl._profile(_one(k), 0, side)[0][0], rl._profile(_one(k), 0, middle)[0][0]) for k in range(4)}
+    assert h[3][0] > 0 and h[1][0] == 0.0 and h[2][0] == 0.0  # at the side, low down: only shingles (straight edge) still cover
+    assert h[1][1] > 0 and h[2][1] > 0  # scales and feathers reach far down the middle
+
+
+def test_flow_along_follows_a_lying_arm(project: Project) -> None:
+    from kiln.lint import lint_paths
+
+    text = """\
+name: thing
+class: creature
+normal_map: 256
+parts:
+  - ellipsoid: { at: [0, 0.5, 0], radii: [0.2, 0.35, 0.18] }
+    id: body
+    color: wood
+  - capsule: { from: [0.15, 0.6, 0], to: [0.75, 0.6, 0], radius: 0.07 }
+    id: arm
+    color: wood
+    blend: 0.04
+relief:
+  - on: [arm]
+    flow: along
+    length: 0.08
+    width: 0.05
+"""
+    built = lint_paths(project, [write_model(project, text)]).built["thing"]
+    p = built.relief_patches
+    out = p.centre[:, 0] > 0.35  # the arm, away from the body
+    assert out.sum() > 10 and (p.flow[out][:, 0] > 0.7).mean() > 0.8  # pointing along the arm, out to the hand
+
+
+def test_displace_moves_the_mesh_out(project: Project) -> None:
+    from kiln.lint import lint_paths
+
+    flat = lint_paths(project, [write_model(project, MODEL.replace("name: thing", "name: flat").replace("    lift: 0.01\n", "    lift: 0.03\n"), "flat")]).built["flat"]
+    text = MODEL.replace("name: thing", "name: tufty").replace("    lift: 0.01\n", "    lift: 0.03\n    displace: true\n")
+    tufty = lint_paths(project, [write_model(project, text, "tufty")]).built["tufty"]
+    def widest(b: Any) -> float:  # the body's widest point (below the head)
+        v = b.painted.vertices
+        return float(np.linalg.norm(v[v[:, 1] < 0.7][:, [0, 2]], axis=1).max())
+
+    assert widest(tufty) > widest(flat) + 0.005
+
+
+def test_lods_stamp_the_full_builds_patches(project: Project) -> None:
+    from kiln.builder import build_cached
+
+    model, style = ok_model(project, MODEL.replace("normal_map: 256\n", "normal_map: 256\nlod: [400]\n"))
+    palette, _ = project.palette(model.palette)
+    cache = project.root / ".kiln-cache"
+    full = build_cached(model, style, palette, cache)
+    lod = build_cached(model, style, palette, cache, 400)
+    assert full.relief_patches is not None and lod.relief_patches is full.relief_patches or np.array_equal(lod.relief_patches.centre, full.relief_patches.centre)
+
+
+def test_narrow_patches_warn(project: Project) -> None:
+    from kiln.lint import lint_paths
+
+    text = MODEL.replace("    width: 0.08\n", "    width: 0.006\n").replace("    length: 0.12\n", "    length: 0.02\n")
+    found = [f for f in lint_paths(project, [write_model(project, text)]).findings if f.rule == "W133"]
+    assert len(found) == 1 and found[0].where == "relief[0].width"

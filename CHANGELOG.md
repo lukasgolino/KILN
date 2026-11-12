@@ -8,6 +8,10 @@ before 1.0).
 
 ### Added
 
+- Relief kinds `scales` (a round lobe), `feathers` (one point and a rib) and `shingles` (a straight edge) next to
+  `fur`; `flow: along` follows each part's own axis out from the body; `displace: true` moves the mesh out by the
+  layer, so tufts break the silhouette (the normals stay, so the map isn't counted twice); a model's LODs stamp its
+  full build's patches, so the pattern is the same at every level; lint W133: patches under four texels wide (#261).
 - Relief picks its faces by painted colour (`on_colors: [fur]`; alone: every smooth part in those colours) and leaves
   ids bare (`except: [face, chest]`), so a bare chest or face that shares bones with the fur needs no extra bones
   (#301). The docs list `kind: fur` (#307); folds, relief and colour fades moved to `kiln docs surfaces`.

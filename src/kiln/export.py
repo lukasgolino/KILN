@@ -46,6 +46,7 @@ class Built:
     ao: Array | None = None  # (F, 3) per corner: shade paint / baked occlusion (kiln.shade) the previews multiply in, as the engine does
     bake: Any = None  # kiln.bake.Bake: the normal map with its UVs and tangents (model normal_map)
     motion_key: str = ""  # what `tracks` were made from (builder.motion_key): a cached build re-samples them when it changes
+    relief_patches: Any = None  # kiln.relief.Patches scattered on this (full) build: its LODs stamp the same ones (#261)
 
     @property
     def triangles(self) -> int:

@@ -32,6 +32,7 @@ SPACING = 0.7  # scattered roots are at least this x sqrt(a patch's share of the
 CANDIDATES = 6  # scatter: points tried per patch wanted
 SHRINK = 0.5  # a patch at the very edge of its region is this size (`fade`)
 FACING = 0.2  # a patch shows only where the surface faces its own way (dot of the normals): not on the far side of a thin limb
+KINDS = ("fur", "scales", "feathers", "shingles")  # a patch's outline: notched tips, a round lobe, one point and a rib, a straight edge
 ANGLE = 25.0  # degrees a patch's flow turns either way at jitter 1
 FLOW_FLAT = 0.1  # the flow's length in the surface under which no patch is kept (it faces the flow: no way to point)
 FLOW_LIES = 0.35  # ... and over which patches are whole (the surface within ~20 degrees of facing the flow: a fade)
@@ -54,6 +55,12 @@ class Patches:
     under: Array  # (N,) 0..1 darkening below the tip
     entry: Array  # (N,) which relief entry (index)
     colors: list[tuple[str | None, str | None]] = field(default_factory=list)  # per entry: (colour, tip colour) hex, None: the surface's
+    kinds: list[int] = field(default_factory=list)  # per entry: KINDS index (fur, scales, feathers, shingles); none: fur
+
+    def select(self, keep: Array) -> Patches:
+        """The patches where `keep` (N,) is true, the per-entry lists as they are."""
+        return Patches(self.centre[keep], self.normal[keep], self.flow[keep], self.side[keep], self.length[keep], self.half[keep],
+                       self.lift[keep], self.tips[keep], self.under[keep], self.entry[keep], self.colors, self.kinds)  # fmt: skip
 
     def __len__(self) -> int:
         return len(self.centre)
@@ -86,16 +93,18 @@ class Stamp:
     along: Array  # (M,) 0 at that patch's root .. 1 at its tip
 
 
-def scatter(vertices: Array, faces: Array, normals: Array, face_on: list[Array], entries: list[Relief]) -> Patches:
+def scatter(vertices: Array, faces: Array, normals: Array, face_on: list[Array], entries: list[Relief], face_axis: Array | None = None) -> Patches:
     """Patches for every entry: `face_on[k]` marks the faces entry k covers; `normals` are per face corner (F, 3, 3).
     Roots are scattered evenly (a point is kept when no kept root is nearer than the spacing), from a generator
     seeded by the entry, so a model builds the same patches everywhere."""
     parts: list[list[Array]] = [[] for _ in range(10)]
     colors: list[tuple[str | None, str | None]] = []
+    kinds: list[int] = []
     asked = 0
     covered = np.any(np.stack(face_on), axis=0) if face_on else np.zeros(len(faces), dtype=bool)  # every layer's faces
     for k, (on, r) in enumerate(zip(face_on, entries, strict=True)):
         colors.append((r.color, r.color_to))
+        kinds.append(KINDS.index(r.kind) if r.kind in KINDS else 0)
         idx = np.flatnonzero(on)
         if not len(idx):
             continue
@@ -126,14 +135,19 @@ def scatter(vertices: Array, faces: Array, normals: Array, face_on: list[Array],
         # where the surface faces along the flow (a shoulder's top under flow: down) the flow barely lies in it: its
         # direction swings or falls back to one fixed axis, a stepped streak of patches all pointing one way; there the
         # patches thin out and shrink as they do toward an edge (#303)
-        wanted = np.asarray(FLOWS[r.flow] if isinstance(r.flow, str) else r.flow, dtype=float)
-        wanted = wanted / np.linalg.norm(wanted)
-        lying = np.linalg.norm(wanted - normal * (normal @ wanted)[:, None], axis=1)
+        if r.flow == "along" and face_axis is not None:  # each face's own part's axis, out from the body (#261)
+            wanted = face_axis[idx[pick]]
+            wanted = np.where((np.linalg.norm(wanted, axis=1) > 1e-9)[:, None], wanted, np.asarray(FLOWS["down"], dtype=float))
+        else:
+            wanted = np.tile(np.asarray(FLOWS.get(r.flow, FLOWS["down"]) if isinstance(r.flow, str) else r.flow, dtype=float), (len(pick), 1))
+        wanted = wanted / np.linalg.norm(wanted, axis=1, keepdims=True)
+        lying = np.linalg.norm(wanted - normal * (normal * wanted).sum(axis=1)[:, None], axis=1)
         full = full * np.clip((lying - FLOW_FLAT) / (FLOW_LIES - FLOW_FLAT), 0.0, 1.0)
         keep = _spaced(points, SPACING * float(np.sqrt(each)), want, chance <= full)
         points, normal, size, turn, full = points[keep], normal[keep], size[keep], turn[keep], full[keep]
         size = size * (SHRINK + (1 - SHRINK) * full)
-        flow = wanted - normal * (normal @ wanted)[:, None]
+        wanted = wanted[keep]
+        flow = wanted - normal * (normal * wanted).sum(axis=1)[:, None]
         flat = np.linalg.norm(flow, axis=1) < 1e-3  # the surface faces along the flow (a crown): any direction in it
         spare = np.cross(normal, np.where(np.abs(normal[:, :1]) < 0.9, [[1.0, 0.0, 0.0]], [[0.0, 0.0, 1.0]]))
         flow = np.where(flat[:, None], spare, flow)
@@ -147,9 +161,9 @@ def scatter(vertices: Array, faces: Array, normals: Array, face_on: list[Array],
             store.append(value)
     if not parts[0]:
         zero, none = np.zeros((0, 3)), np.zeros(0)
-        return Patches(zero, zero, zero, zero, none, none, none, none.astype(np.int64), none, none.astype(np.int64), colors)
+        return Patches(zero, zero, zero, zero, none, none, none, none.astype(np.int64), none, none.astype(np.int64), colors, kinds)
     c = [np.concatenate(p) for p in parts]
-    return Patches(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7].astype(np.int64), c[8], c[9].astype(np.int64), colors)
+    return Patches(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7].astype(np.int64), c[8], c[9].astype(np.int64), colors, kinds)
 
 
 def _edge_distance(vertices: Array, faces: Array, on: Array, points: Array) -> Array:
@@ -273,12 +287,23 @@ def _profile(patches: Patches, i: int, d: Array) -> tuple[Array, Array, Array, A
     u = d @ patches.flow[i] / patches.length[i]
     v = d @ patches.side[i] / patches.half[i]
     inside = np.abs(v) <= 1
-    phase = (np.clip(v, -1, 1) + 1) * 0.5 * patches.tips[i]
-    tooth = 1 - np.abs(2 * (phase - np.floor(phase)) - 1)  # 1 at the middle of each tip, 0 in the notches
-    tip = (1 - NOTCH * (1 - tooth)) * (1 - ROUND * v * v)
+    kind = patches.kinds[int(patches.entry[i])] if patches.kinds else 0
+    w = np.clip(np.abs(v), 0, 1)
+    if kind == 1:  # scales: one round lobe
+        tip = np.sqrt(np.clip(1 - w * w, 0, 1))
+    elif kind == 2:  # feathers: one point down the middle
+        tip = np.sqrt(np.clip(1 - w, 0, 1))
+    elif kind == 3:  # shingles: a straight lower edge, the corners just rounded
+        tip = 1 - 0.15 * w**6
+    else:  # fur: notched, pointed tips
+        phase = (np.clip(v, -1, 1) + 1) * 0.5 * patches.tips[i]
+        tooth = 1 - np.abs(2 * (phase - np.floor(phase)) - 1)  # 1 at the middle of each tip, 0 in the notches
+        tip = (1 - NOTCH * (1 - tooth)) * (1 - ROUND * v * v)
     rise = np.clip(u / np.maximum(tip, 1e-6), 0, 1) ** 1.5
     fall = np.clip((tip - u) / EDGE, 0, 1) * np.clip((1 - np.abs(v)) / SIDE, 0, 1)
     h = np.where(inside & (u > 0), patches.lift[i] * rise * fall, 0.0)
+    if kind == 2:  # a feather's rib: the middle stands highest
+        h = h * (0.7 + 0.3 * (1 - w))
     return h, tip, u, inside
 
 
