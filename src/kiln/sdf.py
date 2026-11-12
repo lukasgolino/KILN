@@ -641,7 +641,7 @@ class Geometry:
         return self._distance(p, filled)
 
     def _distance(self, p: Array, filled: bool) -> Array:
-        if jit.AVAILABLE and self.shape in jit.SHAPE_IDS and self.folds is None and len(p) >= jit.MIN_POINTS:
+        if jit.AVAILABLE and self.shape in jit.SHAPE_IDS and len(p) >= jit.MIN_POINTS:
             return jit.distance(self, p, filled)
         if self.mirror:
             p = p.copy()

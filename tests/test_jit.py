@@ -172,3 +172,26 @@ def test_locks_and_ellipsoids_agree_in_both_paths() -> None:
     finally:
         jit.AVAILABLE = True
     assert np.abs(compiled - plain).max() < 1e-6 and np.abs(plain - small).max() < 1e-6
+
+
+@pytest.mark.parametrize("shape", ["cone: { at: [0, 0.4, 0], radius: 0.3, radius_top: 0.12, height: 0.8 }",
+                                   "cylinder: { at: [0.1, 0.4, 0], radius: 0.25, height: 0.6 }"])  # fmt: skip
+def test_folds_in_the_compiled_path_match_numpy(shape: str) -> None:
+    """#281: the fold term in the kernel, the same as sdf.folds per copy, before the shell."""
+    from conftest import parse
+
+    from kiln.builder import field_of
+
+    model, findings = parse(f"name: m\nparts:\n  - {shape}\n    color: red\n    folds: {{ count: 7, depth: 0.03, from_y: 0.0, to_y: 0.8, sharp: 0.6 }}\n"
+                            "    shell: 0.02\n    mirror: x\n")  # fmt: skip
+    assert model is not None, findings
+    field = field_of(model, 0.01)
+    assert jit.supported(field.parts[0])
+    p = np.random.default_rng(5).uniform([-0.5, -0.1, -0.5], [0.5, 1.0, 0.5], (20000, 3))
+    compiled = field.distance(p)
+    jit.AVAILABLE = False
+    try:
+        plain = field.distance(p)
+    finally:
+        jit.AVAILABLE = True
+    assert np.abs(compiled - plain).max() < 1e-9

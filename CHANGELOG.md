@@ -27,6 +27,8 @@ before 1.0).
 
 ### Performance
 
+- Parts with `folds` use the compiled distance too (they took the numpy path for every field pass: about 2x on a
+  model with one folded robe); the same values to 1e-9 (#281).
 - Joined hard parts are kept in the build cache every 8 joins; a rebuild resumes at the last unchanged one, so moving a
   prop near the end of a scene joins again only from there (an 82-hard-part desk: 35 s cold, 9 s after moving one
   part), with the same result as joining from the first part. Hard parts lose bevels for the budget only when they
