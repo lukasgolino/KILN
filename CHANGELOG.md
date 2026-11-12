@@ -15,6 +15,9 @@ before 1.0).
 
 ### Fixed
 
+- Relief no longer draws stepped streaks where the surface faces along the flow (the top of a round shoulder under
+  `flow: down`, the underside of a heel): there the flow can't lie in the surface, so the patches thin out and shrink
+  as they do toward an edge, instead of all pointing one fixed way (#303).
 - A lock's (and an ellipsoid's) distance ran short away from it, below the distance to its own box: the compiled
   path then skipped it by its box where the numpy path still blended it in, so the two disagreed near many locks
   (and numpy's answer depended on how points were batched). Outside its box such a part's distance is now never
