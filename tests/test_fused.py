@@ -19,8 +19,14 @@ parts:
     blend: 0.03
     mirror: x
     mirror_id: arm_r
+  - sphere: {{ at: [{x2}, 0.4, 0], radius: 0.05 }}
+    id: hand_l
+    color: red
+    mirror: x
+    mirror_id: hand_r
 rig:
   arm_l: {{ pivot: [{x}, 0.95, 0] }}
+  hand_l: {{ parent: arm_l, pivot: [{x2}, 0.45, 0] }}
 skin: soft
 """
 
