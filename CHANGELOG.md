@@ -12,6 +12,10 @@ before 1.0).
 
 ### Fixed
 
+- A lock's (and an ellipsoid's) distance ran short away from it, below the distance to its own box: the compiled
+  path then skipped it by its box where the numpy path still blended it in, so the two disagreed near many locks
+  (and numpy's answer depended on how points were batched). Outside its box such a part's distance is now never
+  under the box's, in both paths. Models with many locks may mesh slightly differently (#238).
 - `kiln preview --draft` on a model with part `density` and a budget above the draft mesh's face count stopped with
   E009 (the simplifier refuses a target it is already under); it now leaves the mesh as it is (#299).
 
@@ -23,6 +27,16 @@ before 1.0).
 
 ### Performance
 
+- Parts with `folds` use the compiled distance too (they took the numpy path for every field pass: about 2x on a
+  model with one folded robe); the same values to 1e-9 (#281).
+- Joined hard parts are kept in the build cache every 8 joins; a rebuild resumes at the last unchanged one, so moving a
+  prop near the end of a scene joins again only from there (an 82-hard-part desk: 35 s cold, 9 s after moving one
+  part), with the same result as joining from the first part. Hard parts lose bevels for the budget only when they
+  need its smooth parts' share: that share now follows how much of the surface the smooth parts are (a movement's
+  few small pins no longer cost 36 hard parts their bevels) (#214).
+- A colour-only edit reuses the cached build, recoloured: part, pattern, relief and palette colours, as long as the
+  same parts share colours (the paint borders don't move). A 2.4 m hero's colour tweak goes from a full rebuild
+  (about 2.5 min) to seconds (#246).
 - Normal and colour maps bake about 45% faster (a 2.4 m relief-furred hero with 2048 maps: 285 -> 156 s for the
   whole build): a texel is supersampled only where the surface turns away from the mesh (elsewhere its own normal is
   as good; the map changes by 0.006 degrees on average), the charts are packed again without being cut again when

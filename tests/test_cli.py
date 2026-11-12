@@ -570,3 +570,16 @@ def test_preview_draft_under_a_big_budget(in_project: Project, capsys: pytest.Ca
     write_model(in_project, text, "hero")
     code, result = run_json(["preview", "hero", "--draft", "--views", "front", "--size", "64"], capsys)
     assert code == 0, result
+
+
+def test_lint_and_build_report_the_same_findings(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#210: build reports what lint reports (the same checks on the same cached mesh), E013 included."""
+    write_model(in_project, sphere_text("good").replace("at: [0, 0.3, 0]", "at: [0, 1, 0]"), "good")  # W106
+    write_model(in_project, arms_text("hero", "soft"), "hero")
+    write_model(in_project, "name: crate\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n    hard: true\n"
+                "    bevel: 0.02\n  - box: { at: [0, 0.4, 0], size: [0.3, 0.05, 0.3] }\n    color: blue\n    hard: true\n", "crate")  # (hard parts, coplanar contact)
+    code, linted = run_json(["lint"], capsys)
+    assert code == 0, linted
+    code, built = run_json(["build"], capsys)
+    key = lambda f: (f["rule"], f.get("path"), f.get("where"), f["message"])  # noqa: E731
+    assert sorted(map(key, linted["findings"])) == sorted(map(key, built["findings"]))

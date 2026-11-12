@@ -65,6 +65,7 @@ class Packed:
     noise_total: float
     scale: Array  # (3,) stretch in the part's frame (ones: none)
     has_scale: bool
+    folds: Array  # (6,) count, depth, from_y, to_y, sharp, base y (count 0: none), as sdf.folds (#281)
 
 
 def set_threads(n: int) -> None:
@@ -76,7 +77,7 @@ def set_threads(n: int) -> None:
 
 
 def supported(g: Geometry) -> bool:
-    return AVAILABLE and g.shape in SHAPE_IDS and g.fit is None and g.folds is None  # (folds: numpy only)
+    return AVAILABLE and g.shape in SHAPE_IDS and g.fit is None
 
 
 def _pack_shape(g: Geometry) -> tuple[Array, Array, Array]:
@@ -147,7 +148,8 @@ def pack(g: Geometry) -> Packed:
                     -1 if g.open is None else int(g.open[0]), 0.0 if g.open is None else float(g.open[1]),
                     g.open_plane() if g.open is not None else 0.0, float(g.shell), g.shell_side == "in", float(amount),
                     dirs, phase, freq, weight, float(total), np.ones(3) if g.scale is None else np.asarray(g.scale, float),
-                    g.scale is not None)  # fmt: skip
+                    g.scale is not None, np.zeros(6) if g.folds is None else
+                    np.array([g.folds.count, g.folds.depth, g.folds.from_y, g.folds.to_y, g.folds.sharp, float(g.at[1])], float))  # fmt: skip
     object.__setattr__(g, "_packed", packed)
     return packed
 
@@ -167,7 +169,8 @@ def _table(geoms: list[Geometry]) -> tuple[Any, ...]:
             np.array([k.open_sign for k in ks]), np.array([k.open_plane for k in ks]), np.array([k.shell for k in ks]),
             np.array([k.shell_in for k in ks]), np.array([k.noise_amount for k in ks]), np.stack([k.noise_dirs for k in ks]),
             np.stack([k.noise_phase for k in ks]), np.stack([k.noise_freq for k in ks]), np.stack([k.noise_weight for k in ks]),
-            np.array([k.noise_total for k in ks]), np.stack([k.scale for k in ks]), np.array([k.has_scale for k in ks]))  # fmt: skip
+            np.array([k.noise_total for k in ks]), np.stack([k.scale for k in ks]), np.array([k.has_scale for k in ks]),
+            np.stack([k.folds for k in ks]))  # fmt: skip
 
 
 def distance(g: Geometry, p: Array, filled: bool = False, box: tuple[Array, Array, float] | None = None) -> Array:
@@ -413,7 +416,7 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
     @njit(cache=True)
     def part_at(i: int, x: float, y: float, z: float, filled: bool, t: Any) -> float:
         (kind, prm_all, prm_off, pts_all, aux_all, pts_off, at, rot, has_rot, mirror, crot, cpiv, coff, cop_off, twist, open_axis, open_sign,
-         open_plane, shell, shell_in, namount, ndirs, nphase, nfreq, nweight, ntotal, scale, has_scale) = t  # fmt: skip
+         open_plane, shell, shell_in, namount, ndirs, nphase, nfreq, nweight, ntotal, scale, has_scale, fold) = t  # fmt: skip
         prm = prm_all[prm_off[i] : prm_off[i + 1]]
         pts = pts_all[pts_off[i] : pts_off[i + 1]]
         aux = aux_all[pts_off[i] : pts_off[i + 1]]
@@ -443,6 +446,14 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
             if has_scale[i]:
                 lx, ly, lz = lx / scale[i, 0], ly / scale[i, 1], lz / scale[i, 2]
             d = shape(kind[i], lx, ly, lz, prm, pts, aux)
+            if fold[i, 0] > 0.0:  # cloth folds round the copy's own axis, before the shell (sdf.folds, #281)
+                count, depth, from_y, to_y, sharp, base_y = fold[i, 0], fold[i, 1], fold[i, 2], fold[i, 3], fold[i, 4], fold[i, 5]
+                r = math.sqrt(lx * lx + lz * lz)
+                wave = 0.5 - 0.5 * math.cos(count * math.atan2(lz, lx))
+                profile = 1.0 - (1.0 - wave) ** (1.0 + 2.0 * sharp)
+                span = to_y - from_y
+                tt = min(max((base_y + ly - from_y) / span, 0.0), 1.0) if span != 0.0 else 0.0
+                d = d + min(depth, 0.25 * 2.0 * math.pi * r / count) * (1.0 - tt) ** 1.5 * profile
             if has_scale[i]:
                 d = d * shrink
             if oa >= 0:
@@ -477,6 +488,11 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
             if qx > pad or qy > pad or qz > pad:
                 ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
                 return math.sqrt(ox * ox + oy * oy + oz * oz) + pad
+            d = part_at(0, x, y, z, filled, t)
+            if qx > 0.0 or qy > 0.0 or qz > 0.0:  # outside the box: never under the box's distance (#238: locks,
+                ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)  # ellipsoids and scaled parts run short there)
+                d = max(d, math.sqrt(ox * ox + oy * oy + oz * oz))
+            return d
         return part_at(0, x, y, z, filled, t)
 
     @njit(cache=True, parallel=True)
@@ -498,7 +514,11 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
         if qx > pad[i] or qy > pad[i] or qz > pad[i]:
             ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
             return math.sqrt(ox * ox + oy * oy + oz * oz) + pad[i]
-        return part_at(i, x, y, z, False, t)
+        d = part_at(i, x, y, z, False, t)
+        if qx > 0.0 or qy > 0.0 or qz > 0.0:  # outside the box: never under the distance to it (#238)
+            ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
+            d = max(d, math.sqrt(ox * ox + oy * oy + oz * oz))
+        return d
 
     @njit(cache=True, inline="always")
     def target_distance(s: int, n: int, x: float, y: float, z: float, t: Any, lo: Any, hi: Any, pad: Any, pre: Any, slot: Any,
@@ -558,6 +578,8 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
                 d = box + pad[i]
             else:
                 d = part_at(i, x, y, z, False, t)
+                if box > 0.0:  # never under the box's distance (#238: locks, ellipsoids, scaled parts run short)
+                    d = max(d, box)
             if op[i] == 1:
                 f = -smin(-f, d, k)
             elif op[i] == 2:

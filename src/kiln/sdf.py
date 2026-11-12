@@ -641,7 +641,7 @@ class Geometry:
         return self._distance(p, filled)
 
     def _distance(self, p: Array, filled: bool) -> Array:
-        if jit.AVAILABLE and self.shape in jit.SHAPE_IDS and self.folds is None and len(p) >= jit.MIN_POINTS:
+        if jit.AVAILABLE and self.shape in jit.SHAPE_IDS and len(p) >= jit.MIN_POINTS:
             return jit.distance(self, p, filled)
         if self.mirror:
             p = p.copy()
@@ -792,9 +792,13 @@ class Field:
             return jit.distance(g, p, box=(lo, hi, pad))
         q = np.maximum(lo - p, p - hi)  # per axis: how far outside the box (one pass for the test and the stand-in)
         near = np.all(q <= pad, axis=1)
-        d = np.linalg.norm(np.maximum(q, 0.0), axis=1) + pad
+        outside = np.linalg.norm(np.maximum(q, 0.0), axis=1)
+        d = outside + pad
         if near.any():
             d[near] = g.distance(p[near])
+            # outside its box a part is never nearer than the box: locks, ellipsoids and scaled parts' distances run short
+            # there, and the box skips assume they don't (#238); inside the box it stays as it is
+            d[near] = np.where(outside[near] > 0, np.maximum(d[near], outside[near]), d[near])
         return d
 
     def nearest(self, parts: list[int], p: Array, absolute: bool = True) -> tuple[Array, Array]:
