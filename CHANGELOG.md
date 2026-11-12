@@ -27,6 +27,11 @@ before 1.0).
 - `color_blend` without the baked maps: with `normal_map: 0` (or without `kiln-gen[bake]`) the fade goes in the
   vertex colours (COLOR_0, `vertex_colors = true`), previews too; lint W134 when the project doesn't export vertex
   colours (#262).
+- A fill light in the look kit: `[look] fill_energy`, `fill_pitch`, `fill_yaw` (default: opposite the sun),
+  `fill_color`; a second DirectionalLight3D without shadows in the look scene, and the same light in the previews
+  (parity tested in both renderers). On in the `skin` preset (0.3) (#275).
+- Lint W135: on a soft-skinned body, a limb fused to another branch at rest (an arm hanging into the belly, a leg
+  into the other leg) away from its joint, with how far to move it (#255).
 - `kiln build <models> --no-dependents`: the models that place them (instances) keep their last build (#343).
 
 ### Fixed

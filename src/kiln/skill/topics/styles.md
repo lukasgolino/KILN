@@ -69,6 +69,10 @@ sun_pitch = -48.0              # degrees (negative = from above)
 sun_yaw = 30.0
 sun_energy = 1.1
 sun_color = "#fff6e8"
+fill_energy = 0.0              # a second, weaker sun without shadows (0 = none; skin: 0.3): the shadow side keeps colour and form
+fill_pitch = -20.0             #   without raising the ambient everywhere; Godot: a "Fill" DirectionalLight3D, previews the same
+fill_yaw = 210.0               #   default: opposite the sun
+fill_color = "#dde8ff"
 shadows = true
 compat_shadows = false         # Godot's Compatibility renderer: the sun drops its shadows there, since that renderer adds the
                                # ambient again per shadowed light (godotengine/godot#90259: several times too bright); true keeps them

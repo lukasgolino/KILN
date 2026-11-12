@@ -63,6 +63,7 @@ WARNING_RULES = {
     "W131": "a see-through material (alpha < 1) in an atlas project: the atlas draws every part opaque",
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
     "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
+    "W135": "a limb is fused to another branch of a soft-skinned body at rest, away from its joint: posing it stretches the skin",
     "W134": "colour fades go in the vertex colours here (no baked maps), but the project doesn't export vertex colours",
 }
 
@@ -92,7 +93,7 @@ CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than a
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
 BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133")  # fmt: skip
+               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -103,6 +104,11 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     def warn(rule: str, message: str, line: int | None = None, where: str = "") -> None:
         out.append(Finding(rule, message, m.path, line, where))
 
+    if built.skin == "soft":  # limbs fused to the body at rest (#255)
+        from kiln.fused import fused_limbs
+
+        for message, line, where in fused_limbs(built)[:3]:
+            warn("W135", message, line, where)
     for aname, anim in m.animations.items():  # reach needs a two-part chain (#200)
         for pose in anim.poses:
             for pid, pp in pose.items():

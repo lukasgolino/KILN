@@ -69,4 +69,7 @@ sun_pitch = -50.0
 sun_yaw = 35.0
 sun_energy = 0.9
 sun_color = "#fff2e0"
+fill_energy = 0.3                  # a soft fill from the other side: the shadow side keeps colour and form
+fill_pitch = -20.0
+fill_color = "#dfe8ff"
 shadows = true

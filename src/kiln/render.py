@@ -212,38 +212,47 @@ def render(
             emit = np.where(glowing, np.minimum(emit, GLOW_PEAK / np.maximum(lit_albedo.max(axis=1), 1e-6)), 0.0)
             albedo = np.where(glowing[:, None], albedo * GLOW_ALBEDO, albedo)
         rim = np.array([pr.rim for pr in presets])[g]
-        sun = rotation_matrix((look.sun_pitch, look.sun_yaw, 0.0)) @ np.array([0.0, 0.0, -1.0])  # light travel direction
-        to_light = -sun / np.linalg.norm(sun)
-        ndl = n @ to_light
-        sun_col = np.array(srgb_to_linear(look.sun_color)) * look.sun_energy
+        lights = [(look.sun_pitch, look.sun_yaw, look.sun_color, look.sun_energy)]
+        if look.fill_energy > 0:  # the look's fill light (#275): a second sun without shadows
+            lights.append((look.fill_pitch, look.fill_direction, look.fill_color, look.fill_energy))
         sky_top, sky_hor, ground = (np.array(srgb_to_linear(c)) for c in (look.sky_top, look.sky_horizon, look.ground))
         up_amount = n[:, 1:2]
         sky = np.where(up_amount >= 0, sky_hor + (sky_top - sky_hor) * up_amount, sky_hor + (ground - sky_hor) * (-up_amount))
         ambient = sky * look.ambient  # as Godot: ambient_light_energy on the sky (#161)
+        view_dir = -forward
         if look.shader == "toon":
             bands = max(2, look.toon_bands)
-            lit = toon_lit(ndl, bands, look.toon_softness)
-            diffuse = albedo * (ambient + sun_col * lit[:, None] * 0.9)
-            if look.toon_shadow_color:  # the sun's missing light, in the shadow colour (no cast shadows here)
-                diffuse = diffuse + albedo * np.array(srgb_to_linear(look.toon_shadow_color)) * (1 - lit)[:, None]
-            if look.toon_specular > 0:
-                half_v = to_light - forward
-                half_v /= np.linalg.norm(half_v)
-                blob = ((n @ half_v) >= 1 - 0.08 * rough**2) & (ndl >= 0)
-                strength = look.toon_specular * (1 - rough) * blob
-                diffuse = diffuse + sun_col * strength[:, None] * np.minimum(albedo / 0.05, 1.0)  # Godot: / max(albedo, 0.05) * albedo
-            color = diffuse
+            color = albedo * ambient
+            for pitch, yaw, hue, energy in lights:
+                sun = rotation_matrix((pitch, yaw, 0.0)) @ np.array([0.0, 0.0, -1.0])  # light travel direction
+                to_light = -sun / np.linalg.norm(sun)
+                ndl = n @ to_light
+                sun_col = np.array(srgb_to_linear(hue)) * energy
+                lit = toon_lit(ndl, bands, look.toon_softness)
+                color = color + albedo * sun_col * lit[:, None] * 0.9
+                if look.toon_shadow_color:  # the light's missing light, in the shadow colour (no cast shadows here)
+                    color = color + albedo * np.array(srgb_to_linear(look.toon_shadow_color)) * (1 - lit)[:, None]
+                if look.toon_specular > 0:
+                    half_v = to_light - forward
+                    half_v /= np.linalg.norm(half_v)
+                    blob = ((n @ half_v) >= 1 - 0.08 * rough**2) & (ndl >= 0)
+                    strength = look.toon_specular * (1 - rough) * blob
+                    color = color + sun_col * strength[:, None] * np.minimum(albedo / 0.05, 1.0)  # Godot: / max(albedo, 0.05) * albedo
         else:
-            diffuse = albedo * (1 - metal[:, None] * 0.6) * (ambient + sun_col * np.clip(ndl, 0, None)[:, None])
-            view_dir = -forward
-            half_v = to_light + view_dir
-            half_v /= np.linalg.norm(half_v)
+            base = albedo * (1 - metal[:, None] * 0.6)
+            color = base * ambient + rim[:, None] * np.power(1 - np.clip(n @ view_dir, 0, 1), 3)[:, None] * sky
             shin = 2.0 / np.maximum(rough**4, 1e-3)
             spec_strength = (1 - rough) ** 2 * 0.6
-            spec = spec_strength * np.power(np.clip(n @ half_v, 0, 1), np.minimum(shin, 2000)) * (ndl > 0)
             spec_col = np.where(metal[:, None] > 0.5, albedo, 1.0)
-            rim_term = rim[:, None] * np.power(1 - np.clip(n @ view_dir, 0, 1), 3)[:, None] * sky
-            color = diffuse + spec[:, None] * spec_col * sun_col + rim_term
+            for pitch, yaw, hue, energy in lights:
+                sun = rotation_matrix((pitch, yaw, 0.0)) @ np.array([0.0, 0.0, -1.0])
+                to_light = -sun / np.linalg.norm(sun)
+                ndl = n @ to_light
+                sun_col = np.array(srgb_to_linear(hue)) * energy
+                half_v = to_light + view_dir
+                half_v /= np.linalg.norm(half_v)
+                spec = spec_strength * np.power(np.clip(n @ half_v, 0, 1), np.minimum(shin, 2000)) * (ndl > 0)
+                color = color + base * sun_col * np.clip(ndl, 0, None)[:, None] + spec[:, None] * spec_col * sun_col
         if fill > 0:  # previews only (#180): a neutral light from the camera, so faces turned away from sun and sky read
             color = color + albedo * fill * np.clip(n @ -forward, 0, None)[:, None]
         color = color + lit_albedo * emit[:, None]
