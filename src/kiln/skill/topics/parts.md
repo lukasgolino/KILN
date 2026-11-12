@@ -50,7 +50,8 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `material` | style preset: default, plastic, paint, fabric, skin, leather, rubber, wood, stone, metal, gold, leaf, glass, glow |
 | `emission: 0.6` | this part's glow strength over its preset's (eyes softer than a crystal). A glowing colour's strength is capped so it keeps its hue (its brightest channel x strength at most 0.75), so for bright colours a higher number changes nothing (a dark red can glow at 3, a pale pink tops out under 1); its lit colour is dimmed: the glow carries it |
 | `blend` | smooth-union radius in metres with everything before it (cuts/intersects: smooth edge) |
-| `color_blend` | metres its colour fades into blended neighbours' (`making`) |
+| `color_blend` | metres its colour fades into blended neighbours' (`surfaces`) |
+| `resolution: 0.004` | a finer mesh cell inside this part's box than the model's (a face, hands): the mesh there is split down to it and moved onto the surface, so lids, nostrils and a nose show on a coarse body; give it `density` too, or the budget reduces it away |
 | `density: 3` | weight on the triangle budget (0.25-8, default 1): about 3x the share of the budget it would get, at the same total (a face); 0.5 coarser. Not past its full-resolution mesh; hard and kept parts ignore it |
 | `cut: true` | remove this shape from everything before it (holes, slits, windows, eye sockets) |
 | `cut: [case, lid]` | cuts only the parts with these ids (`cut: lid`: one); those parts are then meshed as their own surface (crisp against the rest), so the pad under a watch case or a tray's screws stay whole |
@@ -68,7 +69,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `detail: true` | only in the model's baked normal map (`normal_map:`), never in the mesh: grooves between fur strands (a thin `cut: true` tube), wrinkles, knuckle creases, scratches, fine `noise` on a coarse, light mesh. Lint W121: no map, or thinner than two texels. A texel is about sqrt(2 x surface area) / map size (a 2.4 m character, about 4 m² of surface, at 2048: ~1.5 mm): grooves read when about 4 texels wide or more; finer ones blur out (each texel is filtered), and deep narrow ones make bright specular lines: shallower and wider, or `normal_strength: 0.5` |
 | `scale: [1, 1, 0.4]` | stretch the shape in its own frame (or one number); soft parts only |
 | `noise: { amount: 0.01, scale: 0.2, seed: 3 }` | lumpy surface (rocks, bark, clay): amount in metres, scale = bump size. Colour borders with other parts follow the smooth shapes, so a patch on a noisy part keeps a clean edge |
-| `folds: { count: 12, depth: 0.02, from_y, to_y }` | cloth folds round the part's own axis, deepest at the hem (`making`) |
+| `folds: { count: 12, depth: 0.02, from_y, to_y }` | cloth folds round the part's own axis, deepest at the hem (`surfaces`) |
 | `pattern: {...}` | a second colour painted on the part (`kiln docs surfaces`) |
 | `gradient: { to: fur_light, steps: 3 }` | the part's colour going to `to` in `steps` bands (2-16, default 3), mixed in OKLab; `from:` replaces the part's colour at the start. `along: path` (the default for tube, capsule and lock: first point to last) or `x`/`y`/`z` (the default for other shapes: across the shape's own box, low to high). Patterns paint over it; variants recolour the mixed bands from the swapped ends |
 | `decal: {...}` | an image on the part (`kiln docs surfaces`) |
@@ -92,6 +93,11 @@ print the cell size each model got and what set it (model or style resolution, t
 manifest `step`, lint `--json` `cells`); a long build's meshing line says it too. Finer detail on a hero: `resolution: 0.004` and `max_cells: 640` in the model
 (lint W120 names the max_cells needed). Halving the cell size about doubles build time (`kiln docs build`); the budget still
 decides the final triangles.
+
+Posing a group (a hunched back, a head thrust forward) without retyping its parts: `transforms: [{ ids: [head, neck,
+arm_l], rotate: [x, y, z], pivot: [x, y, z], move: [x, y, z] }]` at the top of the model turns the listed parts (arrays
+keep their copies) about `pivot`, then moves them; their rig pivots and sockets go with them. Items apply in order.
+A `mirror: x` part takes only turns about x and moves in y/z (anything else breaks its mirror: E003).
 
 Placing other models (a desk with its props, a tray of screws): `instances: [{ model: screw, at: [x, y, z], rotate:
 [x, y, z], scale: 1, id: tray }]` at the top of the model. Each is that model's own build (its mesh at its own cell size

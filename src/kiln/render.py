@@ -119,6 +119,10 @@ def render(
     and outlines leave them alone. `colors`: a linear albedo per face corner (F, 3, 3) instead of the paint groups'
     colours (terrains: blended splat layers)."""
     hide = with_unrevealed(built, hide)
+    if colors is None and built.corner_fade is not None:  # colour fades in the vertices (#262), as COLOR_0
+        from kiln.export import fade_colors
+
+        colors = fade_colors(built, swap)
     see = np.array([built.style.materials.get(gr.material, built.style.materials["default"]).alpha for gr in built.painted.groups])
     if (see < 1).any():  # see-through presets (glass, #175): dithered at their alpha, as fading pieces are
         face_alpha = see[built.painted.face_group]
@@ -163,8 +167,12 @@ def render(
         g = p.face_group[T]
         albedo_table = np.array([srgb_to_linear(swap.get(gr.color, gr.color)) for gr in groups])
         albedo = albedo_table[g] if colors is None else (colors[T] * bary[:, :, None]).sum(axis=1)
+        mapped_shade = None
         if colors is None and built.bake is not None and built.bake.layers is not None:  # relief: the base colour map, as the engine samples it
-            albedo = _mapped_colours(built.bake, T, bary, [gr.color for gr in groups], swap)
+            from kiln.shade import texel_shade
+
+            mapped_shade = texel_shade(built, built.ao_strength)
+            albedo = _mapped_colours(built.bake, T, bary, [gr.color for gr in groups], swap, mapped_shade)
         dec = p.face_decal[T]
         if (dec >= 0).any():
             world = (corners[T] * bary[:, :, None]).sum(axis=1)
@@ -187,7 +195,12 @@ def render(
                 albedo[m] = albedo[m] * (1 - texel[:, 3:4]) + lin * texel[:, 3:4]
         lit_albedo = albedo  # what glows: Godot's EMISSION doesn't take COLOR, so no occlusion there
         if built.ao is not None:  # shade paint / occlusion: a multiplier per corner, as COLOR_0 (decals too) in the engine
-            albedo = albedo * (built.ao[T] * bary).sum(axis=1)[:, None]
+            corner = (built.ao[T] * bary).sum(axis=1)
+            if mapped_shade is not None:  # painted into the colour map instead (#266), except where the map isn't used
+                presets_ = built.style.materials
+                glow_ = np.array([presets_.get(gr.material, presets_["default"]).emission > 0 for gr in groups])[g]
+                corner = np.where((dec >= 0) | glow_, corner, 1.0)
+            albedo = albedo * corner[:, None]
         presets = [built.style.materials.get(gr.material, built.style.materials["default"]) for gr in groups]
         rough = np.array([pr.roughness for pr in presets])[g]
         metal = np.array([pr.metallic for pr in presets])[g]
@@ -199,38 +212,47 @@ def render(
             emit = np.where(glowing, np.minimum(emit, GLOW_PEAK / np.maximum(lit_albedo.max(axis=1), 1e-6)), 0.0)
             albedo = np.where(glowing[:, None], albedo * GLOW_ALBEDO, albedo)
         rim = np.array([pr.rim for pr in presets])[g]
-        sun = rotation_matrix((look.sun_pitch, look.sun_yaw, 0.0)) @ np.array([0.0, 0.0, -1.0])  # light travel direction
-        to_light = -sun / np.linalg.norm(sun)
-        ndl = n @ to_light
-        sun_col = np.array(srgb_to_linear(look.sun_color)) * look.sun_energy
+        lights = [(look.sun_pitch, look.sun_yaw, look.sun_color, look.sun_energy)]
+        if look.fill_energy > 0:  # the look's fill light (#275): a second sun without shadows
+            lights.append((look.fill_pitch, look.fill_direction, look.fill_color, look.fill_energy))
         sky_top, sky_hor, ground = (np.array(srgb_to_linear(c)) for c in (look.sky_top, look.sky_horizon, look.ground))
         up_amount = n[:, 1:2]
         sky = np.where(up_amount >= 0, sky_hor + (sky_top - sky_hor) * up_amount, sky_hor + (ground - sky_hor) * (-up_amount))
         ambient = sky * look.ambient  # as Godot: ambient_light_energy on the sky (#161)
+        view_dir = -forward
         if look.shader == "toon":
             bands = max(2, look.toon_bands)
-            lit = toon_lit(ndl, bands, look.toon_softness)
-            diffuse = albedo * (ambient + sun_col * lit[:, None] * 0.9)
-            if look.toon_shadow_color:  # the sun's missing light, in the shadow colour (no cast shadows here)
-                diffuse = diffuse + albedo * np.array(srgb_to_linear(look.toon_shadow_color)) * (1 - lit)[:, None]
-            if look.toon_specular > 0:
-                half_v = to_light - forward
-                half_v /= np.linalg.norm(half_v)
-                blob = ((n @ half_v) >= 1 - 0.08 * rough**2) & (ndl >= 0)
-                strength = look.toon_specular * (1 - rough) * blob
-                diffuse = diffuse + sun_col * strength[:, None] * np.minimum(albedo / 0.05, 1.0)  # Godot: / max(albedo, 0.05) * albedo
-            color = diffuse
+            color = albedo * ambient
+            for pitch, yaw, hue, energy in lights:
+                sun = rotation_matrix((pitch, yaw, 0.0)) @ np.array([0.0, 0.0, -1.0])  # light travel direction
+                to_light = -sun / np.linalg.norm(sun)
+                ndl = n @ to_light
+                sun_col = np.array(srgb_to_linear(hue)) * energy
+                lit = toon_lit(ndl, bands, look.toon_softness)
+                color = color + albedo * sun_col * lit[:, None] * 0.9
+                if look.toon_shadow_color:  # the light's missing light, in the shadow colour (no cast shadows here)
+                    color = color + albedo * np.array(srgb_to_linear(look.toon_shadow_color)) * (1 - lit)[:, None]
+                if look.toon_specular > 0:
+                    half_v = to_light - forward
+                    half_v /= np.linalg.norm(half_v)
+                    blob = ((n @ half_v) >= 1 - 0.08 * rough**2) & (ndl >= 0)
+                    strength = look.toon_specular * (1 - rough) * blob
+                    color = color + sun_col * strength[:, None] * np.minimum(albedo / 0.05, 1.0)  # Godot: / max(albedo, 0.05) * albedo
         else:
-            diffuse = albedo * (1 - metal[:, None] * 0.6) * (ambient + sun_col * np.clip(ndl, 0, None)[:, None])
-            view_dir = -forward
-            half_v = to_light + view_dir
-            half_v /= np.linalg.norm(half_v)
+            base = albedo * (1 - metal[:, None] * 0.6)
+            color = base * ambient + rim[:, None] * np.power(1 - np.clip(n @ view_dir, 0, 1), 3)[:, None] * sky
             shin = 2.0 / np.maximum(rough**4, 1e-3)
             spec_strength = (1 - rough) ** 2 * 0.6
-            spec = spec_strength * np.power(np.clip(n @ half_v, 0, 1), np.minimum(shin, 2000)) * (ndl > 0)
             spec_col = np.where(metal[:, None] > 0.5, albedo, 1.0)
-            rim_term = rim[:, None] * np.power(1 - np.clip(n @ view_dir, 0, 1), 3)[:, None] * sky
-            color = diffuse + spec[:, None] * spec_col * sun_col + rim_term
+            for pitch, yaw, hue, energy in lights:
+                sun = rotation_matrix((pitch, yaw, 0.0)) @ np.array([0.0, 0.0, -1.0])
+                to_light = -sun / np.linalg.norm(sun)
+                ndl = n @ to_light
+                sun_col = np.array(srgb_to_linear(hue)) * energy
+                half_v = to_light + view_dir
+                half_v /= np.linalg.norm(half_v)
+                spec = spec_strength * np.power(np.clip(n @ half_v, 0, 1), np.minimum(shin, 2000)) * (ndl > 0)
+                color = color + base * sun_col * np.clip(ndl, 0, None)[:, None] + spec[:, None] * spec_col * sun_col
         if fill > 0:  # previews only (#180): a neutral light from the camera, so faces turned away from sun and sky read
             color = color + albedo * fill * np.clip(n @ -forward, 0, None)[:, None]
         color = color + lit_albedo * emit[:, None]
@@ -375,15 +397,15 @@ def _bloom(image: Array, glow: Array, radius: int) -> Array:
     return out
 
 
-def _mapped_colours(bake: Any, faces: Array, bary: Array, group_colors: list[str], swap: dict[str, str]) -> Array:
+def _mapped_colours(bake: Any, faces: Array, bary: Array, group_colors: list[str], swap: dict[str, str], shade: Any = None) -> Array:
     """Per pixel: the base colour map's colour (linear) at the interpolated UV, nearest texel."""
     from io import BytesIO
 
-    key = tuple(sorted(swap.items()))
+    key = (tuple(sorted(swap.items())), shade)
     cache = bake.__dict__.setdefault("_colours", {})
     if key not in cache:
         cache.clear()  # one decoded map at a time
-        cache[key] = np.asarray(Image.open(BytesIO(bake.color_png(group_colors, swap))).convert("RGB"), dtype=np.uint8)
+        cache[key] = np.asarray(Image.open(BytesIO(bake.color_png(group_colors, swap, shade))).convert("RGB"), dtype=np.uint8)
     image = cache[key]
     uv = (bake.uv[faces] * bary[:, :, None]).sum(axis=1)
     h, w = image.shape[:2]

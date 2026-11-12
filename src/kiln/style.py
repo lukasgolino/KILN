@@ -42,6 +42,9 @@ class MaterialPreset:
 FILMIC_WHITE = 3.0  # Godot's tonemap_white in every look kit, so its Filmic curve is the previews' exactly (#161)
 
 
+FILL_OPPOSITE = 1000.0  # [look] fill_yaw unset: the fill comes from the other side of the sun
+
+
 @dataclass(frozen=True)
 class Look:
     shader: str = "standard"
@@ -67,6 +70,10 @@ class Look:
     sun_yaw: float = 30.0
     sun_energy: float = 1.1
     sun_color: str = "#fff6e8"
+    fill_energy: float = 0.0  # a second, weaker sun without shadows (#275): the shadow side keeps colour and form; 0 = none
+    fill_pitch: float = -20.0
+    fill_yaw: float = FILL_OPPOSITE  # degrees; default: opposite the sun
+    fill_color: str = "#dde8ff"
     shadows: bool = True
     compat_shadows: bool = False  # Compatibility renderer: keep the sun's shadows anyway (godotengine/godot#90259 over-brightens)
     fog: float = 0.0  # density; 0 = none
@@ -74,6 +81,11 @@ class Look:
     rim_light: float = 0.0  # strength of an added fresnel glow on every surface (reads on bright skies); 0 = none
     rim_light_color: str = "#ffffff"
     rim_light_power: float = 3.0  # higher: a thinner rim
+
+    @property
+    def fill_direction(self) -> float:
+        """The fill light's yaw (degrees): its own, or opposite the sun's."""
+        return self.sun_yaw + 180.0 if self.fill_yaw == FILL_OPPOSITE else self.fill_yaw
 
 
 class Presets(dict[str, MaterialPreset]):
@@ -244,6 +256,9 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
             value = float(value)
         if not isinstance(value, expected) or (expected is int and isinstance(value, bool)):
             bad(f"[look] {key} must be a {expected.__name__}", f"look.{key}")
+            continue
+        if key == "fill_energy" and isinstance(value, float) and value < 0:
+            bad("[look] fill_energy is 0 (no fill light) or more, e.g. 0.3: a second sun without shadows from the other side", f"look.{key}")
             continue
         if key == "toon_shadow_color" and isinstance(value, str) and not (HEX.match(value) or re.fullmatch(r"[A-Za-z0-9_.-]+", value)):
             bad("[look] toon_shadow_color is \"#rrggbb\" or a palette colour name", f"look.{key}")

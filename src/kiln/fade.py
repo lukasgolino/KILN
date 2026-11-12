@@ -2,7 +2,7 @@
 
 The mesh keeps its crisp colour border. Within `color_blend` of it (the straight distance to the nearest border
 edge), each point's colour is a mix of its own colour and the colour across that edge: half and half on the border
-itself, so both sides meet in the same colour, and all its own at `color_blend`. Only the two parts that meet at
+itself (where three colours meet, the two others mix in by their own distances), so both sides meet in the same colour, and all its own at `color_blend`. Only the two parts that meet at
 an edge fade there, and only where their surface faces the way the border does (not the far side of a thin part). (Not the difference of the two
 parts' distances: a shallow patch lying on a body, a belly or a muzzle, is near the body everywhere and would fade
 all over.)
@@ -60,16 +60,18 @@ class Fade:
             return np.zeros(len(points), dtype=bool)
         return near_cells(points, self.ends.reshape(-1, 3), self.reach)
 
-    def mix(self, points: Array, faces: Array, normals: Array) -> tuple[Array, Array]:
-        """Per point (on face `faces`, with unit surface `normals`): (the paint group whose colour it fades toward,
-        how much of that colour: 0..0.5). No fade: weight 0."""
+    def mix(self, points: Array, faces: Array, normals: Array) -> tuple[Array, Array, Array, Array]:
+        """Per point (on face `faces`, with unit surface `normals`): the paint group whose colour it fades toward and how
+        much of it (0..0.5), then a second group and its share where a third colour is near (a corner where three
+        meet: both fade in by their own distances, together at most two thirds, so all three meet as equals at the
+        corner instead of the target flipping at the bisector). No fade: weight 0."""
         from kiln.relief import Index
 
-        other = np.zeros(len(points), dtype=np.int64)
-        weight = np.zeros(len(points))
-        if self.reach <= 0 or not len(points):
-            return other, weight
-        nearest = np.full(len(points), np.inf)
+        n_pts = len(points)
+        other, other2 = np.zeros(n_pts, dtype=np.int64), np.zeros(n_pts, dtype=np.int64)
+        if self.reach <= 0 or not n_pts:
+            return other, np.zeros(n_pts), other2, np.zeros(n_pts)
+        nearest, second = np.full(n_pts, np.inf), np.full(n_pts, np.inf)
         mine = self.face_part[faces]
         index = Index(points, self.reach * 2)  # (a piece is no longer than its reach: its middle's cells hold all it touches)
         for e in range(len(self.ends)):
@@ -82,13 +84,21 @@ class Fade:
             ab = b - a
             t = np.clip((points[near] - a) @ ab / max(float(ab @ ab), 1e-18), 0.0, 1.0)
             d = np.linalg.norm(points[near] - (a + t[:, None] * ab), axis=1) / self.reaches[e]  # in reaches: the nearest edge in its own terms
-            better = d < nearest[near]
-            near, d = near[better], d[better]
-            nearest[near] = d
-            other[near] = np.where(mine[near] == pa, self.groups[e][1], self.groups[e][0])
-        t = np.clip(nearest, 0.0, 1.0)
-        weight = 0.5 * (1 - t) ** 2  # a straight ramp through the border (no band of the half-way colour), easing out at the reach
-        return other, weight
+            toward = np.where(mine[near] == pa, self.groups[e][1], self.groups[e][0])
+            first = d < nearest[near]
+            moved = first & (toward != other[near]) & np.isfinite(nearest[near])  # a new nearest colour: the old one is the second
+            m = near[moved]
+            second[m], other2[m] = nearest[m], other[m]
+            f = near[first]
+            nearest[f], other[f] = d[first], toward[first]
+            later = ~first & (d < second[near]) & (toward != other[near])
+            g = near[later]
+            second[g], other2[g] = d[later], toward[later]
+        w1 = 0.5 * (1 - np.clip(nearest, 0.0, 1.0)) ** 2  # a straight ramp through the border (no band of the half-way colour), easing out at the reach
+        w2 = 0.5 * (1 - np.clip(second, 0.0, 1.0)) ** 2
+        total = w1 + w2
+        scale = np.where(total > 2 / 3, (2 / 3) / np.maximum(total, 1e-12), 1.0)
+        return other, w1 * scale, other2, w2 * scale
 
 
 __all__ = ["Fade", "near_cells"]

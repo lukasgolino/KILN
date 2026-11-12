@@ -44,8 +44,11 @@ class Built:
     asked_step: float = 0.0  # the mesh step the style or model asked for; above it, the grid cap decided `step` (lint W120)
     step_reason: str = ""  # why `step` is what it is, in words (kiln lint / build print it)
     ao: Array | None = None  # (F, 3) per corner: shade paint / baked occlusion (kiln.shade) the previews multiply in, as the engine does
+    ao_strength: float = 0.0  # kiln.toml atlas_ao the previews' shade was made with (a cavity strength)
+    corner_fade: Any = None  # colour fades without the maps (#262): per corner (F x 3) group toward, weight, second group, weight
     bake: Any = None  # kiln.bake.Bake: the normal map with its UVs and tangents (model normal_map)
     motion_key: str = ""  # what `tracks` were made from (builder.motion_key): a cached build re-samples them when it changes
+    relief_patches: Any = None  # kiln.relief.Patches scattered on this (full) build: its LODs stamp the same ones (#261)
 
     @property
     def triangles(self) -> int:
@@ -77,6 +80,23 @@ def glow_strength(rgb: list[float] | tuple[float, ...], emission: float) -> floa
     """The emissive strength a colour gets (#202): the preset's, capped so its brightest channel stays under GLOW_PEAK
     (a pale pink at strength 2 went white in Godot and in previews; capped, it keeps its hue)."""
     return float(min(emission, GLOW_PEAK / max(max(rgb), 1e-6)))
+
+
+def fade_colors(built: Built, swap: dict[str, str] | None = None) -> Array | None:
+    """Linear colours (F, 3, 3) per face corner with `built.corner_fade` mixed in, in OKLab as the base colour map
+    mixes them (a variant's `swap` applied first). None: the model has no per-vertex fades."""
+    if built.corner_fade is None:
+        return None
+    from kiln.bake import _from_oklab, _oklab
+
+    swap = swap or {}
+    p = built.painted
+    table = np.array([srgb_to_linear(swap.get(g.color, g.color)) for g in p.groups])
+    lab = _oklab(table)
+    o1, w1, o2, w2 = built.corner_fade
+    own = lab[np.repeat(p.face_group, 3)]
+    mixed = own * (1 - w1 - w2)[:, None] + lab[o1] * w1[:, None] + lab[o2] * w2[:, None]
+    return np.asarray(_from_oklab(mixed).reshape(len(p.faces), 3, 3))
 
 
 def srgb_to_linear(hex_color: str) -> list[float]:
@@ -150,10 +170,12 @@ class _Writer:
         self.atlas_material: int | None = None
         if built.bake is not None and atlas is not None:
             raise ValueError("normal_map and atlas = true both need the first UV set: a model with a normal map keeps its own materials")
-        from kiln.shade import shading
+        from kiln.shade import shading, texel_shade
 
         strength = atlas.ao if atlas is not None else ao
         self.ao: Array | None = shading(built, strength)  # shade paint and/or atlas_ao: a multiplier per vertex in COLOR_0
+        self.texel_shade = texel_shade(built, strength)  # or per texel in the base colour map (#266): not in its faces' COLOR_0
+        self.fades = fade_colors(built, swap) if self.vertex_colors else None  # (F, 3, 3): colour fades in COLOR_0 (#262)
         self.normal_texture: int | None = None
         self.normal_uri = normal_uri  # the normal map as a file next to the glb (shared by variants), else embedded
         self.doc = Document(generator)
@@ -269,7 +291,7 @@ class _Writer:
             if self.color_uri is not None:
                 img = self.doc.add("images", {"uri": self.color_uri, "mimeType": "image/png", "name": "color_map"})
             else:
-                img = self.doc.image_png(self.b.bake.color_png([g.color for g in self.b.painted.groups], self.swap), "color_map")
+                img = self.doc.image_png(self.b.bake.color_png([g.color for g in self.b.painted.groups], self.swap, self.texel_shade), "color_map")
             self.color_texture = self.doc.add("textures", {"sampler": sampler, "source": img})
         return self.color_texture
 
@@ -338,8 +360,13 @@ class _Writer:
             elif per_corner:  # a texture's UVs per corner: split along its seam
                 rows = np.concatenate([rows, np.round(corner_uv(p.decals[key[3]], p.vertices[p.faces[sel]]).reshape(-1, 2), 6)], axis=1)
             ao_col = rows.shape[1]
-            if self.ao is not None:  # the shade multiplier per corner (it only differs where the normal does: no new splits)
-                rows = np.concatenate([rows, self.ao[sel].reshape(-1, 1)], axis=1)
+            ao = None if self.texel_shade is not None and key[1] == MAPPED else self.ao  # (#266: in the colour map there)
+            corner_shade = ao is not None
+            if ao is not None:  # the shade multiplier per corner (it only differs where the normal does: no new splits)
+                rows = np.concatenate([rows, ao[sel].reshape(-1, 1)], axis=1)
+            fade_col = rows.shape[1]
+            if self.fades is not None and self.vertex_colors and self.atlas is None and key[1] == "vertex":  # colour fades per corner (#262)
+                rows = np.concatenate([rows, np.round(self.fades[sel].reshape(-1, 3), 6)], axis=1)
             attr_col = rows.shape[1]
             for name in self.face_attr:  # and attributes along part borders
                 rows = np.concatenate([rows, np.repeat(self.face_attr[name][sel], 3)[:, None]], axis=1)
@@ -355,13 +382,15 @@ class _Writer:
             color = None  # COLOR_0 (written later, with alpha, when the model has attr:)
             if self.vertex_colors and self.atlas is None:  # every surface carries its colours (glow ones keep their own material too)
                 color = np.array([srgb_to_linear(palette[int(c)]) for c in unique[:, 4]], dtype=np.float32)
+                if attr_col > fade_col:  # faded corners carry their own mixed colour
+                    color = unique[:, fade_col:attr_col].astype(np.float32)
                 if not self.face_attr:
                     attributes["COLOR_0"] = self.doc.accessor(color, target=ARRAY_BUFFER)
             shared = self.atlas is not None and key[3] < 0
             if shared:
                 assert self.atlas is not None
                 attributes["TEXCOORD_0"] = self.doc.accessor(self.atlas.atlas.uvs(unique[:, 4]).astype(np.float32), target=ARRAY_BUFFER)
-            if self.ao is not None:  # shade / occlusion: a multiplier (glTF multiplies COLOR_0 into the base colour), x the colours
+            if corner_shade:  # shade / occlusion: a multiplier (glTF multiplies COLOR_0 into the base colour), x the colours
                 shade = np.repeat(unique[:, ao_col : ao_col + 1], 3, axis=1).astype(np.float32)
                 color = shade if color is None else (color * shade).astype(np.float32)
                 if not self.face_attr:

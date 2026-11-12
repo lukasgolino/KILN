@@ -705,14 +705,26 @@ def look_scene(style: Style) -> str:
         f"shadow_enabled = {'true' if look.shadows else 'false'}",
         *(['script = SubResource("GDScript_sun")'] if look.shadows and not look.compat_shadows else []),
         "",
+        *([  # the fill light (#275): a weaker sun from the other side, no shadows
+            '[node name="Fill" type="DirectionalLight3D" parent="."]',
+            f"transform = {_light_transform(look.fill_pitch, look.fill_direction)}",
+            f"light_color = {_color(look.fill_color)}",
+            f"light_energy = {look.fill_energy:.6g}",
+            "shadow_enabled = false",
+            "",
+        ] if look.fill_energy > 0 else []),
     ]
     return "\n".join(["[gd_scene format=3]", "", *env, *nodes])
 
 
 def _sun_transform(look: Look) -> str:
+    return _light_transform(look.sun_pitch, look.sun_yaw)
+
+
+def _light_transform(pitch: float, yaw: float) -> str:
     from kiln.sdf import rotation_matrix
 
-    m = rotation_matrix((look.sun_pitch, look.sun_yaw, 0.0))
+    m = rotation_matrix((pitch, yaw, 0.0))
     rows = ", ".join(f"{m[r, c]:.6g}" for r in range(3) for c in range(3))  # Godot's text format is row-major
     return f"Transform3D({rows}, 0, 10, 0)"
 

@@ -62,6 +62,9 @@ WARNING_RULES = {
     "W130": "a variant leaves a colour as it is that goes with one it swaps (same ramp, or close in hue): a seam in the old colour",
     "W131": "a see-through material (alpha < 1) in an atlas project: the atlas draws every part opaque",
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
+    "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
+    "W135": "a limb is fused to another branch of a soft-skinned body at rest, away from its joint: posing it stretches the skin",
+    "W134": "colour fades go in the vertex colours here (no baked maps), but the project doesn't export vertex colours",
 }
 
 CLASS_SIZES = {  # (min, max) of the largest side in metres: catches cm-vs-m mistakes
@@ -90,7 +93,7 @@ CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than a
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
 BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127", "W128", "W129", "W132")  # fmt: skip
+               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -101,6 +104,11 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     def warn(rule: str, message: str, line: int | None = None, where: str = "") -> None:
         out.append(Finding(rule, message, m.path, line, where))
 
+    if built.skin == "soft":  # limbs fused to the body at rest (#255)
+        from kiln.fused import fused_limbs
+
+        for message, line, where in fused_limbs(built)[:3]:
+            warn("W135", message, line, where)
     for aname, anim in m.animations.items():  # reach needs a two-part chain (#200)
         for pose in anim.poses:
             for pid, pp in pose.items():
@@ -214,6 +222,13 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                 if t is not None and t < 2 * texel:
                     warn("W121", f"a detail {g.shape} is {t:.3g} m thick, under two texels of the {m.normal_map} map ({2 * texel:.3g} m): it "
                          "won't show; make it thicker or the map bigger")  # fmt: skip
+        if m.relief and m.normal_map:  # patches narrower than four texels blur out in the map (#261)
+            lo, hi = built.bounds()
+            texel = texel_size(float((hi - lo).max()), m.normal_map)
+            for k, layer in enumerate(m.relief):
+                if layer.width < 4 * texel:
+                    warn("W133", f"relief layer {k} is {layer.width:.3g} m wide, under four texels of the {m.normal_map} map "
+                         f"({4 * texel:.3g} m): its patches blur out; make them wider or the map bigger", None, f"relief[{k}].width")  # fmt: skip
         if built.bake is not None and built.bake.fit < 1.0:
             warn("W125", f"the mesh's UV charts don't fit the {m.normal_map} normal map (the padding between them alone fills it): they "
                  f"were squeezed to {built.bake.fit * 100:.0f}%, so detail blurs and charts can bleed at a distance; use normal_map: "
@@ -225,7 +240,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                          "their own (covered by other parts, hard, glowing or under a decal)")  # fmt: skip
         if any(part.color_blend > 0 and part.color_blend_set for part in m.parts):  # (a style's default may find nothing to fade)
             lay = built.bake.layers if built.bake is not None else None
-            if lay is None or lay.mix is None or not (lay.mix > 0).any():
+            if (lay is None or lay.mix is None or not (lay.mix > 0).any()) and built.corner_fade is None:
                 first = next(part for part in m.parts if part.color_blend > 0 and part.color_blend_set)
                 warn("W127", "color_blend fades nothing here (and still bakes the maps): a fade needs a neighbour of another colour that "
                      "the part joins with a blend (not a crisp seam, a hard or glowing part, or a decal)", first.line, f"{first.where}.color_blend")  # fmt: skip
@@ -473,6 +488,13 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                                     "check it still fits, then `kiln mark <model> --current`", path, None, "style_version"))  # fmt: skip
             palette, _ = project.palette(model.palette)
             keep += variant_warnings(model, palette)
+            if model.vertex_fades and not project.config.vertex_colors:  # #262
+                first = next((p for p in model.parts if p.color_blend > 0), None)
+                keep.append(Finding("W134", "color_blend fades per vertex here (the model has no baked maps"
+                                    + (": normal_map: 0" if model.normal_map_off else ": baking isn't installed, pip install \"kiln-gen[bake]\"")
+                                    + "), but the project draws a material per colour (or an atlas), so the borders stay crisp in the glb: "
+                                    "set vertex_colors = true in kiln.toml, or let the model bake its maps", path,
+                                    first.line if first else None, f"{first.where}.color_blend" if first else "parts"))  # fmt: skip
             if project.config.atlas:  # one opaque material per model: glass can't be see-through there (#175)
                 see = sorted({p.material for p in model.parts if p.geometry.op == "add" and style.materials.get(p.material, MaterialPreset()).alpha < 1})
                 if see:

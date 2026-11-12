@@ -43,7 +43,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 32  # bump when meshing/painting changes output
+BUILDER_VERSION = 35  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -330,6 +330,7 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     if pieces or kept:  # a model of hard parts only has nothing to mesh: no phase, no "0 triangles" (#174)
         phase(f"meshing {smooth} part{'s' * (smooth != 1)} at {step * 1000:.3g} mm cells ({reason})", "meshing")
     meshes = [dual_contour(f, step, meshing) for _, f in pieces]
+    meshes = [_refined(model, include, f, mesh, step) for (include, f), mesh in zip(pieces, meshes, strict=True)]
     if pieces:
         phase(f"meshed at {step * 1000:.3g} mm: {sum(m.triangles for m in meshes)} triangles", "meshing")
     kept_cut, kept_hidden = _kept(model, style, field, sorted(kept), step, target, meshes, rigged)
@@ -415,7 +416,10 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     if model.normal_map:
         size = model.normal_map if budget is None else max(256, model.normal_map // 2)  # a LOD: its own, smaller map
         phase("baking maps")  # (#300: it ran on under the skinning line, which looked stuck on its last part)
-        built.bake = bake_normals(model, built, step, [inc for inc in groups_of if inc], kept, size, hinted("a smaller normal_map bakes faster"))
+        built.bake = bake_normals(model, built, step, [inc for inc in groups_of if inc], kept, size, hinted("a smaller normal_map bakes faster"),
+                                  lod=budget is not None)  # fmt: skip
+    elif model.vertex_fades:  # colour fades without the maps: per face corner (COLOR_0)
+        built.corner_fade = vertex_fade(model, built, step, [inc for inc in groups_of if inc], kept)
     return built
 
 
@@ -428,8 +432,164 @@ def soft_faces(built: Built, face_field: Array) -> Array:
     return np.asarray((face_field >= 0) & ~glows & (p.face_decal < 0))
 
 
+_BASE_PATCHES: dict[str, Any] = {}  # model name -> its full build's relief patches, for its LODs (set by build_cached)
+
+
+FINE_ROUNDS = 16  # longest-edge splits at most, per part with a finer resolution
+
+
+def _refined(model: Model, include: list[int], field: Field, mesh: Mesh, step: float) -> Mesh:
+    """Parts with their own finer `resolution` (a face on a body): the mesh in each one's box (padded by its blend and
+    two of its cells) is split until its edges are under 1.5 of those cells, and every vertex there moves onto the
+    surface along its normal, so the detail the coarse cells missed (lids, nostrils, a nose) is in the mesh, which
+    stays watertight (#306). Along the normal, not the field's gradient: inside a union the gradient points to the
+    nearest part's own boundary, often buried (a nose's back), not to the surface."""
+    from kiln.paint import refine
+
+    fine: list[tuple[int, float]] = []
+    for i in include:
+        cell = model.parts[i].fine
+        if cell is not None and cell < step:
+            fine.append((i, cell))
+    if not fine or not mesh.triangles:
+        return mesh
+    v, f = mesh.vertices, mesh.faces
+    for i, cell in fine:
+        lo, hi = model.parts[i].geometry.bounds()
+        pad = 2 * cell + model.parts[i].geometry.blend
+        for _ in range(FINE_ROUNDS):
+            c = v[f].mean(axis=1)
+            sel = np.all((c >= lo - pad) & (c <= hi + pad), axis=1)
+            before = len(f)
+            v, f, _ = refine(v, f, sel, 1.5 * cell, lambda x: x)
+            region = np.unique(f[np.all((v[f].mean(axis=1) >= lo - pad) & (v[f].mean(axis=1) <= hi + pad), axis=1)])
+            v = v.copy()
+            v[region] = _onto_surface(field, v, f, region, step)
+            if len(f) == before:
+                break
+    return Mesh(v, f)
+
+
+def _onto_surface(field: Field, v: Array, f: Array, which: Array, reach: float, samples: int = 33) -> Array:
+    """Vertices `which` moved along their (area-weighted) normals to the nearest crossing of the surface: outward
+    from inside, inward from outside, within `reach`; where there is none, they stay."""
+    n = np.zeros_like(v)
+    face_n = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    for k in range(3):
+        np.add.at(n, f[:, k], face_n)
+    n = n[which] / np.maximum(np.linalg.norm(n[which], axis=1, keepdims=True), 1e-12)
+    p = v[which]
+    t = np.linspace(0.0, reach, samples)
+    out = p.copy()
+    d0 = field.distance(p)
+    for sign in (1.0, -1.0):  # inside: march out; outside: march in
+        go = np.flatnonzero((d0 < 0) if sign > 0 else (d0 > 0))
+        if not len(go):
+            continue
+        q = p[go][None, :, :] + sign * t[:, None, None] * n[go][None, :, :]
+        d = field.distance(q.reshape(-1, 3)).reshape(samples, len(go))
+        crossed = (d >= 0) if sign > 0 else (d <= 0)
+        first = np.argmax(crossed, axis=0)
+        ok = crossed[first, np.arange(len(go))] & (first > 0)
+        k1 = first[ok]
+        cols = np.arange(len(go))[ok]
+        a, b = d[k1 - 1, cols], d[k1, cols]
+        frac = np.clip(a / np.where(np.abs(a - b) > 1e-12, a - b, 1.0), 0.0, 1.0)
+        tt = t[k1 - 1] + frac * (t[k1] - t[k1 - 1])
+        out[go[cols]] = p[go[cols]] + sign * tt[:, None] * n[go[cols]]
+    return np.asarray(out)
+
+
+def _face_axes(model: Model, owner: Array) -> Array:
+    """Per face, its part's own axis (a capsule's from -> to, a cylinder's or cone's y), pointing out from the model's
+    middle (an arm's from the shoulder to the hand): what `flow: along` follows. Zero for other shapes."""
+    from kiln.rig import limb_segment
+
+    lo, hi = np.min([g.bounds()[0] for g in (q.geometry for q in model.parts) if g.op == "add"], axis=0), \
+        np.max([g.bounds()[1] for g in (q.geometry for q in model.parts) if g.op == "add"], axis=0)  # fmt: skip
+    middle = (lo + hi) / 2
+    axes = np.zeros((len(model.parts), 3))
+    for i, part in enumerate(model.parts):
+        seg = limb_segment(part.geometry) if part.geometry.op == "add" else None
+        if seg is None:
+            continue
+        a, b = seg
+        if np.linalg.norm(b - middle) < np.linalg.norm(a - middle):
+            a, b = b, a
+        d = b - a
+        if np.linalg.norm(d) > 1e-9:
+            axes[i] = d / np.linalg.norm(d)
+    return np.asarray(axes[owner])
+
+
+def border_fade(model: Model, built: Built, owner: Array, face_field: Array) -> Any:
+    """The colour borders that fade (#230, part color_blend): a kiln.fade.Fade, or None. `owner`: each face's nearest
+    adding part; `face_field`: its soft piece (-1: hard)."""
+    if not any(part.color_blend > 0 for part in model.parts):
+        return None
+    from kiln.fade import Fade
+
+    p = built.painted
+    hues: dict[str, int] = {}
+    colour = np.array([hues.setdefault(g.color, len(hues)) for g in p.groups])[p.face_group]
+    edges = np.sort(np.concatenate([p.faces[:, [0, 1]], p.faces[:, [1, 2]], p.faces[:, [2, 0]]]), axis=1)
+    face_of = np.tile(np.arange(len(p.faces)), 3)
+    order = np.lexsort((face_of, edges[:, 1], edges[:, 0]))
+    edges, face_of = edges[order], face_of[order]
+    pair = np.flatnonzero((edges[1:] == edges[:-1]).all(axis=1))  # an edge and its twin, next to each other
+    f1, f2 = face_of[pair], face_of[pair + 1]
+    asked = np.array([part.color_blend for part in model.parts])
+    joins = np.array([part.geometry.blend for part in model.parts])
+    crisp = np.array([part.color_blend_set and part.color_blend == 0 for part in model.parts])  # color_blend: 0 said "no fade here"
+    reach = np.where(crisp[owner[f1]] | crisp[owner[f2]], 0.0, np.maximum(asked[owner[f1]], asked[owner[f2]]))  # the wider of the two ...
+    smooth = joins[np.maximum(owner[f1], owner[f2])] > 0  # ... where the later part blends into the earlier (a crisp seam stays crisp)
+    plain = soft_faces(built, face_field)
+    keep = (colour[f1] != colour[f2]) & (owner[f1] != owner[f2]) & (reach > 0) & smooth & plain[f1] & plain[f2]
+    if not keep.any():
+        return None
+    f1, f2 = f1[keep], f2[keep]
+    tri = p.vertices[p.faces]
+    face_normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    face_normal /= np.maximum(np.linalg.norm(face_normal, axis=1, keepdims=True), 1e-18)
+    normal = face_normal[f1] + face_normal[f2]
+    normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-18)
+    return Fade(p.vertices[edges[pair[keep]]], np.stack([p.face_group[f1], p.face_group[f2]], axis=1),
+                np.stack([owner[f1], owner[f2]], axis=1), normal, reach[keep], owner)  # fmt: skip
+
+
+def vertex_fade(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int]) -> Any:
+    """Colour fades per face corner (#262: `normal_map: 0`, or no baking installed): per corner (F x 3) the paint
+    group it fades toward and how much, and a second near a three-colour corner (export.fade_colors mixes them, with a
+    variant's colours). None: nothing fades."""
+    p = built.painted
+    adding = [i for i, q in enumerate(model.parts) if q.geometry.op == "add"]
+    if not adding:
+        return None
+    centres = p.vertices[p.faces].mean(axis=1)
+    owner = np.asarray(adding)[field_of(model, step).nearest(adding, centres)[0]]
+    pieces = [*soft_pieces, *([i] for i in sorted(kept))]
+    piece_of = {i: k for k, inc in enumerate(pieces) for i in inc}
+    face_field = np.array([piece_of.get(int(i), -1) for i in owner], dtype=np.int64)
+    fade = border_fade(model, built, owner, face_field)
+    if fade is None:
+        return None
+    n = len(p.faces) * 3
+    corner_face = np.repeat(np.arange(len(p.faces)), 3)
+    points = p.vertices[p.faces].reshape(-1, 3)
+    normals = np.asarray(built.normals).reshape(-1, 3)
+    normals = normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+    o1, o2 = np.zeros(n, dtype=np.int64), np.zeros(n, dtype=np.int64)
+    w1, w2 = np.zeros(n), np.zeros(n)
+    near = np.flatnonzero(fade.touches(points))
+    if len(near):
+        o1[near], w1[near], o2[near], w2[near] = fade.mix(points[near], corner_face[near], normals[near])
+    if not (w1 > 0).any():
+        return None
+    return o1, w1, o2, w2
+
+
 def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int], size: int,
-                 progress: Progress | None = None) -> Any:  # fmt: skip
+                 progress: Progress | None = None, lod: bool = False) -> Any:  # fmt: skip
     """The model's normal map. Each face is baked with its own piece's field, as it was meshed (a separate helmet's
     opening, a bone's own surface), plus the detail parts: those with the id of one of the piece's parts, and every
     detail cut. Kept parts get their own field; hard parts (exact polygons) keep their mesh normals."""
@@ -455,44 +615,60 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
     owner = np.asarray(adding)[field_of(model, step).nearest(adding, centres)[0]] if adding else np.zeros(len(p.faces), np.int64)
     piece_of = {i: k for k, inc in enumerate(pieces) for i in inc}
     face_field = np.array([piece_of.get(int(i), -1) for i in owner], dtype=np.int64)  # hard parts: -1
-    patches, on = None, []
+    patches = None
+    on: list[Array] = []  # per relief layer, the faces it covers
     if model.relief:  # patches over the faces of the parts each layer names (a face is its nearest adding part's)
         from kiln import relief
 
         ids = np.array([model.parts[int(i)].id for i in owner]) if adding else np.zeros(len(p.faces), dtype=str)
         soft = soft_faces(built, face_field)
-        on = [np.isin(ids, layer.on) & soft for layer in model.relief]
-        patches = relief.scatter(p.vertices, p.faces, built.normals, on, model.relief)
-    fading = None
-    if adding and any(model.parts[i].color_blend > 0 for i in adding):  # colours that fade across part borders (#230)
-        from kiln.fade import Fade
+        face_color = np.array([g.color for g in p.groups])[p.face_group]
+        on = []
+        for layer in model.relief:  # its ids (all with on_colors alone), its colours, less its except: ids (#301)
+            sel = (np.isin(ids, layer.on) if layer.on else np.ones(len(ids), dtype=bool)) & soft
+            if layer.on_colors:
+                sel &= np.isin(face_color, layer.on_colors)
+            if layer.exclude:
+                sel &= ~np.isin(ids, layer.exclude)
+            on.append(sel)
+        base = _BASE_PATCHES.get(model.name) if lod else None
+        if base is not None:  # a LOD: the full build's patches, so the pattern is the same at every level (#261)
+            patches = base
+        else:
+            axis = _face_axes(model, owner) if any(layer.flow == "along" for layer in model.relief) else None
+            patches = relief.scatter(p.vertices, p.faces, built.normals, on, model.relief, axis)
+        built.relief_patches = patches
+    fading = border_fade(model, built, owner, face_field) if adding else None
+    occ = None
+    from kiln.shade import effective
 
-        hues: dict[str, int] = {}
-        colour = np.array([hues.setdefault(g.color, len(hues)) for g in p.groups])[p.face_group]
-        edges = np.sort(np.concatenate([p.faces[:, [0, 1]], p.faces[:, [1, 2]], p.faces[:, [2, 0]]]), axis=1)
-        face_of = np.tile(np.arange(len(p.faces)), 3)
-        order = np.lexsort((face_of, edges[:, 1], edges[:, 0]))
-        edges, face_of = edges[order], face_of[order]
-        pair = np.flatnonzero((edges[1:] == edges[:-1]).all(axis=1))  # an edge and its twin, next to each other
-        f1, f2 = face_of[pair], face_of[pair + 1]
-        asked = np.array([part.color_blend for part in model.parts])
-        joins = np.array([part.geometry.blend for part in model.parts])
-        crisp = np.array([part.color_blend_set and part.color_blend == 0 for part in model.parts])  # color_blend: 0 said "no fade here"
-        reach = np.where(crisp[owner[f1]] | crisp[owner[f2]], 0.0, np.maximum(asked[owner[f1]], asked[owner[f2]]))  # the wider of the two ...
-        smooth = joins[np.maximum(owner[f1], owner[f2])] > 0  # ... where the later part blends into the earlier (a crisp seam stays crisp)
-        plain = soft_faces(built, face_field)
-        keep = (colour[f1] != colour[f2]) & (owner[f1] != owner[f2]) & (reach > 0) & smooth & plain[f1] & plain[f2]
-        if keep.any():
-            f1, f2 = f1[keep], f2[keep]
-            tri = p.vertices[p.faces]
-            face_normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
-            face_normal /= np.maximum(np.linalg.norm(face_normal, axis=1, keepdims=True), 1e-18)
-            normal = face_normal[f1] + face_normal[f2]
-            normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-18)
-            fading = Fade(p.vertices[edges[pair[keep]]], np.stack([p.face_group[f1], p.face_group[f2]], axis=1),
-                          np.stack([owner[f1], owner[f2]], axis=1), normal, reach[keep], owner)  # fmt: skip
-    return bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
-                     np.array(on) if model.relief else None, fading, progress)  # fmt: skip
+    if (patches is not None or fading is not None) and effective(built).cavity > 0:  # shade paint per texel (#266)
+        from kiln.atlas import occlusion
+
+        occ = occlusion(built)
+    baked = bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
+                      np.array(on) if model.relief else None, fading, progress, occ)  # fmt: skip
+    if patches is not None and len(patches) and any(layer.displace for layer in model.relief):
+        _displace(built, model, patches, on)
+    return baked
+
+
+def _displace(built: Built, model: Model, patches: Any, on: list[Array]) -> None:
+    """`displace: true` layers move the mesh out by their height (tufts break the silhouette, #261). Each vertex of the
+    faces a layer covers moves along its normal; the corner normals stay, so the normal map isn't counted twice."""
+    from kiln import relief
+
+    p = built.painted
+    moving = [k for k, layer in enumerate(model.relief) if layer.displace]
+    sub = patches.select(np.isin(patches.entry, moving))
+    vn = np.zeros_like(p.vertices)
+    np.add.at(vn, p.faces.reshape(-1), built.normals.reshape(-1, 3))
+    vn /= np.maximum(np.linalg.norm(vn, axis=1, keepdims=True), 1e-12)
+    allowed = np.zeros((len(model.relief), len(p.vertices)), dtype=bool)
+    for k in moving:
+        allowed[k, np.unique(p.faces[on[k]])] = True
+    stamped, _ = relief.stamp(sub, p.vertices, vn, allowed=allowed)
+    p.vertices = p.vertices + vn * stamped.height[:, None]
 
 
 def _kept(model: Model, style: Style, field: Field, kept: list[int], step: float, target: int, others: list[Mesh],
@@ -887,6 +1063,8 @@ def cache_key(model: Model, style: Style, palette: dict[str, str], budget: int |
     # are sampled again on a cache hit, see motion_key) leave the meshes alone (#185)
     text = model.shape_text or model.text
     h.update(json.dumps([__version__, BUILDER_VERSION, text, shape_key(model, style, budget), sorted(palette.items()), budget]).encode())
+    if style.shade.cavity > 0:  # a colour map then keeps each texel's occlusion (#266); the strengths apply when it is written
+        h.update(b"cavity")
     for part in model.parts:
         if part.decal is not None:
             h.update(part.decal.image.read_bytes())
@@ -1012,6 +1190,8 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
                 _store(built, path)
         if not built.step_reason and model.source is None:  # cached before builds kept it
             built.step_reason = mesh_cells(field_of(model, built.step), model, style)[2]
+        if budget is None and model.relief:
+            _BASE_PATCHES[model.name] = getattr(built, "relief_patches", None)
         return built
     global _hard_cache
     _hard_cache = cache_dir / "hard"
@@ -1020,6 +1200,8 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
     finally:
         _hard_cache = None
     _prune_hard(cache_dir / "hard")
+    if budget is None and model.relief:
+        _BASE_PATCHES[model.name] = built.relief_patches
     built.motion_key = motion_key(model)
     cache_dir.mkdir(parents=True, exist_ok=True)
     for old in cache_dir.glob(f"{prefix}*.pickle"):

@@ -58,12 +58,12 @@ UNIONS = ("whole", "per_bone")
 CYCLES = ("walk", "waddle", "run", "sneak", "hop", "bob", "spin", "swing", "breathe", "wave", "chain")
 INTERPOLATIONS = ("linear", "step")
 
-PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "density", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
+PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "density", "resolution", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
                "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr", "on", "folds"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances",
+TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances", "transforms",
               "rig", "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
@@ -158,6 +158,7 @@ class Part:
     color_blend: float = 0.0  # metres: its colour fades into its neighbours' over this distance from their border (base colour map)
     color_blend_set: bool = False  # the part gave color_blend itself (else the style's [shape] color_blend may apply)
     density: float = 1.0  # weight on the triangle budget in its surface (3: three times the triangles per area of the rest)
+    fine: float | None = None  # metres: a finer mesh cell in this part's box than the model's (a face), refined onto the surface (#306)
     on: OnSurface | None = None  # placed on the blended surface of earlier parts (resolved once all parts are read)
     skin_falloff: float | None = None  # soft skins: metres over which other bones pull on this part's surface (#192)
     keep: bool | None = None  # survives every reduction (LODs) at full detail; None: small crisp parts do
@@ -220,8 +221,10 @@ class Source:
 class Relief:
     """A layer of shallow overlapping patches on the surface of some parts, in the baked maps only (kiln.relief)."""
 
-    on: list[str]  # part ids it covers
+    on: list[str]  # part ids it covers (empty with on_colors: every smooth part)
     kind: str = "fur"
+    on_colors: list[str] = field(default_factory=list)  # hex: only faces painted in these colours (#301)
+    exclude: list[str] = field(default_factory=list)  # part ids it leaves bare (`except:` in the model, #301)
     length: float = 0.09  # metres along the flow
     width: float = 0.05  # metres across
     lift: float = 0.008  # metres the tip stands off the surface
@@ -234,6 +237,7 @@ class Relief:
     under: float = 0.3  # 0..1: how much darker the surface is just below a tip
     seed: int = 1
     fade: float = 0.06  # metres: patches thin out and shrink over this distance toward the edge of `on`
+    displace: bool = False  # also move the mesh by the layer's height: tufts break the silhouette (#261)
 
 
 @dataclass(frozen=True)
@@ -263,6 +267,9 @@ class Model:
     resolution: float | None = None  # metres per mesh cell for this model, as is (not scaled by size); overrides the style
     max_cells: int | None = None  # mesh grid cells per axis at most; overrides the style
     normal_map: int = 0  # texels across the baked normal map (0: none)
+    normal_map_off: bool = False  # the model says normal_map: 0 itself (colour fades then go in the vertices)
+    fade_maps: bool = False  # the maps are on only for colour fades (none with relief or a normal_map of its own)
+    vertex_fades: bool = False  # colour fades per vertex (COLOR_0) instead of in the base colour map (#262)
     normal_strength: float = 1.0  # the map's tilt away from the mesh normal, scaled
     normal_strength_line: int | None = None  # normal_strength given with no map (yet): E003 unless the style brings one
     bake_parts: list[Geometry] | None = None  # every part's geometry in order, `detail` ones too (the normal map's field)
@@ -585,6 +592,12 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                   "triangles per area, e.g. a face; 0.5: coarser)", line, f"{where}.density")  # fmt: skip
         ok = False
         density = 1.0
+    fine = raw.get("resolution")
+    if fine is not None and (not _num(fine) or not 0.0005 <= float(fine) <= 0.5):
+        ctx.error("E003", "a part's resolution is a finer mesh cell inside its box, in metres (e.g. 0.004 for a face; pair it with "
+                  "density so the budget keeps the triangles)", line, f"{where}.resolution")  # fmt: skip
+        ok = False
+        fine = None
     skin_falloff = raw.get("skin_falloff")
     if skin_falloff is not None and (not _num(skin_falloff) or not 0 <= float(skin_falloff) <= 0.5):
         ctx.error("E003", "skin_falloff is how far (metres) other bones pull on this part's surface in a soft skin: 0 (only its own bone) "
@@ -873,7 +886,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale, folds=fold)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
-                   "texture": texture, "color_blend": float(color_blend), "color_blend_set": "color_blend" in raw, "density": float(density), "on": on,
+                   "texture": texture, "color_blend": float(color_blend), "color_blend_set": "color_blend" in raw, "density": float(density), "fine": None if fine is None else float(fine), "on": on,
                    "skin_falloff": None if skin_falloff is None else float(skin_falloff), "wall": op == "cut" and "color" in raw}  # fmt: skip
     parts = [Part(index, str(part_id), geom, color[0], color[1], material, pattern, decal, line, where, loose=bool(loose), **hard_fields)]
     if mirror_id is not None:
@@ -1042,11 +1055,12 @@ def _place_on(ctx: _Ctx, model: Model, done: set[int]) -> None:
                 twin.geometry.at, twin.geometry.rotation, twin.geometry.copies = r.at, r.rotation, r.copies
 
 
-RELIEF_FIELDS = {"on", "kind", "length", "width", "lift", "density", "flow", "tips", "jitter", "color", "color_to", "under", "seed", "fade"}
+RELIEF_FIELDS = {"on", "on_colors", "except", "displace", "kind", "length", "width", "lift", "density", "flow", "tips", "jitter", "color", "color_to", "under", "seed", "fade"}
 RELIEF_RANGES = {"length": (0.005, 2.0, "metres along the flow"), "width": (0.005, 2.0, "metres across the flow"),
                  "lift": (0.0005, 0.1, "metres the tip stands off the surface"), "density": (0.1, 6.0, "1 just covers the surface, more overlaps"),
                  "jitter": (0.0, 1.0, "variation of size and angle"), "under": (0.0, 1.0, "how much darker the surface is under a tip"),
                  "fade": (0.0, 2.0, "metres over which patches thin out toward the edge of `on`")}  # fmt: skip
+RELIEF_KINDS = ("fur", "scales", "feathers", "shingles")
 RELIEF_MAP = 1024  # the baked maps' size when a model has relief but no normal_map
 
 
@@ -1073,20 +1087,42 @@ def _parse_relief(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
         for key in sorted(str(key) for key in set(entry) - RELIEF_FIELDS):
             ctx.error("E003", f"unknown relief field {key!r}: a layer has {', '.join(sorted(RELIEF_FIELDS))}", eline, f"{where}.{key}")
             ok = False
-        on = entry.get("on")
+        on = entry.get("on", [] if "on_colors" in entry else None)
         on = [on] if isinstance(on, str) else on
-        if not isinstance(on, list) or not on or not all(isinstance(i, str) for i in on):
-            ctx.error("E003", "relief on: the ids of the parts the layer covers, e.g. on: [body, upperleg_l, upperleg_r]", eline, f"{where}.on")
+        if not isinstance(on, list) or not (on or "on_colors" in entry) or not all(isinstance(i, str) for i in on):
+            ctx.error("E003", "relief on: the ids of the parts the layer covers, e.g. on: [body, upperleg_l, upperleg_r] "
+                      "(or on_colors: [fur] for the faces painted in those colours)", eline, f"{where}.on")  # fmt: skip
             continue
-        missing = [i for i in on if i not in ids]
+        excluded = entry.get("except", [])
+        excluded = [excluded] if isinstance(excluded, str) else excluded
+        if not isinstance(excluded, list) or not all(isinstance(i, str) for i in excluded):
+            ctx.error("E003", "relief except: the ids of parts the layer leaves bare, e.g. except: [face, chest]", eline, f"{where}.except")
+            continue
+        missing = [i for i in [*on, *excluded] if i not in ids]
         if missing:
             ctx.error("E003", f"relief on: no smooth part has id {', '.join(missing)} (ids: {', '.join(sorted(ids)) or 'none'}; a mirrored "
                       "part's twin has its own mirror_id)", eline, f"{where}.on")  # fmt: skip
             ok = False
-        if entry.get("kind", "fur") != "fur":
-            ctx.error("E003", "relief kind is fur (flat patches with notched, pointed tips)", eline, f"{where}.kind")
+        if entry.get("kind", "fur") not in RELIEF_KINDS:
+            ctx.error("E003", "relief kind is fur (notched, pointed tips), scales (round), feathers (one point, a rib) or shingles "
+                      "(a straight edge)", eline, f"{where}.kind")  # fmt: skip
             ok = False
-        layer = Relief(list(on))
+        if not isinstance(entry.get("displace", False), bool):
+            ctx.error("E003", "relief displace is true or false (true: the mesh moves out by the layer too)", eline, f"{where}.displace")
+            ok = False
+        layer = Relief(list(on), exclude=list(excluded), kind=str(entry.get("kind", "fur")), displace=entry.get("displace") is True)
+        raw_colors = entry.get("on_colors", [])
+        raw_colors = [raw_colors] if isinstance(raw_colors, str) else raw_colors
+        if not isinstance(raw_colors, list):
+            ctx.error("E003", "relief on_colors: palette colours, e.g. on_colors: [fur, fur_dark]", eline, f"{where}.on_colors")
+            ok = False
+        else:
+            for c in raw_colors:
+                found = _color(ctx, c, eline, f"{where}.on_colors")
+                if found is None:
+                    ok = False
+                else:
+                    layer.on_colors.append(found[0])
         for key, (lo, hi, what) in RELIEF_RANGES.items():
             value = entry.get(key, getattr(layer, key))
             if not _num(value) or not lo <= float(value) <= hi:
@@ -1102,12 +1138,13 @@ def _parse_relief(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
             else:
                 setattr(layer, key, value)
         flow = entry.get("flow", "down")
-        if flow in ("down", "up"):
+        if flow in ("down", "up", "along"):
             layer.flow = flow
         elif isinstance(flow, list) and len(flow) == 3 and all(_num(v) for v in flow) and any(float(v) != 0 for v in flow):
             layer.flow = (float(flow[0]), float(flow[1]), float(flow[2]))
         else:
-            ctx.error("E003", "relief flow is the way the patches point, root to tip: down, up, or a direction [x, y, z]", eline, f"{where}.flow")
+            ctx.error("E003", "relief flow is the way the patches point, root to tip: down, up, along (each part's own axis, out from the "
+                      "body), or a direction [x, y, z]", eline, f"{where}.flow")  # fmt: skip
             ok = False
         for key in ("color", "color_to"):
             if key in entry:
@@ -1140,8 +1177,11 @@ def _soft_colours(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
         return
     if model.source is not None:
         return
-    if not model.normal_map:
+    if model.normal_map_off and not model.relief:  # no maps asked: the fade goes in the vertex colours (#262)
+        model.vertex_fades = True
+    elif not model.normal_map:
         model.normal_map = RELIEF_MAP
+        model.fade_maps = True
 
 
 def apply_style(model: Model, color_blend: float, hard: frozenset[int] = frozenset(), can_bake: bool = True) -> list[Finding]:
@@ -1149,7 +1189,9 @@ def apply_style(model: Model, color_blend: float, hard: frozenset[int] = frozens
     doesn't set its own and isn't made hard (`hard`: builder.hard_parts) fades that far; the baked maps come on when one
     does (as for a part's own color_blend), unless baking isn't installed (`can_bake`: then the default is left off).
     Then a normal_strength with no map is an error."""
-    if color_blend > 0 and model.source is None and can_bake:
+    if not can_bake and model.fade_maps:  # no baking installed: the fades go in the vertex colours instead (#262)
+        model.normal_map, model.fade_maps, model.vertex_fades = 0, False, True
+    if color_blend > 0 and model.source is None and can_bake and not model.normal_map_off:
         for k, p in enumerate(model.parts):
             g = p.geometry
             if p.color_blend_set or g.op != "add" or g.blend <= 0 or p.hard or p.crisp or p.detail or k in hard:
@@ -1159,7 +1201,7 @@ def apply_style(model: Model, color_blend: float, hard: frozenset[int] = frozens
             if any(q.color != p.color for q in earlier):  # a border to fade across (a one-colour model bakes nothing)
                 p.color_blend = color_blend
         if any(p.color_blend > 0 for p in model.parts) and not model.normal_map:
-            model.normal_map = RELIEF_MAP
+            model.normal_map, model.fade_maps = RELIEF_MAP, True
     if model.normal_strength_line is not None and not model.normal_map:
         return [Finding("E003", "normal_strength goes with normal_map (the map it scales)", model.path, model.normal_strength_line or None,
                         "normal_strength")]  # fmt: skip
@@ -1961,6 +2003,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                   "the shapes, not triangles (needs kiln-gen[bake])", _line(data, "normal_map"), "normal_map")  # fmt: skip
     else:
         model.normal_map = int(normal_map)
+        model.normal_map_off = "normal_map" in data and normal_map == 0
     strength = data.get("normal_strength", 1.0)
     if not _num(strength) or not 0 <= float(strength) <= 4:
         ctx.error("E003", "normal_strength scales the baked normal map's tilt: 0 (flat) to 4, 1 as baked (0.5: softer grooves)",
@@ -2119,6 +2162,8 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig"), model.template), model.parts)
     if "instances" in data:  # (after the parts: `id` names one)
         model.instances = _parse_instances(ctx, data["instances"], _line(data, "instances"), model)
+    if "transforms" in data:  # (last: the parts as placed, fitted and rigged)
+        _apply_transforms(ctx, data["transforms"], _line(data, "transforms"), model)
     skeleton = data.get("skeleton")
     if isinstance(skeleton, dict):
         model.joint_map = _parse_skeleton_map(ctx, skeleton, model, _line(data, "skeleton"))
@@ -2236,6 +2281,60 @@ def _parse_instances(ctx: _Ctx, raw: Any, line: int | None, model: Model) -> tup
             continue
         out.append(Instance(item["model"], (at[0], at[1], at[2]), (rotate[0], rotate[1], rotate[2]), float(scale), str(bone), iline))
     return tuple(out)
+
+
+def _apply_transforms(ctx: _Ctx, raw: Any, line: int | None, model: Model) -> None:
+    """transforms: [{ ids: [chest, head, arm_l, arm_r], rotate: [x, y, z], pivot: [x, y, z], move: [x, y, z] }, ...]:
+    each turns the parts with these ids about `pivot` (degrees, as a part's rotate), then moves them, in order: a
+    hunched rest posture without retyping every part (#305). Their rig pivots and sockets go with them."""
+    usage = "transforms is a list of { ids: [part ids], rotate: [x, y, z] degrees, pivot: [x, y, z], move: [x, y, z] }"
+    if not isinstance(raw, list):
+        ctx.error("E003", usage, line, "transforms")
+        return
+    known = set(model.ids)
+    for k, item in enumerate(raw):
+        where = f"transforms[{k}]"
+        tline = _line(item) or line
+        ids = item.get("ids") if isinstance(item, dict) else None
+        ids = [ids] if isinstance(ids, str) else ids
+        if not isinstance(item, dict) or any(key not in ("ids", "rotate", "pivot", "move") for key in item) \
+                or not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):  # fmt: skip
+            ctx.error("E003", usage, tline, where)
+            continue
+        missing = [i for i in ids if i not in known]
+        if missing:
+            ctx.error("E003", f"transforms: no part has id {', '.join(missing)} (ids: {', '.join(sorted(known))})", tline, f"{where}.ids")
+            continue
+        rot, piv, mov = (_vec(item.get(key, [0, 0, 0])) for key in ("rotate", "pivot", "move"))
+        if rot is None or piv is None or mov is None:
+            ctx.error("E003", "rotate, pivot and move are [x, y, z]", tline, where)
+            continue
+        r = rotation_matrix((rot[0], rot[1], rot[2]))
+        pivot, move = np.asarray(piv, float), np.asarray(mov, float)
+        # a mirrored part is drawn on both sides of x = 0: it can only follow a transform that keeps x = 0 a mirror
+        keeps_mirror = abs(r[0, 1]) < 1e-9 and abs(r[0, 2]) < 1e-9 and abs(r[1, 0]) < 1e-9 and abs(r[2, 0]) < 1e-9 \
+            and abs(pivot[0]) < 1e-9 and abs(move[0]) < 1e-9  # fmt: skip
+        chosen = [part for part in model.parts if part.id in ids]
+        if not keeps_mirror and any(0 in part.geometry.mirror for part in chosen):
+            ctx.error("E003", "transforms: a part with mirror: x can only turn about x and move in y and z (it is drawn on both sides "
+                      "of x = 0); give each side its own id (mirror_id) to pose them apart", tline, where)  # fmt: skip
+            continue
+
+        def moved(x: Any, r: Any = r, pivot: Any = pivot, move: Any = move) -> Any:
+            return r @ (np.asarray(x, float) - pivot) + pivot + move
+
+        for part in chosen:
+            g = part.geometry
+            if len(g.copies) == 1 and g.copies[0] is IDENTITY:
+                g.at = moved(g.at)
+                g.rotation = r if g.rotation is None else r @ g.rotation
+            else:  # an array: each copy then the transform, about the copy's own pivot
+                g.copies = tuple(Copy(r @ c.rotation, c.pivot, r @ (c.pivot + c.offset - pivot) + pivot + move - c.pivot) for c in g.copies)
+        for pid in ids:
+            entry = model.rig.get(pid)
+            if entry is not None:
+                model.rig[pid] = replace(entry, pivot=None if entry.pivot is None else tuple(moved(entry.pivot).tolist()),
+                                         sockets=tuple((n, tuple(moved(q).tolist())) for n, q in entry.sockets))  # fmt: skip
 
 
 def _parse_fit_to(ctx: _Ctx, raw: Any, line: int | None) -> tuple[Path, str, tuple[str, ...]] | None:

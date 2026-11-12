@@ -69,6 +69,10 @@ sun_pitch = -48.0              # degrees (negative = from above)
 sun_yaw = 30.0
 sun_energy = 1.1
 sun_color = "#fff6e8"
+fill_energy = 0.0              # a second, weaker sun without shadows (0 = none; skin: 0.3): the shadow side keeps colour and form
+fill_pitch = -20.0             #   without raising the ambient everywhere; Godot: a "Fill" DirectionalLight3D, previews the same
+fill_yaw = 210.0               #   default: opposite the sun
+fill_color = "#dde8ff"
 shadows = true
 compat_shadows = false         # Godot's Compatibility renderer: the sun drops its shadows there, since that renderer adds the
                                # ambient again per shadowed light (godotengine/godot#90259: several times too bright); true keeps them
@@ -86,7 +90,9 @@ under = 0.1                    # undersides darker still
 
 **Shade paint** is the hand-painted look: dark crevices, tops at full colour, shaded sides and bellies, in any colour
 mode. It is a grey multiplier per vertex corner in COLOR_0 (glTF multiplies it into the base colour; KILN's Godot scenes and the previews
-use it), so it follows the mesh's resolution. A model's `shade: { cavity: 0.3 }` goes over its style's fields. Vertex
+use it), so it follows the mesh's resolution. A model with a base colour map (relief, `color_blend`) gets it per
+texel in `<name>.color.png` instead, from the normal map's normals (relief tilts and grooves count) and the occlusion
+at each texel, with the same strengths; its mapped faces then carry no COLOR_0. A model's `shade: { cavity: 0.3 }` goes over its style's fields. Vertex
 colours can't go above 1, so `top` darkens everything that doesn't face up rather than lighten the top: pick base
 colours for the lit top. Typical: `cavity` 0.2-0.4 for creatures and props with grooves, `top` 0.1-0.15, `under`
 0.1. Without the atlas `atlas_ao` doesn't apply; `shade.cavity` is the same occlusion. Gibs get their own shade, from the piece's own shape (a

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from conftest import CONFIG, load, make_project, write_model
@@ -157,15 +158,31 @@ def test_atlas_lods_attr_and_godot_scenes_carry_it(tmp_path: Path) -> None:
 
 
 
-def test_a_colour_mapped_model_gets_it_too(project: Project) -> None:
+def test_a_colour_mapped_model_gets_it_per_texel(tmp_path: Path) -> None:
+    """#266: with a base colour map the shade is painted into the map (the groove, the sides and the underside darker)
+    and the mapped faces carry no COLOR_0 multiplier on top (no double shading)."""
+    import io
+
+    from PIL import Image
+
     from kiln import bake as bk
 
     if not bk.available():
         return  # xatlas not installed (kiln-gen[bake])
     faded = GROOVED + "  - sphere: { at: [0, 0.8, 0], radius: 0.1 }\n    color: gold\n    blend: 0.03\n    color_blend: 0.04\n"
-    write_model(project, faded + SHADE)
-    assert not build(project).errors
-    doc, binary = read_glb((project.output_dir / "models" / "thing.glb").read_bytes())
-    mapped = [p for m in doc["meshes"] for p in m["primitives"] if doc["materials"][p["material"]]["name"].startswith("default_mapped")]
-    assert mapped and all("COLOR_0" in p["attributes"] for p in mapped)
-    assert min(read_accessor(doc, binary, p["attributes"]["COLOR_0"]).min() for p in mapped) < 0.8
+
+    def made(text: str, root: Path) -> tuple[np.ndarray, list[dict[str, Any]]]:
+        proj = make_project(root)
+        write_model(proj, text)
+        assert not build(proj).errors
+        doc, _ = read_glb((proj.output_dir / "models" / "thing.glb").read_bytes())
+        prims = [p for m in doc["meshes"] for p in m["primitives"] if doc["materials"][p["material"]]["name"].startswith("default_mapped")]
+        img = np.asarray(Image.open(io.BytesIO((proj.output_dir / "models" / "thing.color.png").read_bytes())).convert("L"), dtype=float)
+        return img, prims
+
+    plain, _ = made(faded, tmp_path / "a")
+    shaded, mapped = made(faded + SHADE, tmp_path / "b")
+    assert mapped and not any("COLOR_0" in p["attributes"] for p in mapped)
+    filled = (plain != 128) & (plain > 40)
+    ratio = shaded[filled] / np.maximum(plain[filled], 1)
+    assert ratio.max() <= 1.02 and ratio.min() < 0.85 and np.median(ratio) < 0.97  # darker, never lighter (sRGB: 0.85 is ~0.7 linear)

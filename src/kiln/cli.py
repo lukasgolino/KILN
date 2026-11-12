@@ -313,6 +313,7 @@ def _with_occlusion(project: Project, built: Any) -> Any:
         from kiln.shade import shading
 
         built.ao = shading(built, project.config.atlas_ao)
+        built.ao_strength = project.config.atlas_ao
     return built
 
 

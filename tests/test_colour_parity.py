@@ -78,8 +78,14 @@ def _renders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, renderer: str, sty
 
     (tmp_path / "project.godot").write_text(f'config_version=5\n[rendering]\nrenderer/rendering_method="{renderer}"\n')
     monkeypatch.chdir(tmp_path)
-    assert main(["init", "art", "--style", style]) == 0
+    fill = style == "lit_fill"
+    assert main(["init", "art", "--style", "soft_toy" if fill else style]) == 0
     art = tmp_path / "art"
+    if fill:  # the fill from the camera's side, so the spheres' centres take it
+        (art / "styles" / "lit_fill.style.toml").write_text('extends = "soft_toy"\n[look]\nfill_energy = 0.8\nfill_pitch = -10.0\nfill_yaw = 0.0\n'
+                                                            'fill_color = "#c8d8ff"\n')
+        toml = art / "kiln.toml"
+        toml.write_text(toml.read_text().replace('default_style = "soft_toy"', 'default_style = "lit_fill"'))
     parts = [f"  - sphere: {{ at: [{(i - 4.5) * 0.25:.3f}, {0.12 + j * 0.25:.3f}, 0], radius: 0.1 }}\n    color: {c}\n    material: {m}"
              for j, m in enumerate(materials) for i, c in enumerate(COLOURS)]  # fmt: skip
     (art / "models" / "calib.kiln.yaml").write_text("name: calib\nclass: prop\nparts:\n" + "\n".join(parts) + "\n")
@@ -92,7 +98,7 @@ def _renders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, renderer: str, sty
 
 @RENDER
 @pytest.mark.parametrize("renderer", ["forward_plus", "gl_compatibility"])
-@pytest.mark.parametrize("style", ["soft_toy", "toon"])
+@pytest.mark.parametrize("style", ["soft_toy", "toon", "lit_fill"])  # lit_fill: soft_toy with a strong fill light (#275)
 def test_engine_render_matches_the_preview(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, renderer: str, style: str) -> None:
     gaps = [g for _, g in _grid(tmp_path, monkeypatch, renderer, style, MATERIALS)]
     assert np.mean(gaps) < 0.035, f"mean OKLab gap {np.mean(gaps):.3f}, worst {max(gaps):.3f}"

@@ -11,7 +11,7 @@ import numpy as np
 
 from kiln.sdf import Geometry, rotation_matrix
 
-HARDWARE = ("rivets", "band", "planks", "bolt", "slit", "garment")
+HARDWARE = ("rivets", "band", "planks", "bolt", "slit", "garment", "hand", "foot", "eye")
 AXES = {"x": 0, "y": 1, "z": 2}
 HELP = {
     "rivets": "rivets: { count: 8, along: [[x, y, z], ...] (a path, model space) or around: { center: [x, y, z], radius, axis: y }, size: 0.03 }",
@@ -21,6 +21,14 @@ HELP = {
     "slit": "slit: { at: [x, y, z], size: [w, h, d] } (a cut: visors, arrow slits)",
     "garment": "garment: { fit: [chest, spine, ...] (ids it wraps), gap: 0.008, thickness: 0.02 (two mesh cells or more), from_y, to_y (its hem and top; "
                "default: theirs), hem: 0.015 (a thicker band at the bottom; 0: none), openings: [{ at, size }, ...] (cut through it) }",
+    "hand": "hand: { at: [x, y, z] (the wrist), length: 0.2 (wrist to fingertip), width (palm; 0.5 x length), fingers: 4 (1-6), thumb: true, "
+            "curl: 30 (degrees per finger, towards the palm), spread: 8 (degrees, fanned), knuckles: 0.04 (bulge), nail: 0 (claw length; 0: none), "
+            "nail_color } (with rotate; fingers point -y, the palm faces -x, the thumb +z: a left hand hanging at the side)",
+    "foot": "foot: { at: [x, y, z] (the back of the sole, under the ankle), length: 0.26 (heel to toe tip), width (0.42 x length), toes: 5 (1-6), curl: 10 (degrees, down), "
+            "spread: 6, nail: 0 (claw length), nail_color, heel: true } (with rotate; toes point +z, the sole down)",
+    "eye": "eye: { at: [x, y, z] (on the face's surface), facing: [0, 0, 1] (out of the face), radius: 0.03, depth: 0.4 (the ball's front sits this share "
+           "of radius behind the surface), rim: 0.15 (share of radius; 0: none), rim_color, rim_material, rim_emission, in: head (the part(s) it is cut "
+           "into; default: every earlier part) } (the part's colour is the ball's)",
 }
 
 
@@ -124,6 +132,10 @@ def expand(kind: str, spec: Any, raw: dict[str, Any], earlier: list[tuple[str, G
     if not isinstance(spec, dict):
         return [], f"{kind} takes a mapping: {HELP[kind]}"
     rest = {k: v for k, v in raw.items() if k != kind}
+    if kind in ("hand", "foot"):  # soft flesh: blended into the arm or leg
+        return _limb_end(kind, spec, rest)
+    if kind == "eye":
+        return _eye(spec, rest)
     if kind == "garment":  # cloth: a fitted shell (soft), not hard metal
         return _garment(spec, rest, earlier)
     rest.setdefault("hard", True)
@@ -238,6 +250,183 @@ def expand(kind: str, spec: Any, raw: dict[str, Any], earlier: list[tuple[str, G
     if any(rotate):
         box["rotate"] = rotate
     return [{**{k: v for k, v in rest.items() if k not in ("color", "material")}, "box": box, "cut": True}], None
+
+
+LIMB_KEYS = {"hand": ("at", "rotate", "length", "width", "fingers", "thumb", "curl", "spread", "knuckles", "nail", "nail_color"),
+             "foot": ("at", "rotate", "length", "width", "toes", "curl", "spread", "knuckles", "nail", "nail_color", "heel")}
+FOOT_FRAME = np.array([[0.0, 0.0, -1.0], [1.0, 0.0, 0.0], [0.0, -1.0, 0.0]])  # the hand's frame onto a foot's: fingers -y -> +z, palm -x -> -y
+
+
+def _finger(base: np.ndarray, along: np.ndarray, bend: np.ndarray, length: float, curl: float, joints: int) -> list[np.ndarray]:
+    """Points of a finger from `base`: `joints` bones, each turned `curl / joints` more towards `bend` (radians)."""
+    pts, here, d = [base], base.copy(), along / np.linalg.norm(along)
+    for k in range(joints):
+        t = curl * (k + 0.5) / joints
+        step = math.cos(t) * along / np.linalg.norm(along) + math.sin(t) * bend
+        d = step / np.linalg.norm(step)
+        here = here + d * length / joints
+        pts.append(here)
+    return pts
+
+
+def _limb_end(kind: str, spec: dict[str, Any], rest: dict[str, Any]) -> tuple[list[dict[str, Any]], str | None]:
+    """A hand or a foot as ordinary soft parts: a palm (sole), fingers (toes) as smooth tapered tubes curled by
+    `curl`, a thumb (heel), nails as cones on the tips. Built in the hand's frame (fingers -y, palm -x, thumb +z),
+    then turned by `rotate` (and, for a foot, onto the foot's frame first)."""
+    foot = kind == "foot"
+    help_ = HELP[kind]
+    if any(k not in LIMB_KEYS[kind] for k in spec):
+        return [], help_
+    at, rotate = _vec(_get(spec, "at", rest.pop("at", [0, 0, 0]))), _vec(_get(spec, "rotate", rest.pop("rotate", [0, 0, 0])))
+    length = _get(spec, "length", 0.26 if foot else 0.2)
+    width = _get(spec, "width", (0.42 if foot else 0.5) * length if _num(length) else None)
+    count = _get(spec, "toes" if foot else "fingers", 5 if foot else 4)
+    curl, spread = _get(spec, "curl", 10 if foot else 30), _get(spec, "spread", 6 if foot else 8)
+    knuckles, nail = _get(spec, "knuckles", 0.04), _get(spec, "nail", 0.0)
+    thumb, heel = _get(spec, "thumb", not foot), _get(spec, "heel", foot)
+    if at is None or rotate is None or not _num(length) or length <= 0 or not _num(width) or width <= 0 \
+            or not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= 6 or not _num(curl) or not -90 <= curl <= 270 \
+            or not _num(spread) or not 0 <= spread <= 45 or not _num(knuckles) or knuckles < 0 or not _num(nail) or nail < 0 \
+            or not isinstance(thumb, bool) or not isinstance(heel, bool):
+        return [], help_
+    turn = rotation_matrix((rotate[0], rotate[1], rotate[2])) @ (FOOT_FRAME if foot else np.eye(3))
+    origin = np.asarray(at, float)
+
+    def place(p: np.ndarray) -> list[float]:
+        return [round(float(v), 6) for v in origin + turn @ p]
+
+    down, palm_side, side = np.array([0.0, -1.0, 0.0]), np.array([-1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0])
+    palm_len = (0.62 if foot else 0.48) * length
+    thick = (0.36 if foot else 0.45) * width
+    radius = min(width / count * 0.5, thick * 0.6)
+    if foot:  # the sole stands on `at`
+        origin = origin + turn @ (-palm_side * thick / 2)
+    out: list[dict[str, Any]] = []
+    mid = down * palm_len / 2
+    out.append({**rest, "ellipsoid": {"at": place(mid), "radii": [round(thick / 2, 6), round(palm_len / 2 * 1.08, 6), round(width / 2, 6)],
+                                      "rotate": [round(float(v), 6) for v in _euler(turn)]}})
+    nails: list[dict[str, Any]] = []
+    profile = [1.0, 0.86, 0.76, 0.68, 0.6, 0.55] if foot else [0.9, 1.0, 0.94, 0.76, 0.62, 0.55]  # from the thumb side (+z) out
+    finger_len = length - palm_len
+    for i in range(count):
+        f = (i - (count - 1) / 2) / max(count - 1, 1)  # -0.5 .. 0.5 across the palm
+        fan = math.radians(spread) * f * 2
+        along = math.cos(fan) * down + math.sin(fan) * side
+        base = down * palm_len * 0.92 + side * f * (width - 2 * radius) + palm_side * thick * 0.05
+        flen = finger_len * profile[count - 1 - i] if count > 1 else finger_len
+        pts = _finger(base, along, palm_side, flen, math.radians(curl), 3)
+        tube: dict[str, Any] = {"points": [place(p) for p in pts], "radius": round(radius * (1 + float(knuckles) * 2), 6),
+                                "radius_to": round(radius * (0.7 if nail else 0.8), 6), "smooth": True}
+        out.append({**rest, "tube": tube})
+        if nail:
+            nails.append(_nail(pts, palm_side, radius * 0.75, float(nail), place, turn))
+    if thumb:
+        base = down * palm_len * 0.35 + side * width * 0.5 + palm_side * thick * 0.25
+        along = down * 0.55 + side * 0.45 + palm_side * 0.5
+        pts = _finger(base, along / np.linalg.norm(along), palm_side, finger_len * 0.75, math.radians(curl) * 0.6, 2)
+        out.append({**rest, "tube": {"points": [place(p) for p in pts], "radius": round(radius * 1.2, 6), "radius_to": round(radius * 0.85, 6),
+                                     "smooth": True}})
+        if nail:
+            nails.append(_nail(pts, palm_side, radius * 0.85, float(nail), place, turn))
+    if heel:  # a rounded heel at the back of the sole, a little behind the ankle
+        out.append({**rest, "sphere": {"at": place(np.array([0.0, palm_len * 0.08, 0.0])), "radius": round(thick * 0.55, 6)}})
+    for n in nails:
+        part = {k: v for k, v in rest.items() if k not in ("color", "material", "blend")}
+        if "nail_color" in spec:
+            part["color"] = spec["nail_color"]
+        elif "color" in rest:
+            part["color"] = rest["color"]
+        if "material" in rest and "nail_color" not in spec:
+            part["material"] = rest["material"]
+        part["blend"] = 0.004
+        out.append({**part, **n})
+    return out, None
+
+
+def _nail(pts: list[np.ndarray], palm_side: np.ndarray, radius: float, length: float, place: Any, turn: np.ndarray) -> dict[str, Any]:
+    """A claw on a finger's tip: a cone from inside the tip along its last bone, curving a little towards the palm."""
+    d = pts[-1] - pts[-2]
+    d = d / np.linalg.norm(d)
+    tip = pts[-1] + d * length * 0.85 + palm_side * length * 0.25
+    base = pts[-1] - d * radius * 0.6 - palm_side * radius * 0.35
+    return {"cone": {"aim": [place(base), place(tip)], "radius": round(radius, 6)}}
+
+
+EYE_KEYS = ("at", "facing", "radius", "depth", "rim", "rim_color", "rim_material", "rim_emission", "in")
+
+
+def _y_onto(d: np.ndarray) -> np.ndarray:
+    """The rotation matrix turning +y onto the unit vector `d` (the shortest turn)."""
+    y = np.array([0.0, 1.0, 0.0])
+    c = float(y @ d)
+    if c > 1 - 1e-12:
+        return np.eye(3)
+    if c < -1 + 1e-12:
+        return np.diag([1.0, -1.0, -1.0])
+    v = np.cross(y, d)
+    k = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    out: np.ndarray = np.eye(3) + k + k @ k / (1 + c)
+    return out
+
+
+def _eye(spec: dict[str, Any], rest: dict[str, Any]) -> tuple[list[dict[str, Any]], str | None]:
+    """A recessed eye: a round socket cut into the face (a short cylinder along `facing`), a ball sunk in it whose
+    front sits `depth` x radius behind the surface, and a thin rim lining the socket's edge, seated flush (its outer
+    half inside the face), so nothing stands proud of the surface."""
+    help_ = HELP["eye"]
+    if any(k not in EYE_KEYS for k in spec):
+        return [], help_
+    at = _vec(_get(spec, "at", rest.pop("at", None)))
+    facing = _vec(_get(spec, "facing", [0, 0, 1]))
+    radius, depth, rim = _get(spec, "radius", 0.03), _get(spec, "depth", 0.4), _get(spec, "rim", 0.15)
+    into = _get(spec, "in")
+    into = [into] if isinstance(into, str) else into
+    if at is None or facing is None or float(np.linalg.norm(facing)) < 1e-9 or not _num(radius) or radius <= 0 \
+            or not _num(depth) or not 0 <= depth <= 2 or not _num(rim) or not 0 <= rim <= 0.5 \
+            or (into is not None and (not isinstance(into, list) or not into or not all(isinstance(i, str) for i in into))):
+        return [], help_
+    rest.pop("rotate", None)
+    f = np.asarray(facing, float) / float(np.linalg.norm(facing))
+    turn = _y_onto(f)
+    rot = [round(float(v), 6) for v in _euler(turn)]
+    o = np.asarray(at, float)
+    r, sunk = float(radius), float(depth) * float(radius)
+
+    def pt(v: np.ndarray) -> list[float]:
+        return [round(float(x), 6) for x in v]
+
+    base = {k: v for k, v in rest.items() if k not in ("color", "material", "emission", "id", "blend")}
+    out: list[dict[str, Any]] = []
+    back = sunk + r * 0.98  # down to the ball's centre, so its front half fills the socket's floor
+    height = back + r  # and out past a curved face
+    out.append({**base, "cylinder": {"at": pt(o + f * (height / 2 - back)), "radius": round(r, 6), "height": round(height, 6), "rotate": rot},
+                "cut": into if into is not None else True, **({"color": rest["color"]} if "color" in rest else {})})  # walls in the ball's colour
+    ball = {k: v for k, v in rest.items() if k != "blend"}
+    ball["blend"] = "none"
+    out.append({**ball, "sphere": {"at": pt(o - f * (sunk + r * 0.98)), "radius": round(r * 0.98, 6)}})
+    if rim:
+        ring = {**base, "blend": "none"}
+        if "rim_color" in spec:
+            ring["color"] = spec["rim_color"]
+        elif "color" in rest:
+            ring["color"] = rest["color"]
+        if "rim_material" in spec:
+            ring["material"] = spec["rim_material"]
+        if "rim_emission" in spec:
+            ring["emission"] = spec["rim_emission"]
+        t = r * float(rim) / 2
+        out.append({**ring, "torus": {"at": pt(o - f * t * 1.2), "radius": round(r, 6), "thickness": round(t, 6), "rotate": rot}})
+    return out, None
+
+
+def _euler(m: np.ndarray) -> list[float]:
+    """Euler degrees [x, y, z] for a rotation matrix, as rotation_matrix reads them (Rz @ Ry @ Rx)."""
+    y = math.asin(max(-1.0, min(1.0, -float(m[2, 0]))))
+    if abs(math.cos(y)) > 1e-9:
+        x, z = math.atan2(float(m[2, 1]), float(m[2, 2])), math.atan2(float(m[1, 0]), float(m[0, 0]))
+    else:  # gimbal lock: x and z turn about the same axis
+        x, z = 0.0, math.atan2(-float(m[0, 1]), float(m[1, 1]))
+    return [round(math.degrees(v), 6) for v in (x, y, z)]
 
 
 __all__ = ["HARDWARE", "expand"]

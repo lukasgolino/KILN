@@ -96,7 +96,7 @@ def test_lint_reports_errors_and_warnings(in_project: Project, capsys: pytest.Ca
     code, result = run_json(["lint", "--fast", "good"], capsys)
     assert code == 0 and result["warnings"] == 0 and result["geometry"] is False  # (#186) it says nothing was meshed
     assert main(["lint", "--fast", "good"]) == 0
-    assert "--fast: the findings that need the built model were not looked for (E009, E013, W101-W104, W106, W108-W111, W113, W120-W129, W132)" \
+    assert "--fast: the findings that need the built model were not looked for (E009, E013, W101-W104, W106, W108-W111, W113, W120-W129, W132, W133, W135)" \
         in capsys.readouterr().out  # fmt: skip
     code, result = run_json(["lint", "--fast", "bad"], capsys)  # a failing fast lint says so too
     assert code == 1 and result["ok"] is False and result["geometry"] is False

@@ -77,4 +77,16 @@ def shading(built: Built, atlas_ao: float = 0.0) -> Array | None:
     return np.round(mult, 4)
 
 
-__all__ = ["FIELDS", "Shade", "effective", "parse", "shading"]
+def texel_shade(built: Built, atlas_ao: float = 0.0) -> Shade | None:
+    """The shade to paint per texel into the base colour map (#266), or None: then COLOR_0 carries it as usual. A model
+    with a colour map keeps each texel's height and occlusion, so crevices between relief patches darken too."""
+    bake = built.bake
+    if bake is None or not getattr(bake, "shaded", False):
+        return None
+    shade = effective(built, atlas_ao)
+    if not shade.on or (shade.cavity > 0 and bake.layers.occ is None):  # built before the cavity was asked: per vertex
+        return None
+    return shade
+
+
+__all__ = ["FIELDS", "Shade", "effective", "parse", "shading", "texel_shade"]

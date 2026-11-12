@@ -42,11 +42,15 @@ class Layers:
     patches: list[int] = dataclass_field(default_factory=list)  # how many patches each relief entry has
     other: Array | None = None  # uint16: the paint group whose colour the texel fades toward (part color_blend); None: no fades
     mix: Array | None = None  # uint8: 255 x how much of that colour (0..0.5)
+    other2: Array | None = None  # uint16: a third colour's group, near a corner where three meet
+    mix2: Array | None = None  # uint8: 255 x how much of it
+    occ: Array | None = None  # uint8: 255 x the field's occlusion (0..1) at the texel, for shade `cavity` (#266)
+    up: Array | None = None  # int8: 127 x the texel's normal's y (the map's, relief and all), for shade `top` / `under` (#266)
 
     def __getstate__(self) -> dict[str, Any]:  # in the mesh cache: mostly runs of one value, so packed (84 MB -> a few at 4096)
         state = dict(self.__dict__)
         for k in PACKED:
-            a = state[k]
+            a = state.get(k)
             if a is not None:
                 state[k] = (a.shape, a.dtype.str, zlib.compress(np.ascontiguousarray(a).tobytes(), 1))
         return state
@@ -60,7 +64,7 @@ class Layers:
 
 
 NO_GROUP = 65535
-PACKED = ("group", "entry", "along", "shade", "other", "mix")  # the per-texel arrays of Layers
+PACKED = ("group", "entry", "along", "shade", "other", "mix", "other2", "mix2", "occ", "up")  # the per-texel arrays of Layers
 
 
 @dataclass
@@ -80,9 +84,15 @@ class Bake:
     def height(self) -> int:
         return self.size
 
-    def color_png(self, group_colors: list[str], swap: dict[str, str] | None = None) -> bytes:
+    @property
+    def shaded(self) -> bool:
+        """Whether the colour map carries shade paint per texel (#266): then COLOR_0 carries none on its faces."""
+        return self.layers is not None and self.layers.up is not None
+
+    def color_png(self, group_colors: list[str], swap: dict[str, str] | None = None, shade: Any = None) -> bytes:
         """The base colour map (sRGB PNG) for the painted groups' colours (hex, in group order), `swap` applied to
-        them and to the relief colours (a variant)."""
+        them and to the relief colours (a variant). `shade` (kiln.shade.Shade): shade paint per texel (#266), with the
+        strengths the vertex version uses: crevices darker, the sides and underside darker than the top."""
         from kiln import relief
         from kiln.export import srgb_to_linear
 
@@ -90,27 +100,49 @@ class Bake:
         swap = swap or {}
         lay = self.layers
         filled = lay.group != NO_GROUP
-        table = np.array([list(srgb_to_linear(swap.get(c, c))) for c in group_colors] or [[1.0, 1.0, 1.0]])
-        own = np.minimum(lay.group[filled].astype(np.int64), len(table) - 1)
-        stamped = relief.Stamp(np.zeros(0), lay.shade[filled] / 255.0, lay.entry[filled].astype(np.int64), lay.along[filled] / 255.0)
+        table = np.array([list(srgb_to_linear(swap.get(c, c))) for c in group_colors] or [[1.0, 1.0, 1.0]], dtype=np.float32)
+        own = np.minimum(lay.group[filled], len(table) - 1).astype(np.intp)
+        f255 = np.float32(1 / 255)  # float32 throughout: a 4096 map is 16M texels (#349)
+        stamped = relief.Stamp(np.zeros(0), lay.shade[filled] * f255, lay.entry[filled], lay.along[filled] * f255)
         colors = [(swap.get(a, a) if a else a, swap.get(b, b) if b else b) for a, b in lay.colors]
         linear = relief.colour(stamped, table[own], colors)
         if lay.other is not None and lay.mix is not None:  # colours fading across part borders: mixed in OKLab, fur and all
-            w = lay.mix[filled] / 255.0
+            w = lay.mix[filled] * f255
             fading = np.flatnonzero(w > 0)
             toward = np.minimum(lay.other[filled][fading].astype(np.int64), len(table) - 1)
             # toward what the neighbour looks like, fur and all: the mean colour of its group's texels (not its bare paint)
             count = np.maximum(np.bincount(own, minlength=len(table)), 1)[:, None]
             seen = np.stack([np.bincount(own, weights=linear[:, c], minlength=len(table)) for c in range(3)], axis=1) / count
             there = _oklab(seen)[toward]
-            linear[fading] = _from_oklab(_oklab(linear[fading]) * (1 - w[fading, None]) + there * w[fading, None])
-        srgb = np.where(linear <= 0.0031308, linear * 12.92, 1.055 * np.maximum(linear, 1e-12) ** (1 / 2.4) - 0.055)
+            w2 = lay.mix2[filled][fading] * f255 if lay.mix2 is not None and lay.other2 is not None else np.zeros(len(fading))
+            mixed = _oklab(linear[fading]) * (1 - w[fading] - w2)[:, None] + there * w[fading, None]
+            if w2.any():  # a corner where three colours meet
+                toward2 = np.minimum(lay.other2[filled][fading].astype(np.int64), len(table) - 1)  # type: ignore[index]
+                mixed += _oklab(seen)[toward2] * w2[:, None]
+            linear[fading] = _from_oklab(mixed)
+        if shade is not None and shade.on and lay.up is not None:
+            ny = lay.up[filled] * np.float32(1 / 127)
+            mult = (1.0 - shade.top * (1.0 - np.maximum(ny, 0.0))) * (1.0 - shade.under * np.maximum(-ny, 0.0))
+            if shade.cavity > 0 and lay.occ is not None:
+                mult = mult * (1.0 - shade.cavity * lay.occ[filled] * f255)
+            linear *= mult.astype(np.float32)[:, None]
         image = np.zeros((self.size, self.size, 3), dtype=np.uint8)
-        image[filled] = np.round(srgb * 255).clip(0, 255).astype(np.uint8)
+        image[filled] = _srgb8(linear)
         image = _grow(image, filled, GROW, empty=(128, 128, 128))
         buf = io.BytesIO()
         Image.fromarray(image, "RGB").save(buf, format="PNG", optimize=False)
         return buf.getvalue()
+
+
+SRGB_STEPS = 1 << 14  # linear values quantised this finely before the sRGB table: every 8-bit code is still reached
+
+
+def _srgb8(linear: Array) -> Array:
+    """Linear 0..1 to 8-bit sRGB through a table (the power function on every texel was a good part of a map's time)."""
+    lin = np.arange(SRGB_STEPS + 1, dtype=np.float64) / SRGB_STEPS
+    table = np.round(np.where(lin <= 0.0031308, lin * 12.92, 1.055 * lin ** (1 / 2.4) - 0.055) * 255).clip(0, 255).astype(np.uint8)
+    idx = np.clip(linear * SRGB_STEPS + 0.5, 0, SRGB_STEPS).astype(np.intp)
+    return np.asarray(table[idx])
 
 
 def available() -> bool:
@@ -296,7 +328,7 @@ SUPERSAMPLE_COS = math.cos(math.radians(3))  # a texel whose own normal turns th
 
 def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, normals: Array, size: int, step: float,
          strength: float = 1.0, patches: Any = None, face_group: Array | None = None, face_on: Array | None = None,
-         fade: Any = None, progress: Any = None) -> Bake:  # fmt: skip
+         fade: Any = None, progress: Any = None, occlusion: Array | None = None) -> Bake:  # fmt: skip
     """Unwrap the mesh and bake into its tangent frames the normals of each face's own field (`face_field`: an index
     into `fields`, -1: the mesh normal as it is, e.g. exact hard parts). Each texel is filtered (#125): the normals
     at four points a quarter texel around its centre, averaged, each with a gradient step of half a texel, so detail
@@ -305,7 +337,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     face's paint group in `face_group` and the faces each relief entry covers in `face_on` (entries, F)): a relief
     layer over the surface, tilting the map by the slope of its height (scaled by `strength` too) and kept per texel
     in `Bake.layers` for the base colour map. `fade` (kiln.fade.Fade): colours fading across part borders, kept in
-    the layers too."""
+    the layers too. With a colour map, each texel's normal height and (`occlusion`: per vertex, 0..1) occlusion are
+    kept for shade paint per texel (#266)."""
     if progress is not None:  # the unwrap has its own counter, so the texels' estimate doesn't count it (#300)
         progress("baking maps: unwrapping", 0, 1)
     uv, fit = unwrap(vertices, faces, size)
@@ -324,6 +357,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     face, texel, bary = face[keep], texel[keep], bary[keep]
     out = np.zeros((width * height, 3), dtype=np.float32)
     out[:, 2] = 1.0
+    frame_y = np.zeros((width * height, 3), dtype=np.float16)  # per texel: the y of its tangent, bitangent and normal (#266)
+    frame_y[:, 2] = 1.0
     fades: list[tuple[Array, ...]] = []  # texels near a colour border: (texel, point, face, normal)
     reliefs: list[tuple[Array, ...]] = []  # texels a patch may touch: (texel, point, normal, tangent, up, metres per texel, face)
     owner = np.asarray(face_field)[face]
@@ -360,6 +395,7 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
             local[:, 2] = np.maximum(local[:, 2], 0.05)  # never facing away from the surface
             local /= np.linalg.norm(local, axis=1, keepdims=True)
             out[texel[rows]] = local
+            frame_y[texel[rows]] = np.stack([t[:, 1], up[:, 1], n[:, 1]], axis=1)
             if progress is not None:
                 done += len(rows)
                 progress("baking maps: texels done", done, to_do)
@@ -379,12 +415,24 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
         if fade is not None:
             layers.other = np.zeros(width * height, dtype=np.uint16)
             layers.mix = np.zeros(width * height, dtype=np.uint8)
+            layers.other2 = np.zeros(width * height, dtype=np.uint16)
+            layers.mix2 = np.zeros(width * height, dtype=np.uint8)
             if fades:
                 tex, point, fface, fnormal = (np.concatenate([r[k] for r in fades]) for k in range(4))
-                toward, weight = fade.mix(point, fface, fnormal)
+                toward, weight, toward2, weight2 = fade.mix(point, fface, fnormal)
                 layers.other[tex] = toward.astype(np.uint16)
                 layers.mix[tex] = np.round(weight * 255).astype(np.uint8)
+                layers.other2[tex] = toward2.astype(np.uint16)
+                layers.mix2[tex] = np.round(weight2 * 255).astype(np.uint8)
+        ny = np.zeros(width * height, dtype=np.float32)  # the map's normal (relief tilts too) in model space: its height
+        ny[texel] = (out[texel] * frame_y[texel].astype(np.float32)).sum(axis=1)
+        layers.up = np.round(np.clip(ny, -1.0, 1.0) * 127).astype(np.int8)
+        if occlusion is not None:
+            occ = np.zeros(width * height)
+            occ[texel] = (np.asarray(occlusion)[faces[face]] * bary).sum(axis=1)
+            layers.occ = np.round(np.clip(occ, 0.0, 1.0) * 255).astype(np.uint8)
         layers = replace(layers, **{k: getattr(layers, k).reshape(height, width) for k in PACKED if getattr(layers, k) is not None})
+    del frame_y
     image = np.round((out * 0.5 + 0.5) * 255).clip(0, 255).astype(np.uint8).reshape(height, width, 3)
     del out
     image = _grow(image, filled.reshape(height, width), GROW)
@@ -443,23 +491,28 @@ def _from_oklab(lab: Array) -> Array:
 
 def _grow(image: Array, filled: Array, steps: int, empty: tuple[int, int, int] = FLAT) -> Array:
     """Spread chart colours `steps` texels past their borders (each empty texel: the mean of its filled neighbours,
-    no wrapping round the map's edges); texels further out are flat."""
+    no wrapping round the map's edges); texels further out are flat. Only the texels each step fills are touched
+    (#349: the whole-image passes took most of a colour map's time)."""
     img = image.astype(np.float32)
     done = filled.copy()
     h, w = done.shape
     for _ in range(steps):
-        acc = np.zeros_like(img)
-        cnt = np.zeros(done.shape, dtype=np.float32)
-        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            ys, yd = (slice(0, h - 1), slice(1, h)) if dy == 1 else (slice(1, h), slice(0, h - 1)) if dy == -1 else (slice(0, h), slice(0, h))
-            xs, xd = (slice(0, w - 1), slice(1, w)) if dx == 1 else (slice(1, w), slice(0, w - 1)) if dx == -1 else (slice(0, w), slice(0, w))
-            acc[yd, xd] += img[ys, xs] * done[ys, xs, None]
-            cnt[yd, xd] += done[ys, xs]
-        new = ~done & (cnt > 0)
-        if not new.any():
+        cnt = np.zeros((h, w), dtype=np.uint8)
+        cnt[:-1] += done[1:]
+        cnt[1:] += done[:-1]
+        cnt[:, :-1] += done[:, 1:]
+        cnt[:, 1:] += done[:, :-1]
+        ys, xs = np.nonzero(~done & (cnt > 0))
+        if not len(ys):
             break
-        img[new] = acc[new] / cnt[new][:, None]
-        done |= new
+        acc = np.zeros((len(ys), img.shape[2]), dtype=np.float32)
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):  # the neighbour below, above, right, left: the old sum's order
+            ny, nx = ys + dy, xs + dx
+            ok = np.flatnonzero((ny >= 0) & (ny < h) & (nx >= 0) & (nx < w))
+            ok = ok[done[ny[ok], nx[ok]]]
+            acc[ok] += img[ny[ok], nx[ok]]
+        img[ys, xs] = acc / cnt[ys, xs].astype(np.float32)[:, None]
+        done[ys, xs] = True
     img[~done] = empty
     return np.round(img).astype(np.uint8)
 

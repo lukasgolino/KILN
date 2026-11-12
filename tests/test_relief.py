@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
-from conftest import load, make_project, write_model
+from conftest import load, make_project, ok_model, write_model
 from PIL import Image
 
 from kiln import bake as bk
@@ -72,7 +73,7 @@ def test_notation_defaults_and_the_bare_on_key(project: Project) -> None:
     ("length: 0.12", "length: 9", "relief[0].length"),
     ("density: 1.5", "density: 1.5\n    tips: 0", "relief[0].tips"),
     ("density: 1.5", "density: 1.5\n    flow: sideways", "relief[0].flow"),
-    ("density: 1.5", "density: 1.5\n    kind: scales", "relief[0].kind"),
+    ("density: 1.5", "density: 1.5\n    kind: plates", "relief[0].kind"),
     ("density: 1.5", "density: 1.5\n    colour: red", "relief[0].colour"),
     ("density: 1.5", "density: 1.5\n    color: nope", "relief[0].color"),
     ("density: 1.5", "density: 1.5\n    color_to: red", "relief[0].color_to"),
@@ -112,7 +113,20 @@ def test_fade_thins_and_shrinks_patches_toward_the_edge() -> None:
 
     assert band(soft).sum() < 0.75 * band(hard).sum()
     assert soft.length[band(soft)].mean() < 0.9 * soft.length[~band(soft)].mean()
-    assert np.allclose(hard.length, 0.1)
+    lies = np.sqrt(np.maximum(0.0, 1.0 - hard.normal[:, 1] ** 2)) >= rl.FLOW_LIES  # (where the flow lies in the surface)
+    assert lies.sum() > 0.8 * len(lies) and np.allclose(hard.length[lies], 0.1)
+
+
+def test_no_stepped_patches_where_the_surface_faces_the_flow() -> None:
+    """#303: on the bottom of an egg under flow: down (the surface faces the flow) patches thin out and shrink; none
+    stands where the flow can't point."""
+    v, f, n = egg()
+    on = lower(v, f)
+    p = rl.scatter(v, f, n, [on], [Relief(["body"], length=0.1, width=0.06, fade=0.0, jitter=0.0)])
+    lying = np.sqrt(np.maximum(0.0, 1.0 - p.normal[:, 1] ** 2))
+    assert len(p.length) > 50 and lying.min() >= rl.FLOW_FLAT
+    facing = lying < rl.FLOW_LIES
+    assert facing.any() and p.length[facing].mean() < 0.1
 
 
 def test_a_patch_rises_to_its_notched_tip_and_shades_the_surface_below() -> None:
@@ -304,3 +318,133 @@ def test_layers_pack_small_in_the_cache(project: Project) -> None:
     back = pickle.loads(packed)  # noqa: S301
     assert len(packed) < 0.5 * (lay.group.nbytes + lay.entry.nbytes + lay.along.nbytes + lay.shade.nbytes)
     assert all(np.array_equal(getattr(lay, k), getattr(back, k)) for k in ("group", "entry", "along", "shade")) and back.patches == lay.patches
+
+
+@pytest.mark.parametrize("select", ["on_colors: [wood]", "on: [body, head]\n    except: [head]", "on_colors: wood\n    on: [body, head]"])
+def test_relief_by_colour_or_with_except(project: Project, select: str) -> None:
+    """#301: a layer picks its faces by painted colour (on_colors) or leaves ids bare (except), no extra bones."""
+    from kiln.lint import lint_paths
+
+    text = MODEL.replace("  - on: [body]\n", f"  - {select}\n").replace("    density: 1.5\n", "    density: 1.5\n    fade: 0\n")
+    result = lint_paths(project, [write_model(project, text)])
+    assert not result.errors, result.findings
+    built = result.built["thing"]
+    lay = built.bake.layers
+    face, texel, _ = bk._texels(built.bake.uv, built.bake.size, built.bake.size)
+    red = np.array([g.color == "#e8413c" for g in built.painted.groups])[built.painted.face_group[face]]
+    entry = lay.entry.reshape(-1)[texel]
+    assert red.sum() > 500 and (entry[red] == -1).all() and (entry[~red] == 0).mean() > 0.5
+
+
+def test_relief_selection_errors(project: Project) -> None:
+    from conftest import errors_of
+
+    for select, where in (("except: [nope]", "relief[0].on"), ("on_colors: [mauve]", "relief[0].on_colors"), ("on: []", "relief[0].on")):
+        text = MODEL.replace("  - on: [body]\n", f"  - on: [body]\n    {select}\n" if not select.startswith("on:") else f"  - {select}\n")
+        assert any(f.where == where for f in errors_of(project, text)), select
+
+
+def _one(kind: int) -> rl.Patches:
+    return rl.Patches(np.zeros((1, 3)), np.array([[0.0, 0.0, 1.0]]), np.array([[0.0, -1.0, 0.0]]), np.array([[1.0, 0.0, 0.0]]),
+                      np.array([0.1]), np.array([0.03]), np.array([0.01]), np.array([3]), np.array([0.5]), np.array([0]),
+                      [(None, None)], [kind])  # fmt: skip
+
+
+def test_kinds_draw_their_own_outlines() -> None:
+    """#261: scales a round lobe, feathers one point, shingles a straight edge, fur notched tips."""
+    side = np.array([[0.027, -0.05, 0.0]])  # 0.9 of the half width out, half way down the patch
+    middle = np.array([[0.0, -0.085, 0.0]])  # near the tip line in the middle
+    h = {k: (rl._profile(_one(k), 0, side)[0][0], rl._profile(_one(k), 0, middle)[0][0]) for k in range(4)}
+    assert h[3][0] > 0 and h[1][0] == 0.0 and h[2][0] == 0.0  # at the side, low down: only shingles (straight edge) still cover
+    assert h[1][1] > 0 and h[2][1] > 0  # scales and feathers reach far down the middle
+
+
+def test_flow_along_follows_a_lying_arm(project: Project) -> None:
+    from kiln.lint import lint_paths
+
+    text = """\
+name: thing
+class: creature
+normal_map: 256
+parts:
+  - ellipsoid: { at: [0, 0.5, 0], radii: [0.2, 0.35, 0.18] }
+    id: body
+    color: wood
+  - capsule: { from: [0.15, 0.6, 0], to: [0.75, 0.6, 0], radius: 0.07 }
+    id: arm
+    color: wood
+    blend: 0.04
+relief:
+  - on: [arm]
+    flow: along
+    length: 0.08
+    width: 0.05
+"""
+    built = lint_paths(project, [write_model(project, text)]).built["thing"]
+    p = built.relief_patches
+    out = p.centre[:, 0] > 0.35  # the arm, away from the body
+    assert out.sum() > 10 and (p.flow[out][:, 0] > 0.7).mean() > 0.8  # pointing along the arm, out to the hand
+
+
+def test_displace_moves_the_mesh_out(project: Project) -> None:
+    from kiln.lint import lint_paths
+
+    flat = lint_paths(project, [write_model(project, MODEL.replace("name: thing", "name: flat").replace("    lift: 0.01\n", "    lift: 0.03\n"), "flat")]).built["flat"]
+    text = MODEL.replace("name: thing", "name: tufty").replace("    lift: 0.01\n", "    lift: 0.03\n    displace: true\n")
+    tufty = lint_paths(project, [write_model(project, text, "tufty")]).built["tufty"]
+    def widest(b: Any) -> float:  # the body's widest point (below the head)
+        v = b.painted.vertices
+        return float(np.linalg.norm(v[v[:, 1] < 0.7][:, [0, 2]], axis=1).max())
+
+    assert widest(tufty) > widest(flat) + 0.005
+
+
+def test_lods_stamp_the_full_builds_patches(project: Project) -> None:
+    from kiln.builder import build_cached
+
+    model, style = ok_model(project, MODEL.replace("normal_map: 256\n", "normal_map: 256\nlod: [400]\n"))
+    palette, _ = project.palette(model.palette)
+    cache = project.root / ".kiln-cache"
+    full = build_cached(model, style, palette, cache)
+    lod = build_cached(model, style, palette, cache, 400)
+    assert full.relief_patches is not None and lod.relief_patches is full.relief_patches or np.array_equal(lod.relief_patches.centre, full.relief_patches.centre)
+
+
+def test_narrow_patches_warn(project: Project) -> None:
+    from kiln.lint import lint_paths
+
+    text = MODEL.replace("    width: 0.08\n", "    width: 0.006\n").replace("    length: 0.12\n", "    length: 0.02\n")
+    found = [f for f in lint_paths(project, [write_model(project, text)]).findings if f.rule == "W133"]
+    assert len(found) == 1 and found[0].where == "relief[0].width"
+
+
+def test_scatter_previews_read_the_colour_map(project: Project) -> None:
+    """#349: a placed relief model in a scatter sheet shows its colour map (sampled at the corners), not flat paint."""
+    from kiln.export import srgb_to_linear
+    from kiln.lint import lint_paths
+    from kiln.preview import corner_colors
+
+    built = lint_paths(project, [write_model(project, MODEL)]).built["thing"]
+    assert built.bake is not None and built.bake.layers is not None
+    c = corner_colors(built).reshape(-1, 3)
+    flat = np.array([srgb_to_linear(g.color) for g in built.painted.groups])
+    off = np.min([np.abs(c - f).sum(axis=1) for f in flat], axis=0) > 0.02
+    assert off.mean() > 0.05  # fur colours and shading show
+
+
+def test_gibs_keep_their_fur(project: Project) -> None:
+    """#349: a gib of a relief model gets a quarter-size map with the layers on its parts; one without fur gets none."""
+    from kiln.build import gib_models
+
+    text = MODEL.replace("normal_map: 256", "normal_map: 1024") + "rig:\n  body: { gib: [body] }\n  head: { gib: [head] }\n"
+    model, _ = ok_model(project, text)
+    gibs = dict(gib_models(model))
+    assert gibs["body"].normal_map == 256 and [r.on for r in gibs["body"].relief] == [["body"]]
+    assert gibs["head"].normal_map == 0 and not gibs["head"].relief
+    from kiln.build import build
+    from kiln.vendor.gltf import read_glb
+
+    write_model(project, text)
+    assert not build(project).errors
+    doc, _ = read_glb((project.output_dir / "models" / "thing.gib.body.glb").read_bytes())
+    assert len(doc.get("images", [])) == 2  # its normal map and its colour map, embedded

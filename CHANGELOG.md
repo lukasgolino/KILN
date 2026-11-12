@@ -8,10 +8,46 @@ before 1.0).
 
 ### Added
 
+- `transforms:` turn and move a group of parts about a pivot (a hunched rest pose), rig pivots and sockets with
+  them; a mirrored part refuses a turn that breaks its mirror (E003) (#305).
+- A part's own `resolution:` (metres): the mesh inside its box is refined to that cell and moved onto the surface
+  along its normals, so a face gets its lids, nostrils and nose on a body meshed coarsely, without the whole model's
+  cells shrinking; pair it with `density` (#306).
+- Relief kinds `scales` (a round lobe), `feathers` (one point and a rib) and `shingles` (a straight edge) next to
+  `fur`; `flow: along` follows each part's own axis out from the body; `displace: true` moves the mesh out by the
+  layer, so tufts break the silhouette (the normals stay, so the map isn't counted twice); a model's LODs stamp its
+  full build's patches, so the pattern is the same at every level; lint W133: patches under four texels wide (#261).
+- Relief picks its faces by painted colour (`on_colors: [fur]`; alone: every smooth part in those colours) and leaves
+  ids bare (`except: [face, chest]`), so a bare chest or face that shares bones with the fur needs no extra bones
+  (#301). The docs list `kind: fur` (#307); folds, relief and colour fades moved to `kiln docs surfaces`.
+- `hand:` and `foot:` hardware: a soft hand (palm, curled tapered fingers, thumb, claws with their own colour) or
+  foot (sole standing on `at`, toes, heel) as ordinary parts that blend into the arm or leg (#310).
+- `eye:` hardware: a recessed eye (a socket cut into the face, a ball sunk in it, a thin rim lining the edge, flush
+  with the surface, optionally glowing) instead of a torus and a flattened ellipsoid that stand proud (#328).
+- `color_blend` without the baked maps: with `normal_map: 0` (or without `kiln-gen[bake]`) the fade goes in the
+  vertex colours (COLOR_0, `vertex_colors = true`), previews too; lint W134 when the project doesn't export vertex
+  colours (#262).
+- A fill light in the look kit: `[look] fill_energy`, `fill_pitch`, `fill_yaw` (default: opposite the sun),
+  `fill_color`; a second DirectionalLight3D without shadows in the look scene, and the same light in the previews
+  (parity tested in both renderers). On in the `skin` preset (0.3) (#275).
+- Lint W135: on a soft-skinned body, a limb fused to another branch at rest (an arm hanging into the belly, a leg
+  into the other leg) away from its joint, with how far to move it (#255).
 - `kiln build <models> --no-dependents`: the models that place them (instances) keep their last build (#343).
 
 ### Fixed
 
+- Scatter-scene previews draw a placed relief (or colour-faded) model with its colour map, sampled at the corners,
+  instead of flat paint. Gibs of a relief model keep their fur and fades on a quarter-size map of their own instead
+  of flat colours (#349).
+- Where three colours meet, a `color_blend` fade no longer flips its target at the bisector: both other colours
+  mix in by their own distances, a third each at the corner (#262).
+- A paint border across a smooth blend (a bare belly into fur) drew a thin shading line: each side took its own
+  normal there, as at a real crease. Sides keep the surface's normal unless they turn more than 15 degrees from it.
+  And relief layers that meet (an upper arm's and a forearm's) no longer each fade out toward the other: the fade runs
+  to where the fur ends, so no bare band at the elbow (#302).
+- Relief no longer draws stepped streaks where the surface faces along the flow (the top of a round shoulder under
+  `flow: down`, the underside of a heel): there the flow can't lie in the surface, so the patches thin out and shrink
+  as they do toward an edge, instead of all pointing one fixed way (#303).
 - A lock's (and an ellipsoid's) distance ran short away from it, below the distance to its own box: the compiled
   path then skipped it by its box where the numpy path still blended it in, so the two disagreed near many locks
   (and numpy's answer depended on how points were batched). Outside its box such a part's distance is now never
@@ -21,12 +57,18 @@ before 1.0).
 
 ### Changed
 
+- Shade paint on a model with a base colour map (relief, `color_blend`) is painted per texel into the map, from
+  the normal map's normals and each texel's occlusion, with the same strengths; its mapped faces carry no COLOR_0
+  multiplier any more (no double shading). Fine grooves and relief now shade too (#266).
+- The `skin` style's hero budget is 60k (was 20k): a close-up character with relief fur and a readable face (#311).
 - `kiln lint` prints the static findings first (a `static checks:` line pointing at `--fast`), then builds the
   meshes for the rest; a long build ends with one line saying where its time went (`built in 156 s (meshing 12 s,
   ..., baking maps 112 s)`). Full lint stays the default (#186).
 
 ### Performance
 
+- A base colour map is written in 0.7 s instead of 1.6 s at 2048, with half the memory: the padding grows only
+  where it fills (the same bytes), float32 colours and an sRGB table (#349).
 - Parts with `folds` use the compiled distance too (they took the numpy path for every field pass: about 2x on a
   model with one folded robe); the same values to 1e-9 (#281).
 - Joined hard parts are kept in the build cache every 8 joins; a rebuild resumes at the last unchanged one, so moving a

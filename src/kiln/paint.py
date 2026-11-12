@@ -920,8 +920,15 @@ def corner_normals(painted: Painted, field: Field, step: float, smooth: bool, sh
         side = np.zeros((len(unique), 3))
         np.add.at(side, inverse, np.repeat(weighted, 3, axis=0))
         side /= np.maximum(np.linalg.norm(side, axis=1, keepdims=True), 1e-12)
-        normals = np.where(border[:, :, None], side[inverse].reshape(-1, 3, 3), normals)
+        own = side[inverse].reshape(-1, 3, 3)
+        # ... but only where it does crease: a colour border across a smooth blend (a bare belly into fur) keeps the
+        # surface's normal, else each side's own average draws a shading line along the border (#302)
+        creased = border & ((own * vn).sum(axis=2) < math.cos(math.radians(BORDER_CREASE)))
+        normals = np.where(creased[:, :, None], own, normals)
     return normals
+
+
+BORDER_CREASE = 15.0  # degrees: a paint border whose sides turn more than this from the surface's normal is a crease
 
 
 __all__ = ["PaintGroup", "Painted", "Part", "Regions", "corner_normals", "corner_uv", "decal_uv", "hard_regions", "paint", "regions", "split"]
