@@ -27,7 +27,8 @@ def test_a_group_turns_about_its_pivot(project: Project) -> None:
     head = next(p for p in model.parts if p.id == "head").geometry
     a = np.radians(30)
     assert np.allclose(head.at, [0, 0.9 + 0.2 * np.cos(a), 0.2 * np.sin(a)])  # turned forward about the neck
-    assert np.allclose(model.rig["head"].pivot, [0, 0.9 + 0.1 * np.cos(a), 0.1 * np.sin(a)])
+    pivot = model.rig["head"].pivot
+    assert pivot is not None and np.allclose(pivot, [0, 0.9 + 0.1 * np.cos(a), 0.1 * np.sin(a)])
     built = built_of(project, BASE.format(extra="transforms:\n  - { ids: [head], rotate: [30, 0, 0], pivot: [0, 0.9, 0] }\n"))
     top = built.painted.vertices[built.painted.vertices[:, 1] > 1.05]
     assert top[:, 2].mean() > 0.05  # the head leans forward in the mesh
