@@ -23,6 +23,9 @@ before 1.0).
 
 ### Fixed
 
+- A decal on a faceted (hard) part drew its facing-limit line through flat faces: extra triangles for nothing (the
+  face's own normal decides there); a face counts as smooth only when each corner's normal agrees with it. A
+  decal-heavy hard watch case 3170 -> 2202 triangles (2192 in 0.22.0).
 - Toon: `kiln preview` and Godot agree (#183). The Godot toon shader took the sun at PI x its strength (Godot's
   `LIGHT_COLOR` carries a PI for PBR's divide), so toon bands came out washed and clipped (gold went yellow); they
   now light as the preview and the standard shader do. **Toon models are darker in Godot than before**: the

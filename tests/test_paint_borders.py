@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from conftest import write_model
+from conftest import built_of, write_model
 from PIL import Image
 
 from kiln.builder import field_of
@@ -137,3 +137,20 @@ def test_a_decal_on_a_faceted_part_skips_sides_square_to_it(project: Project) ->
     normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
     normal /= np.linalg.norm(normal, axis=1, keepdims=True)
     assert len(tri) and float((normal @ np.array([0, 0, 1.0])).min()) > DECAL_FACING  # no decal on the sides square to it
+
+
+def test_a_decal_draws_no_facing_line_through_flat_faces(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Gate 2 (0.23.0): on a faceted part the face's own normal decides; the facing-limit line through its flat faces
+    (vertex normals average across crisp edges) only added triangles (+45% on a decal-heavy watch case)."""
+    from PIL import Image
+
+    from kiln import paint
+
+    Image.new("RGBA", (8, 8), (250, 220, 40, 255)).save(project.root / "decals" / "top.png")
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.6, 0.4, 0.6] }\n    color: red\n    hard: true\n"
+            "    decal: { image: decals/top.png, axis: y, at: [0, 0.4, 0], size: [0.7, 0.7] }\n")  # fmt: skip
+    counts = []
+    for k, limit in enumerate((0.25, 0.6)):  # (each its own model: its own cache entry)
+        monkeypatch.setattr(paint, "DECAL_FACING", limit)
+        counts.append(built_of(project, text.replace("name: thing", f"name: thing{k}"), f"thing{k}").triangles)
+    assert counts[0] == counts[1], counts
