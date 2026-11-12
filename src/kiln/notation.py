@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +100,10 @@ class Pattern:
     at: float = 0.0  # band: where its centre is along the axis (metres); size = its thickness
     frame: str = "model"  # model: axes and positions in model space; part: in the part's own frame (follows rotate/aim)
     mix: tuple[str, str, float] | None = None  # a gradient band: (from, to, t): its colour is their OKLab mix (variants remix it)
+    offset: tuple[float, float, float] = (0.0, 0.0, 0.0)  # stripes, checker, dots: the repeat shifted by this (metres)
+    jitter: float = 0.0  # dots: each dot moved up to this share of `size` from its grid place (seeded)
+    vary: float = 0.0  # dots: each dot's size varies by up to this share
+    seed: int = 0
 
 
 @dataclass(frozen=True)
@@ -677,6 +681,21 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
             listed = raw["pattern"] if isinstance(raw["pattern"], list) and raw["pattern"] else [raw["pattern"]]
             parsed = [_parse_pattern(ctx, r, line, f"{where}.pattern" + (f"[{k}]" if len(listed) > 1 else "")) for k, r in enumerate(listed)]
             patterns = tuple(q for q in parsed if q is not None)
+            # a second dots pattern on the same grid hides under the first (#194): one without its own offset or seed
+            # sits half a cell over, and draws its own random dots
+            seen = 0
+            shifted = []
+            for k, (q, r) in enumerate(zip(parsed, listed, strict=True)):
+                if q is None:
+                    continue
+                if q.type == "dots":
+                    if seen and isinstance(r, dict) and "offset" not in r:
+                        q = replace(q, offset=(q.size / 2, q.size / 2, q.size / 2))
+                    if isinstance(r, dict) and "seed" not in r:
+                        q = replace(q, seed=k)
+                    seen += 1
+                shifted.append(q)
+            patterns = tuple(shifted)
             pattern = patterns[0] if patterns else None
             ok = ok and len(patterns) == len(listed)
         if "gradient" in raw and ok:  # (needs the shape's numbers: only when they parsed)
@@ -1088,7 +1107,6 @@ def apply_style(model: Model, color_blend: float, hard: frozenset[int] = frozens
 def _split_detail(ctx: _Ctx, model: Model) -> None:
     """`detail` parts leave the mesh: the model keeps them only in bake_parts (all parts in order, for the normal map),
     and the other parts' part numbers (cut_only, blend_to) are renumbered without them."""
-    from dataclasses import replace
 
     model.bake_parts = [p.geometry for p in model.parts]
     model.detail = [p.geometry for p in model.parts if p.detail]
@@ -1130,7 +1148,7 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
     if not isinstance(raw, dict) or raw.get("type") not in PATTERNS:
         ctx.error("E003", f"pattern is {{ type: {'|'.join(PATTERNS)}, color, size (metres), axis: x|y|z }}", line, where)
         return None
-    bad = [k for k in raw if k not in ("type", "color", "size", "axis", "width", "at", "frame")]
+    bad = [k for k in raw if k not in ("type", "color", "size", "axis", "width", "at", "frame", "offset", "jitter", "vary", "seed")]
     size, width = raw.get("size", 0.1), raw.get("width", 0.5)
     axis = raw.get("axis", "y")
     c = _color(ctx, raw.get("color"), line, f"{where}.color")
@@ -1147,13 +1165,25 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
     frame = raw.get("frame", "model")
     if frame not in ("model", "part"):
         problems.append("frame is model (axes in model space) or part (the part's own frame: follows rotate and aim)")
+    offset = _vec(raw.get("offset", [0, 0, 0]))
+    jitter, vary, seed = raw.get("jitter", 0.0), raw.get("vary", 0.0), raw.get("seed", 0)
+    if offset is None:
+        problems.append("offset is [x, y, z] metres: the repeat shifted (a second dots pattern between the first's dots)")
+    if not _num(jitter) or not 0 <= jitter <= 1 or not _num(vary) or not 0 <= vary <= 1:
+        problems.append("jitter and vary are 0 to 1: dots moved and sized at random by up to that share")
+    elif (jitter or vary) and raw["type"] != "dots":
+        problems.append("jitter and vary are for dots")
+    if not isinstance(seed, int) or isinstance(seed, bool):
+        problems.append("seed is a whole number")
     if problems or c is None:
         if problems:
             ctx.error("E003", "pattern: " + "; ".join(problems), line, where)
         return None
     unit = [0.0, 0.0, 0.0]
     unit[AXES[axis]] = 1.0
-    return Pattern(str(raw["type"]), c[0], c[1], float(size), (unit[0], unit[1], unit[2]), float(width), float(at), str(frame))
+    assert offset is not None
+    return Pattern(str(raw["type"]), c[0], c[1], float(size), (unit[0], unit[1], unit[2]), float(width), float(at), str(frame),
+                   offset=(offset[0], offset[1], offset[2]), jitter=float(jitter), vary=float(vary), seed=int(seed))  # fmt: skip
 
 
 PATH_SHAPES = ("tube", "capsule", "lock")  # gradient along: path (from the first point to the last)

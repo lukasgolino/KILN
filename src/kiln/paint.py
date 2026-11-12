@@ -204,19 +204,51 @@ def _pattern_fn(p: Pattern, geometry: Geometry | None = None) -> ScalarFn:
         model_space = _pattern_fn(p)
         return lambda x: model_space(local(geometry, x))
     axis = np.array(p.axis)
+    shift = np.array(p.offset)
     if p.type == "stripes":
-        return lambda x: np.cos(2 * math.pi * (x @ axis) / p.size) - math.cos(math.pi * p.width)
+        return lambda x: np.cos(2 * math.pi * ((x - shift) @ axis) / p.size) - math.cos(math.pi * p.width)
     if p.type == "band":
         return lambda x: p.size / 2 - np.abs(x @ axis - p.at)
     if p.type == "checker":
-        return lambda x: np.prod(np.sin(math.pi * x / p.size + 1e-3), axis=1)
+        return lambda x: np.prod(np.sin(math.pi * (x - shift) / p.size + 1e-3), axis=1)
     radius = p.width * p.size / 2  # dots
 
-    def dots(x: Array) -> Array:
-        q = x / p.size
-        return radius - np.linalg.norm((q - np.round(q)) * p.size, axis=1)
+    if not p.jitter and not p.vary:
 
-    return dots
+        def dots(x: Array) -> Array:
+            q = (x - shift) / p.size
+            return radius - np.linalg.norm((q - np.round(q)) * p.size, axis=1)
+
+        return dots
+
+    def scattered(x: Array) -> Array:
+        """Each grid cell's dot moved and sized at random (a hash of the cell and the seed); the cells round each
+        point are all looked at, so a moved dot isn't cut at its cell's edge."""
+        q = (x - shift) / p.size
+        base = np.round(q)
+        best = np.full(len(x), -np.inf)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    cell = base + np.array([dx, dy, dz])
+                    h = _cell_random(cell, p.seed)
+                    centre = cell + (h[:, :3] - 0.5) * p.jitter
+                    r = radius * (1.0 + (h[:, 3] * 2 - 1) * p.vary)
+                    best = np.maximum(best, r - np.linalg.norm((q - centre) * p.size, axis=1))
+        return best
+
+    return scattered
+
+
+def _cell_random(cell: Array, seed: int) -> Array:
+    """(N, 4) values in [0, 1) from integer cells and a seed: the same cell always gives the same values."""
+    c = cell.astype(np.int64)
+    h = (c[:, 0] * 73856093) ^ (c[:, 1] * 19349663) ^ (c[:, 2] * 83492791) ^ (seed * 2654435761)
+    out = np.empty((len(cell), 4))
+    for k in range(4):
+        h = (h * 6364136223846793005 + 1442695040888963407 + k) & 0xFFFFFFFFFFFF
+        out[:, k] = (h >> 16) / float(1 << 32)
+    return out
 
 
 def _along_fn(p: Pattern, geometry: Geometry) -> ScalarFn:
