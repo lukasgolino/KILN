@@ -34,10 +34,10 @@ Cycles (8 frames unless `frames:`):
 
 | type | options (defaults) |
 |---|---|
-| `walk` | `legs` [leg_l, leg_r] (a humanoid: upperleg_l/_r), `arms` [arm_l, arm_r] (upperarm_l/_r), `body` root, `swing` 30, `arm_swing` 25, `bounce` 0.02; with lower limbs (`knees` [lowerleg_l, lowerleg_r], `elbows` [lowerarm_l, lowerarm_r]) `knee` 40 (folds while the leg swings forward), `elbow` 20 |
-| `waddle` | as walk + `roll` 8 (side-to-side), `swing` 18 |
-| `run` | as walk: `swing` 45, `arm_swing` 40, `knee` 80, `elbow` 85, `bounce` 0.05, `lean` 10 (the `torso`, default spine, forward) |
-| `sneak` | as walk: `swing` 20, `arm_swing` 10, `knee` 30, `elbow` 45, `lean` 15, `crouch` 15 (thighs forward, knees twice that), `drop` 0.06 (the body lowered) |
+| `walk` | `legs` [leg_l, leg_r] (a humanoid: upperleg_l/_r), `arms` [arm_l, arm_r] (upperarm_l/_r), `body` root, `swing` 30, `arm_swing` 25, `bounce` 0.02, `knee` 40, `knee_rest` 5, `elbow` 20, `lean` 0 (the `torso`, default spine, forward), `crouch` 0 (thighs forward, knees twice that) |
+| `waddle` | as walk + `roll` 8 (side-to-side), `swing` 18, `knee` 20, `elbow` 15 |
+| `run` | as walk: `swing` 45, `arm_swing` 40, `knee` 80, `knee_rest` 15, `elbow` 85, `lean` 10 |
+| `sneak` | as walk: `swing` 20, `arm_swing` 10, `knee` 30, `elbow` 45, `lean` 15, `crouch` 15 |
 | `hop` | `part` root, `height` 0.2, `squash` 0.1 |
 | `bob` | `part`, `amount` 0.05 |
 | `spin` | `part`, `axis` y, `direction` 1 |
@@ -45,3 +45,9 @@ Cycles (8 frames unless `frames:`):
 | `breathe` | `part`, `amount` 0.03 |
 | `wave` | `arms` (the last one waves), `raise` 150, `angle` 20 |
 | `chain` | `parts` [ids in order from the root out; default: every id in file order], `axis` y, `angle` 15, `phase` 0.15: a travelling wave for flags, tails, tentacles, ropes |
+
+Gaits bend lower limbs on a humanoid (`skeleton: humanoid`: lowerleg/lowerarm; listing `legs:` / `arms:` drops these
+defaults) or what `knees:` / `elbows:` name: knees fold by `knee` while the leg swings forward, plus `knee_rest`;
+elbows hold `elbow`, more as the arm swings forward. Then the feet stay level and the body rides so the lower ankle
+stays where it was at rest (no floating or sinking; `bounce` is unused). Each limb swings about its own axis square to
+the front, so a T-posed arm swings rather than twists. A model without lower limbs walks as before.

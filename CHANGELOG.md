@@ -9,9 +9,11 @@ before 1.0).
 ### Fixed
 
 - The built-in walk on a humanoid (`skeleton: humanoid`) moved only the hips: its legs and arms default to
-  upperleg/upperarm now, and a model with lower limbs (lowerleg/lowerarm, or `knees:` / `elbows:`) bends its knees
-  (folding while the leg swings forward) and elbows. Models without lower limbs walk as before. Cached builds are
-  rebuilt once (#150).
+  upperleg/upperarm now, its knees and elbows bend (knees fold while the leg swings forward), its feet stay level,
+  and the body rides so the planted foot stays on the ground. Listing `legs:` / `arms:` keeps the humanoid defaults
+  off; other models bend what `knees:` / `elbows:` name. `wave` on a humanoid raises upperarm_r (it turned the whole
+  model). A model without lower limbs and without the humanoid skeleton walks as before. Cached builds are rebuilt
+  once (#150).
 - `normal_map: 2048` wrote a 2140x2138 texture: the packer's atlas came out up to 10% over the size asked for and
   was written as it was. The map is now exactly the size asked for, square, with the charts and their padding
   inside it (packed again at a lower texel density until they fit). Texel density changes with it: about 20% lower

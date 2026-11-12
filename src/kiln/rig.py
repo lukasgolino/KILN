@@ -194,36 +194,72 @@ def quaternion(degrees: tuple[float, float, float]) -> Array:
     return np.round(out / np.linalg.norm(out), 9)
 
 
-# Gaits (#150): walk and waddle as before when the model has no lower limbs; knee and elbow bends when it has
-# (humanoid lowerleg_* / lowerarm_*, or `knees:` / `elbows:`); run and sneak are faster / crouched walks.
+# Gaits (#150): walk and waddle as before on a model without lower limbs; a humanoid (or a model naming `knees:` /
+# `elbows:`) bends them, and with its skeleton the body follows the planted foot. run and sneak are faster / crouched.
 GAITS: dict[str, dict[str, float]] = {
-    "walk": {"swing": 30.0, "arm_swing": 25.0, "knee": 40.0, "knee_rest": 5.0, "elbow": 20.0, "bounce": 0.02, "lean": 0.0, "crouch": 0.0, "drop": 0.0},
-    "waddle": {"swing": 18.0, "arm_swing": 25.0, "knee": 20.0, "knee_rest": 5.0, "elbow": 15.0, "bounce": 0.02, "lean": 0.0, "crouch": 0.0,
-               "drop": 0.0},
-    "run": {"swing": 45.0, "arm_swing": 40.0, "knee": 80.0, "knee_rest": 15.0, "elbow": 85.0, "bounce": 0.05, "lean": 10.0, "crouch": 0.0,
-            "drop": 0.0},
-    "sneak": {"swing": 20.0, "arm_swing": 10.0, "knee": 30.0, "knee_rest": 5.0, "elbow": 45.0, "bounce": 0.01, "lean": 15.0, "crouch": 15.0,
-              "drop": 0.06},
+    "walk": {"swing": 30.0, "arm_swing": 25.0, "knee": 40.0, "knee_rest": 5.0, "elbow": 20.0, "bounce": 0.02, "lean": 0.0, "crouch": 0.0},
+    "waddle": {"swing": 18.0, "arm_swing": 25.0, "knee": 20.0, "knee_rest": 5.0, "elbow": 15.0, "bounce": 0.02, "lean": 0.0, "crouch": 0.0},
+    "run": {"swing": 45.0, "arm_swing": 40.0, "knee": 80.0, "knee_rest": 15.0, "elbow": 85.0, "bounce": 0.05, "lean": 10.0, "crouch": 0.0},
+    "sneak": {"swing": 20.0, "arm_swing": 10.0, "knee": 30.0, "knee_rest": 5.0, "elbow": 45.0, "bounce": 0.01, "lean": 15.0, "crouch": 15.0},
 }  # fmt: skip
+
+
+def _euler(axis: Array, degrees: float) -> tuple[float, float, float]:
+    """PartPose angles (rotation_matrix's x, y, z: R = Rz Ry Rx) of a turn about `axis`."""
+    from kiln.sdf import axis_rotation
+
+    r = axis_rotation(np.asarray(axis, float), degrees)
+    b = math.asin(max(-1.0, min(1.0, -float(r[2, 0]))))
+    a, c = math.atan2(float(r[2, 1]), float(r[2, 2])), math.atan2(float(r[1, 0]), float(r[0, 0]))
+    return math.degrees(a), math.degrees(b), math.degrees(c)
+
+
+def _swing_axis(direction: Array | None) -> Array:
+    """The axis a limb pointing along `direction` swings forward/back about: square to it and to the front (+z); x
+    for a hanging limb, y for a T-posed arm. Without a direction (no skeleton), x."""
+    if direction is None:
+        return np.array([1.0, 0.0, 0.0])
+    d = np.asarray(direction, float)
+    d = d - np.array([0.0, 0.0, d[2]])  # in the body's plane
+    axis = np.cross(np.array([0.0, 0.0, 1.0]), d)
+    n = float(np.linalg.norm(axis))
+    return axis / n if n > 1e-6 else np.array([1.0, 0.0, 0.0])
 
 
 def _wave(t: float) -> float:
     return math.sin(2 * math.pi * t)
 
 
-def animation_poses(anim: Animation, model: Model) -> list[dict[str, PartPose]]:
+def animation_poses(anim: Animation, model: Model, skeleton: Skeleton | None = None) -> list[dict[str, PartPose]]:
     """Every frame's poses: the explicit ones, the cycle's, or both: with `cycle` and `poses` together the poses
     repeat over the cycle's frames and a part named in a pose follows the pose instead of the cycle (walk legs +
-    carrying arms)."""
+    carrying arms). With the skeleton, gaits keep the planted foot on the ground."""
     if anim.cycle is None:
         return anim.poses
-    frames = expand_cycle(anim, model)
+    frames = expand_cycle(anim, model, skeleton)
     if not anim.poses:
         return frames
     return [{**frame, **anim.poses[i % len(anim.poses)]} for i, frame in enumerate(frames)]
 
 
-def expand_cycle(anim: Animation, model: Model) -> list[dict[str, PartPose]]:
+def _planted(thigh: dict[str, float], shin: dict[str, float], pivot: dict[str, Array], parent: dict[str, str],
+             child: dict[str, str]) -> float | None:
+    """How far the body moves up (< 0: down) so the lower ankle is as high as at rest: each leg's hip -> knee ->
+    ankle turned by its thigh and knee angles (about x, in the side view). None without the joints."""
+    lifts = []
+    for knee, bend in shin.items():
+        hip, ankle = parent.get(knee), child.get(knee)
+        if hip not in thigh or ankle is None or hip not in pivot or knee not in pivot or ankle not in pivot:
+            continue
+        from kiln.sdf import rotation_matrix
+
+        upper = rotation_matrix((thigh[hip], 0.0, 0.0)) @ (pivot[knee] - pivot[hip])
+        lower = rotation_matrix((thigh[hip] + bend, 0.0, 0.0)) @ (pivot[ankle] - pivot[knee])
+        lifts.append(float(pivot[ankle][1] - (pivot[hip][1] + upper[1] + lower[1])))
+    return max(lifts) if lifts else None
+
+
+def expand_cycle(anim: Animation, model: Model, skeleton: Skeleton | None = None) -> list[dict[str, PartPose]]:
     """Procedural cycles -> poses. Each cycle has a few readable options (see the reference)."""
     c = anim.cycle or {}
     kind = c["type"]
@@ -240,16 +276,36 @@ def expand_cycle(anim: Animation, model: Model) -> list[dict[str, PartPose]]:
 
     ids = set(model.ids)
 
-    def present(key: str, *choices: list[str]) -> list[str]:
-        """The first default whose parts the model has (KILN's leg_l, or a humanoid's upperleg_l), or what was asked."""
+    humanoid = model.skeleton == "humanoid"
+
+    def listed(key: str, default: list[str], human: list[str]) -> list[str]:
+        """What was asked, else KILN's names, else (a humanoid) its joint names."""
         if key in c:
             return [n for n in names(key, []) if n in ids]
-        return next(([n for n in pick if n in ids] for pick in choices if any(n in ids for n in pick)), [])
+        mine = [n for n in default if n in ids]
+        return mine if mine or not humanoid else [n for n in human if n in ids]
 
-    legs = present("legs", ["leg_l", "leg_r"], ["upperleg_l", "upperleg_r"])
-    arms = present("arms", ["arm_l", "arm_r"], ["upperarm_l", "upperarm_r"])
-    knees = present("knees", ["lowerleg_l", "lowerleg_r"])  # bend when the model has lower limbs (#150)
-    elbows = present("elbows", ["lowerarm_l", "lowerarm_r"])
+    legs = listed("legs", ["leg_l", "leg_r"], ["upperleg_l", "upperleg_r"])
+    arms = listed("arms", ["arm_l", "arm_r"], ["upperarm_l", "upperarm_r"])
+    # lower limbs bend (#150): a humanoid's, unless its legs / arms were listed (then only what `knees:` / `elbows:` name)
+    knees = listed("knees", [], ["lowerleg_l", "lowerleg_r"] if "legs" not in c else [])
+    elbows = listed("elbows", [], ["lowerarm_l", "lowerarm_r"] if "arms" not in c else [])
+    pivot = {b.name: b.pivot for b in skeleton.bones} if skeleton is not None else {}
+    parent = {b.name: skeleton.bones[b.parent].name for b in skeleton.bones if b.parent >= 0} if skeleton is not None else {}
+    child = {up: b for b, up in parent.items()}
+
+    def phase(limb: str, of: list[str]) -> float:
+        """A lower limb moves with the limb it hangs from (its parent, else the same side's, else its place)."""
+        up = parent.get(limb)
+        if up in of:
+            return 0.5 * of.index(up)
+        side = next((k for k, n in enumerate(of) if n[-2:] == limb[-2:]), None)
+        return 0.5 * (side if side is not None else 0)
+
+    def axis_of(limb: str) -> Array:
+        tip = child.get(limb)
+        return _swing_axis(pivot[tip] - pivot[limb] if limb in pivot and tip in pivot else None)
+
     body = str(c.get("body", "root"))
     part = str(c.get("part", "root"))
     axis = {"x": 0, "y": 1, "z": 2}.get(str(c.get("axis", "y")), 1)
@@ -258,25 +314,34 @@ def expand_cycle(anim: Animation, model: Model) -> list[dict[str, PartPose]]:
         pose: dict[str, PartPose] = {}
         if kind in GAITS:
             g = GAITS[kind]
-            swing = opt("swing", g["swing"])
-            fwd = -1.0  # parts turn in model axes: +x takes a hanging tip (foot, hand) back, an upright one (head) forward
-            for k, leg in enumerate(legs):
-                pose[leg] = PartPose(rotate=(swing * _wave(t + 0.5 * k) + fwd * opt("crouch", g["crouch"]), 0.0, 0.0))
+            swing, crouch = opt("swing", g["swing"]), opt("crouch", g["crouch"])
+            # model axes: about +x a hanging tip (foot, hand) goes back, an upright one (head) forward
+            thigh = {leg: swing * _wave(t + 0.5 * k) - crouch for k, leg in enumerate(legs)}
+            for leg, a in thigh.items():
+                pose[leg] = PartPose(rotate=_euler(axis_of(leg), a) if knees else (a, 0.0, 0.0))
             for k, arm in enumerate(arms):
-                pose[arm] = PartPose(rotate=(-opt("arm_swing", g["arm_swing"]) * _wave(t + 0.5 * k), 0.0, 0.0))
-            # knees fold (foot back) most while the leg swings forward, a little at contact, more when crouching;
-            # elbows hold a bend (forearm forward) that grows as the arm swings forward
-            for k, knee in enumerate(knees):
-                swing_phase = max(0.0, -math.cos(2 * math.pi * (t + 0.5 * k)))
-                bend = opt("knee", g["knee"]) * swing_phase + 2 * opt("crouch", g["crouch"]) + g["knee_rest"]
-                pose[knee] = PartPose(rotate=(-fwd * bend, 0.0, 0.0))
-            for k, elbow in enumerate(elbows):
-                forward = 0.5 + 0.5 * _wave(t + 0.5 * k)
-                pose[elbow] = PartPose(rotate=(fwd * opt("elbow", g["elbow"]) * (0.4 + 0.6 * forward), 0.0, 0.0))
-            bounce = opt("bounce", g["bounce"]) * abs(math.sin(2 * math.pi * t))
+                a = -opt("arm_swing", g["arm_swing"]) * _wave(t + 0.5 * k)
+                pose[arm] = PartPose(rotate=_euler(axis_of(arm), a) if elbows else (a, 0.0, 0.0))
+            # knees fold (foot back) most while their leg swings forward, a little at rest, more when crouching;
+            # elbows hold a bend (forearm forward) that grows as their arm swings forward
+            shin: dict[str, float] = {}
+            for knee in knees:
+                lift = max(0.0, -math.cos(2 * math.pi * (t + phase(knee, legs))))
+                shin[knee] = opt("knee", g["knee"]) * lift + 2 * crouch + opt("knee_rest", g["knee_rest"])
+                pose[knee] = PartPose(rotate=_euler(axis_of(knee), shin[knee]))
+                hip, foot = parent.get(knee), child.get(knee)
+                if hip in thigh and foot in ids:  # the foot stays level (soles flat on the ground)
+                    pose[foot] = PartPose(rotate=_euler(axis_of(knee), -(thigh[hip] + shin[knee])))
+            for elbow in elbows:
+                forward = 0.5 + 0.5 * _wave(t + phase(elbow, arms))
+                pose[elbow] = PartPose(rotate=_euler(axis_of(elbow), -opt("elbow", g["elbow"]) * (0.4 + 0.6 * forward)))
             roll = opt("roll", 8.0) * _wave(t) if kind == "waddle" else 0.0
-            drop = -opt("drop", g["drop"])
-            pose[body] = PartPose(offset=(0.0, bounce + drop, 0.0), rotate=(0.0, 0.0, roll))
+            ground = _planted(thigh, shin, pivot, parent, child) if knees and pivot else None
+            if ground is None:  # no skeleton (or lower limbs): the old bounce
+                rise = opt("bounce", g["bounce"]) * abs(math.sin(2 * math.pi * t))
+            else:  # the body follows the lower ankle down to where it was at rest
+                rise = ground
+            pose[body] = PartPose(offset=(0.0, rise, 0.0), rotate=(0.0, 0.0, roll))
             torso = str(c.get("torso", "spine"))  # the lean bends the upper body forward, not the legs with it
             if torso in ids and torso != body and opt("lean", g["lean"]):
                 pose[torso] = PartPose(rotate=(opt("lean", g["lean"]), 0.0, 0.0))
@@ -344,7 +409,7 @@ def tracks(model: Model, skeleton: Skeleton) -> list[Track]:
             tr_, rot_ = retarget(load_clip(path, clip_name), bones, anim.fps, speed, adjust.get("keep"), offsets, model.joint_map or HUMANOID_MAP)
             out.append(Track(anim.name, anim.fps, anim.loop, anim.interpolation, tr_, rot_, np.ones(tr_.shape)))
             continue
-        poses = animation_poses(anim, model)
+        poses = animation_poses(anim, model, skeleton)
         tr = np.repeat(rest[None], len(poses), axis=0)
         rot = np.tile(np.array([0.0, 0.0, 0.0, 1.0]), (len(poses), n, 1))
         sc = np.ones((len(poses), n, 3))
