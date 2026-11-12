@@ -55,6 +55,8 @@ before 1.0).
 
 ### Fixed
 
+- A `band` or `stripes` pattern with `frame: part` on a hard part painted nothing: it is cut along its planes in the
+  part's frame (#286).
 - Docs: textures over 256 px are filtered smoothly with mipmaps, uncapped; a cylindrical texture's v = 0 is at its
   `at` (#321).
 - `band: { fit: ... }` round a surface that isn't round (a belt round hips and belly) hugs it as a fitted shell

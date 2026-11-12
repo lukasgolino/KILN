@@ -340,3 +340,16 @@ def write_model_text(project: Project, text: str) -> Path:
     path = project.models_dir / "thing.kiln.yaml"
     path.write_text(text)
     return path
+
+
+def test_a_part_frame_band_on_a_hard_part(project: Project) -> None:
+    """#286: a band in the part's own frame on a hard (exact) part paints its faces, turned with the part."""
+    text = ("name: thing\nparts:\n  - cylinder: { at: [0, 0.5, 0], radius: 0.2, height: 0.8, rotate: [0, 0, 60], sides: 12 }\n    color: red\n"
+            "    pattern: { type: band, color: blue, axis: y, at: 0.1, size: 0.15, frame: part }\n")  # fmt: skip
+    built = built_of(project, text)
+    p = built.painted
+    blue = np.isin(p.face_group, [g for g, grp in enumerate(p.groups) if grp.color_name.split("#")[0] == "blue"])
+    tri = p.vertices[p.faces]
+    area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2
+    share = float(area[blue].sum() / area.sum())
+    assert 0.08 < share < 0.25, share  # about 0.15 of the 0.8 side, plus none of the caps

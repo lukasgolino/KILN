@@ -716,8 +716,23 @@ def _border_planes(pat: Pattern, points: Array, geometry: Geometry | None = None
     if pat.type == "along" and any(pat.axis) and geometry is not None and len(geometry.copies) == 1 and not geometry.mirror \
             and not geometry.twist:  # fmt: skip
         return [_along_fn(pat, geometry)]
-    if pat.frame == "part" or pat.type not in ("band", "stripes"):
+    if pat.type not in ("band", "stripes"):
         return None
+    if pat.frame == "part":  # (#286) planes in the part's frame: affine in model space for one plain copy
+        if geometry is None or len(geometry.copies) != 1 or geometry.mirror or geometry.twist or geometry.scale is not None:
+            return None
+        from kiln.uv import local
+
+        model_frame = replace(pat, frame="model")
+        planes = _border_planes(model_frame, local(geometry, points))
+        if planes is None:
+            return None
+        g = geometry
+
+        def through(f: Callable[[Array], Array]) -> Callable[[Array], Array]:
+            return lambda x: f(local(g, x))
+
+        return [through(f) for f in planes]
     axis = np.array(pat.axis, float)
     if pat.type == "band":
         levels = [pat.at - pat.size / 2, pat.at + pat.size / 2]
