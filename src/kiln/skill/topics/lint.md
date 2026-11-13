@@ -31,7 +31,7 @@ its parts show no smooth surface of their own. W127 a `color_blend` fades nothin
 
 `kiln lint --fast` runs only the checks that need no built model (YAML, fields, values, names, the rig's and
 animations' structure): quick while writing. It can't give the findings that come from the built model, and its
-summary lists them: E009 (nothing to mesh, a build failure), E013, E016, W101-W104, W106, W108-W111, W113, W120-W129, W132, W133, W135, W136, W139. That
+summary lists them: E009 (nothing to mesh, a build failure), E013, E016, W101-W103, W106, W108, W110, W111, W113, W120-W129, W132, W133, W135, W136, W139. That
 includes some that read like text checks (W104 a colour outside the palette, W109 an animated part without a pivot).
 A scatter's surface model is still built. Plain `kiln lint` prints the static findings first (a `static checks:` line), then builds each model named (all without names) for the full
 list; `kiln build` runs that full lint first on every model, on the same cached meshes, so a model that passes plain

@@ -100,7 +100,7 @@ LOST_SHARE = 0.15  # E016: a lost part bigger than this share of the model (its 
 CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than asked
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
-BUILT_RULES = ("E009", "E013", "E016", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
+BUILT_RULES = ("E009", "E013", "E016", "W101", "W102", "W103", "W106", "W108", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
                "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135", "W136", "W139")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
@@ -289,8 +289,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             for g in details:
                 t = part_thickness(g)
                 if not m.normal_map:
-                    warn("W121", f"{len(details)} detail part(s) but no normal_map: they show nowhere; add normal_map: 1024")
-                    break
+                    break  # (said by text_warnings: no map)
                 if t is not None and t < 2 * texel:
                     warn("W121", f"a detail {g.shape} is {t:.3g} m thick, under two texels of the {m.normal_map} map ({2 * texel:.3g} m): it "
                          "won't show; make it thicker or the map bigger")  # fmt: skip
@@ -322,11 +321,6 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             fix = f"set max_cells: {need}" if need <= CELL_LIMIT else f"set max_cells: {CELL_LIMIT} (the most), or a coarser resolution"
             warn("W120", f"meshed at {built.step * 1000:.3g} mm, not the {built.asked_step * 1000:.3g} mm asked for: {cells} cells across "
                  f"is the cap; {fix} (slower builds)")  # fmt: skip
-        if palette:
-            hexes = set(palette.values())
-            for part in m.parts:
-                if part.geometry.op == "add" and part.color not in hexes:
-                    warn("W104", f"colour {part.color} isn't in the palette: use a palette colour name", part.line, f"{part.where}.color")
     if m.source is None:
         for i, j, volume, centre in penetrations(built):
             a, b = m.parts[i], m.parts[j]
@@ -355,12 +349,30 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         warn("W139", f"the budget ({budget}) took the bevels off {lost} of {bevelled} bevelled hard part(s), the smallest first: with them "
              f"the hard parts take {need} triangles; budget: {int(need * 1.1) + 1} keeps them (or fewer segments, or chamfer instead of bevel)")
     pieces = built.pieces
-    if m.instances and len(built.painted.faces):  # instances set against the model join what they touch (#333)
-        from kiln.instances import joined_pieces
+    if pieces > 1 and len(built.painted.faces):  # touching pieces are one (#173, #333): a smooth detail on a hard part, an instance
+        from kiln.instances import piece_labels
 
-        pieces = joined_pieces(built.painted.vertices, built.painted.faces, max(built.step, 0.002) * 1.5)
-    if pieces > 1 and not (m.instances and not m.parts):  # (a scene of instances only: its pieces are separate models)
-        warn("W103", f"the model is {pieces} separate pieces: a floating part, or a gap between parts that should touch")
+        pv = built.painted
+        labels = piece_labels(pv.vertices, pv.faces, max(built.step, 0.002) * 1.5)
+        separate_bones = {pid for pid, e in m.rig.items() if e.separate} if m.skin != "none" else set()
+        face_label = labels[pv.faces[:, 0]]
+        attached = np.array([pv.groups[g].bone in separate_bones for g in pv.face_group])  # separate: true parts float on purpose
+        kinds = np.unique(face_label[~attached])
+        pieces = len(kinds)
+        if pieces > 1 and not (m.instances and not m.parts):  # (a scene of instances only: its pieces are separate models)
+            def extent(k: int) -> float:  # by size, not triangles (a hard box has few)
+                pts = pv.vertices[pv.faces[(face_label == k) & ~attached]].reshape(-1, 3)
+                return float(np.linalg.norm(pts.max(axis=0) - pts.min(axis=0)))
+
+            small = min(kinds, key=extent)
+            faces_small = (face_label == small) & ~attached
+            centre = pv.vertices[pv.faces[faces_small]].reshape(-1, 3).mean(axis=0)
+            bones = sorted({pv.groups[g].bone for g in pv.face_group[faces_small]})
+            colours = sorted({pv.groups[g].color_name.split("#")[0] for g in pv.face_group[faces_small]})
+            who = (f"parts with id {', '.join(bones)}" if bones != [ROOT_ID] else f"{', '.join(colours)} parts")
+            warn("W103", f"the model is {pieces} separate pieces: the smallest ({who}) floats around [{centre[0]:.2f}, {centre[1]:.2f}, "
+                 f"{centre[2]:.2f}]; move it to touch (or overlap) the rest, or mark it `separate: true` in rig if it is meant to come off",
+                 None, "parts")  # fmt: skip
     lo, hi = built.bounds()
     size = float((hi - lo).max())
     tol = max(0.01, 0.01 * size)
@@ -384,12 +396,6 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     limits = CLASS_SIZES.get(m.cls)
     if limits and not limits[0] <= size <= limits[1]:
         warn("W108", f"a {m.cls} {size:.3g} m across is unusual (expected {limits[0]:g}-{limits[1]:g} m): units are metres")
-    animated = {name for t in built.tracks for name in _moved(m, t.name)}
-    for name in sorted(animated):
-        entry = m.rig.get(name)
-        humanoid_joint = m.skeleton == "humanoid" and name in JOINTS  # the skeleton sets its pivot at the joint (#187)
-        if name != "root" and (entry is None or entry.pivot is None) and not humanoid_joint:
-            warn("W109", f"part {name!r} is animated but has no rig pivot: it turns about the middle of its box; set rig: {{ {name}: {{ pivot: [x, y, z] }} }}")
     return _grouped(out)
 
 
@@ -528,6 +534,28 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
             envelope = gi.distance(mine, filled=True)
             if ((envelope > 0) & (envelope < gi.shell + 2 * step)).any():
                 out.append((i, j, volume, pts[overlap].mean(axis=0)))
+    return out
+
+
+def text_warnings(m: Model, palette: dict[str, str]) -> list[Finding]:
+    """The warnings that need only the model's text (#249), so `lint --fast` gives them too: W104 a colour off the
+    palette, W109 an animated part without a pivot, W121 detail parts without a normal map."""
+    out = []
+    if palette and m.source is None:
+        hexes = set(palette.values())
+        for part in m.parts:
+            if part.geometry.op == "add" and part.color not in hexes:
+                out.append(Finding("W104", f"colour {part.color} isn't in the palette: use a palette colour name", m.path, part.line, f"{part.where}.color"))
+    if m.detail and not m.normal_map:
+        out.append(Finding("W121", f"{len(m.detail)} detail part(s) but no normal_map: they show nowhere; add normal_map: 1024", m.path, None, "normal_map"))
+    if m.source is None:
+        animated = {name for anim in m.animations for name in _moved(m, anim)}
+        for name in sorted(animated):
+            entry = m.rig.get(name)
+            humanoid_joint = m.skeleton == "humanoid" and name in JOINTS  # the skeleton sets its pivot at the joint (#187)
+            if name != "root" and (entry is None or entry.pivot is None) and not humanoid_joint:
+                out.append(Finding("W109", f"part {name!r} is animated but has no rig pivot: it turns about the middle of its box; set rig: "
+                                   f"{{ {name}: {{ pivot: [x, y, z] }} }}", m.path, None, f"rig.{name}"))  # fmt: skip
     return out
 
 
@@ -707,6 +735,7 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
             keep += off_palette(model, palette)
             keep += glow_caps(model, style)
             keep += one_sided_blends(model)
+            keep += text_warnings(model, palette)
             if model.vertex_fades and not project.config.vertex_colors:  # #262
                 first = next((p for p in model.parts if p.color_blend > 0), None)
                 keep.append(Finding("W134", "color_blend fades per vertex here (the model has no baked maps"

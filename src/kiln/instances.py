@@ -126,6 +126,12 @@ def _compose(outer: Copy, inner: tuple[float, ...] | None) -> tuple[float, ...]:
 def joined_pieces(vertices: np.ndarray, faces: np.ndarray, gap: float) -> int:
     """Separate pieces, counting those within about `gap` of each other as one: an instance set against the model
     (a link between two clasp halves) joins them though they share no vertex (#333)."""
+    return int(len(np.unique(piece_labels(vertices, faces, gap)[np.unique(faces)])))
+
+
+def piece_labels(vertices: np.ndarray, faces: np.ndarray, gap: float) -> np.ndarray:
+    """Each vertex's piece (a representative vertex index): pieces within about `gap` of each other are one (#173: a
+    smooth detail on a hard part, hard parts that touch face to face)."""
     n = len(vertices)
     parent = np.arange(n)
 
@@ -155,4 +161,6 @@ def joined_pieces(vertices: np.ndarray, faces: np.ndarray, gap: float) -> int:
         first = np.full(inverse.max() + 1, -1)
         first[inverse[::-1]] = used[::-1]
         union(used, first[inverse])
-    return int(len(np.unique(find(used.copy()))))
+    out = np.arange(n)
+    out[used] = find(used.copy())
+    return out

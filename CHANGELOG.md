@@ -109,6 +109,9 @@ before 1.0).
 
 ### Changed
 
+- `kiln lint --fast` gives the warnings that need no mesh: W104, W109 and W121's missing map (#249).
+- W103 counts pieces that touch as one (a smooth detail on a hard part, hard parts face to face, an instance),
+  leaves out `separate: true` parts, and names the smallest floating piece and where it is (#173).
 - Error wording: a model without `name:` takes its file's name; `- { shape: sphere, ... }` shows the right form; a
   part option written inside the shape (`bevel`, `scale`) and a shape field written beside it (`sides`) say where they
   go; W101 says "other parts" (not "later"); W120 is quiet on all-hard models (#168, #190, #177).

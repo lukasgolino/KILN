@@ -384,3 +384,22 @@ def test_w140_mirrored_part_blending_into_one_side(project: Project) -> None:
     assert w and "arm_r" in w[0].message, [f.format() for f in found]
     fixed = lint_paths(project, [write_model(project, text.replace("blend_to: [arm_l]", "blend_to: [arm_l, arm_r]"))], geometry=False).findings
     assert "W140" not in [f.rule for f in fixed]
+
+
+def test_fast_lint_gives_the_text_only_warnings(project: Project) -> None:
+    """#249: W104, W109 and W121 (no map) need no mesh: --fast gives them."""
+    text = ("name: thing\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: \"#123456\"\n    id: body\n"
+            "  - box: { at: [0, 0.3, 0.3], size: [0.1, 0.01, 0.01] }\n    detail: true\n    cut: true\nskin: rigid\n"
+            "animations:\n  spin: { cycle: { type: spin, part: body } }\n")  # fmt: skip
+    rules = {f.rule for f in lint_paths(project, [write_model(project, text)], geometry=False).findings}
+    assert {"W104", "W109", "W121"} <= rules, rules
+
+
+def test_w103_joins_touching_pieces_and_names_the_floating_one(project: Project) -> None:
+    """#173: a smooth detail on a hard part is not a separate piece; a floating one is named, with where it is."""
+    on_hard = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.6, 0.4, 0.6] }\n    color: wood\n    chamfer: 0.01\n"
+               "  - sphere: { at: [0, 0.42, 0], radius: 0.05 }\n    color: red\n")  # fmt: skip
+    assert "W103" not in warnings(lint_paths(project, [write_model(project, on_hard)]).findings)
+    floating = on_hard.replace("at: [0, 0.42, 0], radius: 0.05", "at: [0, 0.9, 0], radius: 0.05")
+    w = [f for f in lint_paths(project, [write_model(project, floating)]).findings if f.rule == "W103"]
+    assert w and "red parts" in w[0].message and "0.90" in w[0].message, [f.format() for f in w]
