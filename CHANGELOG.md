@@ -62,6 +62,8 @@ before 1.0).
 
 ### Fixed
 
+- Godot variant scenes that recolour by the swap table cap and dim a recoloured glow as the glb does (standard and
+  toon), instead of keeping the source colour's strength (#288).
 - Small cut dots no longer vanish: the mesh refines down to the smallest dot, not the dot spacing (#283).
 - A `band` or `stripes` pattern with `frame: part` on a hard part painted nothing: it is cut along its planes in the
   part's frame (#286).

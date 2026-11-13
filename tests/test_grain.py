@@ -60,3 +60,28 @@ def test_godot_loads_a_grainy_material(tmp_path: Path) -> None:
     assert result.godot_root is not None
     check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
     assert check.ok, check.output[-3000:]
+
+
+@pytest.mark.slow
+def test_godot_variant_scene_recolours_glow_with_the_cap(tmp_path: Path) -> None:
+    """#288: a variant scene that recolours by the swap table (no variant glbs) caps and dims the glow as the glb does;
+    the script loads in Godot."""
+    from kiln.build import build
+    from kiln.godot import find_godot_binary, verify
+    from kiln.project import load_project
+
+    godot = find_godot_binary()
+    if godot is None:
+        pytest.skip("needs a Godot 4 binary (GODOT=/path)")
+    make_project(tmp_path, 'default_style = "soft_toy"\ndefault_palette = "main"\noutput_dir = "game/assets/kiln"\nexport = ["glb", "godot"]\n')
+    (tmp_path / "game").mkdir()
+    (tmp_path / "game" / "project.godot").write_text('config_version=5\n[application]\nconfig/name="t"\n')
+    project = load_project(tmp_path)
+    write_model(project, "name: lamp\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: gold\n    material: glow\nvariants:\n  w: { swap: { gold: white } }\n", "lamp")
+    result = build(project)
+    assert not result.errors, [f.format() for f in result.errors]
+    scene = (project.output_dir / "models" / "lamp.w.tscn").read_text()
+    assert "emissions = {" in scene and "GLOW_PEAK := 0.75" in scene
+    assert result.godot_root is not None
+    check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
+    assert check.ok, check.output[-3000:]

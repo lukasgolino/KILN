@@ -21,6 +21,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TypeAlias
 
+from kiln.export import GLOW_ALBEDO, GLOW_PEAK
 from kiln.style import FILMIC_WHITE, TOON_DARKEN, Look, Style
 
 TOON_SHADER = """shader_type spatial;
@@ -62,6 +63,9 @@ extends Node3D
 @export var outline_color := Color(0.1, 0.08, 0.12)
 @export var rims: Dictionary = {}
 @export var grains: Dictionary = {}  # preset -> [strength, metres per bump] (#329)
+@export var emissions: Dictionary = {}  # glowing preset -> its strength (a variant's recoloured glow is capped from it, #288)
+const GLOW_PEAK := %GLOW_PEAK%
+const GLOW_ALBEDO := %GLOW_ALBEDO%
 @export var swap: Dictionary = {}  # variant: "rrggbb" (a material's colour, from its name) -> new colour
 
 # Materials are made once and shared by every instance (and every model) with the same source and settings.
@@ -103,6 +107,16 @@ func _ready() -> void:
 \t\t\tvar hex := source.resource_name.get_slice("#", 1)
 \t\t\tif swap.has(hex) and source.albedo_texture == null:
 \t\t\t\talbedo = Color(swap[hex], source.albedo_color.a)  # (glass keeps its see-through)
+\t\t\tvar glow := source.emission
+\t\t\tvar glow_energy := source.emission_energy_multiplier
+\t\t\tif source.emission_enabled and swap.has(hex) and source.albedo_texture == null:  # a recoloured glow: capped and dimmed as the glb's (#288)
+\t\t\t\tvar preset := source.resource_name.get_slice("_", 0)
+\t\t\t\tvar strength: float = preset.get_slice("@", 1).to_float() if preset.contains("@") else float(emissions.get(preset, glow_energy))
+\t\t\t\tvar lin := Color(swap[hex]).srgb_to_linear()
+\t\t\t\tglow = Color(swap[hex])
+\t\t\t\tglow_energy = minf(strength, GLOW_PEAK / maxf(maxf(lin.r, lin.g), maxf(lin.b, 0.000001)))
+\t\t\t\tvar dim := Color(lin.r * GLOW_ALBEDO, lin.g * GLOW_ALBEDO, lin.b * GLOW_ALBEDO).linear_to_srgb()
+\t\t\t\talbedo = Color(dim.r, dim.g, dim.b, source.albedo_color.a)
 \t\t\tvar key := "%d|%s|%s|%d|%s|%s|%s" % [source.get_instance_id(), shader_kind, albedo.to_html(), bands, outline, outline_color.to_html(), rims]
 \t\t\tif _shared.has(key):
 \t\t\t\tmesh_instance.set_surface_override_material(i, _shared[key])
@@ -112,7 +126,7 @@ func _ready() -> void:
 \t\t\t\tvar toon := ShaderMaterial.new()
 \t\t\t\ttoon.shader = toon_shader if source.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED else _see_through(toon_shader)
 \t\t\t\ttoon.set_shader_parameter("albedo", albedo)
-\t\t\t\ttoon.set_shader_parameter("emission", Vector3(source.emission.r, source.emission.g, source.emission.b) * source.emission_energy_multiplier if source.emission_enabled else Vector3.ZERO)
+\t\t\t\ttoon.set_shader_parameter("emission", Vector3(glow.r, glow.g, glow.b) * glow_energy if source.emission_enabled else Vector3.ZERO)
 \t\t\t\ttoon.set_shader_parameter("bands", bands)
 \t\t\t\tmaterial = toon
 \t\t\telse:
@@ -126,7 +140,8 @@ func _ready() -> void:
 \t\t\t\tif mesh_instance.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_COLOR:
 \t\t\t\t\tstandard.vertex_color_use_as_albedo = true  # vertex_colors = true: glTF colours are linear
 \t\t\t\tif source.emission_enabled and swap.has(hex):
-\t\t\t\t\tstandard.emission = albedo
+\t\t\t\t\tstandard.emission = glow
+\t\t\t\t\tstandard.emission_energy_multiplier = glow_energy
 \t\t\t\tvar rim: float = rims.get(source.resource_name.get_slice("_", 0).get_slice("@", 0), 0.0)  # (glow@0.6: the glow preset)
 \t\t\t\tvar grain: Array = grains.get(source.resource_name.get_slice("_", 0).get_slice("@", 0), [])
 \t\t\t\tif grain.size() == 2 and standard.normal_texture == null and standard.albedo_texture == null:  # a fine bumpy finish (#329)
@@ -149,6 +164,7 @@ func _ready() -> void:
 \t\t\t_shared[key] = material
 \t\t\tmesh_instance.set_surface_override_material(i, material)
 """
+APPLY_SCRIPT = APPLY_SCRIPT.replace("%GLOW_PEAK%", f"{GLOW_PEAK:g}").replace("%GLOW_ALBEDO%", f"{GLOW_ALBEDO:g}")  # as the glb's cap (#288)
 
 
 def _swap_lines(text: str, pairs: list[tuple[str, str]]) -> str:
@@ -617,6 +633,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
     look = style.look
     rims = ", ".join(f"{_quote(k)}: {v.rim:.6g}" for k, v in sorted(style.materials.items()) if v.rim > 0)
     grains = ", ".join(f"{_quote(k)}: [{v.grain:.6g}, {v.grain_size:.6g}]" for k, v in sorted(style.materials.items()) if v.grain > 0)
+    emissions = ", ".join(f"{_quote(k)}: {v.emission:.6g}" for k, v in sorted(style.materials.items()) if v.emission > 0)
     atlas = textures is not None
     script = _apply_script(ATLAS_SCRIPT if atlas else APPLY_SCRIPT, look, atlas)
     toon = toon_shader(look, atlas)
@@ -666,6 +683,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         *([] if look.outline_color == "darken" else [f"outline_color = {_color(look.outline_color)}"]),
         f"rims = {{{rims}}}",
         *([f"grains = {{{grains}}}"] if grains else []),
+        *([f"emissions = {{{emissions}}}"] if emissions else []),
         *([f"revealed = [{', '.join(_quote(n) for n in revealed)}]"] if revealed else []),
         *(['rim_shader = SubResource("Shader_rim")', f"rim_light = {look.rim_light:.6g}", f"rim_light_color = {_color(look.rim_light_color)}",
            f"rim_light_power = {look.rim_light_power:.6g}"] if rim else []),  # fmt: skip
