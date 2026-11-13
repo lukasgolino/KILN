@@ -1,0 +1,26 @@
+description = "Pointillist: the frame painted in square-ish dabs of bright pastel colour that the eye mixes"
+extends = "soft_toy"
+notes = """
+Paint look ([look] post = "paint"): every frame is redrawn as a jittered grid of slightly irregular, square-ish dabs
+(post_lines rows of them), each one pure colour from post_palette; neighbouring dabs mix optically. Shadows turn
+violet instead of going dark and everything is lifted towards pastel. Smooth shading suits it (gradients become dab
+mixtures). The dabs live in screen (or view) space: turning is steady in view space, walking slides them.
+The look kit's Retro node tunes the dabs at runtime (set_mode, set_paint).
+"""
+
+[look]
+ssao = false
+glow = false
+fog = 0.0
+ambient = 0.6
+saturation = 1.1
+sky_top = "#7fb2ff"
+sky_horizon = "#fff1d6"
+ground = "#a8d672"
+post = "paint"
+post_lines = 90
+pixel_aspect = 1.0
+post_palette = "pointillist"
+dither = "noise"
+dither_strength = 1.0
+dither_space = "view"

@@ -13,8 +13,9 @@ const LOOKS := [  # [style, label], in key order
 	["retro_st", "Atari ST colour"],
 	["retro_cga", "CGA"],
 	["retro_mono", "Atari ST mono"],
+	["paint_pointillist", "Pointillist paint"],
 ]
-const HINT := "WASD walk · Shift run · mouse look · Esc frees the mouse\n1 / 2 / 3 or Tab: look · F1: tune the look"
+const HINT := "WASD walk · Shift run · mouse look · Esc frees the mouse\n1 / 2 / 3 / 4 or Tab: look · F1: tune the look"
 
 const FLOOR_COLOUR := Color("#242449")
 const WALL_COLOUR := Color("#b6b6db")
@@ -137,7 +138,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
 	match event.physical_keycode:
-		KEY_1, KEY_2, KEY_3:
+		KEY_1, KEY_2, KEY_3, KEY_4:
 			var style: String = LOOKS[event.physical_keycode - KEY_1][0]
 			for i in looks.size():
 				if looks[i][0] == style:

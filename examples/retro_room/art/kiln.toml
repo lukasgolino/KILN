@@ -4,7 +4,7 @@ default_palette = "main"       # palettes/main.pal.yaml (PAGAN's palette format)
 output_dir = "../godot/assets/kiln"
 preview_dir = "previews"
 export = ["glb", "godot"]
-looks = ["retro_st", "retro_cga", "retro_mono"]  # the room switches between them: 1 / 2 / 3
+looks = ["retro_st", "retro_cga", "retro_mono", "paint_pointillist"]  # the room switches between them: 1 / 2 / 3 / 4
 style_version = 1              # `kiln style bump` raises it when the look changes; models record theirs
 
 [lint]

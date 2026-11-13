@@ -117,6 +117,11 @@ def rgb(hex_color: str) -> tuple[float, float, float]:
     return (int(hex_color[1:3], 16) / 255, int(hex_color[3:5], 16) / 255, int(hex_color[5:7], 16) / 255)
 
 
+# Paint mode's starting values (written into the material: the Retro script reads them back for the dev panel).
+PAINT_DEFAULTS = {"dab_size": 1.4, "dab_jitter": 0.7, "dab_aspect": 0.3, "dab_angle": 0.35, "dab_turn": 0.3, "dab_round": 0.3,
+                  "dab_skew": 0.15, "vivid": 1.35, "lift": 0.2, "shadow_hue": 0.55}
+
+
 def material_params(look: Look) -> list[str]:
     """The ShaderMaterial's `shader_parameter/...` lines: the style's settings as the uniforms' starting values."""
     colors = [rgb(c) for c in look.post_colors] + [(0.0, 0.0, 0.0)] * (MAX_COLORS - len(look.post_colors))
@@ -129,12 +134,19 @@ def material_params(look: Look) -> list[str]:
         f"shader_parameter/count = {len(look.post_colors)}",
         f"shader_parameter/colors = PackedVector3Array({vectors})",
         f"shader_parameter/space = {SPACES.index(look.dither_space)}",
+        f"shader_parameter/mode = {1 if look.post == 'paint' else 0}",
+        *(f"shader_parameter/{k} = {_float(v)}" for k, v in PAINT_DEFAULTS.items()),
+        "shader_parameter/shadow_tint = Vector3(0.42, 0.36, 0.78)",
+        "shader_parameter/ground = Vector4(0.95, 0.92, 0.84, 0.0)",
     ]
+
+
+WORLD_UNIFORMS = ("lines", "pixel_aspect", "strength", "pattern", "count", "colors")
 
 
 def world_params(look: Look) -> list[str]:
     """The World pass's `shader_parameter/...` lines: the canvas pass's settings (but `space`) and the look's exposure."""
-    return [*(line for line in material_params(look) if "/space " not in line), f"shader_parameter/exposure = {_float(look.exposure)}"]
+    return [*(line for line in material_params(look) if line.split(" ")[0].split("/")[1] in WORLD_UNIFORMS), f"shader_parameter/exposure = {_float(look.exposure)}"]
 
 
 PATTERN_GLSL = f"""const float BAYER4[16] = float[16]({", ".join(_float(v) for v in bayer(4).flatten())});
@@ -197,6 +209,76 @@ QUANTISE_GLSL = f"""vec3 quantise(vec3 p, float threshold) {{
 }}
 """
 
+
+# Paint mode (`[look] post = "paint"`): the frame redrawn as square-ish dabs of pure palette colour that the eye mixes
+# (divisionism), instead of retro blocks. A jittered grid of dabs, one per block cell, each a slightly irregular
+# rectangle (aspect, turn, skew, rounded corners rolled per dab), stacked in a random order; each samples the scene once
+# at its centre, goes through the pastel grade (vivid colour, hue-shifted shadows, lifted towards white) and takes one
+# of the two nearest palette colours with its own random threshold: the dabs mix to the colour between them.
+PAINT_GLSL = """uniform int mode = 0;  // 0 retro blocks, 1 paint dabs
+uniform float dab_size = 1.4;  // dab length, in block cells (over 1: dabs overlap)
+uniform float dab_jitter = 0.7;  // how far a dab's centre wanders from its cell's, in cells
+uniform float dab_aspect = 0.3;  // random stretch: 0 square, 0.3 up to 30% longer than wide
+uniform float dab_angle = 0.35;  // the brush direction, radians
+uniform float dab_turn = 0.3;  // random turn either side of dab_angle, radians
+uniform float dab_round = 0.3;  // corner rounding: 0 sharp, 1 round
+uniform float dab_skew = 0.15;  // random skew and taper: no dab is a perfect rectangle
+uniform float vivid = 1.35;  // saturation before the palette
+uniform float lift = 0.2;  // towards white: pastel
+uniform vec3 shadow_tint = vec3(0.42, 0.36, 0.78);  // shadows turn this colour instead of going dark
+uniform float shadow_hue = 0.55;  // how much
+uniform vec4 ground = vec4(0.95, 0.92, 0.84, 0.0);  // the canvas between dabs (alpha: how much shows)
+
+vec4 dab_hash(vec2 p) {
+	vec4 q = vec4(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)), dot(p, vec2(419.2, 371.9)), dot(p, vec2(87.3, 215.1)));
+	return fract(sin(q) * 43758.5453);
+}
+
+vec3 painterly(vec3 c) {
+	float l = dot(c, vec3(0.299, 0.587, 0.114));
+	c = clamp(vec3(l) + (c - vec3(l)) * vivid, 0.0, 1.0);
+	float shade = clamp(1.0 - l * 1.8, 0.0, 1.0);
+	c = mix(c, shadow_tint * (0.55 + 0.45 * l), shade * shadow_hue);
+	return mix(c, vec3(1.0), lift);
+}
+
+// How far inside dab `h` (rolled per dab) the offset `d` (cells, from the dab's centre) is: < 1 inside.
+float dab_shape(vec2 d, vec4 h, vec4 k) {
+	float a = dab_angle + (h.x - 0.5) * 2.0 * dab_turn;
+	vec2 r = vec2(cos(a) * d.x + sin(a) * d.y, -sin(a) * d.x + cos(a) * d.y);
+	r.x += (k.x - 0.5) * 2.0 * dab_skew * r.y;  // skew
+	float half_len = 0.5 * dab_size * (1.0 + dab_aspect * h.y);
+	float half_wid = 0.5 * dab_size * (1.0 - 0.5 * dab_aspect * h.y) * (1.0 + (k.y - 0.5) * 2.0 * dab_skew * r.x / max(half_len, 1e-3));  // taper
+	vec2 u = abs(r) / vec2(half_len, max(half_wid, 1e-3));
+	float n = mix(16.0, 2.5, clamp(dab_round * (0.6 + 0.8 * k.z), 0.0, 1.0));
+	return pow(pow(u.x, n) + pow(u.y, n), 1.0 / n);
+}
+
+vec3 paint(vec2 screen_uv, vec2 screen_px, vec2 block, vec2 offset) {
+	vec2 q = screen_uv * screen_px / block - offset;  // cells, fixed to view directions in view space
+	vec2 base = floor(q);
+	float best = -1.0;
+	vec2 best_centre = base + 0.5;
+	float best_level = 0.5;
+	for (int j = -1; j <= 1; j++) {
+		for (int i = -1; i <= 1; i++) {
+			vec2 n = base + vec2(float(i), float(j));
+			vec4 h = dab_hash(n);
+			vec4 k = dab_hash(n + vec2(57.0, 113.0));
+			vec2 centre = n + 0.5 + (h.zw - 0.5) * dab_jitter;
+			if (dab_shape(q - centre, h, k) < 1.0 && k.w > best) {
+				best = k.w;
+				best_centre = centre;
+				best_level = clamp(fract(h.z * 7.13 + h.w * 3.71), 0.001, 0.999);
+			}
+		}
+	}
+	vec2 uv = clamp((best_centre + offset) * block / screen_px, vec2(0.0), vec2(1.0));
+	vec3 c = quantise(painterly(texture(screen, uv).rgb), best_level);
+	return best < 0.0 ? mix(c, ground.rgb, ground.a) : c;
+}
+"""
+
 SHADER = f"""shader_type canvas_item;
 render_mode unshaded;
 
@@ -225,6 +307,7 @@ vec2 view_cell(vec2 cell, float shown_lines) {{
 
 {PATTERN_GLSL}
 {QUANTISE_GLSL}
+{PAINT_GLSL}
 void fragment() {{
 \tvec2 screen_px = 1.0 / SCREEN_PIXEL_SIZE;
 \tfloat bh = screen_px.y / min(lines, screen_px.y);  // never under one screen pixel
@@ -232,8 +315,13 @@ void fragment() {{
 \tvec2 cell = floor(SCREEN_UV * screen_px / block);
 \tvec2 uv = clamp((cell + 0.5) * block / screen_px, vec2(0.0), vec2(1.0));
 \tvec4 sampled = texture(screen, uv);
-\tfloat level = space == 1 ? 1.0 : threshold(space == 2 ? view_cell(cell, screen_px.y / bh) : cell);
-\tCOLOR = vec4(quantise(sampled.rgb, level), step(0.5, sampled.a));  // a game's screen is opaque; engine previews keep their transparent background
+\tif (mode == 1) {{
+\t\tvec2 offset = space == 2 ? cell - view_cell(cell, screen_px.y / bh) : vec2(0.0);
+\t\tCOLOR = vec4(paint(SCREEN_UV, screen_px, block, offset), step(0.5, sampled.a));
+\t}} else {{
+\t\tfloat level = space == 1 ? 1.0 : threshold(space == 2 ? view_cell(cell, screen_px.y / bh) : cell);
+\t\tCOLOR = vec4(quantise(sampled.rgb, level), step(0.5, sampled.a));  // a game's screen is opaque; engine previews keep their transparent background
+\t}}
 }}
 """
 
@@ -451,6 +539,37 @@ func get_palette() -> PackedColorArray:
 	for i in mini(count, vectors.size()):
 		palette.append(Color(vectors[i].x, vectors[i].y, vectors[i].z))
 	return palette
+
+
+const PAINT := ["dab_size", "dab_jitter", "dab_aspect", "dab_angle", "dab_turn", "dab_round", "dab_skew", "vivid", "lift", "shadow_hue"]
+
+
+## 0 retro blocks, 1 paint dabs.
+func set_mode(value: int) -> void:
+	_material().set_shader_parameter("mode", value)
+
+
+func get_mode() -> int:
+	return _material().get_shader_parameter("mode")
+
+
+## A paint-mode setting by name (PAINT), or "shadow_tint" / "ground" (Color; ground's alpha: how much canvas shows).
+func set_paint(parameter: String, value: Variant) -> void:
+	if parameter == "shadow_tint":
+		_material().set_shader_parameter(parameter, Vector3(value.r, value.g, value.b))
+	elif parameter == "ground":
+		_material().set_shader_parameter(parameter, Vector4(value.r, value.g, value.b, value.a))
+	elif parameter in PAINT:
+		_material().set_shader_parameter(parameter, float(value))
+
+
+func get_paint(parameter: String) -> Variant:
+	var value: Variant = _material().get_shader_parameter(parameter)
+	if parameter == "shadow_tint":
+		return Color(value.x, value.y, value.z)
+	if parameter == "ground":
+		return Color(value.x, value.y, value.z, value.w)
+	return value
 
 
 func get_settings() -> Dictionary:

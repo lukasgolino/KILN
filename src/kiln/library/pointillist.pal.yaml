@@ -1,0 +1,26 @@
+name: pointillist
+# KILN's paint look (paint_pointillist) mixes dabs of these colours ([look] post_palette): bright pastels with cool
+# violets and blues for the shadows (no black, no grey), as the Neo-Impressionists set their palettes.
+colors:
+  "0": { hex: "#fff6e0", name: cream }
+  "1": { hex: "#ffe066", name: lemon }
+  "2": { hex: "#ffb347", name: orange }
+  "3": { hex: "#ff8c69", name: coral }
+  "4": { hex: "#ff9ec7", name: rose }
+  "5": { hex: "#e0607e", name: crimson }
+  "6": { hex: "#c39bf2", name: lilac }
+  "7": { hex: "#7d5bd6", name: violet }
+  "8": { hex: "#4a3fa8", name: indigo }
+  "9": { hex: "#6fa8ff", name: cornflower }
+  "a": { hex: "#9fe0ff", name: sky }
+  "b": { hex: "#4fd1c5", name: turquoise }
+  "c": { hex: "#2f9e8f", name: teal }
+  "d": { hex: "#a8e66b", name: spring }
+  "e": { hex: "#5dbb63", name: leaf }
+  "f": { hex: "#f2c38b", name: ochre }
+ramps:
+  # shadow -> highlight
+  warm: ["5", "3", "2", "1", "0"]
+  cool: ["8", "7", "6", "4"]
+  blue: ["8", "9", "a"]
+  green: ["c", "e", "d"]

@@ -1,0 +1,574 @@
+[gd_scene format=3]
+
+[sub_resource type="ProceduralSkyMaterial" id="Sky_material"]
+sky_top_color = Color(0.498039, 0.698039, 1, 1)
+sky_horizon_color = Color(1, 0.945098, 0.839216, 1)
+ground_bottom_color = Color(0.658824, 0.839216, 0.447059, 1)
+ground_horizon_color = Color(1, 0.945098, 0.839216, 1)
+
+[sub_resource type="Sky" id="Sky_main"]
+sky_material = SubResource("Sky_material")
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_main")
+ambient_light_source = 3
+ambient_light_energy = 0.6
+tonemap_mode = 2
+tonemap_exposure = 1
+tonemap_white = 3
+ssao_enabled = false
+glow_enabled = false
+adjustment_enabled = true
+adjustment_saturation = 1.1
+adjustment_contrast = 1
+
+[sub_resource type="GDScript" id="GDScript_sun"]
+script/source = "extends DirectionalLight3D
+# Godot's Compatibility renderer adds the ambient light again for every light with shadows
+# (godotengine/godot#90259): everything comes out several times too bright. There the sun casts no shadows.
+func _ready() -> void:
+	if RenderingServer.get_current_rendering_method() == \"gl_compatibility\":
+		shadow_enabled = false
+"
+
+[sub_resource type="Shader" id="Shader_post"]
+code = "shader_type canvas_item;
+render_mode unshaded;
+
+// KILN's retro pass ([look] post = \"retro\"): every setting is a uniform; the look kit's material holds the style's
+// values and the Retro node's script changes them at runtime. The screen texture is sRGB while
+// rendering/viewport/hdr_2d is off (Godot's default); the retro looks need it off.
+uniform sampler2D screen : hint_screen_texture, filter_nearest;
+uniform float lines = 200.0;
+uniform float pixel_aspect = 1.0;
+uniform float strength = 1.0;
+uniform int pattern = 0;  // 0 bayer4, 1 bayer8, 2 none, 3 halftone, 4 lines, 5 hatch, 6 noise
+uniform int count = 2;
+uniform vec3 colors[16];
+uniform int space = 0;  // 0 screen, 1 world, 2 view (world: the World pass has dithered the frame: snap only)
+uniform vec2 view_angles = vec2(0.0);  // view space: the turn so far (yaw, scaled by cos(pitch)) and the pitch, radians
+uniform float view_tan = 0.5774;  // view space: tan of half the vertical field of view
+
+// View space (#372): the screen pattern shifted by the camera's yaw and pitch, counted in whole blocks (a block's
+// angle at the screen centre), so turning moves the pattern with the image: cells stay on the low-res grid, exact
+// at the centre and drifting a little towards the edges. Walking still shimmers.
+vec2 view_cell(vec2 cell, float shown_lines) {
+	float per_y = atan(2.0 * view_tan / shown_lines);
+	float per_x = atan(2.0 * view_tan * pixel_aspect / shown_lines);
+	return cell - floor(vec2(view_angles.x / per_x, view_angles.y / per_y) + 0.5);
+}
+
+const float BAYER4[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+const float BAYER8[64] = float[64](0.0, 32.0, 8.0, 40.0, 2.0, 34.0, 10.0, 42.0, 48.0, 16.0, 56.0, 24.0, 50.0, 18.0, 58.0, 26.0, 12.0, 44.0, 4.0, 36.0, 14.0, 46.0, 6.0, 38.0, 60.0, 28.0, 52.0, 20.0, 62.0, 30.0, 54.0, 22.0, 3.0, 35.0, 11.0, 43.0, 1.0, 33.0, 9.0, 41.0, 51.0, 19.0, 59.0, 27.0, 49.0, 17.0, 57.0, 25.0, 15.0, 47.0, 7.0, 39.0, 13.0, 45.0, 5.0, 37.0, 63.0, 31.0, 55.0, 23.0, 61.0, 29.0, 53.0, 21.0);
+const float HALFTONE[64] = float[64](56.0, 40.0, 8.0, 4.0, 0.0, 16.0, 32.0, 60.0, 44.0, 50.0, 30.0, 12.0, 20.0, 26.0, 54.0, 36.0, 10.0, 28.0, 48.0, 42.0, 34.0, 52.0, 24.0, 18.0, 6.0, 14.0, 46.0, 58.0, 62.0, 38.0, 22.0, 2.0, 1.0, 17.0, 33.0, 61.0, 57.0, 41.0, 9.0, 5.0, 21.0, 27.0, 55.0, 37.0, 45.0, 51.0, 31.0, 13.0, 35.0, 53.0, 25.0, 19.0, 11.0, 29.0, 49.0, 43.0, 63.0, 39.0, 23.0, 3.0, 7.0, 15.0, 47.0, 59.0);
+const float HATCH[16] = float[16](0.0, 6.0, 14.0, 8.0, 10.0, 4.0, 12.0, 2.0, 15.0, 9.0, 1.0, 7.0, 13.0, 3.0, 11.0, 5.0);
+const float LINE_ORDER[4] = float[4](0.0, 2.0, 1.0, 3.0);
+
+float threshold(vec2 cell) {
+	if (pattern == 0) {
+		ivec2 a = ivec2(mod(cell, 4.0));
+		return (BAYER4[a.y * 4 + a.x] + 0.5) / 16.0;
+	}
+	if (pattern == 1) {
+		ivec2 a = ivec2(mod(cell, 8.0));
+		return (BAYER8[a.y * 8 + a.x] + 0.5) / 64.0;
+	}
+	if (pattern == 3) {
+		ivec2 a = ivec2(mod(cell, 8.0));
+		return (HALFTONE[a.y * 8 + a.x] + 0.5) / 64.0;
+	}
+	if (pattern == 4) {
+		return (LINE_ORDER[int(mod(cell.y, 4.0))] + 0.5) / 4.0;
+	}
+	if (pattern == 5) {
+		ivec2 a = ivec2(mod(cell, 4.0));
+		return (HATCH[a.y * 4 + a.x] + 0.5) / 16.0;
+	}
+	if (pattern == 6) {
+		float f = 0.06711056 * cell.x + 0.00583715 * cell.y;
+		float g = 52.9829189 * (f - floor(f));
+		return clamp(g - floor(g), 0.001, 0.999);
+	}
+	return 1.0;  // none
+}
+
+vec3 quantise(vec3 p, float threshold) {
+	int n = clamp(count, 1, 16);
+	int i1 = 0;
+	int i2 = 0;
+	float d1 = 1e9;
+	float d2 = 1e9;
+	for (int i = 0; i < n; i++) {
+		vec3 e = p - colors[i];
+		float d = dot(e, e);
+		if (d < d1) {
+			d2 = d1; i2 = i1; d1 = d; i1 = i;
+		} else if (d < d2) {
+			d2 = d; i2 = i;
+		}
+	}
+	vec3 c1 = colors[i1];
+	vec3 c2 = colors[i2];
+	vec3 span = c2 - c1;
+	float t = n > 1 ? clamp(dot(p - c1, span) / max(dot(span, span), 1e-9), 0.0, 1.0) : 0.0;
+	return threshold < t * strength ? c2 : c1;
+}
+
+uniform int mode = 0;  // 0 retro blocks, 1 paint dabs
+uniform float dab_size = 1.4;  // dab length, in block cells (over 1: dabs overlap)
+uniform float dab_jitter = 0.7;  // how far a dab's centre wanders from its cell's, in cells
+uniform float dab_aspect = 0.3;  // random stretch: 0 square, 0.3 up to 30% longer than wide
+uniform float dab_angle = 0.35;  // the brush direction, radians
+uniform float dab_turn = 0.3;  // random turn either side of dab_angle, radians
+uniform float dab_round = 0.3;  // corner rounding: 0 sharp, 1 round
+uniform float dab_skew = 0.15;  // random skew and taper: no dab is a perfect rectangle
+uniform float vivid = 1.35;  // saturation before the palette
+uniform float lift = 0.2;  // towards white: pastel
+uniform vec3 shadow_tint = vec3(0.42, 0.36, 0.78);  // shadows turn this colour instead of going dark
+uniform float shadow_hue = 0.55;  // how much
+uniform vec4 ground = vec4(0.95, 0.92, 0.84, 0.0);  // the canvas between dabs (alpha: how much shows)
+
+vec4 dab_hash(vec2 p) {
+	vec4 q = vec4(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)), dot(p, vec2(419.2, 371.9)), dot(p, vec2(87.3, 215.1)));
+	return fract(sin(q) * 43758.5453);
+}
+
+vec3 painterly(vec3 c) {
+	float l = dot(c, vec3(0.299, 0.587, 0.114));
+	c = clamp(vec3(l) + (c - vec3(l)) * vivid, 0.0, 1.0);
+	float shade = clamp(1.0 - l * 1.8, 0.0, 1.0);
+	c = mix(c, shadow_tint * (0.55 + 0.45 * l), shade * shadow_hue);
+	return mix(c, vec3(1.0), lift);
+}
+
+// How far inside dab `h` (rolled per dab) the offset `d` (cells, from the dab's centre) is: < 1 inside.
+float dab_shape(vec2 d, vec4 h, vec4 k) {
+	float a = dab_angle + (h.x - 0.5) * 2.0 * dab_turn;
+	vec2 r = vec2(cos(a) * d.x + sin(a) * d.y, -sin(a) * d.x + cos(a) * d.y);
+	r.x += (k.x - 0.5) * 2.0 * dab_skew * r.y;  // skew
+	float half_len = 0.5 * dab_size * (1.0 + dab_aspect * h.y);
+	float half_wid = 0.5 * dab_size * (1.0 - 0.5 * dab_aspect * h.y) * (1.0 + (k.y - 0.5) * 2.0 * dab_skew * r.x / max(half_len, 1e-3));  // taper
+	vec2 u = abs(r) / vec2(half_len, max(half_wid, 1e-3));
+	float n = mix(16.0, 2.5, clamp(dab_round * (0.6 + 0.8 * k.z), 0.0, 1.0));
+	return pow(pow(u.x, n) + pow(u.y, n), 1.0 / n);
+}
+
+vec3 paint(vec2 screen_uv, vec2 screen_px, vec2 block, vec2 offset) {
+	vec2 q = screen_uv * screen_px / block - offset;  // cells, fixed to view directions in view space
+	vec2 base = floor(q);
+	float best = -1.0;
+	vec2 best_centre = base + 0.5;
+	float best_level = 0.5;
+	for (int j = -1; j <= 1; j++) {
+		for (int i = -1; i <= 1; i++) {
+			vec2 n = base + vec2(float(i), float(j));
+			vec4 h = dab_hash(n);
+			vec4 k = dab_hash(n + vec2(57.0, 113.0));
+			vec2 centre = n + 0.5 + (h.zw - 0.5) * dab_jitter;
+			if (dab_shape(q - centre, h, k) < 1.0 && k.w > best) {
+				best = k.w;
+				best_centre = centre;
+				best_level = clamp(fract(h.z * 7.13 + h.w * 3.71), 0.001, 0.999);
+			}
+		}
+	}
+	vec2 uv = clamp((best_centre + offset) * block / screen_px, vec2(0.0), vec2(1.0));
+	vec3 c = quantise(painterly(texture(screen, uv).rgb), best_level);
+	return best < 0.0 ? mix(c, ground.rgb, ground.a) : c;
+}
+
+void fragment() {
+	vec2 screen_px = 1.0 / SCREEN_PIXEL_SIZE;
+	float bh = screen_px.y / min(lines, screen_px.y);  // never under one screen pixel
+	vec2 block = vec2(bh * pixel_aspect, bh);
+	vec2 cell = floor(SCREEN_UV * screen_px / block);
+	vec2 uv = clamp((cell + 0.5) * block / screen_px, vec2(0.0), vec2(1.0));
+	vec4 sampled = texture(screen, uv);
+	if (mode == 1) {
+		vec2 offset = space == 2 ? cell - view_cell(cell, screen_px.y / bh) : vec2(0.0);
+		COLOR = vec4(paint(SCREEN_UV, screen_px, block, offset), step(0.5, sampled.a));
+	} else {
+		float level = space == 1 ? 1.0 : threshold(space == 2 ? view_cell(cell, screen_px.y / bh) : cell);
+		COLOR = vec4(quantise(sampled.rgb, level), step(0.5, sampled.a));  // a game's screen is opaque; engine previews keep their transparent background
+	}
+}
+"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_post"]
+resource_local_to_scene = true
+shader = SubResource("Shader_post")
+shader_parameter/lines = 90.0
+shader_parameter/pixel_aspect = 1.0
+shader_parameter/strength = 1.0
+shader_parameter/pattern = 6
+shader_parameter/count = 16
+shader_parameter/colors = PackedVector3Array(0.184314, 0.619608, 0.560784, 0.290196, 0.247059, 0.658824, 0.309804, 0.819608, 0.772549, 0.364706, 0.733333, 0.388235, 0.435294, 0.658824, 1.0, 0.490196, 0.356863, 0.839216, 0.623529, 0.878431, 1.0, 0.658824, 0.901961, 0.419608, 0.764706, 0.607843, 0.94902, 0.878431, 0.376471, 0.494118, 0.94902, 0.764706, 0.545098, 1.0, 0.54902, 0.411765, 1.0, 0.619608, 0.780392, 1.0, 0.701961, 0.278431, 1.0, 0.878431, 0.4, 1.0, 0.964706, 0.878431)
+shader_parameter/space = 2
+shader_parameter/mode = 1
+shader_parameter/dab_size = 1.4
+shader_parameter/dab_jitter = 0.7
+shader_parameter/dab_aspect = 0.3
+shader_parameter/dab_angle = 0.35
+shader_parameter/dab_turn = 0.3
+shader_parameter/dab_round = 0.3
+shader_parameter/dab_skew = 0.15
+shader_parameter/vivid = 1.35
+shader_parameter/lift = 0.2
+shader_parameter/shadow_hue = 0.55
+shader_parameter/shadow_tint = Vector3(0.42, 0.36, 0.78)
+shader_parameter/ground = Vector4(0.95, 0.92, 0.84, 0.0)
+
+[sub_resource type="GDScript" id="GDScript_retro"]
+script/source = "extends CanvasLayer
+## KILN's retro pass. Change the look at runtime: set_enabled, set_lines, set_pixel_aspect, set_strength,
+## set_pattern, set_palette, set_space; get_settings returns them all.
+
+const PATTERNS := [\"bayer4\", \"bayer8\", \"none\", \"halftone\", \"lines\", \"hatch\", \"noise\"]
+const SPACES := [\"screen\", \"world\", \"view\"]
+const MAX_COLORS := 16
+
+
+func _material() -> ShaderMaterial:
+	return $Pass.material
+
+
+func _set_both(parameter: String, value: Variant) -> void:  # a setting the World pass reads too
+	_material().set_shader_parameter(parameter, value)
+	$World.material_override.set_shader_parameter(parameter, value)
+
+
+func _ready() -> void:
+	process_priority = 1000  # after the game has moved its camera this frame
+	if not world_supported():
+		_material().set_shader_parameter(\"space\", 0)
+	_show_world()
+
+
+## World space reads the depth and screen textures in the 3D pass: Forward+ only (Mobile and Compatibility keep screen space).
+func world_supported() -> bool:
+	return RenderingServer.get_current_rendering_method() == \"forward_plus\"
+
+
+var _yaw := 0.0  # view space: the camera's last yaw (from its right vector: no flip at the back, steady looking up)
+var _turned := 0.0  # view space: the turn so far, each step scaled by cos(pitch) (what the image moves at the centre)
+var _fed := false
+
+
+func _process(_delta: float) -> void:  # view space follows the current camera (late in the frame: process_priority)
+	if visible and _material().get_shader_parameter(\"space\") == 2:
+		_feed_view()
+
+
+## View space needs a perspective camera; with another the pattern stays as last fed (screen space in effect).
+func _feed_view() -> void:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null or camera.projection != Camera3D.PROJECTION_PERSPECTIVE:
+		return
+	var size := get_viewport().get_visible_rect().size
+	var half := tan(deg_to_rad(camera.fov) / 2.0)
+	if camera.keep_aspect == Camera3D.KEEP_WIDTH:
+		half *= size.y / size.x
+	var basis := camera.get_global_transform_interpolated().basis.orthonormalized()
+	var pitch := asin(clampf(-basis.z.y, -1.0, 1.0))
+	var yaw := atan2(-basis.x.z, basis.x.x)
+	if _fed:
+		_turned += wrapf(yaw - _yaw, -PI, PI) * cos(pitch)
+	_yaw = yaw
+	_fed = true
+	_material().set_shader_parameter(\"view_angles\", Vector2(_turned, pitch))
+	_material().set_shader_parameter(\"view_tan\", half)
+
+
+func _show_world() -> void:
+	$World.visible = visible and _material().get_shader_parameter(\"space\") == 1
+
+
+func set_enabled(on: bool) -> void:
+	visible = on
+	_show_world()
+
+
+func is_enabled() -> bool:
+	return visible
+
+
+func set_lines(value: float) -> void:
+	_set_both(\"lines\", maxf(value, 1.0))
+
+
+func set_pixel_aspect(value: float) -> void:
+	_set_both(\"pixel_aspect\", maxf(value, 0.05))
+
+
+func set_strength(value: float) -> void:
+	_set_both(\"strength\", clampf(value, 0.0, 1.0))
+
+
+func set_pattern(pattern_name: String) -> void:
+	var index := PATTERNS.find(pattern_name)
+	if index >= 0:
+		_set_both(\"pattern\", index)
+
+
+## \"screen\" (the pattern fixed to the screen), \"world\" (fixed to the surfaces: needs the depth buffer) or \"view\"
+## (fixed to view directions: steady while the camera turns; any renderer).
+func set_space(space_name: String) -> void:
+	var index := SPACES.find(space_name)
+	if index == 1 and not world_supported():
+		push_warning(\"KILN retro: world-space dither needs Forward+; keeping screen space\")
+		return
+	if index >= 0:
+		_material().set_shader_parameter(\"space\", index)
+		_show_world()
+		if index == 2:
+			_feed_view()
+
+
+func set_palette(palette: PackedColorArray) -> void:
+	var vectors := PackedVector3Array()
+	for colour in palette.slice(0, MAX_COLORS):
+		vectors.append(Vector3(colour.r, colour.g, colour.b))
+	var count := vectors.size()
+	while vectors.size() < MAX_COLORS:
+		vectors.append(Vector3.ZERO)
+	_set_both(\"colors\", vectors)
+	_set_both(\"count\", count)
+
+
+func get_palette() -> PackedColorArray:
+	var vectors: PackedVector3Array = _material().get_shader_parameter(\"colors\")
+	var count: int = _material().get_shader_parameter(\"count\")
+	var palette := PackedColorArray()
+	for i in mini(count, vectors.size()):
+		palette.append(Color(vectors[i].x, vectors[i].y, vectors[i].z))
+	return palette
+
+
+const PAINT := [\"dab_size\", \"dab_jitter\", \"dab_aspect\", \"dab_angle\", \"dab_turn\", \"dab_round\", \"dab_skew\", \"vivid\", \"lift\", \"shadow_hue\"]
+
+
+## 0 retro blocks, 1 paint dabs.
+func set_mode(value: int) -> void:
+	_material().set_shader_parameter(\"mode\", value)
+
+
+func get_mode() -> int:
+	return _material().get_shader_parameter(\"mode\")
+
+
+## A paint-mode setting by name (PAINT), or \"shadow_tint\" / \"ground\" (Color; ground's alpha: how much canvas shows).
+func set_paint(parameter: String, value: Variant) -> void:
+	if parameter == \"shadow_tint\":
+		_material().set_shader_parameter(parameter, Vector3(value.r, value.g, value.b))
+	elif parameter == \"ground\":
+		_material().set_shader_parameter(parameter, Vector4(value.r, value.g, value.b, value.a))
+	elif parameter in PAINT:
+		_material().set_shader_parameter(parameter, float(value))
+
+
+func get_paint(parameter: String) -> Variant:
+	var value: Variant = _material().get_shader_parameter(parameter)
+	if parameter == \"shadow_tint\":
+		return Color(value.x, value.y, value.z)
+	if parameter == \"ground\":
+		return Color(value.x, value.y, value.z, value.w)
+	return value
+
+
+func get_settings() -> Dictionary:
+	var material := _material()
+	return {
+		\"enabled\": visible,
+		\"lines\": material.get_shader_parameter(\"lines\"),
+		\"pixel_aspect\": material.get_shader_parameter(\"pixel_aspect\"),
+		\"strength\": material.get_shader_parameter(\"strength\"),
+		\"pattern\": PATTERNS[material.get_shader_parameter(\"pattern\")],
+		\"space\": SPACES[material.get_shader_parameter(\"space\")],
+		\"palette\": get_palette(),
+	}
+"
+
+[sub_resource type="QuadMesh" id="QuadMesh_retro"]
+size = Vector2(2, 2)
+
+[sub_resource type="Shader" id="Shader_retro_world"]
+code = "shader_type spatial;
+render_mode unshaded, depth_draw_never, depth_test_disabled, cull_disabled, fog_disabled, shadows_disabled;
+
+// KILN's retro pass, world space ([look] dither_space = \"world\"): see kiln/post.py.
+uniform sampler2D screen : hint_screen_texture, filter_nearest;
+uniform sampler2D depth : hint_depth_texture, filter_nearest;
+uniform float lines = 200.0;
+uniform float pixel_aspect = 1.0;
+uniform float strength = 1.0;
+uniform int pattern = 0;
+uniform int count = 2;
+uniform vec3 colors[16];
+uniform float exposure = 1.0;  // the look's tonemap_exposure
+
+const float BAYER4[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+const float BAYER8[64] = float[64](0.0, 32.0, 8.0, 40.0, 2.0, 34.0, 10.0, 42.0, 48.0, 16.0, 56.0, 24.0, 50.0, 18.0, 58.0, 26.0, 12.0, 44.0, 4.0, 36.0, 14.0, 46.0, 6.0, 38.0, 60.0, 28.0, 52.0, 20.0, 62.0, 30.0, 54.0, 22.0, 3.0, 35.0, 11.0, 43.0, 1.0, 33.0, 9.0, 41.0, 51.0, 19.0, 59.0, 27.0, 49.0, 17.0, 57.0, 25.0, 15.0, 47.0, 7.0, 39.0, 13.0, 45.0, 5.0, 37.0, 63.0, 31.0, 55.0, 23.0, 61.0, 29.0, 53.0, 21.0);
+const float HALFTONE[64] = float[64](56.0, 40.0, 8.0, 4.0, 0.0, 16.0, 32.0, 60.0, 44.0, 50.0, 30.0, 12.0, 20.0, 26.0, 54.0, 36.0, 10.0, 28.0, 48.0, 42.0, 34.0, 52.0, 24.0, 18.0, 6.0, 14.0, 46.0, 58.0, 62.0, 38.0, 22.0, 2.0, 1.0, 17.0, 33.0, 61.0, 57.0, 41.0, 9.0, 5.0, 21.0, 27.0, 55.0, 37.0, 45.0, 51.0, 31.0, 13.0, 35.0, 53.0, 25.0, 19.0, 11.0, 29.0, 49.0, 43.0, 63.0, 39.0, 23.0, 3.0, 7.0, 15.0, 47.0, 59.0);
+const float HATCH[16] = float[16](0.0, 6.0, 14.0, 8.0, 10.0, 4.0, 12.0, 2.0, 15.0, 9.0, 1.0, 7.0, 13.0, 3.0, 11.0, 5.0);
+const float LINE_ORDER[4] = float[4](0.0, 2.0, 1.0, 3.0);
+
+float threshold(vec2 cell) {
+	if (pattern == 0) {
+		ivec2 a = ivec2(mod(cell, 4.0));
+		return (BAYER4[a.y * 4 + a.x] + 0.5) / 16.0;
+	}
+	if (pattern == 1) {
+		ivec2 a = ivec2(mod(cell, 8.0));
+		return (BAYER8[a.y * 8 + a.x] + 0.5) / 64.0;
+	}
+	if (pattern == 3) {
+		ivec2 a = ivec2(mod(cell, 8.0));
+		return (HALFTONE[a.y * 8 + a.x] + 0.5) / 64.0;
+	}
+	if (pattern == 4) {
+		return (LINE_ORDER[int(mod(cell.y, 4.0))] + 0.5) / 4.0;
+	}
+	if (pattern == 5) {
+		ivec2 a = ivec2(mod(cell, 4.0));
+		return (HATCH[a.y * 4 + a.x] + 0.5) / 16.0;
+	}
+	if (pattern == 6) {
+		float f = 0.06711056 * cell.x + 0.00583715 * cell.y;
+		float g = 52.9829189 * (f - floor(f));
+		return clamp(g - floor(g), 0.001, 0.999);
+	}
+	return 1.0;  // none
+}
+
+vec3 quantise(vec3 p, float threshold) {
+	int n = clamp(count, 1, 16);
+	int i1 = 0;
+	int i2 = 0;
+	float d1 = 1e9;
+	float d2 = 1e9;
+	for (int i = 0; i < n; i++) {
+		vec3 e = p - colors[i];
+		float d = dot(e, e);
+		if (d < d1) {
+			d2 = d1; i2 = i1; d1 = d; i1 = i;
+		} else if (d < d2) {
+			d2 = d; i2 = i;
+		}
+	}
+	vec3 c1 = colors[i1];
+	vec3 c2 = colors[i2];
+	vec3 span = c2 - c1;
+	float t = n > 1 ? clamp(dot(p - c1, span) / max(dot(span, span), 1e-9), 0.0, 1.0) : 0.0;
+	return threshold < t * strength ? c2 : c1;
+}
+
+void vertex() {
+	POSITION = vec4(VERTEX.xy, 0.5, 1.0);  // the quad (2 x 2) covers the screen whatever the camera
+}
+
+vec3 to_srgb(vec3 c) {  // as Godot's tonemapper writes the frame
+	return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, 12.92 * c, lessThan(c, vec3(0.0031308)));
+}
+
+vec3 to_linear(vec3 c) {
+	return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, lessThan(c, vec3(0.04045)));
+}
+
+float depth_at(vec2 uv) {
+	return textureLod(depth, uv, 0.0).r;
+}
+
+vec3 view_at(vec2 uv, float d, mat4 inv_projection) {
+	vec4 v = inv_projection * vec4(uv * 2.0 - 1.0, d, 1.0);  // Forward+ depth (other renderers keep screen space)
+	return v.xyz / v.w;
+}
+
+vec2 face(vec3 a, vec3 p) {  // the plane of a's dominant axis
+	if (a.x >= a.y && a.x >= a.z) {
+		return p.zy;
+	}
+	return a.y >= a.z ? p.xz : p.xy;
+}
+
+void fragment() {
+	vec2 px = 1.0 / VIEWPORT_SIZE;
+	float bh = VIEWPORT_SIZE.y / min(lines, VIEWPORT_SIZE.y);  // the canvas pass's blocks
+	vec2 block = vec2(bh * pixel_aspect, bh);
+	vec2 uv = clamp((floor(SCREEN_UV * VIEWPORT_SIZE / block) + 0.5) * block * px, vec2(0.0), vec2(1.0));
+	float d = depth_at(uv);
+	vec3 c = view_at(uv, d, INV_PROJECTION_MATRIX);
+	float block_ndc = 2.0 * bh * max(pixel_aspect, 1.0) * px.y;  // a block's longer side, in NDC units
+	bool ortho = PROJECTION_MATRIX[3][3] == 1.0;
+	bool sky = c.z <= view_at(uv, 0.0, INV_PROJECTION_MATRIX).z * 0.999;  // nothing drawn here but the background
+	vec2 cell;
+	if (sky && !ortho) {
+		vec3 dir = normalize(mat3(INV_VIEW_MATRIX) * c);
+		vec3 a = abs(dir);
+		float size = exp2(ceil(log2(2.0 * block_ndc / abs(PROJECTION_MATRIX[1][1]))));  // cube-face units per block, x 2 at the edges
+		cell = floor(face(a, dir / max(a.x, max(a.y, a.z))) / size);
+	} else {
+		vec3 l = view_at(uv - vec2(px.x, 0.0), depth_at(uv - vec2(px.x, 0.0)), INV_PROJECTION_MATRIX);
+		vec3 r = view_at(uv + vec2(px.x, 0.0), depth_at(uv + vec2(px.x, 0.0)), INV_PROJECTION_MATRIX);
+		vec3 u = view_at(uv - vec2(0.0, px.y), depth_at(uv - vec2(0.0, px.y)), INV_PROJECTION_MATRIX);
+		vec3 b = view_at(uv + vec2(0.0, px.y), depth_at(uv + vec2(0.0, px.y)), INV_PROJECTION_MATRIX);
+		vec3 dx = abs(c.z - l.z) < abs(r.z - c.z) ? c - l : r - c;  // the nearer neighbour: no normals across edges
+		vec3 dy = abs(c.z - u.z) < abs(b.z - c.z) ? c - u : b - c;
+		vec3 a = abs(mat3(INV_VIEW_MATRIX) * cross(dx, dy));
+		vec2 du = abs(face(a, mat3(INV_VIEW_MATRIX) * dx)) * block.x;  // a block's extent on the face plane, per axis
+		vec2 dv = abs(face(a, mat3(INV_VIEW_MATRIX) * dy)) * block.y;
+		vec2 size = exp2(ceil(log2(max(du + dv, vec2(1e-6)))));  // metres, per axis: long cells where the surface recedes
+		cell = floor(face(a, (INV_VIEW_MATRIX * vec4(c, 1.0)).xyz) / size);
+	}
+	vec4 sampled = textureLod(screen, uv, 0.0);
+	vec3 p = to_srgb(clamp(sampled.rgb * exposure, vec3(0.0), vec3(1.0)));
+	ALBEDO = to_linear(quantise(p, threshold(cell))) / exposure;
+}
+"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_retro_world"]
+resource_local_to_scene = true
+render_priority = -128
+shader = SubResource("Shader_retro_world")
+shader_parameter/lines = 90.0
+shader_parameter/pixel_aspect = 1.0
+shader_parameter/strength = 1.0
+shader_parameter/pattern = 6
+shader_parameter/count = 16
+shader_parameter/colors = PackedVector3Array(0.184314, 0.619608, 0.560784, 0.290196, 0.247059, 0.658824, 0.309804, 0.819608, 0.772549, 0.364706, 0.733333, 0.388235, 0.435294, 0.658824, 1.0, 0.490196, 0.356863, 0.839216, 0.623529, 0.878431, 1.0, 0.658824, 0.901961, 0.419608, 0.764706, 0.607843, 0.94902, 0.878431, 0.376471, 0.494118, 0.94902, 0.764706, 0.545098, 1.0, 0.54902, 0.411765, 1.0, 0.619608, 0.780392, 1.0, 0.701961, 0.278431, 1.0, 0.878431, 0.4, 1.0, 0.964706, 0.878431)
+shader_parameter/exposure = 1.0
+
+[node name="look_paint_pointillist" type="Node3D"]
+metadata/kiln_style = "paint_pointillist"
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.371572, 0.334565, 0, 0.669131, 0.743145, -0.5, -0.643582, 0.579484, 0, 10, 0)
+light_color = Color(1, 0.964706, 0.909804, 1)
+light_energy = 1.1
+shadow_enabled = true
+script = SubResource("GDScript_sun")
+
+[node name="Retro" type="CanvasLayer" parent="."]
+layer = 100
+script = SubResource("GDScript_retro")
+
+[node name="Pass" type="ColorRect" parent="Retro"]
+material = SubResource("ShaderMaterial_post")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="World" type="MeshInstance3D" parent="Retro"]
+visible = false
+mesh = SubResource("QuadMesh_retro")
+material_override = SubResource("ShaderMaterial_retro_world")
+cast_shadow = 0
+extra_cull_margin = 16384.0
+ignore_occlusion_culling = true
+gi_mode = 0
