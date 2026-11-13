@@ -22,8 +22,9 @@ colour, CGA and Atari ST mono look kits.
 
 F1 opens a column on the left, above the retro pass, that drives the look kit's `Retro` node and the models:
 
-- retro effect on / off (off: the plain render underneath), dither fixed to the world (greyed out until the kit's
-  Retro pass has `set_space`);
+- retro effect on / off (off: the plain render underneath); dither on: screen (fixed to the screen), view (fixed to
+  view directions: steady while you turn) or world (fixed to surfaces; Forward+ only, best with `noise`);
+- snap turning to pixels: the view turns in steps of one low-res pixel, so the image steps cleanly;
 - pattern, lines (40-480), pixel aspect (0.5-2.0), strength (0-1), light bands (2-8: the toon `bands` of every model
   material);
 - palette: presets (Atari ST, CGA, mono, riso, LCD, blueprint, neon, sunset), colour count - / + (1-16; + adds a random

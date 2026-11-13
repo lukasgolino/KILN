@@ -51,6 +51,7 @@ func _ready() -> void:
 			models.append(model)
 	panel.set_models(models)
 	panel.toggled.connect(func(open: bool) -> void: $Player.frozen = open)
+	panel.snap_toggled.connect(func(on: bool) -> void: $Player.snap_pixels = on)
 	show_look(0)
 
 
@@ -143,3 +144,15 @@ func _unhandled_input(event: InputEvent) -> void:
 					show_look(i)
 		KEY_TAB:
 			show_look(look_index + 1)
+
+
+func _process(_delta: float) -> void:  # snapped turning steps by the retro pass's current block
+	var player := $Player
+	if not player.snap_pixels or look_kit == null:
+		return
+	var retro := look_kit.get_node_or_null("Retro")
+	if retro == null:
+		return
+	var settings: Dictionary = retro.get_settings()
+	player.snap_lines = minf(float(settings["lines"]), get_viewport().get_visible_rect().size.y)
+	player.snap_aspect = float(settings["pixel_aspect"])

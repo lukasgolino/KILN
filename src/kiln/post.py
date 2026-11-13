@@ -11,7 +11,8 @@ or noise.
 Every setting is a shader uniform (the style's values are the material's starting values), so a game can tune the
 look at runtime through the Retro node's script (`RETRO_SCRIPT`).
 
-The pattern is fixed to the screen by default; `dither_space = "world"` (#367, Godot Forward+ only) fixes it to
+The pattern is fixed to the screen by default; `dither_space = "view"` (#372) shifts it by the camera's turn in whole
+blocks (steady while turning, any renderer), and `dither_space = "world"` (#367, Godot Forward+ only) fixes it to
 surfaces through a depth-reading pass in the 3D render (`WORLD_SHADER`). Previews always draw screen space.
 """
 
@@ -24,7 +25,7 @@ import numpy as np
 if TYPE_CHECKING:
     from kiln.style import Look
 
-SPACES = ("screen", "world")  # [look] dither_space; the shaders' `space` is the index
+SPACES = ("screen", "world", "view")  # [look] dither_space; the shaders' `space` is the index
 PATTERNS = ("bayer4", "bayer8", "none", "halftone", "lines", "hatch", "noise")  # the shader's `pattern` is the index
 MAX_COLORS = 16
 LINE_ORDER = (0, 2, 1, 3)  # which of 4 rows fill first (lines pattern)
@@ -209,7 +210,18 @@ uniform float strength = 1.0;
 uniform int pattern = 0;  // {", ".join(f"{i} {p}" for i, p in enumerate(PATTERNS))}
 uniform int count = 2;
 uniform vec3 colors[{MAX_COLORS}];
-uniform int space = 0;  // {", ".join(f"{i} {p}" for i, p in enumerate(SPACES))} (the World pass has dithered the frame: snap only)
+uniform int space = 0;  // {", ".join(f"{i} {p}" for i, p in enumerate(SPACES))} (world: the World pass has dithered the frame: snap only)
+uniform vec2 view_angles = vec2(0.0);  // view space: the turn so far (yaw, scaled by cos(pitch)) and the pitch, radians
+uniform float view_tan = 0.5774;  // view space: tan of half the vertical field of view
+
+// View space (#372): the screen pattern shifted by the camera's yaw and pitch, counted in whole blocks (a block's
+// angle at the screen centre), so turning moves the pattern with the image: cells stay on the low-res grid, exact
+// at the centre and drifting a little towards the edges. Walking still shimmers.
+vec2 view_cell(vec2 cell, float shown_lines) {{
+\tfloat per_y = atan(2.0 * view_tan / shown_lines);
+\tfloat per_x = atan(2.0 * view_tan * pixel_aspect / shown_lines);
+\treturn cell - floor(vec2(view_angles.x / per_x, view_angles.y / per_y) + 0.5);
+}}
 
 {PATTERN_GLSL}
 {QUANTISE_GLSL}
@@ -220,7 +232,8 @@ void fragment() {{
 \tvec2 cell = floor(SCREEN_UV * screen_px / block);
 \tvec2 uv = clamp((cell + 0.5) * block / screen_px, vec2(0.0), vec2(1.0));
 \tvec4 sampled = texture(screen, uv);
-\tCOLOR = vec4(quantise(sampled.rgb, space == 1 ? 1.0 : threshold(cell)), step(0.5, sampled.a));  // a game's screen is opaque; engine previews keep their transparent background
+\tfloat level = space == 1 ? 1.0 : threshold(space == 2 ? view_cell(cell, screen_px.y / bh) : cell);
+\tCOLOR = vec4(quantise(sampled.rgb, level), step(0.5, sampled.a));  // a game's screen is opaque; engine previews keep their transparent background
 }}
 """
 
@@ -334,6 +347,7 @@ func _set_both(parameter: String, value: Variant) -> void:  # a setting the Worl
 
 
 func _ready() -> void:
+	process_priority = 1000  # after the game has moved its camera this frame
 	if not world_supported():
 		_material().set_shader_parameter("space", 0)
 	_show_world()
@@ -342,6 +356,36 @@ func _ready() -> void:
 ## World space reads the depth and screen textures in the 3D pass: Forward+ only (Mobile and Compatibility keep screen space).
 func world_supported() -> bool:
 	return RenderingServer.get_current_rendering_method() == "forward_plus"
+
+
+var _yaw := 0.0  # view space: the camera's last yaw (from its right vector: no flip at the back, steady looking up)
+var _turned := 0.0  # view space: the turn so far, each step scaled by cos(pitch) (what the image moves at the centre)
+var _fed := false
+
+
+func _process(_delta: float) -> void:  # view space follows the current camera (late in the frame: process_priority)
+	if visible and _material().get_shader_parameter("space") == 2:
+		_feed_view()
+
+
+## View space needs a perspective camera; with another the pattern stays as last fed (screen space in effect).
+func _feed_view() -> void:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null or camera.projection != Camera3D.PROJECTION_PERSPECTIVE:
+		return
+	var size := get_viewport().get_visible_rect().size
+	var half := tan(deg_to_rad(camera.fov) / 2.0)
+	if camera.keep_aspect == Camera3D.KEEP_WIDTH:
+		half *= size.y / size.x
+	var basis := camera.get_global_transform_interpolated().basis.orthonormalized()
+	var pitch := asin(clampf(-basis.z.y, -1.0, 1.0))
+	var yaw := atan2(-basis.x.z, basis.x.x)
+	if _fed:
+		_turned += wrapf(yaw - _yaw, -PI, PI) * cos(pitch)
+	_yaw = yaw
+	_fed = true
+	_material().set_shader_parameter("view_angles", Vector2(_turned, pitch))
+	_material().set_shader_parameter("view_tan", half)
 
 
 func _show_world() -> void:
@@ -375,7 +419,8 @@ func set_pattern(pattern_name: String) -> void:
 		_set_both("pattern", index)
 
 
-## "screen" (the pattern fixed to the screen) or "world" (fixed to the surfaces: needs the depth buffer).
+## "screen" (the pattern fixed to the screen), "world" (fixed to the surfaces: needs the depth buffer) or "view"
+## (fixed to view directions: steady while the camera turns; any renderer).
 func set_space(space_name: String) -> void:
 	var index := SPACES.find(space_name)
 	if index == 1 and not world_supported():
@@ -384,6 +429,8 @@ func set_space(space_name: String) -> void:
 	if index >= 0:
 		_material().set_shader_parameter("space", index)
 		_show_world()
+		if index == 2:
+			_feed_view()
 
 
 func set_palette(palette: PackedColorArray) -> void:

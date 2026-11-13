@@ -27,7 +27,7 @@ TONEMAPPERS = ("linear", "filmic", "aces", "agx")
 OUTLINE_SPACES = ("metres", "pixels")
 TOON_SHADOWS = ("soft", "band")
 POSTS = ("", "retro")
-DITHER_SPACES = ("screen", "world")  # kiln.post.SPACES
+DITHER_SPACES = ("screen", "world", "view")  # kiln.post.SPACES
 DITHERS = ("bayer4", "bayer8", "none", "halftone", "lines", "hatch", "noise")  # kiln.post.PATTERNS
 MAX_POST_COLORS = 16  # the retro pass's palette uniform
 TOON_DARKEN = 0.15  # outline_color = "darken": the part's linear colour times this (~0.42 in sRGB)
@@ -93,7 +93,7 @@ class Look:
     post_palette: str = ""  # retro: the palette (palettes/<name>.pal.yaml) every pixel is snapped to, at most 16 colours
     dither: str = "bayer4"  # retro: bayer4 | bayer8 | none | halftone | lines | hatch | noise
     dither_strength: float = 1.0  # retro: 0 (nearest colour only) to 1 (full ordered dithering)
-    dither_space: str = "screen"  # retro: screen (pattern fixed to the screen) | world (fixed to surfaces, Godot Forward+, #367)
+    dither_space: str = "screen"  # retro: screen | world (fixed to surfaces, Godot Forward+, #367) | view (fixed to view directions: steady while turning, #372)
     post_colors: tuple[str, ...] = ()  # retro: post_palette's colours, filled in when the project loads the style
 
     @property
@@ -305,7 +305,8 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
     if look.dither not in DITHERS:
         bad(f"[look] dither is {', '.join(DITHERS)}", "look.dither")
     if look.dither_space not in DITHER_SPACES:
-        bad('[look] dither_space is "screen" (the pattern fixed to the screen) or "world" (fixed to surfaces as the camera moves)', "look.dither_space")
+        bad('[look] dither_space is "screen" (the pattern fixed to the screen), "world" (fixed to surfaces as the camera moves) '
+            'or "view" (fixed to view directions: steady while the camera turns)', "look.dither_space")
     if not 16 <= look.post_lines <= 2160:
         bad("[look] post_lines is the retro pass's vertical resolution (16-2160), e.g. 200 (CGA, Atari ST) or 400 (ST mono)", "look.post_lines")
     if not 0.25 <= look.pixel_aspect <= 4:

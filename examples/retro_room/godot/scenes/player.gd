@@ -10,6 +10,10 @@ const SPAWN := Vector3(0, 0.05, 6.3)  # near the south wall, facing the grid (-z
 
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _pitch := 0.0
+var _yaw := 0.0
+var snap_pixels := false  # the dev panel's "snap turning to pixels": the view turns in steps of one low-res pixel
+var snap_lines := 200.0  # the retro pass's lines (the step is one block's angle on screen)
+var snap_aspect := 1.0  # the retro pass's pixel aspect (a block's width over its height)
 var frozen := false  # the dev panel is open: the mouse is free and doesn't turn the view
 
 @onready var _camera: Camera3D = $Camera
@@ -24,13 +28,32 @@ func _unhandled_input(event: InputEvent) -> void:
 	if frozen:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		rotate_y(-event.relative.x * SENSITIVITY)
+		_yaw -= event.relative.x * SENSITIVITY
 		_pitch = clampf(_pitch - event.relative.y * SENSITIVITY, -1.45, 1.45)
-		_camera.rotation.x = _pitch
+		_turn()
 	elif event is InputEventMouseButton and event.pressed:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event is InputEventKey and event.pressed and event.physical_keycode == KEY_ESCAPE:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+## Applies the mouse's yaw and pitch; with snap_pixels in whole steps of one low-res pixel's angle at the screen
+## centre (the mouse still adds up smoothly), so the image steps cleanly instead of resampling every frame.
+func _turn() -> void:
+	var yaw := _yaw
+	var pitch := _pitch
+	if snap_pixels and snap_lines > 0.0:
+		var steps := turn_steps()
+		pitch = snappedf(pitch, steps.y)
+		yaw = snappedf(yaw, steps.x / maxf(cos(pitch), 0.05))  # turning moves the centre cos(pitch) as far
+	rotation.y = yaw
+	_camera.rotation.x = pitch
+
+
+## One low-res pixel's angle at the screen centre (x: across, y: up), as the retro shader's view space counts them.
+func turn_steps() -> Vector2:
+	var half := tan(deg_to_rad(_camera.fov) / 2.0)
+	return Vector2(atan(2.0 * half * snap_aspect / snap_lines), atan(2.0 * half / snap_lines))
 
 
 func _physics_process(delta: float) -> void:

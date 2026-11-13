@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -274,7 +275,7 @@ def test_world_space_pass_in_the_kit(tmp_path: Path) -> None:
 def test_shaders_share_the_pattern_and_snap() -> None:
     assert post.PATTERN_GLSL in post.SHADER and post.PATTERN_GLSL in post.WORLD_SHADER
     assert post.QUANTISE_GLSL in post.SHADER and post.QUANTISE_GLSL in post.WORLD_SHADER
-    assert "space == 1 ? 1.0 : threshold(cell)" in post.SHADER  # world: the canvas pass only snaps (1.0 never dithers)
+    assert "space == 1 ? 1.0 : threshold(space == 2 ? view_cell(" in post.SHADER  # world: the canvas pass only snaps (1.0 never dithers)
     assert post.SPACES == __import__("kiln.style", fromlist=["DITHER_SPACES"]).DITHER_SPACES
     for i, name in enumerate(post.SPACES):
         assert f"{i} {name}" in post.SHADER
@@ -319,3 +320,29 @@ def test_godot_switches_space_at_runtime(tmp_path: Path) -> None:
                          capture_output=True, text=True, timeout=300, env=env)  # fmt: skip
     lines = [line for line in run.stdout.splitlines() if line[:2] in ("A ", "B ", "C ", "D ")]
     assert lines == ["A screen false", "B world true", "C false", "D screen false 6 0.5"], run.stdout + run.stderr
+
+
+def _view_cell(cell: np.ndarray, angles: tuple[float, float], tan_y: float, lines: float, aspect: float) -> np.ndarray:
+    """The shader's view_cell in numpy (#372): the screen cell shifted by the camera's turn in whole blocks."""
+    per_y = np.arctan(2 * tan_y / lines)
+    per_x = np.arctan(2 * tan_y * aspect / lines)
+    return cell - np.floor(np.array([angles[0] / per_x, angles[1] / per_y]) + 0.5)
+
+
+def test_view_space_pattern_turns_with_the_image() -> None:
+    """Turning left by n blocks moves the image n blocks right; the pattern cell under a scene point stays the same."""
+    tan_y, lines, aspect = np.tan(np.radians(37.5)), 200.0, 0.8333
+    per_x = np.arctan(2 * tan_y * aspect / lines)
+    point = np.array([120.0, 80.0])  # a scene point's block before the turn
+    for n in (1, 3, 6, 13):
+        before = _view_cell(point, (0.3, -0.1), tan_y, lines, aspect)
+        after = _view_cell(point + np.array([n, 0]), (0.3 + n * per_x, -0.1), tan_y, lines, aspect)
+        assert (before == after).all(), n
+    assert "cell - floor(vec2(view_angles.x / per_x, view_angles.y / per_y) + 0.5)" in post.SHADER
+
+
+def test_view_space_is_accepted(tmp_path: Path) -> None:
+    (tmp_path / "v.style.toml").write_text('extends = "retro_st"\n[look]\ndither_space = "view"\n')
+    style, findings = load_style("v", tmp_path)
+    assert style is not None and not findings and style.look.dither_space == "view"
+    assert "shader_parameter/space = 2" in post.material_params(replace(style.look, post_colors=("#000000", "#ffffff")))
