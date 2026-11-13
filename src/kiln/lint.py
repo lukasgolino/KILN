@@ -245,7 +245,8 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         if m.detail:
             details = m.detail
             lo, hi = built.bounds()
-            texel = texel_size(float((hi - lo).max()), m.normal_map) if m.normal_map else 0.0
+            texel = (built.bake.texel if built.bake is not None and built.bake.texel else texel_size(float((hi - lo).max()), m.normal_map)) \
+                if m.normal_map else 0.0  # (the bake's own texel density, #257)
             for g in details:
                 t = part_thickness(g)
                 if not m.normal_map:
@@ -256,7 +257,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                          "won't show; make it thicker or the map bigger")  # fmt: skip
         if m.relief and m.normal_map:  # patches narrower than four texels blur out in the map (#261)
             lo, hi = built.bounds()
-            texel = texel_size(float((hi - lo).max()), m.normal_map)
+            texel = built.bake.texel if built.bake is not None and built.bake.texel else texel_size(float((hi - lo).max()), m.normal_map)
             for k, layer in enumerate(m.relief):
                 if layer.width < 4 * texel:
                     warn("W133", f"relief layer {k} is {layer.width:.3g} m wide, under four texels of the {m.normal_map} map "

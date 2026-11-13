@@ -448,3 +448,11 @@ def test_gibs_keep_their_fur(project: Project) -> None:
     assert not build(project).errors
     doc, _ = read_glb((project.output_dir / "models" / "thing.gib.body.glb").read_bytes())
     assert len(doc.get("images", [])) == 2  # its normal map and its colour map, embedded
+
+
+def test_the_bake_knows_its_texel_size(project: Project) -> None:
+    """#257: the bake measures its real metres per texel (lint uses it, not a half-full-map guess)."""
+    from kiln.lint import lint_paths
+
+    built = lint_paths(project, [write_model(project, MODEL)]).built["thing"]
+    assert built.bake is not None and 0 < built.bake.texel < 0.02

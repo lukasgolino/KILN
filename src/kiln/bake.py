@@ -23,7 +23,7 @@ from PIL import Image
 
 from kiln.sdf import Array, Field
 
-PADDING = 8  # texels between UV charts: mip levels up to 3 don't bleed between them
+PADDING = 8  # texels between UV charts: mip levels up to 3 don't bleed between them (xatlas pads each side by half)
 GROW = 8  # texels the baked colours are grown past chart borders (into that padding)
 CHUNK = 200_000  # texels per field evaluation batch
 FLAT = (128, 128, 255)  # a texel no chart covers: the mesh normal as it is
@@ -75,6 +75,7 @@ class Bake:
     size: int  # the map is size x size texels, as asked for
     fit: float = 1.0  # under 1: the charts didn't fit the map and were squeezed in by this much (lint W125)
     layers: Layers | None = None  # a model with relief: what its base colour map is made of (color_png)
+    texel: float = 0.0  # metres per texel, the area-weighted mean over the surface as packed (lint W121, W133; #257)
 
     @property
     def width(self) -> int:
@@ -221,7 +222,7 @@ def _pack(xatlas: Any, size: int, texels_per_unit: float) -> Any:
     pack = xatlas.PackOptions()
     pack.resolution = size
     pack.texels_per_unit = texels_per_unit
-    pack.padding = PADDING
+    pack.padding = PADDING // 2  # xatlas pads every chart by this on each side, so two charts sit twice it apart (#257)
     pack.bilinear = True
     return pack
 
@@ -454,7 +455,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     image = _grow(image, filled.reshape(height, width), GROW)
     buf = io.BytesIO()
     Image.fromarray(image, "RGB").save(buf, format="PNG", optimize=False)
-    return Bake(uv, tan, buf.getvalue(), size, fit, layers)
+    texel_m = float(np.sqrt(area.sum() / max(float(texels.sum()), 1e-12)))  # (both twice the areas: the ratio is m^2 per texel)
+    return Bake(uv, tan, buf.getvalue(), size, fit, layers, texel_m)
 
 
 def _relief(patches: Any, reliefs: list[tuple[Array, ...]], out: Array, group: Array, texel: Array, count: int, strength: float,

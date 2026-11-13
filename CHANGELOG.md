@@ -111,6 +111,8 @@ before 1.0).
 
 ### Changed
 
+- UV charts in baked maps sit 8 texels apart as meant (they were 17: xatlas pads each side), so the maps hold more
+  detail; lint W121 and W133 use the bake's real texel size instead of assuming a half-full map (#257).
 - A model of hard parts only reports its hard part count instead of a mesh cell size in the lint and build
   summaries, and lint `--json` lists no `cells` entry for it (#243).
 - The glow cap follows the look: divided by its `exposure`, and 1 (where it clips) instead of 0.75 under a linear
