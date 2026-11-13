@@ -6,6 +6,16 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-13
+
+Milestones 0.26 to 0.31 (not released one by one): characters and clothing (an idle cycle, bundled CC0 clips,
+garment collars, lapels, plackets and short sleeves, folds on legs, motif prints, named and triplanar textures),
+pixel art in the colour map and palette-indexed textures that variants recolour, hard surfaces (gentler bevel loss,
+chosen edges, lathe bevels, flat shading on flats), scenes (`kiln fit`, `mount:`, instances that share one mesh and
+reference models with maps), previews closer to Godot (`kiln style check`, blended glass, agx, a bright ambient in
+Godot), and lint that names parts as written and groups its warnings. Builds of hard parts, scenes with instances and
+looks with ambient above 0.9 change (see Changed).
+
 ### Added
 
 - Instances with baked maps, and scenes with maps taking instances: such an instance is a reference, a node that
