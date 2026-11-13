@@ -641,8 +641,11 @@ def _patterns(
         # paint the same colours (every tuft with the same gradient), so "owner in own" would take theirs too (#131)
         mine = owner == g
         for pat in part.patterns:
-            fn = _pattern_fn(pat, part.geometry)
             own = [g, *pattern_groups.get(g, ())]  # a later pattern paints over the earlier ones' colours too
+            if pat.in_map and not flat:  # painted per texel in the colour map (#324): only its colour group, no cuts
+                owner = _paint_alt(owner, own, np.zeros(len(owner), dtype=bool), pat, part, g, groups, group_index, pattern_groups)
+                continue
+            fn = _pattern_fn(pat, part.geometry)
             if not mine.any():
                 break
             borders = _border_planes(pat, vertices[np.unique(faces[mine])], part.geometry) if flat else None
@@ -659,6 +662,8 @@ def _patterns(
             # along its borders to cut them cleanly; areas between borders stay coarse (the budget). A gradient's band
             # runs one way (its coordinate only grows along the part), so its border pass is enough.
             cell = pixel_cell(pat, part.geometry) if pat.type == "pixel" else pat.size
+            if pat.type == "dots":  # (#283) edges down to the smallest dot, or one with no vertex inside never shows
+                cell = max(pat.size * pat.width * (1 - pat.vary), pat.size / 8)
             passes = [(cell / 2 if pat.type != "band" else pat.size, False), (cell / 4, True)]
             for limit, border_only in passes[1:] if pat.type == "along" else passes:
                 for _ in range(12):

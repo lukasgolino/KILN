@@ -90,3 +90,27 @@ def test_hard_parts_dark_images_and_missing_images(project: Project) -> None:
     assert model is not None and model.parts[0].patterns[0].pixels == (".#.",)  # no transparency: the dark pixels
     _, _, findings = load(project, HAT.replace('rows: ["#..#", ".##.", "#..#"]', "image: decals/none.png"))
     assert [f.rule for f in findings] == ["E011"], findings
+
+
+def test_in_the_colour_map_it_costs_no_triangles(project: Project) -> None:
+    """#324: on a model with baked maps a pixel pattern is painted per texel into the colour map, not cut into the mesh;
+    `paint: map` brings the maps; `paint: cut` keeps the old way."""
+    from kiln import bake as bk
+
+    if not bk.available():
+        return
+    mapped = HAT.replace("parts:", "normal_map: 512\nparts:")
+    built = lint_paths(project, [write_model(project, mapped)]).built["thing"]
+    plain = lint_paths(project, [write_model(project, mapped.replace("    pattern:", "    # pattern:"))]).built["thing"]
+    assert built.triangles <= plain.triangles * 1.05  # no cuts
+    assert built.bake is not None and built.bake.layers is not None
+    gold = [k for k, g in enumerate(built.painted.groups) if g.color_name.split("#")[0] == "gold"]
+    assert gold and np.isin(built.bake.layers.group, gold).sum() > 200  # gold texels in the map
+    asked = lint_paths(project, [write_model(project, HAT.replace("repeat: 8,", "repeat: 8, paint: map,"))]).built["thing"]
+    assert asked.bake is not None and asked.model.normal_map > 0
+    cut = lint_paths(project, [write_model(project, mapped.replace("repeat: 8,", "repeat: 8, paint: cut,"))]).built["thing"]
+    def gold_faces(b: object) -> int:
+        p = b.painted  # type: ignore[attr-defined]
+        return int(np.isin(p.face_group, [k for k, g in enumerate(p.groups) if g.color_name.split("#")[0] == "gold"]).sum())
+
+    assert gold_faces(built) == 0 and gold_faces(cut) > 50  # in the map vs cut into the mesh

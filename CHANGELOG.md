@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- Patterns painted per texel into the base colour map (`paint: map`; by default pixel and dots patterns of a model
+  that bakes maps), so trims cost no triangles; error E016 when a part a tenth of the model or bigger vanishes to
+  the budget (smaller ones stay W111) (#324).
 - Lint W136: a band, pixel or stripes pattern that paints nothing on its part; the docs say a pixel band's `at` is
   from the part's own `at` (a lathe's origin) (#326).
 - Motif prints: `texture: { motif: { images, count, scale, rotate, seed } }` scatters multicolour stamps over a
@@ -55,6 +58,7 @@ before 1.0).
 
 ### Fixed
 
+- Small cut dots no longer vanish: the mesh refines down to the smallest dot, not the dot spacing (#283).
 - A `band` or `stripes` pattern with `frame: part` on a hard part painted nothing: it is cut along its planes in the
   part's frame (#286).
 - Docs: textures over 256 px are filtered smoothly with mipmaps, uncapped; a cylindrical texture's v = 0 is at its

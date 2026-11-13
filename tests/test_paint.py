@@ -353,3 +353,16 @@ def test_a_part_frame_band_on_a_hard_part(project: Project) -> None:
     area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2
     share = float(area[blue].sum() / area.sum())
     assert 0.08 < share < 0.25, share  # about 0.15 of the 0.8 side, plus none of the caps
+
+
+def test_small_dots_show_at_their_share(project: Project) -> None:
+    """#283: dots a fifth of their spacing wide cover about their share of the surface (edges refine to the dot)."""
+    text = ("name: thing\nbudget: 60000\nresolution: 0.01\nparts:\n  - box: { at: [0, 0.3, 0], size: [0.6, 0.6, 0.6] }\n    color: red\n"
+            "    pattern: { type: dots, color: blue, size: 0.1, width: 0.2 }\n")  # fmt: skip
+    built = built_of(project, text)
+    p = built.painted
+    blue = np.isin(p.face_group, [g for g, grp in enumerate(p.groups) if grp.color_name.split("#")[0] == "blue"])
+    tri = p.vertices[p.faces]
+    area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2
+    share = float(area[blue].sum() / area.sum())
+    assert share > 0.0025, share  # was 0.0011 against about 0.004 expected

@@ -65,6 +65,10 @@ material, id, mirror, ...) go to each.
   mirrored. Near the axis (a cone's tip, a cap) columns too narrow aren't painted. One colour per pattern: list several
   for more. Smooth parts only (a hard part with one is an error). E.g. `{ type: pixel, color: gold, size: 0.02, at: -0.1,
   rows: [...] }`.
+- Where a pattern is painted: `paint: cut` cuts it into the mesh (exact borders, but every cell costs triangles: many
+  pixel trims starve the budget); `paint: map` paints it per texel into the base colour map (no triangles; it brings
+  the maps, needs `kiln-gen[bake]`). `auto` (the default): pixel and dots patterns go in the map when the model has
+  baked maps anyway (relief, colour fades, `normal_map`), else they are cut. Hard parts' patterns are always cut.
 
 ## Decals
 

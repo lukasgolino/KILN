@@ -90,10 +90,11 @@ class LintResult:
 
 
 GROUND_DIP = 0.002  # W123: metres below y = 0 a grounded model's built mesh may reach unremarked (or a tenth of a cell)
+LOST_SHARE = 0.1  # E016: a lost part bigger than this share of the model (its box's diagonal) breaks it
 CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than asked
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
-BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
+BUILT_RULES = ("E009", "E013", "E016", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
                "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135", "W136")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
@@ -187,8 +188,16 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             part = m.parts[i]
             warn("W124", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is {c.covered * 100:.0f}% inside {named(c.by)}: only "
                  "a sliver shows (clipped flat or nearly gone); move it out, or make it bigger", part.line, part.where)  # fmt: skip
+        lo_all, hi_all = built.bounds()
+        whole = float(np.linalg.norm(hi_all - lo_all))
         for i in built.lost:
             part = m.parts[i]
+            blo, bhi = part.geometry.bounds()
+            if float(np.linalg.norm(bhi - blo)) > LOST_SHARE * whole:  # a leg, an arm, a head: the model is broken (#324)
+                warn("E016", f"part {part.index} ({part.geometry.shape}, {part.color_name}) vanished when the mesh was reduced to its triangle "
+                     f"budget ({m.budget or built.style.budget(m.cls)}): raise budget:, paint fine patterns into the colour map (paint: map), "
+                     "or use fewer cut patterns", part.line, part.where)  # fmt: skip
+                continue
             warn("W111", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is there at full detail but the triangle budget "
                  f"({m.budget or built.style.budget(m.cls)}) is too low to keep it: raise budget:, or make it thicker", part.line, part.where)  # fmt: skip
         hard = hard_parts(m, built.style)  # exact polygons: no mesh resolution

@@ -328,7 +328,8 @@ SUPERSAMPLE_COS = math.cos(math.radians(3))  # a texel whose own normal turns th
 
 def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, normals: Array, size: int, step: float,
          strength: float = 1.0, patches: Any = None, face_group: Array | None = None, face_on: Array | None = None,
-         fade: Any = None, progress: Any = None, occlusion: Array | None = None) -> Bake:  # fmt: skip
+         fade: Any = None, progress: Any = None, occlusion: Array | None = None,
+         map_paint: dict[int, list[tuple[Any, int]]] | None = None, face_part: Array | None = None) -> Bake:  # fmt: skip
     """Unwrap the mesh and bake into its tangent frames the normals of each face's own field (`face_field`: an index
     into `fields`, -1: the mesh normal as it is, e.g. exact hard parts). Each texel is filtered (#125): the normals
     at four points a quarter texel around its centre, averaged, each with a gradient step of half a texel, so detail
@@ -338,7 +339,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     layer over the surface, tilting the map by the slope of its height (scaled by `strength` too) and kept per texel
     in `Bake.layers` for the base colour map. `fade` (kiln.fade.Fade): colours fading across part borders, kept in
     the layers too. With a colour map, each texel's normal height and (`occlusion`: per vertex, 0..1) occlusion are
-    kept for shade paint per texel (#266)."""
+    kept for shade paint per texel (#266). `map_paint`: per part (index, with each face's part in `face_part`) its
+    patterns painted per texel, in order: (the pattern's function, its paint group) (#324)."""
     if progress is not None:  # the unwrap has its own counter, so the texels' estimate doesn't count it (#300)
         progress("baking maps: unwrapping", 0, 1)
     uv, fit = unwrap(vertices, faces, size)
@@ -360,6 +362,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     frame_y = np.zeros((width * height, 3), dtype=np.float16)  # per texel: the y of its tangent, bitangent and normal (#266)
     frame_y[:, 2] = 1.0
     fades: list[tuple[Array, ...]] = []  # texels near a colour border: (texel, point, face, normal)
+    painted: list[tuple[Array, ...]] = []  # texels of parts with patterns in the map: (texel, point, face)
+    paint_faces = np.isin(np.asarray(face_part), list(map_paint)) if map_paint and face_part is not None else None
     reliefs: list[tuple[Array, ...]] = []  # texels a patch may touch: (texel, point, normal, tangent, up, metres per texel, face)
     owner = np.asarray(face_field)[face]
     done, to_do = 0, int((owner >= 0).sum())
@@ -402,6 +406,9 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
             if fade is not None:
                 near = fade.touches(centre) & (off <= step)
                 fades.append((texel[rows][near], centre[near], f[near], n[near]))
+            if paint_faces is not None:
+                on = paint_faces[f]
+                painted.append((texel[rows][on], centre[on], f[on]))
             if patches is not None and len(patches):
                 near = patches.touches(centre) & (off <= step)
                 reliefs.append((texel[rows][near], centre[near], n[near], t[near], up[near], size_m[near], f[near]))
@@ -410,8 +417,17 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     filled = np.zeros(width * height, dtype=bool)
     filled[texel] = True
     layers = None
-    if (patches is not None or fade is not None) and face_group is not None:
+    if (patches is not None or fade is not None or paint_faces is not None) and face_group is not None:
         layers = _relief(patches, reliefs, out, face_group[face], texel, width * height, strength, face_on)
+        if painted and map_paint and face_part is not None:  # patterns per texel, each part's in order (#324)
+            tex, point, pface = (np.concatenate([r[k] for r in painted]) for k in range(3))
+            owner = np.asarray(face_part)[pface]
+            for part, pats in map_paint.items():
+                mine = owner == part
+                for fn, group in pats:
+                    hit = mine.copy()
+                    hit[mine] = np.asarray(fn(point[mine])) >= 0
+                    layers.group[tex[hit]] = group
         if fade is not None:
             layers.other = np.zeros(width * height, dtype=np.uint16)
             layers.mix = np.zeros(width * height, dtype=np.uint8)

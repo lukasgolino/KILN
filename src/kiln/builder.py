@@ -588,6 +588,31 @@ def vertex_fade(model: Model, built: Built, step: float, soft_pieces: list[list[
     return o1, w1, o2, w2
 
 
+def _map_paint(model: Model, p: Any, owner: Array) -> dict[int, list[tuple[Any, int]]]:
+    """Per part with patterns painted in the colour map (#324): (the pattern's function, its paint group), in order.
+    The group is the one paint made for it (the part's own group, in the pattern's colour)."""
+    from dataclasses import replace
+
+    from kiln.paint import _pattern_fn
+
+    out: dict[int, list[tuple[Any, int]]] = {}
+    index = {g: k for k, g in enumerate(p.groups)}
+    for i, part in enumerate(model.parts):
+        pats = [pat for pat in part.patterns if pat.in_map]
+        mine = p.face_group[owner == i]
+        if not pats or not len(mine):
+            continue
+        base = p.groups[int(np.bincount(mine).argmax())]
+        entries = []
+        for pat in pats:
+            k = index.get(replace(base, color=pat.color, color_name=pat.color_name, material=part.material))
+            if k is not None:
+                entries.append((_pattern_fn(pat, part.geometry), k))
+        if entries:
+            out[i] = entries
+    return out
+
+
 def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int], size: int,
                  progress: Progress | None = None, lod: bool = False) -> Any:  # fmt: skip
     """The model's normal map. Each face is baked with its own piece's field, as it was meshed (a separate helmet's
@@ -646,8 +671,9 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
         from kiln.atlas import occlusion
 
         occ = occlusion(built)
+    map_paint = _map_paint(model, p, owner) if adding else None
     baked = bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
-                      np.array(on) if model.relief else None, fading, progress, occ)  # fmt: skip
+                      np.array(on) if model.relief else None, fading, progress, occ, map_paint or None, owner)  # fmt: skip
     if patches is not None and len(patches) and any(layer.displace for layer in model.relief):
         _displace(built, model, patches, on)
     return baked

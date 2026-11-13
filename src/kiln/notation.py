@@ -106,6 +106,8 @@ class Pattern:
     seed: int = 0
     pixels: tuple[str, ...] = ()  # pixel: the motif's rows, top first ("#" painted, "." not), tiled round the axis
     repeat: int = 0  # pixel: how many times the motif goes round (0: auto, about square cells at the part's radius)
+    paint: str = "auto"  # cut: into the mesh; map: into the base colour map per texel (no triangles); auto: map for pixel and dots
+    in_map: bool = False  # decided once the model is read: painted in the colour map (#324)
 
 
 @dataclass(frozen=True)
@@ -1173,6 +1175,27 @@ def _fades(raw_parts: Any) -> bool:
     return isinstance(raw_parts, list) and any(isinstance(p, dict) and _num(p.get("color_blend")) and float(p["color_blend"]) > 0 for p in raw_parts)
 
 
+MAP_PATTERNS = ("pixel", "dots")  # painted in the colour map by default when the model has one (#324)
+
+
+def _map_patterns(model: Model) -> None:
+    """Which patterns go in the base colour map (#324): `paint: map` ones (they bring the maps), and pixel and dots
+    patterns of a model that bakes maps anyway, unless they say `paint: cut`. Hard parts' patterns stay cut (exact)."""
+    if model.source is not None:
+        return
+    asked = any(pat.paint == "map" for p in model.parts for pat in p.patterns)
+    if asked and not model.normal_map and not model.normal_map_off:
+        model.normal_map = RELIEF_MAP
+        model.fade_maps = True
+    if not model.normal_map:
+        return
+    for p in model.parts:
+        if p.hard or not p.patterns:
+            continue
+        p.patterns = tuple(replace(pat, in_map=pat.paint == "map" or (pat.paint == "auto" and pat.type in MAP_PATTERNS)) for pat in p.patterns)
+        p.pattern = p.patterns[0]
+
+
 def _soft_colours(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
     """Parts with color_blend need the base colour map (the fade is per texel): the baked maps come on."""
     for p in model.parts:
@@ -1259,7 +1282,7 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
         ctx.error("E003", f"pattern is {{ type: {'|'.join(PATTERNS)}, color, size (metres), axis: x|y|z }}", line, where)
         return None
     bad = [k for k in raw if k not in ("type", "color", "size", "axis", "width", "at", "frame", "offset", "jitter", "vary", "seed", "rows", "image",
-                                       "repeat")]  # fmt: skip
+                                       "repeat", "paint")]  # fmt: skip
     size, width = raw.get("size", 0.1), raw.get("width", 0.5)
     axis = raw.get("axis", "y")
     c = _color(ctx, raw.get("color"), line, f"{where}.color")
@@ -1288,6 +1311,10 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
         problems.append("seed is a whole number, 0 to 2147483647")
     if "offset" in raw and raw["type"] == "band":
         problems.append("offset moves a repeat (stripes, checker, dots); a band is placed by at")
+    paint = raw.get("paint", "auto")
+    if paint not in ("auto", "map", "cut"):
+        problems.append("paint is map (into the base colour map: no triangles; the default for pixel and dots when the model has maps), "
+                        "cut (into the mesh) or auto")  # fmt: skip
     pixels: tuple[str, ...] = ()
     repeat = raw.get("repeat", "auto")
     if raw["type"] == "pixel":
@@ -1313,7 +1340,7 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
         frame = "part"  # round the part's own axis (a hat band round the hat, wherever it sits)
     return Pattern(str(raw["type"]), c[0], c[1], float(size), (unit[0], unit[1], unit[2]), float(width), float(at), str(frame),
                    offset=(offset[0], offset[1], offset[2]), jitter=float(jitter), vary=float(vary), seed=int(seed), pixels=pixels,
-                   repeat=int(repeat))  # fmt: skip
+                   repeat=int(repeat), paint=str(paint))  # fmt: skip
 
 
 def _pixel_rows(ctx: _Ctx, raw: dict[str, Any], line: int | None, where: str) -> tuple[tuple[str, ...], str | None]:
@@ -2243,6 +2270,7 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 _split_detail(ctx, model)
     _parse_relief(ctx, data, model)
     _soft_colours(ctx, data, model)
+    _map_patterns(model)
     ids = set(model.ids) if model.parts else {ROOT_ID}
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig"), model.template), model.parts)
     if "instances" in data:  # (after the parts: `id` names one)
