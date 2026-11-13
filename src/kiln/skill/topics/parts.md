@@ -100,20 +100,4 @@ arm_l], rotate: [x, y, z], pivot: [x, y, z], move: [x, y, z] }]` at the top of t
 keep their copies) about `pivot`, then moves them; their rig pivots and sockets go with them. Items apply in order.
 A `mirror: x` part takes only turns about x and moves in y/z (anything else breaks its mirror: E003).
 
-Parts of one assembly built as separate models (a watch case, its caseback, its movement) share a frame: `mount: { to:
-case, at: [x, y, z], rotate: [x, y, z] }` at the top of the part's model says where it sits on `to`; it skips the
-ground checks (W106, W123), goes in the manifest (`mount`) for a game to snap it on, and `kiln preview case --with
-lid,movement` shows them together. `kiln fit case movement` checks they fit.
-
-Placing other models (a desk with its props, a tray of screws): `instances: [{ model: screw, at: [x, y, z], rotate:
-[x, y, z], scale: 1, id: tray }]` at the top of the model. Each is that model's own build (its mesh at its own cell size
-and budget: fine screws stay fine in a coarse scene), merged in after the scene is built. `at`/`rotate` are in the
-scene's model space: `rotate` turns the instance about its own origin (its `origin:`, as its own glb), then `at`
-places that origin (a flip is `rotate: [0, 180, 0]`; there is no mirror); `id` is the part it moves with
-(default root; not mirrored). A scene `lod:` builds every instance at the same share of its triangles. Materials are
-read in the scene's style; an instance's decals and textures come along; its animations, skin and baked maps don't, and a
-scene with a normal map or relief can't take instances yet. In an unskinned or rigid scene a model placed several
-times is one mesh in the glb with a node per copy. A scene may be instances only (no `parts:`). Lint sees the scene with its
-instances (its size, its pieces: an instance joining two parts makes them one), and holds the model's own parts to
-its budget. `kiln build screw` rebuilds the models that place it. Missing models:
-E011; templates, terrains, scatters and circles (a model placing itself round about) are errors.
+Scenes (other models placed in this one: `instances:`) and assemblies (`mount:`, `kiln fit`): `kiln docs scenes`.

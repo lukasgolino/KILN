@@ -97,14 +97,14 @@ def test_the_instance_origin_goes_at_at(desk: Project, monkeypatch: pytest.Monke
     assert abs((first[:, 1].min() + first[:, 1].max()) / 2 - 0.1) < 2e-3  # its centre at y = 0.1, as its glb's origin
 
 
-def test_lods_hold_their_budget_and_maps_are_refused(desk: Project) -> None:
+def test_lods_hold_their_budget_and_a_mapped_scene_takes_references(desk: Project) -> None:
     write_model(desk, DESK.replace("resolution: 0.03\n", "resolution: 0.03\nlod: [60]\n"), "desk")
     assert not build(desk).errors
     doc, _ = read_glb((desk.output_dir / "models" / "desk.lod1.glb").read_bytes())
     tris = sum(desk_acc["count"] // 3 for m in doc["meshes"] for prim in m["primitives"] for desk_acc in [doc["accessors"][prim["indices"]]])
     assert tris <= 60 * 1.5, tris
     write_model(desk, DESK.replace("resolution: 0.03\n", "resolution: 0.03\nnormal_map: 256\n"), "desk")
-    assert any("normal map" in f.message for f in build(desk).findings)
+    assert not build(desk).errors  # (#355) its screws are references now, not refused
 
 
 def test_a_partial_build_rebuilds_the_scene(desk: Project) -> None:
@@ -217,3 +217,36 @@ def test_godot_loads_shared_copies(tmp_path: Path) -> None:
     assert not result.errors and result.godot_root is not None
     check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
     assert check.ok, check.output[-3000:]
+
+
+@pytest.mark.slow
+def test_instances_with_maps_are_references(tmp_path: Path) -> None:
+    """#355: an instance whose model bakes maps is a reference (a node its own scene fills, maps and all), and a scene
+    with maps of its own takes instances that way; Godot loads both."""
+    from conftest import make_project
+
+    from kiln.godot import find_godot_binary, verify
+
+    project = make_project(tmp_path, 'default_style = "fast"\ndefault_palette = "main"\noutput_dir = "game/assets/kiln"\nexport = ["glb", "godot"]\n')
+    (tmp_path / "game").mkdir()
+    (tmp_path / "game" / "project.godot").write_text('config_version=5\n[application]\nconfig/name="t"\n')
+    write_model(project, "name: furry\nnormal_map: 256\nparts:\n  - sphere: { at: [0, 0.1, 0], radius: 0.1 }\n    id: body\n    color: wood\n"
+                "relief:\n  - on: [body]\n    length: 0.04\n    width: 0.03\n", "furry")  # fmt: skip
+    write_model(project, SCREW, "screw")
+    write_model(project, "name: shelf\nparts:\n  - box: { at: [0, 0.05, 0], size: [1.0, 0.1, 0.6] }\n    color: wood\ninstances:\n"
+                "  - { model: furry, at: [0.3, 0.1, 0], rotate: [0, 90, 0] }\n  - { model: screw, at: [-0.3, 0.1, 0] }\n", "shelf")  # fmt: skip
+    write_model(project, "name: mapped\nnormal_map: 256\nparts:\n  - box: { at: [0, 0.05, 0], size: [1.0, 0.1, 0.6] }\n    color: wood\n"
+                "instances:\n  - { model: screw, at: [0, 0.1, 0] }\n", "mapped")  # fmt: skip
+    result = build(project)
+    assert not result.errors, [f.format() for f in result.errors]
+    doc, _ = read_glb((project.output_dir / "models" / "shelf.glb").read_bytes())
+    ref = [n for n in doc["nodes"] if n["name"].startswith("kiln_ref_furry")]
+    assert len(ref) == 1 and "mesh" not in ref[0] and ref[0]["extras"]["kiln_reference"]
+    assert not any(m["name"] == "furry" for m in doc["meshes"])
+    doc, _ = read_glb((project.output_dir / "models" / "mapped.glb").read_bytes())
+    assert any(n["name"].startswith("kiln_ref_screw") for n in doc["nodes"])
+    assert 'refs = {"furry": "res://assets/kiln/models/furry.tscn"}' in (project.output_dir / "models" / "shelf.tscn").read_text()
+    godot = find_godot_binary()
+    if godot is not None and result.godot_root is not None:
+        check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
+        assert check.ok, check.output[-3000:]

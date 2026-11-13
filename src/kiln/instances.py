@@ -55,8 +55,7 @@ def place(project: Project, built: Built, seen: tuple[str, ...] = (), share: flo
     """`built` with its instances merged in (unchanged without any); `share`: a LOD's share of the full triangles."""
     if not built.model.instances:
         return built
-    if built.bake is not None:
-        raise InstanceError("instances: a model with a normal map or relief can't place other models yet (#295)")
+    scene_mapped = built.bake is not None  # (#355) its faces carry the bake's UVs: instances can't merge in, they are references
     p = built.painted
     vertices, faces, face_group, face_decal = [p.vertices], [p.faces], [p.face_group], [p.face_decal]
     groups = list(p.groups)
@@ -75,7 +74,13 @@ def place(project: Project, built: Built, seen: tuple[str, ...] = (), share: flo
         motion = np.eye(4)  # its model space onto the scene's: (v - origin) R^T s + at, as below
         motion[:3, :3] = r * inst.scale
         motion[:3, 3] = np.asarray(inst.at, float) - (r * inst.scale) @ sub.origin()
-        copies.append((inst.model, face_count, face_count + len(q.faces), motion, inst.bone))
+        ref = scene_mapped or sub.bake is not None  # baked maps: a reference to its own scene (#355), its geometry only for previews
+        placed_glb = np.eye(4)  # a reference: its glb (origin at its origin) onto the scene's model space
+        placed_glb[:3, :3], placed_glb[:3, 3] = r * inst.scale, np.asarray(inst.at, float)
+        if scene_mapped:
+            copies.append((inst.model, face_count, face_count, placed_glb, inst.bone, True))
+            continue
+        copies.append((inst.model, face_count, face_count + len(q.faces), placed_glb if ref else motion, inst.bone, ref))
         face_count += len(q.faces)
         vertices.append((q.vertices - sub.origin()) @ r.T * inst.scale + np.asarray(inst.at))  # its origin at `at`, as its glb
         faces.append(q.faces + count)
