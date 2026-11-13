@@ -231,3 +231,12 @@ def test_gibs_keep_their_own_key_and_no_clips(project: Project) -> None:
     moved, _ = ok_model(project, text.replace("rotate: [0, 0, -60]", "rotate: [0, 0, -80]"), "hero")
     for part_id, g in dict(gib_models(moved)).items():
         assert builder.motion_key(g) == builder.motion_key(gibs[part_id]) and builder.cache_key(g, style, {}) == builder.cache_key(gibs[part_id], style, {})
+
+
+def test_a_cut_part_keeps_its_wall_colour() -> None:
+    """#344: api.part(..., cut=True) keeps color and material (they paint the cut's walls)."""
+    from kiln.api import part
+
+    assert part("box", color="ink", material="matte", cut=True, size=[0.1, 0.1, 0.1]) == {
+        "box": {"size": [0.1, 0.1, 0.1]}, "color": "ink", "material": "matte", "cut": True}
+    assert "color" not in part("box", cut=True, size=[0.1, 0.1, 0.1])

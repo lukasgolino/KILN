@@ -62,6 +62,7 @@ before 1.0).
 
 ### Fixed
 
+- `kiln.api.part(..., cut=True)` keeps `color` and `material` (they paint the cut's walls) (#344).
 - A cut accepts `id` and `mirror_id` (they name it; shared option sets in generators work) instead of E003; a
   mirrored part's texture keeps its palette key (#153).
 - No raw numpy RuntimeWarnings in `kiln` output (lint workers too); degenerate hard normals are guarded (#339).

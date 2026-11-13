@@ -37,6 +37,10 @@ def part(shape: str, color: str | None = None, material: str = "default", id: st
     if not params.get("cut") and not params.get("intersect"):
         out["color"] = color or "grey"
         out["material"] = material
+    elif params.get("cut") and color is not None:  # a cut's colour paints the walls it makes (#178, #344)
+        out["color"] = color
+        if material != "default":
+            out["material"] = material
     for key in sorted(part_keys & params.keys()):
         out[key] = params[key]
     return out
