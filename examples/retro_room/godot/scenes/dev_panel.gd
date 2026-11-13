@@ -51,6 +51,18 @@ var paint_box: VBoxContainer
 var paint_sliders := {}  # parameter -> HSlider
 var shadow_picker: ColorPickerButton
 var ground_picker: ColorPickerButton
+const SIGNAC_SLIDERS := [  # [global shader parameter, label, low, high, step]
+	["paint_dab", "dab size (m)", 0.01, 0.2, 0.005],
+	["paint_contrast", "contrast", 0.0, 2.0, 0.01],
+	["paint_value", "same value", 0.0, 3.0, 0.01],
+	["paint_accent", "accents", 0.0, 0.6, 0.01],
+	["paint_shadow", "violet shade", 0.0, 1.0, 0.01],
+	["paint_light", "sun", 0.0, 1.0, 0.01],
+	["paint_lift", "lift", 0.0, 0.6, 0.01],
+	["paint_round", "rounding", 0.0, 1.0, 0.01],
+	["paint_turn", "dab turn", 0.0, 1.6, 0.01],
+	["paint_blend", "distance blend", 0.0, 1.0, 0.01],
+]
 const PAINT_SLIDERS := [  # [parameter, label, low, high, step]
 	["dab_size", "dab size", 0.5, 3.0, 0.01],
 	["dab_jitter", "jitter", 0.0, 1.5, 0.01],
@@ -160,7 +172,16 @@ func _build() -> void:
 		set_bands(int(v)))
 
 	column.add_child(HSeparator.new())
-	column.add_child(_heading("Paint"))
+	column.add_child(_heading("Signac paint (key 4)"))
+	for entry in SIGNAC_SLIDERS:
+		var global_name: String = entry[0]
+		var slider := _slider(column, entry[1], entry[2], entry[3], entry[4], "%.2f", func(v: float) -> void:
+			RenderingServer.global_shader_parameter_set(global_name, v))
+		var current: Variant = ProjectSettings.get_setting("shader_globals/" + global_name, {}).get("value")
+		_set_slider(slider, float(current) if current != null else entry[2])
+
+	column.add_child(HSeparator.new())
+	column.add_child(_heading("Paint filter (key 5)"))
 	paint_mode = CheckButton.new()
 	paint_mode.text = "paint dabs (off: retro blocks)"
 	paint_mode.toggled.connect(func(on: bool) -> void:

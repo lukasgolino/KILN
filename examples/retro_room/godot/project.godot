@@ -15,3 +15,46 @@ window/size/viewport_height=800
 [rendering]
 
 viewport/hdr_2d=false
+
+[shader_globals]
+
+paint_dab={
+"type": "float",
+"value": 0.035
+}
+paint_contrast={
+"type": "float",
+"value": 0.3
+}
+paint_accent={
+"type": "float",
+"value": 0.08
+}
+paint_shadow={
+"type": "float",
+"value": 0.6
+}
+paint_light={
+"type": "float",
+"value": 1.0
+}
+paint_lift={
+"type": "float",
+"value": 0.2
+}
+paint_round={
+"type": "float",
+"value": 0.3
+}
+paint_turn={
+"type": "float",
+"value": 0.3
+}
+paint_blend={
+"type": "float",
+"value": 1.0
+}
+paint_value={
+"type": "float",
+"value": 0.6
+}

@@ -1,6 +1,7 @@
 {
   "files": [
     "looks/paint_pointillist.tscn",
+    "looks/paint_signac.tscn",
     "looks/retro_cga.tscn",
     "looks/retro_mono.tscn",
     "looks/retro_st.tscn",
@@ -28,6 +29,7 @@
   "generator": "kiln 0.34.0",
   "looks": {
     "paint_pointillist": "res://assets/kiln/looks/paint_pointillist.tscn",
+    "paint_signac": "res://assets/kiln/looks/paint_signac.tscn",
     "retro_cga": "res://assets/kiln/looks/retro_cga.tscn",
     "retro_mono": "res://assets/kiln/looks/retro_mono.tscn",
     "retro_st": "res://assets/kiln/looks/retro_st.tscn"

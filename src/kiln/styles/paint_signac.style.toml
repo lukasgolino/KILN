@@ -1,0 +1,16 @@
+description = "Signac paint: the world painted in fixed dabs of pure pigment that mix in the eye (exploratory)"
+extends = "soft_toy"
+notes = """
+Exploratory: the dabs are a surface shader in the retro room demo (scenes/signac.gdshader), applied over every
+model's own colours; this style only sets a neutral environment (linear tonemapping, no grading) so the pigments
+come out as painted.
+"""
+
+[look]
+tonemapper = "linear"
+exposure = 1.0
+saturation = 1.0
+contrast = 1.0
+ssao = false
+glow = false
+fog = 0.0

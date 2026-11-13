@@ -13,9 +13,12 @@ const LOOKS := [  # [style, label], in key order
 	["retro_st", "Atari ST colour"],
 	["retro_cga", "CGA"],
 	["retro_mono", "Atari ST mono"],
-	["paint_pointillist", "Pointillist paint"],
+	["paint_signac", "Signac paint (dabs on the world)"],
+	["paint_pointillist", "Pointillist filter (screen)"],
 ]
-const HINT := "WASD walk · Shift run · mouse look · Esc frees the mouse\n1 / 2 / 3 / 4 or Tab: look · F1: tune the look"
+const SIGNAC_STYLE := "paint_signac"  # this kit paints every surface with scenes/signac.gdshader
+const SIGNAC := preload("res://scenes/signac.gdshader")
+const HINT := "WASD walk · Shift run · mouse look · Esc frees the mouse\n1-5 or Tab: look · F1: tune the look"
 
 const FLOOR_COLOUR := Color("#242449")
 const WALL_COLOUR := Color("#b6b6db")
@@ -132,13 +135,49 @@ func show_look(index: int) -> void:
 	if panel != null:
 		panel.load_kit(retro)
 	_label.text = "%s\n%s" % [looks[look_index][1], HINT]
+	_paint_world(looks[look_index][0] == SIGNAC_STYLE)
+
+
+## Swaps every surface of the room and its models to the Signac paint material (its own colour as the target), or back.
+func _paint_world(on: bool) -> void:
+	for node in find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.mesh == null or (look_kit != null and look_kit.is_ancestor_of(mesh_instance)):
+			continue
+		if not on:
+			if mesh_instance.has_meta("unpainted"):
+				var originals: Array = mesh_instance.get_meta("unpainted")
+				for i in originals.size():
+					mesh_instance.set_surface_override_material(i, originals[i])
+				mesh_instance.remove_meta("unpainted")
+			continue
+		if mesh_instance.has_meta("unpainted"):
+			continue
+		var originals: Array = []
+		for i in mesh_instance.mesh.get_surface_count():
+			originals.append(mesh_instance.get_surface_override_material(i))
+			var source := mesh_instance.get_active_material(i)
+			var paint := ShaderMaterial.new()
+			paint.shader = SIGNAC
+			var colour := Color.WHITE
+			var vertex := false
+			if source is ShaderMaterial and (source as ShaderMaterial).get_shader_parameter("albedo") != null:
+				colour = (source as ShaderMaterial).get_shader_parameter("albedo")
+				vertex = mesh_instance.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_COLOR != 0
+			elif source is BaseMaterial3D:
+				colour = (source as BaseMaterial3D).albedo_color
+				vertex = (source as BaseMaterial3D).vertex_color_use_as_albedo
+			paint.set_shader_parameter("albedo", colour)
+			paint.set_shader_parameter("use_vertex_color", vertex)
+			mesh_instance.set_surface_override_material(i, paint)
+		mesh_instance.set_meta("unpainted", originals)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
 	match event.physical_keycode:
-		KEY_1, KEY_2, KEY_3, KEY_4:
+		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5:
 			var style: String = LOOKS[event.physical_keycode - KEY_1][0]
 			for i in looks.size():
 				if looks[i][0] == style:
