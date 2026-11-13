@@ -28,6 +28,7 @@ var bands := 4
 
 var effect: CheckButton
 var space: CheckButton
+var space_hint: Label
 var pattern: OptionButton
 var lines: HSlider
 var aspect: HSlider
@@ -104,15 +105,23 @@ func _build() -> void:
 	space.text = "dither fixed to the world"
 	space.toggled.connect(func(on: bool) -> void:
 		if retro != null and retro.has_method("set_space"):
-			retro.set_space("world" if on else "screen"))
+			retro.set_space("world" if on else "screen")
+		_update_space_hint())
 	column.add_child(_unfocused(space))
+	space_hint = Label.new()
+	space_hint.text = "world space reads best with the noise pattern"
+	space_hint.add_theme_font_size_override("font_size", 12)
+	space_hint.add_theme_color_override("font_color", Color("#f7c873"))
+	space_hint.visible = false
+	column.add_child(space_hint)
 
 	pattern = OptionButton.new()
 	for p in PATTERNS:
 		pattern.add_item(p)
 	pattern.item_selected.connect(func(i: int) -> void:
 		if retro != null:
-			retro.set_pattern(PATTERNS[i]))
+			retro.set_pattern(PATTERNS[i])
+		_update_space_hint())
 	column.add_child(_row("pattern", _unfocused(pattern)))
 
 	lines = _slider(column, "lines", 40, 480, 1, "%d", func(v: float) -> void:
@@ -258,6 +267,10 @@ func load_kit(kit_retro: Node) -> void:
 	space.disabled = not has_space
 	space.tooltip_text = "" if has_space else "this kit's Retro pass has no set_space"
 	space.set_pressed_no_signal(has_space and str(settings.get("space", "screen")) == "world")
+	if has_space and retro.has_method("world_supported") and not retro.world_supported():
+		space.disabled = true
+		space.tooltip_text = "world space needs the Forward+ renderer"
+	_update_space_hint()
 	pattern.select(maxi(PATTERNS.find(str(settings.get("pattern", "bayer4"))), 0))
 	_set_slider(lines, float(settings.get("lines", 200.0)))
 	_set_slider(aspect, float(settings.get("pixel_aspect", 1.0)))
@@ -399,6 +412,7 @@ func style_text(preset_name: String) -> String:
 		"pixel_aspect = %s" % _toml_float(float(settings.get("pixel_aspect", aspect.value))),
 		"dither = \"%s\"" % str(settings.get("pattern", PATTERNS[pattern.selected])),
 		"dither_strength = %s" % _toml_float(float(settings.get("strength", strength.value))),
+		"dither_space = \"%s\"" % str(settings.get("space", "screen")),
 		"toon_bands = %d" % bands,
 		"",
 	])
@@ -440,3 +454,8 @@ func _write(path: String, text: String) -> bool:
 		return false
 	file.store_string(text)
 	return true
+
+
+func _update_space_hint() -> void:  # ordered patterns streak (moire) when fixed to the world; noise holds up
+	if space_hint != null:
+		space_hint.visible = space.button_pressed and PATTERNS[pattern.selected] != "noise"
