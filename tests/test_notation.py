@@ -510,3 +510,11 @@ def test_texture_rejects_cylindrical_with_mirror_or_array_and_unreadable_images(
     assert [f.rule for f in errors_of(project, cyl + "    array: { count: 3, step: [0, 0, 0.3] }\n" + tex)] == ["E003"]
     assert not errors_of(project, cyl + "    mirror: x\n    texture: { image: textures/tile.png, project: box, texel: 0.01 }\n")
     assert [f.rule for f in errors_of(project, cyl + "    texture: { image: textures/bad.png, texel: 0.01 }\n")] == ["E011"]
+
+
+def test_no_rig_e007_for_a_part_that_failed() -> None:
+    """#327: a part that fails (a pixel pattern on a part `sides` made hard) gives its own error, not E007 on top."""
+    model, findings = parse("name: m\nparts:\n  - cylinder: { radius: 0.3, height: 0.2, sides: 8 }\n    id: hat\n    color: red\n"
+                            "    pattern: { type: pixel, color: blue, size: 0.02, rows: [\"#.\"] }\nrig:\n  hat: { pivot: [0, 0, 0] }\n")  # fmt: skip
+    rules = [f.rule for f in findings]
+    assert "E003" in rules and "E007" not in rules, findings

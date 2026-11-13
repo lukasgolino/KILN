@@ -37,6 +37,7 @@ then y then z, about its centre).
 | `wedge` | `size: [x, y, z]`: a roof (ridge along x at the top) |
 
 `sides` (3-64) also works on `lathe` and `torus`, and on `sphere`, `ellipsoid`, `capsule` and `tube` for hard parts.
+`sides` makes a part hard (exact polygons: no blend, folds or pixel patterns on it).
 
 For `capsule` and `tube`, the points are in the part's frame (moved by `at`, turned by `rotate`). Everything else in a
 model (decal `at`, rig pivots, poses' offsets) is in model space.

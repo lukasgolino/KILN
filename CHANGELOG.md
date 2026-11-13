@@ -62,6 +62,7 @@ before 1.0).
 
 ### Fixed
 
+- A part that fails to read no longer drags in rig E007 for its id; the docs say `sides` makes a part hard (#327).
 - `kiln.api.part(..., cut=True)` keeps `color` and `material` (they paint the cut's walls) (#344).
 - A cut accepts `id` and `mirror_id` (they name it; shared option sets in generators work) instead of E003; a
   mirrored part's texture keeps its palette key (#153).

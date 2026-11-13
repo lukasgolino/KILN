@@ -344,6 +344,7 @@ class _Ctx:
         self.ramps: dict[str, tuple[str, ...]] = getattr(palette, "ramps", {})  # the palette's ramps: name -> hexes (#205)
         self.materials = materials
         self.findings: list[Finding] = []
+        self.failed_ids: set[str] = set()  # ids of parts that failed to read: no rig E007 for them on top (#327)
 
     def error(self, rule: str, message: str, line: int | None, where: str) -> None:
         self.findings.append(Finding(rule, message, self.path, line, where))
@@ -1670,7 +1671,7 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, template: b
         rline = _line(raw, part_id) or line
         where = f"rig.{part_id}"
         if part_id not in ids:
-            if not template:  # a template's rig may name parts another template brings
+            if not template and part_id not in ctx.failed_ids:  # a template's rig may name parts another template brings
                 ctx.error("E007", f"rig: no part has id {part_id!r} (ids: {', '.join(sorted(ids))})", rline, where)
             continue
         spec = spec if spec is not None else {}
@@ -2306,7 +2307,10 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 pline = _line(raw) or _line(data, "parts")
                 kinds = [k for k in raw if k in HARDWARE] if isinstance(raw, dict) else []
                 if not kinds:
-                    model.parts.extend(_parse_part(ctx, raw, i, pline))
+                    read = _parse_part(ctx, raw, i, pline)
+                    if not read and isinstance(raw, dict):
+                        ctx.failed_ids |= {str(raw[k]) for k in ("id", "mirror_id") if isinstance(raw.get(k), str)}
+                    model.parts.extend(read)
                     continue
                 if len(kinds) > 1 or any(k in SHAPES for k in raw):
                     ctx.error("E003", f"each part needs exactly one shape: {', '.join(SHAPES)}, or one hardware part: {', '.join(HARDWARE)}", pline, f"parts[{i}]")
