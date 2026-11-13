@@ -134,6 +134,7 @@ def render(
     fade: Array | None = None,
     colors: Array | None = None,
     fill: float = 0.0,
+    opaque: bool = False,
 ) -> Image.Image:
     """One view. `fit` = (centre, half-extent in metres) to frame several renders the same way; default: the
     model's own bounding sphere. `hide`: bones (part ids) left out, e.g. a detached helmet. `revealed` parts (stump caps)
@@ -152,17 +153,18 @@ def render(
 
         colors = fade_colors(built, swap)
     see = np.array([built.style.materials.get(gr.material, built.style.materials["default"]).alpha for gr in built.painted.groups])
-    if (see < 1).any() and fade is None:  # see-through presets (glass, #175): blended at their alpha (#342), not dithered:
+    if (see < 1).any() and fade is None and not opaque:  # see-through presets (glass, #175): blended at their alpha (#342), not dithered:
         face_alpha = see[built.painted.face_group]  # drawn without the glass and with it opaque, then mixed where it shows
         glass = face_alpha < 1
-        kw = {"size": size, "track": track, "frame": frame, "swap": swap, "fit": fit, "background": background, "hide": hide, "colors": colors, "fill": fill}
+        kw = {"size": size, "track": track, "frame": frame, "swap": swap, "fit": fit, "background": background, "hide": hide, "colors": colors, "fill": fill,
+              "opaque": True}
         behind = np.asarray(render(built, view, fade=np.where(glass, 0.0, 1.0), **kw)).astype(np.float64)  # type: ignore[arg-type]
         front = np.asarray(render(built, view, fade=np.ones(len(face_alpha)), **kw)).astype(np.float64)  # type: ignore[arg-type]
         a = float(face_alpha[glass].mean())
         shows = np.abs(front - behind).sum(axis=2, keepdims=True) > 0  # where the glass is what's in front
         mixed = np.where(shows, behind * (1 - a) + front * a, behind)
         return Image.fromarray(np.clip(mixed + 0.5, 0, 255).astype(np.uint8), "RGBA")
-    if (see < 1).any():  # with a fade asked for as well: dithered at their alpha, as fading pieces are
+    if (see < 1).any() and not opaque:  # with a fade asked for as well: dithered at their alpha, as fading pieces are
         face_alpha = see[built.painted.face_group]
         fade = fade * face_alpha
     look: Look = built.style.look
