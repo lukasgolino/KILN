@@ -227,19 +227,26 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             if part.geometry.op != "add" or k in kept or k in hard:
                 continue
             t = part_thickness(part.geometry)
-            if t is not None and t < 2 * built.step:
-                warn("W102", f"this {part.geometry.shape} is {t:.3g} m thick but the mesh resolution here is {built.step:.3g} m: it may break "
-                     f"into bits; make it at least {2 * built.step:.3g} m thick", part.line, part.where)  # fmt: skip
+            if t is not None and t < 2 * built.step:  # (#304) its thinnest width across, and the fixes that fit the shape
+                polygonal = part.geometry.shape in ("box", "wedge", "cylinder", "cone", "capsule", "tube", "extrude", "lathe")
+                fix = (f"make it hard (`hard: true`, or `sides:` on round ones: exact polygons don't break up), make it at least "
+                       f"{2 * built.step:.3g} m across, or give it `resolution:` (finer cells in its box)") if polygonal else \
+                    f"make it at least {2 * built.step:.3g} m across, or give it `resolution:` (finer cells in its box)"
+                warn("W102", f"this {part.geometry.shape} is {t:.3g} m across at its thinnest, under two mesh cells ({built.step:.3g} m each): it "
+                     f"may break into bits or vanish; {fix}", part.line, part.where)  # fmt: skip
         budget = m.budget or built.style.budget(m.cls)
         for k, n, copies in few_triangles(m, built, field, hard | kept) if field else ():
             part = m.parts[k]
             each = f" in each of its {copies} copies" if copies > 1 else ""
             need = FEW_TRIANGLES / max(n, 1)  # how many times the triangles it has
             dense = min(8.0, math.ceil(part.density * need * 2) / 2)
-            more = f"give it density: {dense:g}" + (f" (now {part.density:g})" if part.density != 1 else "") if part.density < 8 else ""
-            raise_to = f"budget: {int(math.ceil(budget * need / 100) * 100)} (now {budget})"
+            adds = int(n * copies * (dense / max(part.density, 1e-9) - 1))
+            more = (f"give it density: {dense:g}" + (f" (now {part.density:g})" if part.density != 1 else "") + f" (about {adds} more triangles, "
+                    "taken from the rest of the model)") if part.density < 8 else ""  # fmt: skip
+            new_budget = int(math.ceil(budget * need / 100) * 100)
+            raise_to = f"budget: {new_budget} (now {budget}: {new_budget - budget} more for the whole model)"
             warn("W128", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is {n} triangles{each}: it reads as a polygon; "
-                 f"{more + ', or ' if more else ''}{raise_to}", part.line, part.where)  # fmt: skip
+                 f"{more + '; or ' if more else ''}{raise_to}", part.line, part.where)  # fmt: skip
         for k, part in enumerate(m.parts):
             if part.skin_falloff is None:
                 continue

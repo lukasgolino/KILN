@@ -40,7 +40,7 @@ def test_w101_cut_away_part(project: Project) -> None:
 def test_w102_thin_part(project: Project) -> None:
     text = sphere_text() + "  - box: { at: [0, 0.6, 0], size: [0.3, 0.02, 0.3] }\n    color: white\n"
     findings = [f for f in lint(project, text) if f.rule == "W102"]
-    assert len(findings) == 1 and findings[0].where == "parts[1]" and "thick" in findings[0].message
+    assert len(findings) == 1 and findings[0].where == "parts[1]" and "across at its thinnest" in findings[0].message and "hard: true" in findings[0].message
 
 
 def test_w103_floating_piece(project: Project) -> None:

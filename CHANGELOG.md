@@ -107,6 +107,9 @@ before 1.0).
 
 ### Changed
 
+- Lint W102 says how wide the part is at its thinnest and offers `hard: true` / `sides:` (for shapes that can be
+  exact) and `resolution:` besides making it thicker; W128 leads with `density` on the part and says how many
+  triangles each fix costs (#304, #323).
 - Under budget pressure hard parts lose their bevels a few at a time, the smallest first, after the chamfer step,
   instead of all at once; lint W139 says when bevels went and what budget keeps them (#334).
 - UV charts in baked maps sit 8 texels apart as meant (they were 17: xatlas pads each side), so the maps hold more
