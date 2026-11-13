@@ -108,6 +108,9 @@ before 1.0).
 
 ### Changed
 
+- Error wording: a model without `name:` takes its file's name; `- { shape: sphere, ... }` shows the right form; a
+  part option written inside the shape (`bevel`, `scale`) and a shape field written beside it (`sides`) say where they
+  go; W101 says "other parts" (not "later"); W120 is quiet on all-hard models (#168, #190, #177).
 - Lint names parts as the model file has them: their `parts:` entry (before hardware expands), the kind written
   (`garment shirt`, not the box it became), the id and the line; per-part warnings (W101, W102, W111, W128) about
   more than three parts of one kind come as one line with the rest listed (#314, #235).

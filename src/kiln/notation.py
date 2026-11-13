@@ -477,12 +477,20 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         return []
     shapes = [k for k in raw if k in SHAPES]
     if len(shapes) != 1:
+        if isinstance(raw.get("shape"), str) and raw["shape"] in SHAPES:  # (#168) the shape as a field: show the form
+            fields = {k: v for k, v in raw.items() if k != "shape" and (k in SHAPES[raw["shape"]].fields or k in ("at", "rotate"))}
+            body = ", ".join(f"{k}: {v}" for k, v in fields.items()) or "..."
+            ctx.error("E003", f"a part names its shape as its key, not with shape: write - {raw['shape']}: {{ {body} }} (the shape's own "
+                      "fields inside it; colour, blend and the like beside it)", line, where)  # fmt: skip
+            return []
         ctx.error("E003", f"each part needs exactly one shape: {', '.join(SHAPES)}", line, where)
         return []
     kind = shapes[0]
     unknown = [k for k in raw if k not in PART_FIELDS and k != kind]
     if unknown:
-        ctx.error("E002", f"unknown part field(s) {', '.join(map(str, unknown))}; allowed: {kind}, {', '.join(sorted(PART_FIELDS))}", line, where)
+        shape_level = [k for k in unknown if k in SHAPES[kind].fields]  # (#190) a shape parameter written beside the shape
+        hint = f" ({', '.join(map(str, shape_level))} goes inside the shape: {kind}: {{ ..., {shape_level[0]}: ... }})" if shape_level else ""
+        ctx.error("E002", f"unknown part field(s) {', '.join(map(str, unknown))}{hint}; allowed: {kind}, {', '.join(sorted(PART_FIELDS))}", line, where)
     spec = raw[kind]
     swhere = f"{where}.{kind}"
     if not isinstance(spec, dict):
@@ -504,7 +512,8 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         if key in ("at", "rotate", "aim") or (kind == "extrude" and key in PATH_KEYS + TEXT_KEYS):
             continue
         if key not in sdef.fields:
-            ctx.error("E002", f"{kind} has no field {key!r}; it takes {sdef.help}, plus at and rotate", _line(spec, key) or line, f"{swhere}.{key}")
+            up = f" ({key} is a part option: write it beside {kind}:, one level up)" if key in PART_FIELDS else ""  # (#190, #177)
+            ctx.error("E002", f"{kind} has no field {key!r}{up}; it takes {sdef.help}, plus at and rotate", _line(spec, key) or line, f"{swhere}.{key}")
             ok = False
             continue
         checked = _check_value(sdef.fields[key], value)
@@ -2166,7 +2175,9 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
         ctx.error("E002", f"unknown field(s) {', '.join(map(str, unknown))}; allowed: {', '.join(sorted(TOP_FIELDS))}", _line(data, unknown[0]), str(unknown[0]))
     name = data.get("name")
     expected = path.name[: -len(MODEL_SUFFIX)] if path is not None and path.name.endswith(MODEL_SUFFIX) else None
-    if not isinstance(name, str) or not NAME_RE.match(name):
+    if name is None and expected is not None:  # (#168) no name: the file's
+        name = expected
+    elif not isinstance(name, str) or not NAME_RE.match(name):
         ctx.error("E003", "name must be lowercase letters, digits, _ or - (and match the file name)", _line(data, "name"), "name")
         name = expected or "model"
     elif expected is not None and name != expected:

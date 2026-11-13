@@ -32,7 +32,7 @@ from kiln.style import MaterialPreset, Style
 from kiln.vendor.findings import Finding
 
 WARNING_RULES = {
-    "W101": "a part has no visible surface (covered by later parts, or cut away)",
+    "W101": "a part has no visible surface (covered by other parts, or cut away)",
     "W102": "a part is thinner than the style's mesh resolution (it may break up)",
     "W103": "the model is in several separate pieces (floating parts)",
     "W104": "a colour isn't from the project's palette",
@@ -195,7 +195,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         for i in built.hidden:
             part = m.parts[i]
             by = hidden_by[i].by if i in hidden_by else ()
-            what = f"{named(by)} cover{'s' if len(by) == 1 else ''} it" if by else "later parts cover it or a cut removes it"
+            what = f"{named(by)} cover{'s' if len(by) == 1 else ''} it" if by else "other parts cover it or a cut removes it"
             warn("W101", f"{part_name(part)} has no visible surface: {what}; move it out, or "
                  "make the covering part a shell", part.line, part.where)  # fmt: skip
         for i, c in (mostly_covered(m, field, built.step, built.hidden, exact) if field else {}).items():
@@ -315,7 +315,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                 first = next(part for part in m.parts if part.color_blend > 0 and part.color_blend_set)
                 warn("W127", "color_blend fades nothing here (and still bakes the maps): a fade needs a neighbour of another colour that "
                      "the part joins with a blend (not a crisp seam, a hard or glowing part, or a decal)", first.line, f"{first.where}.color_blend")  # fmt: skip
-        if built.asked_step and built.step > built.asked_step * CAPPED:
+        if built.asked_step and built.step > built.asked_step * CAPPED and built.step_reason:  # (#177: nothing on the grid in an all-hard model)
             cells = m.max_cells or built.style.max_cells
             need = math.ceil(built.step * (cells - 6) / built.asked_step) + 6  # the step is the model's size / (cells - 6)
             fix = f"set max_cells: {need}" if need <= CELL_LIMIT else f"set max_cells: {CELL_LIMIT} (the most), or a coarser resolution"
