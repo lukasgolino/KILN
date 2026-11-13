@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from conftest import errors_of, run_json, write_model
@@ -95,14 +97,14 @@ def test_the_instance_origin_goes_at_at(desk: Project, monkeypatch: pytest.Monke
     assert abs((first[:, 1].min() + first[:, 1].max()) / 2 - 0.1) < 2e-3  # its centre at y = 0.1, as its glb's origin
 
 
-def test_lods_hold_their_budget_and_maps_are_refused(desk: Project) -> None:
+def test_lods_hold_their_budget_and_a_mapped_scene_takes_references(desk: Project) -> None:
     write_model(desk, DESK.replace("resolution: 0.03\n", "resolution: 0.03\nlod: [60]\n"), "desk")
     assert not build(desk).errors
     doc, _ = read_glb((desk.output_dir / "models" / "desk.lod1.glb").read_bytes())
     tris = sum(desk_acc["count"] // 3 for m in doc["meshes"] for prim in m["primitives"] for desk_acc in [doc["accessors"][prim["indices"]]])
     assert tris <= 60 * 1.5, tris
     write_model(desk, DESK.replace("resolution: 0.03\n", "resolution: 0.03\nnormal_map: 256\n"), "desk")
-    assert any("normal map" in f.message for f in build(desk).findings)
+    assert not build(desk).errors  # (#355) its screws are references now, not refused
 
 
 def test_a_partial_build_rebuilds_the_scene(desk: Project) -> None:
@@ -121,8 +123,8 @@ def test_no_dependents_builds_only_what_is_named(desk: Project, monkeypatch: pyt
 
 
 def test_instances_keep_their_textures_and_decals(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
-    """#295: a placed model's texture and decal come with it (back in its own frame), turned with the instance; a
-    scaled instance leaves them out."""
+    """#295, #353: a placed model's texture and decal come with it (back in its own frame), turned and scaled with the
+    instance."""
     from PIL import Image
 
     from kiln.cli import _built
@@ -138,12 +140,13 @@ def test_instances_keep_their_textures_and_decals(project: Project, monkeypatch:
     crate, shelf = _built(project, "crate"), _built(project, "shelf")
     p = shelf.painted
     textured = p.face_decal >= 0
-    assert textured.sum() == (crate.painted.face_decal >= 0).sum()  # the turned crate's faces; not the scaled one's
-    d = p.decals[int(p.face_decal[textured][0])]
-    assert d.copy is not None
+    assert textured.sum() == 2 * (crate.painted.face_decal >= 0).sum()  # the turned crate's faces and the scaled one's
     own = corner_uv(crate.painted.decals[0], crate.painted.vertices[crate.painted.faces[crate.painted.face_decal >= 0]])
-    placed = corner_uv(d, p.vertices[p.faces[textured]])
-    assert np.allclose(np.sort(own.reshape(-1)), np.sort(placed.reshape(-1)), atol=1e-6)  # the same image coordinates
+    for k in sorted(set(p.face_decal[textured].tolist())):  # each copy (turned, scaled): the crate's own image coordinates
+        d = p.decals[k]
+        assert d.copy is not None
+        placed = corner_uv(d, p.vertices[p.faces[p.face_decal == k]])
+        assert np.allclose(np.sort(own.reshape(-1)), np.sort(placed.reshape(-1)), atol=1e-6)
     assert not build(project).errors
     doc, _ = read_glb((project.output_dir / "models" / "shelf.glb").read_bytes())
     assert doc.get("images")
@@ -165,3 +168,85 @@ def test_lint_sees_the_instances_and_a_scene_of_instances_only(project: Project)
     assert not [f for f in tray.findings if f.severity == "error"], [f.format() for f in tray.findings]
     assert tray.built["tray"].triangles > 0
     assert not build(project).errors
+
+
+def test_copies_share_one_mesh(project: Project) -> None:
+    """#353: a model placed several times is one mesh in the glb with a node per copy; read back, the copies stand
+    where the merged build has them."""
+    from kiln.importer import read_mesh
+
+    write_model(project, SCREW, "screw")
+    tray = ("name: tray\nparts:\n  - box: { at: [0, 0.01, 0], size: [0.5, 0.02, 0.3] }\n    color: wood\ninstances:\n"
+            "  - { model: screw, at: [0.1, 0.02, 0] }\n  - { model: screw, at: [-0.1, 0.02, 0], rotate: [0, 90, 0] }\n"
+            "  - { model: screw, at: [0, 0.02, 0.1], rotate: [90, 0, 0] }\n")  # fmt: skip
+    write_model(project, tray, "tray")
+    assert not build(project).errors
+    path = project.output_dir / "models" / "tray.glb"
+    doc, _ = read_glb(path.read_bytes())
+    screw_mesh = [k for k, mesh in enumerate(doc["meshes"]) if mesh["name"] == "screw"]
+    assert len(screw_mesh) == 1 and sum(1 for n in doc["nodes"] if n.get("mesh") == screw_mesh[0]) == 3
+    v, f, _, _ = read_mesh(path)
+    import os
+
+    from kiln.cli import _built
+
+    os.chdir(project.root)
+    built = _built(project, "tray")
+    assert len(f) == len(built.painted.faces)
+    read = np.sort(v[f].mean(axis=1), axis=0)  # face centres, as read back with the copies' node transforms
+    want = np.sort((built.painted.vertices - built.origin())[built.painted.faces].mean(axis=1), axis=0)
+    assert np.allclose(read, want, atol=2e-3)
+
+
+@pytest.mark.slow
+def test_godot_loads_shared_copies(tmp_path: Path) -> None:
+    from conftest import make_project
+
+    from kiln.godot import find_godot_binary, verify
+
+    godot = find_godot_binary()
+    if godot is None:
+        pytest.skip("needs a Godot 4 binary (GODOT=/path)")
+    project = make_project(tmp_path, 'default_style = "fast"\ndefault_palette = "main"\noutput_dir = "game/assets/kiln"\nexport = ["glb", "godot"]\n')
+    (tmp_path / "game").mkdir()
+    (tmp_path / "game" / "project.godot").write_text('config_version=5\n[application]\nconfig/name="t"\n')
+    write_model(project, SCREW, "screw")
+    write_model(project, "name: tray\nparts:\n  - box: { at: [0, 0.01, 0], size: [0.5, 0.02, 0.3] }\n    color: wood\ninstances:\n"
+                "  - { model: screw, at: [0.1, 0.02, 0] }\n  - { model: screw, at: [-0.1, 0.02, 0], rotate: [0, 90, 0] }\n", "tray")  # fmt: skip
+    result = build(project)
+    assert not result.errors and result.godot_root is not None
+    check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
+    assert check.ok, check.output[-3000:]
+
+
+@pytest.mark.slow
+def test_instances_with_maps_are_references(tmp_path: Path) -> None:
+    """#355: an instance whose model bakes maps is a reference (a node its own scene fills, maps and all), and a scene
+    with maps of its own takes instances that way; Godot loads both."""
+    from conftest import make_project
+
+    from kiln.godot import find_godot_binary, verify
+
+    project = make_project(tmp_path, 'default_style = "fast"\ndefault_palette = "main"\noutput_dir = "game/assets/kiln"\nexport = ["glb", "godot"]\n')
+    (tmp_path / "game").mkdir()
+    (tmp_path / "game" / "project.godot").write_text('config_version=5\n[application]\nconfig/name="t"\n')
+    write_model(project, "name: furry\nnormal_map: 256\nparts:\n  - sphere: { at: [0, 0.1, 0], radius: 0.1 }\n    id: body\n    color: wood\n"
+                "relief:\n  - on: [body]\n    length: 0.04\n    width: 0.03\n", "furry")  # fmt: skip
+    write_model(project, SCREW, "screw")
+    write_model(project, "name: shelf\nparts:\n  - box: { at: [0, 0.05, 0], size: [1.0, 0.1, 0.6] }\n    color: wood\ninstances:\n"
+                "  - { model: furry, at: [0.3, 0.1, 0], rotate: [0, 90, 0] }\n  - { model: screw, at: [-0.3, 0.1, 0] }\n", "shelf")  # fmt: skip
+    write_model(project, "name: mapped\nnormal_map: 256\nparts:\n  - box: { at: [0, 0.05, 0], size: [1.0, 0.1, 0.6] }\n    color: wood\n"
+                "instances:\n  - { model: screw, at: [0, 0.1, 0] }\n", "mapped")  # fmt: skip
+    result = build(project)
+    assert not result.errors, [f.format() for f in result.errors]
+    doc, _ = read_glb((project.output_dir / "models" / "shelf.glb").read_bytes())
+    ref = [n for n in doc["nodes"] if n["name"].startswith("kiln_ref_furry")]
+    assert len(ref) == 1 and "mesh" not in ref[0] and ref[0]["extras"]["kiln_reference"]
+    assert not any(m["name"] == "furry" for m in doc["meshes"])
+    doc, _ = read_glb((project.output_dir / "models" / "mapped.glb").read_bytes())
+    assert any(n["name"].startswith("kiln_ref_screw") for n in doc["nodes"])
+    assert 'refs = {"furry": "res://assets/kiln/models/furry.tscn"}' in (project.output_dir / "models" / "shelf.tscn").read_text()
+    godot = find_godot_binary()
+    if godot is not None and result.godot_root is not None:
+        check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
+        assert check.ok, check.output[-3000:]

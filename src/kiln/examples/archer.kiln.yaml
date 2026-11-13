@@ -1,0 +1,64 @@
+name: archer
+description: hooded bean archer with a longbow
+class: character
+tags: [siege, soldier]
+status: approved
+style_version: 1
+parts:
+  - torus: { at: [0.5, 0.55, 0.05], radius: 0.36, thickness: 0.022, rotate: [0, 0, 90] }
+    id: arm_l
+    color: wood
+    material: wood
+  - box: { at: [0.5, 0.55, -0.15], size: [0.2, 0.9, 0.4] }
+    cut: true
+  - capsule: { from: [0.5, 0.2, 0.05], to: [0.5, 0.9, 0.05], radius: 0.012 }
+    id: arm_l
+    color: rope
+    material: fabric
+  - capsule: { from: [0, 0.3, 0], to: [0, 0.75, 0], radius: 0.28 }
+    color: hood
+    material: fabric
+  - capsule: { from: [0.11, 0.09, 0], to: [0.11, 0.25, 0], radius: 0.09 }
+    id: leg_l
+    mirror: x
+    mirror_id: leg_r
+    blend: 0.05
+    color: wood_dark
+    material: fabric
+  - capsule: { from: [0.28, 0.6, 0], to: [0.48, 0.55, 0.36], radius: 0.07 }
+    id: arm_l
+    blend: 0.04
+    color: hood
+    material: fabric
+  - capsule: { from: [-0.28, 0.6, 0], to: [-0.4, 0.4, 0.08], radius: 0.07 }
+    id: arm_r
+    blend: 0.04
+    color: hood
+    material: fabric
+  - cone: { at: [0, 1.1, -0.06], height: 0.42, radius: 0.27, radius_top: 0.0, rotate: [-15, 0, 0] }
+    blend: 0.06
+    color: hood
+    material: fabric
+  - ellipsoid: { at: [0, 0.85, 0.2], radii: [0.2, 0.15, 0.1] }
+    color: skin
+    material: skin
+  - sphere: { at: [0.08, 0.87, 0.26], radius: 0.065 }
+    mirror: x
+    color: white
+    material: plastic
+  - sphere: { at: [0.08, 0.87, 0.32], radius: 0.028 }
+    mirror: x
+    color: black
+    material: plastic
+  - cylinder: { at: [-0.18, 0.75, -0.3], radius: 0.08, height: 0.5, round: 0.02, rotate: [20, 0, 15] }
+    color: wood_dark
+    material: wood
+rig:
+  leg_l: { pivot: [0.11, 0.25, 0] }
+  leg_r: { pivot: [-0.11, 0.25, 0] }
+  arm_l: { pivot: [0.28, 0.6, 0], meta: { holds: bow } }
+  arm_r: { pivot: [-0.28, 0.6, 0] }
+skin: rigid
+animations:
+  walk: { fps: 12, cycle: { type: waddle } }
+  hop: { fps: 12, cycle: { type: hop, height: 0.25 } }

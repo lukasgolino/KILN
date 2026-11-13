@@ -109,13 +109,26 @@ def _trim(block: str, patterns: list[re.Pattern[str]]) -> str:
     return " ... ".join(kept) if kept else block[:LONG_BLOCK] + " ..."
 
 
+SYNONYMS = {  # an engine's words for KILN's (#164): a search for either finds both
+    "emissive": "glow emission", "emission": "glow", "emit": "glow", "metallic": "metal metallic", "albedo": "color colour",
+    "basecolor": "color", "base_color": "color", "colour": "color", "uv": "uv texture", "uvs": "uv texture", "instancing": "instances",
+    "instance": "instances", "lod": "lod budget", "lods": "lod budget", "polycount": "budget triangles", "triangles": "budget triangles",
+    "transparent": "alpha clear see-through", "transparency": "alpha clear see-through", "opacity": "alpha", "fillet": "bevel round",
+    "rounded": "round bevel", "subdivision": "resolution", "smoothing": "blend", "boolean": "cut", "subtract": "cut", "union": "blend",
+    "skeleton": "rig skeleton", "bones": "rig", "weights": "skin", "skinning": "skin", "animation": "animations", "clip": "clips animations",
+    "normalmap": "normal_map", "bump": "normal_map relief", "fur": "relief", "hair": "relief lock", "decal": "decal", "sticker": "decal",
+    "material": "material preset", "shader": "look shader", "toon": "toon", "outline": "outline", "lighting": "look sun", "light": "sun fill",
+}
+
+
 def search(query: str, limit: int = 5) -> list[Hit]:
     """Blocks that contain the most of the query's words (whole words, case-insensitive), best first. Words
     found in the heading count half."""
     words = [w for w in re.findall(r"[\w./-]+", query.lower()) if len(w) > 1]
     if not words:
         return []
-    patterns = [re.compile(rf"(?<![\w]){re.escape(w)}(?![\w])", re.IGNORECASE) for w in words]
+    alternatives = [[w, *SYNONYMS.get(w, "").split()] for w in words]  # each word or any of its synonyms (#164)
+    patterns = [re.compile("|".join(rf"(?<![\w]){re.escape(a)}(?![\w])" for a in alts), re.IGNORECASE) for alts in alternatives]
     hits: list[Hit] = []
     for topic in topics():
         for heading, block in _blocks(topic):

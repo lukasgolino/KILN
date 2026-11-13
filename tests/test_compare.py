@@ -196,3 +196,36 @@ def test_cli_vs_counts_what_the_build_writes(tmp_path: Path, monkeypatch: pytest
     model = result["compare"]["model"]
     assert {"surfaces": model["surfaces"], "materials": model["materials"]} == built_counts
     assert built_counts["materials"] == 1  # the atlas: one material for every colour
+
+
+def test_vs_its_own_skinned_vertex_coloured_glb(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#227: a skinned, vertex-coloured glb reads in place (its node transform ignored, as glTF says) and in its colours:
+    a model against its own build matches."""
+    from conftest import arms_text
+
+    (in_project.root / "kiln.toml").write_text((in_project.root / "kiln.toml").read_text() + "vertex_colors = true\n")
+    from kiln.project import load_project
+
+    project = load_project(in_project.root)
+    write_model(project, arms_text("hero", skin="soft"), "hero")
+    code, result = run_json(["build", "hero"], capsys)
+    assert code == 0, result
+    import json as _json
+    import struct
+
+    from kiln.vendor.gltf import read_glb
+
+    doc, binary = read_glb((in_project.root / "build/models/hero.glb").read_bytes())
+    for node in doc["nodes"]:
+        if "skin" in node:
+            node["translation"] = [0.4, 0.0, 0.3]  # a skinned mesh's node transform: glTF says to ignore it
+    text = _json.dumps(doc).encode()
+    text += b" " * (-len(text) % 4)
+    blob = binary + b"\0" * (-len(binary) % 4)
+    glb = struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(text) + 8 + len(blob)) + struct.pack("<II", len(text), 0x4E4F534A) + text \
+        + struct.pack("<II", len(blob), 0x004E4942) + blob
+    (in_project.root / "imports").mkdir(exist_ok=True)
+    (in_project.root / "imports" / "moved.glb").write_bytes(glb)
+    code, result = run_json(["preview", "hero", "--vs", "imports/moved.glb"], capsys)
+    assert code == 0, result
+    assert result["compare"]["iou"] > 0.95, result["compare"]

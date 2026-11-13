@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kiln-gen"
-version = "0.25.0"
+version = "0.31.0"
 description = "KILN (Keyed Implicit Language & Notation): write smooth stylised 3D models as text, build them into game-ready glTF."
 readme = "README.md"
 license = "Apache-2.0"
@@ -52,7 +52,7 @@ kiln-gen = "kiln.cli:main"  # so `uvx kiln-gen ...` (the MCP Registry entry) fin
 where = ["src"]
 
 [tool.setuptools.package-data]
-kiln = ["py.typed", "styles/*", "templates/*", "skill/*", "skill/topics/*", "library/*", "recipes/*", "clips/*"]
+kiln = ["py.typed", "styles/*", "templates/*", "skill/*", "skill/topics/*", "library/*", "recipes/*", "clips/*", "examples/*"]
 
 [tool.mypy]
 strict = true

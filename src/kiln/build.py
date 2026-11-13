@@ -662,8 +662,9 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             revealed = [f"{model.node_prefix}{pid}" for pid, e in sorted(model.rig.items()) if e.revealed]
             mapped_normals = built.bake is not None
             coloured = project.config.vertex_colors or project.config.atlas_ao > 0 or shade.on  # COLOR_0: colours, occlusion or shade
+            refs = {c[0]: res_path(out / "models" / f"{c[0]}.tscn", godot_root) for c in built.copies or [] if c[5]}  # (#355)
             write(scene, model_scene(name, res_path(glb, godot_root), style, None, rim if atlas else None, revealed, mapped_normals,
-                                     coloured, textured).encode())  # fmt: skip
+                                     coloured, textured, refs or None).encode())  # fmt: skip
             entry["godot_scene"] = res_path(scene, godot_root)
             recolourable = project.config.variant_glbs or not project.config.vertex_colors or textured  # vertex colours: swap table only
             for vname, swap in sorted(model.variants.items()) if recolourable else ():  # a scene per variant: its glb, or the base recoloured

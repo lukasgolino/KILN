@@ -40,7 +40,7 @@ lint: { disable: [W103] }
 def test_eyes_through_a_visor_are_flagged_until_moved_inside(project: Project) -> None:
     built = built_of(project, GREAT_HELM)
     found = [f for f in geometry_warnings(built, {}, project) if f.rule == "W113"]
-    assert len(found) == 1 and "part 2 (sphere, black)" in found[0].message and "part 3" in found[0].message
+    assert len(found) == 1 and "parts[2] (sphere" in found[0].message and "parts[3]" in found[0].message
     inside = GREAT_HELM.replace("at: [0.1, 1.24, 0.27], radius: 0.07", "at: [0.08, 1.22, 0.2], radius: 0.04")
     assert not penetrations(built_of(project, inside))
 

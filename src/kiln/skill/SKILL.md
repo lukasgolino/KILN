@@ -17,6 +17,7 @@ You check your work by LOOKING at the previews. This page is the core. Everythin
 | `making` | the full model loop and the model file (fur, folds and colour fades: `surfaces`; fur as `relief:` layers, never clump parts) |
 | `parts` | every shape and part field (read before writing parts) |
 | `surfaces` | hard surfaces, hardware (rivets, bands, planks, garments, hands, eyes), patterns, folds, relief fur, colour fades |
+| `scenes` | instances (other models placed in a model, shared meshes, references), assemblies (`mount:`), `kiln fit` |
 | `textures` | decals, textures (named, triplanar), motif prints, palette-indexed and generated pixel art |
 | `rigs`, `animations`, `humanoids`, `templates` | characters: rigs, skins, cycles, CC0 clips, the template library |
 | `styles` | presets, inspirations, the look kit |

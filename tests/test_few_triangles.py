@@ -31,8 +31,10 @@ def w128(project: Project, text: str) -> list[str]:
 @pytest.mark.parametrize("shape", sorted(SHAPES))
 def test_forty_small_round_parts_on_a_small_budget_warn(project: Project, shape: str) -> None:
     found = w128(project, many(shape, 1000))
-    assert len(found) >= 30, (shape, found[:1])  # tori get a few more (their curvature draws triangles)
-    assert "reads as a polygon" in found[0] and "(now 1000)" in found[0] and "density: " in found[0]
+    assert len(found) == 1, (shape, found[:1])  # one line for the lot (#235)
+    more = re.search(r"and (\d+) more", found[0])
+    assert more is not None and int(more.group(1)) >= 29  # tori get a few more (their curvature draws triangles)
+    assert "reads as a polygon" in found[0] and "(now 1000" in found[0] and "density: " in found[0]
 
 
 def test_a_rounder_budget_is_quiet(project: Project) -> None:
@@ -48,7 +50,7 @@ def test_coarse_spheres_count_all_their_faces_and_the_advice_comes_from_the_shor
     assert len(found) == 2, found  # ~45 each: a coarse sphere's face centres sit deep inside it, still counted
     n = int(re.search(r"is (\d+) triangles", found[0]).group(1))  # type: ignore[union-attr]
     assert 34 <= n < 48
-    raised = int(re.search(r"budget: (\d+) \(now 80\)", found[0]).group(1))  # type: ignore[union-attr]
+    raised = int(re.search(r"budget: (\d+) \(now 80", found[0]).group(1))  # type: ignore[union-attr]
     assert raised >= 80 * 48 / n and raised % 100 == 0 and "density: 1.5" in found[0]
 
 

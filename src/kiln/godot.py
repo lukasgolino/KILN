@@ -67,6 +67,7 @@ extends Node3D
 @export var glow_peak := %GLOW_PEAK%  # the style's glow cap (#290)
 const GLOW_ALBEDO := %GLOW_ALBEDO%
 @export var swap: Dictionary = {}  # variant: "rrggbb" (a material's colour, from its name) -> new colour
+@export var refs: Dictionary = {}  # placed model -> its scene: instances drawn by their own scene, maps and all (#355)
 
 # Materials are made once and shared by every instance (and every model) with the same source and settings.
 static var _shared: Dictionary = {}
@@ -95,6 +96,11 @@ static func _see_through(shader: Shader) -> Shader:  # the toon shader with the 
 \treturn _shared[key]
 
 func _ready() -> void:
+\tfor holder in find_children("kiln_ref_*", "", true, false):  # (#355) an instance with baked maps: its own scene here
+\t\tvar placed := String(holder.name).trim_prefix("kiln_ref_")
+\t\tplaced = placed.substr(0, placed.rfind("_"))
+\t\tif refs.has(placed) and holder.get_child_count() == 0:
+\t\t\tholder.add_child((load(refs[placed]) as PackedScene).instantiate())
 \tfor node in find_children("*", "MeshInstance3D", true, false):
 \t\tvar mesh_instance := node as MeshInstance3D
 \t\tif mesh_instance.mesh == null:
@@ -624,7 +630,8 @@ def _script_normal_map(script: str) -> str:
 
 
 def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | None = None, textures: dict[str, str] | None = None,
-                revealed: list[str] | None = None, normal_map: bool = False, vertex_colours: bool = False, color_map: bool = False) -> str:
+                revealed: list[str] | None = None, normal_map: bool = False, vertex_colours: bool = False, color_map: bool = False,
+                refs: dict[str, str] | None = None) -> str:
     """`<name>.tscn`: the .glb with the style's materials applied by a small built-in tool script. With `swap`
     (a variant, when variant_glbs is false) the script also recolours: the base glb, other colours. `textures`
     (atlas = true): res:// paths by script property (`palette` and `glow` for a variant, `rim_texture`). `revealed`:
@@ -684,6 +691,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         f"rims = {{{rims}}}",
         *([f"grains = {{{grains}}}"] if grains else []),
         *([f"emissions = {{{emissions}}}", f"glow_peak = {glow_peak(look):.6g}"] if emissions else []),
+        *([f"refs = {{{', '.join(f'{_quote(k)}: {_quote(v)}' for k, v in sorted(refs.items()))}}}"] if refs else []),
         *([f"revealed = [{', '.join(_quote(n) for n in revealed)}]"] if revealed else []),
         *(['rim_shader = SubResource("Shader_rim")', f"rim_light = {look.rim_light:.6g}", f"rim_light_color = {_color(look.rim_light_color)}",
            f"rim_light_power = {look.rim_light_power:.6g}"] if rim else []),  # fmt: skip
@@ -698,6 +706,12 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
 TONEMAP = {"linear": 0, "filmic": 2, "aces": 3, "agx": 4}
 
 
+# Godot ignores ambient_light_energy while the sky gives all the ambient light (ambient_light_sky_contribution 1), so a
+# look's `ambient` scales the sky itself; at multiplier 1 Godot's sky light matches the previews' ambient 0.55 (measured
+# on the colour-parity grid, #350).
+AMBIENT_REF = 0.9
+
+
 def look_scene(style: Style) -> str:
     """`looks/<style>.tscn`: WorldEnvironment (sky, tonemapper, SSAO, glow, grading, fog) + the sun."""
     look: Look = style.look
@@ -707,6 +721,7 @@ def look_scene(style: Style) -> str:
         f"sky_horizon_color = {_color(look.sky_horizon)}",
         f"ground_bottom_color = {_color(look.ground)}",
         f"ground_horizon_color = {_color(look.sky_horizon)}",
+        *([f"energy_multiplier = {look.ambient / AMBIENT_REF:.6g}"] if look.ambient > AMBIENT_REF else []),  # (#350) a bright `ambient`
         "",
         '[sub_resource type="Sky" id="Sky_main"]',
         'sky_material = SubResource("Sky_material")',

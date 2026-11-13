@@ -6,8 +6,30 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-13
+
+Milestones 0.26 to 0.31 (not released one by one): characters and clothing (an idle cycle, bundled CC0 clips,
+garment collars, lapels, plackets and short sleeves, folds on legs, motif prints, named and triplanar textures),
+pixel art in the colour map and palette-indexed textures that variants recolour, hard surfaces (gentler bevel loss,
+chosen edges, lathe bevels, flat shading on flats), scenes (`kiln fit`, `mount:`, instances that share one mesh and
+reference models with maps), previews closer to Godot (`kiln style check`, blended glass, agx, a bright ambient in
+Godot), and lint that names parts as written and groups its warnings. Builds of hard parts, scenes with instances and
+looks with ambient above 0.9 change (see Changed).
+
 ### Added
 
+- Instances with baked maps, and scenes with maps taking instances: such an instance is a reference, a node that
+  KILN's Godot scene fills with the model's own scene, maps and all (#355).
+- A model placed several times in an unskinned or rigid scene is one mesh in the glb with a node per copy (Godot
+  shares it too); scaled instances keep their decals and textures; a scatter `onto:` a scene stands on its instances
+  as well (#353).
+- Lint W140: a part mirrored in one piece whose `blend_to` names one side of a mirror_id pair (#252).
+- `kiln style check [style]`: each palette colour as the look lights it beside its hex, with its hue and lightness
+  shift, and a swatch sheet (#336).
+- `kiln examples [name]`: the worked example models (the demo's) ship with KILN and print from the CLI; the docs
+  point there (#308).
+- `kiln docs --search` knows engine words: emissive finds glow, metallic metal, transparent alpha and clear,
+  instancing instances, and more (#164).
 - `bevel` and `chamfer` on lathes: the outline's corners are rounded before it is spun (a bezel ring with a lip),
   as a hard part (#338).
 - `bevel_edges: vertical | top | bottom | horizontal` picks the edges a bevel or chamfer rounds (a thin seat's corners
@@ -25,8 +47,9 @@ before 1.0).
   specks | scratches | grid | noise`), recoloured by variants (each such variant gets its own glb); lint W137: a
   pixel-art image off the palette on a model with variants. Decals and textures moved to `kiln docs textures` (#325).
 - Patterns painted per texel into the base colour map (`paint: map`; by default pixel and dots patterns of a model
-  that bakes maps), so trims cost no triangles; error E016 when a substantial part (15% of the model across, not a
-  thin blade) vanishes to the budget (others stay W111) (#324).
+  that bakes maps), so trims cost no triangles; lint W141 when a substantial part (15% of the model across, not a
+  thin blade) vanishes to the budget (others stay W111); a warning, not an error: which parts survive the budget can
+  differ between machines (#27) (#324).
 - Lint W136: a band, pixel or stripes pattern that paints nothing on its part; the docs say a pixel band's `at` is
   from the part's own `at` (a lathe's origin) (#326).
 - Motif prints: `texture: { motif: { images, count, scale, rotate, seed } }` scatters multicolour stamps over a
@@ -49,6 +72,26 @@ before 1.0).
 
 ### Fixed
 
+- The MCP server's instructions point at `kiln://docs/{topic}` (not the gone `kiln://reference`); a test checks every
+  `kiln://` URI it names is served (#159).
+- CI: the godot job and its long steps have timeouts (a hung render once ran 4 hours); a test checks the committed
+  demo says the package's version, so a release can't forget to rebuild it (#264, #254).
+- W122 is quiet when a blend_to id has a soft part to melt into, though its crisp details (eyes, teeth) are kept
+  apart (#152).
+- `kiln build <deleted model>` says its last glb and scene stay until a full `kiln build` removes them (#182).
+- `kiln new` writes the project palette's first colour where a template's colour isn't in the palette (#340).
+- A look's `ambient` above 0.9 now brightens Godot too (the sky's `energy_multiplier`; Godot ignores
+  `ambient_light_energy` while the sky gives all the ambient light): the skin and clay looks match their previews,
+  and both join the colour-parity grid (#350).
+- Reading a glb (references for `--vs`, imports): a skinned mesh ignores its node's transform, as glTF says; a model
+  compared against its own skinned, vertex-coloured build matches (#227).
+- See-through parts (`clear`, glass) are alpha-blended in software previews instead of dithered, so they read
+  as in the engine (#342).
+- Previews draw `tonemapper = "agx"` and `"aces"` with their own curves (close stand-ins), not as filmic (#337).
+- Pose sheets: bigger tiles when there are few frames (one pose up to 450 px), and the style's background (`--bg`)
+  as the other sheets have, so glows read on low-key looks (#322, #331).
+- `preview --closeup` honours `--views` and `--pitch` (#309).
+- `--frame-box`, `--at`, `--rotate` and `--pitch` take values starting with a minus (`--frame-box -0.25,...`) (#317).
 - Hard flat faces keep their own normal to every corner when their flat is clearly the biggest there (only bevel
   bands blend), so long triangles across a flank no longer shade a diagonal crease; cavity shade on a sliver
   triangle (a fan across a flat where parts rest) is evened out over it instead of streaking (#335).
@@ -88,6 +131,18 @@ before 1.0).
 
 ### Changed
 
+- `kiln lint --fast` gives the warnings that need no mesh: W104, W109 and W121's missing map (#249).
+- W103 counts pieces that touch as one (a smooth detail on a hard part, hard parts face to face, an instance),
+  leaves out `separate: true` parts, and names the smallest floating piece and where it is (#173).
+- Error wording: a model without `name:` takes its file's name; `- { shape: sphere, ... }` shows the right form; a
+  part option written inside the shape (`bevel`, `scale`) and a shape field written beside it (`sides`) say where they
+  go; W101 says "other parts" (not "later"); W120 is quiet on all-hard models (#168, #190, #177).
+- Lint names parts as the model file has them: their `parts:` entry (before hardware expands), the kind written
+  (`garment shirt`, not the box it became), the id and the line; per-part warnings (W101, W102, W111, W128) about
+  more than three parts of one kind come as one line with the rest listed (#314, #235).
+- Lint W102 says how wide the part is at its thinnest and offers `hard: true` / `sides:` (for shapes that can be
+  exact) and `resolution:` besides making it thicker; W128 leads with `density` on the part and says how many
+  triangles each fix costs (#304, #323).
 - Under budget pressure hard parts lose their bevels a few at a time, the smallest first, after the chamfer step,
   instead of all at once; lint W139 says when bevels went and what budget keeps them (#334).
 - UV charts in baked maps sit 8 texels apart as meant (they were 17: xatlas pads each side), so the maps hold more

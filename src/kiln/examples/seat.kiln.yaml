@@ -1,0 +1,29 @@
+name: seat
+description: airline seat
+class: prop
+tags: [cabin]
+status: approved
+style_version: 1
+parts:
+  - box: { at: [0, 0.28, 0], size: [0.5, 0.14, 0.5], round: 0.06 }
+    color: seat_blue
+    material: fabric
+  - box: { at: [0, 0.62, -0.2], size: [0.48, 0.72, 0.14], round: 0.06 }
+    color: seat_blue
+    material: fabric
+    blend: 0.04
+  - box: { at: [0, 0.98, -0.19], size: [0.4, 0.16, 0.16], round: 0.06 }
+    color: white
+    material: fabric
+  - box: { at: [0.27, 0.42, -0.03], size: [0.07, 0.06, 0.44], round: 0.025 }
+    mirror: x
+    color: grey
+    material: plastic
+  - cylinder: { at: [0.2, 0.13, 0], radius: 0.03, height: 0.26 }
+    mirror: x
+    color: grey
+    material: metal
+  - cylinder: { at: [0.2, 0.13, -0.2], radius: 0.03, height: 0.26 }
+    mirror: x
+    color: grey
+    material: metal

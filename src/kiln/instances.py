@@ -55,8 +55,7 @@ def place(project: Project, built: Built, seen: tuple[str, ...] = (), share: flo
     """`built` with its instances merged in (unchanged without any); `share`: a LOD's share of the full triangles."""
     if not built.model.instances:
         return built
-    if built.bake is not None:
-        raise InstanceError("instances: a model with a normal map or relief can't place other models yet (#295)")
+    scene_mapped = built.bake is not None  # (#355) its faces carry the bake's UVs: instances can't merge in, they are references
     p = built.painted
     vertices, faces, face_group, face_decal = [p.vertices], [p.faces], [p.face_group], [p.face_decal]
     groups = list(p.groups)
@@ -67,9 +66,22 @@ def place(project: Project, built: Built, seen: tuple[str, ...] = (), share: flo
     joints = [built.joints] if built.joints is not None else None
     weights = [built.weights] if built.weights is not None else None
     count = len(p.vertices)
+    face_count = len(p.faces)
+    copies = list(built.copies or [])
     for inst, sub in instance_builds(project, built, seen, share):
         q = sub.painted
         r = rotation_matrix(inst.rotate)
+        motion = np.eye(4)  # its model space onto the scene's: (v - origin) R^T s + at, as below
+        motion[:3, :3] = r * inst.scale
+        motion[:3, 3] = np.asarray(inst.at, float) - (r * inst.scale) @ sub.origin()
+        ref = scene_mapped or sub.bake is not None  # baked maps: a reference to its own scene (#355), its geometry only for previews
+        placed_glb = np.eye(4)  # a reference: its glb (origin at its origin) onto the scene's model space
+        placed_glb[:3, :3], placed_glb[:3, 3] = r * inst.scale, np.asarray(inst.at, float)
+        if scene_mapped:
+            copies.append((inst.model, face_count, face_count, placed_glb, inst.bone, True))
+            continue
+        copies.append((inst.model, face_count, face_count + len(q.faces), placed_glb if ref else motion, inst.bone, ref))
+        face_count += len(q.faces)
         vertices.append((q.vertices - sub.origin()) @ r.T * inst.scale + np.asarray(inst.at))  # its origin at `at`, as its glb
         faces.append(q.faces + count)
         remap = []
@@ -81,11 +93,8 @@ def place(project: Project, built: Built, seen: tuple[str, ...] = (), share: flo
             remap.append(index[key])
         face_group.append(np.asarray(remap, dtype=np.int64)[q.face_group] if len(q.face_group) else q.face_group)
         dmap = []
-        for d in q.decals:  # (#295) each decal back in the instance's own frame: a rigid copy (not when scaled)
-            if abs(inst.scale - 1.0) > 1e-9:
-                dmap.append(-1)
-                continue
-            placed_ = replace(d, copy=_compose(Copy(r, sub.origin(), np.asarray(inst.at, float) - sub.origin()), d.copy))
+        for d in q.decals:  # (#295, #353) each decal back in the instance's own frame (scaled ones too: the copy's matrix is r / scale)
+            placed_ = replace(d, copy=_compose(Copy(r / inst.scale, sub.origin(), np.asarray(inst.at, float) - sub.origin()), d.copy))
             if placed_ not in decals:
                 decals.append(placed_)
             dmap.append(decals.index(placed_))
@@ -103,7 +112,7 @@ def place(project: Project, built: Built, seen: tuple[str, ...] = (), share: flo
             weights.append(w)
         count += len(q.vertices)
     painted = Painted(np.concatenate(vertices), np.concatenate(faces), np.concatenate(face_group), groups, np.concatenate(face_decal), decals)
-    return replace(built, own_triangles=built.own_triangles or built.triangles, painted=painted, normals=np.concatenate(normals), ao=np.concatenate(ao) if ao is not None else None,
+    return replace(built, own_triangles=built.own_triangles or built.triangles, copies=copies, painted=painted, normals=np.concatenate(normals), ao=np.concatenate(ao) if ao is not None else None,
                    joints=np.concatenate(joints) if joints is not None else None, weights=np.concatenate(weights) if weights is not None else None)  # fmt: skip
 
 
@@ -126,6 +135,12 @@ def _compose(outer: Copy, inner: tuple[float, ...] | None) -> tuple[float, ...]:
 def joined_pieces(vertices: np.ndarray, faces: np.ndarray, gap: float) -> int:
     """Separate pieces, counting those within about `gap` of each other as one: an instance set against the model
     (a link between two clasp halves) joins them though they share no vertex (#333)."""
+    return int(len(np.unique(piece_labels(vertices, faces, gap)[np.unique(faces)])))
+
+
+def piece_labels(vertices: np.ndarray, faces: np.ndarray, gap: float) -> np.ndarray:
+    """Each vertex's piece (a representative vertex index): pieces within about `gap` of each other are one (#173: a
+    smooth detail on a hard part, hard parts that touch face to face)."""
     n = len(vertices)
     parent = np.arange(n)
 
@@ -155,4 +170,6 @@ def joined_pieces(vertices: np.ndarray, faces: np.ndarray, gap: float) -> int:
         first = np.full(inverse.max() + 1, -1)
         first[inverse[::-1]] = used[::-1]
         union(used, first[inverse])
-    return int(len(np.unique(find(used.copy()))))
+    out = np.arange(n)
+    out[used] = find(used.copy())
+    return out

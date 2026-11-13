@@ -84,7 +84,10 @@ def _model_path(project: Project, name: str) -> Path:
     candidate = project.models_dir / f"{name}{MODEL_SUFFIX}"
     if not candidate.is_file():
         known = ", ".join(p.name[: -len(MODEL_SUFFIX)] for p in project.model_paths()) or "none"
-        raise _usage(f"no model {name!r} (models: {known})")
+        left = sorted((project.output_dir / "models").glob(f"{name}.*")) if (project.output_dir / "models").is_dir() else []
+        stale = (f"; its last build ({', '.join(p.name for p in left[:4])}{' ...' if len(left) > 4 else ''}) stays in "
+                 f"{display_path(project.output_dir)} until a full `kiln build` removes it") if left else ""  # (#182)
+        raise _usage(f"no model {name!r} (models: {known}){stale}")
     return candidate
 
 
@@ -172,6 +175,30 @@ def cmd_library(args: argparse.Namespace, out: Output) -> int:
     return 0
 
 
+def cmd_examples(args: argparse.Namespace, out: Output) -> int:
+    """The worked example models the docs point to (#308): list them, or print one (to read or copy into models/)."""
+    here = Path(__file__).parent / "examples"
+    files = sorted(here.glob(f"*{MODEL_SUFFIX}"))
+    names = [f.name[: -len(MODEL_SUFFIX)] for f in files]
+    if args.name:
+        if args.name not in names:
+            raise _usage(f"no example {args.name!r} (examples: {', '.join(names)})")
+        text = (here / f"{args.name}{MODEL_SUFFIX}").read_text(encoding="utf-8")
+        out.say(text.rstrip("\n"))
+        out.result({"name": args.name, "text": text})
+        return 0
+    from kiln.vendor.yamlio import parse_yaml
+
+    rows = []
+    for f, n in zip(files, names, strict=True):
+        desc = str(parse_yaml(f.read_text(encoding="utf-8")).get("description", ""))
+        rows.append({"name": n, "description": desc})
+        out.say(f"{n:12s} {desc}")
+    out.say("`kiln examples <name>` prints one; copy it into models/ to build it")
+    out.result({"examples": rows})
+    return 0
+
+
 CLIPS_DIR = "kaykit-animations"  # imports/<this>/: the bundled CC0 humanoid clips (#150)
 
 
@@ -229,6 +256,11 @@ def cmd_new(args: argparse.Namespace, out: Output) -> int:
         text = Template(_template(f"model_{args.template}.kiln.yaml")).safe_substitute(name=name, description=json.dumps(args.description or ""))
     if args.cls:
         text = re.sub(r"^class: .*$", f"class: {args.cls}", text, count=1, flags=re.M)
+    palette, _ = project.palette(None)
+    names = [k for k in palette if not k.isdigit() and len(k) > 1]
+    for colour in sorted(set(re.findall(r"^    color: (\w+)$", text, re.M))):  # (#340) a template colour the palette lacks: its first
+        if colour not in palette and names:
+            text = re.sub(rf"^    color: {colour}$", f"    color: {names[0]}", text, flags=re.M)
     text = text.replace("status: draft\n", f"status: draft\nstyle_version: {project.config.style_version}\n", 1)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -609,14 +641,14 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
             raise _usage(str(exc) if "view" in str(exc) else "--pitch is degrees above the horizon, e.g. 5 or 5,30") from None
         if not all(-89 <= p <= 89 for p in pitches):
             raise _usage("--pitch is between -89 and 89 degrees")
-    if want_views and not args.engine and not args.pose:  # with --engine or --pose, the views flags pick theirs
+    if want_views and not args.engine and not args.pose and not args.closeup:  # with --engine, --pose or --closeup, the views flags pick theirs
         path = folder / (f"views.{args.variant}.png" if args.variant else "views.png")
         pv.views(built, yaws, pitches, size or 400, swap=swap, tiles=tiles).save(path)
         outputs["views"] = display_path(path)
     for part in args.closeup or []:
         try:
             path = folder / f"closeup_{part}.png"
-            pv.closeup(built, part, tiles=tiles, **tile).save(path)
+            pv.closeup(built, part, tiles=tiles, yaws=yaws if args.views else None, pitches=pitches if args.pitch else None, **tile).save(path)
             outputs.setdefault("closeup", {})[part] = display_path(path)
         except KeyError:
             raise _usage(f"{name} has no part {part!r} (ids: {', '.join(built.model.ids)}, or a part's number in the file: 0-{len(built.model.parts) - 1})") from None
@@ -638,7 +670,7 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     for anim in args.pose or []:
         try:
             path = folder / (f"pose_{anim}.{args.variant}.png" if args.variant else f"pose_{anim}.png")
-            pv.filmstrip(built, anim, args.size or 200, pose_views, pose_frames, swap).save(path)
+            pv.filmstrip(built, anim, args.size, pose_views, pose_frames, swap, tiles.bg).save(path)
             outputs.setdefault("pose", {})[anim] = display_path(path)
             if anim in tracks:  # (--json) where each bone ends up, per frame: check a pose without looking (#200)
                 from kiln.rig import bone_ends
@@ -949,9 +981,89 @@ def cmd_mark(args: argparse.Namespace, out: Output) -> int:
     return 0
 
 
+def _style_check(project: Project, style_name: str, out: Output) -> int:
+    """Each palette colour as the style lights it, next to its hex (#336): a sphere per colour in the look, lit from
+    the front like a preview, its middle sampled; the hue and lightness it shifts by; a sheet in previews/."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from kiln.builder import build_model
+    from kiln.notation import load_model
+    from kiln.render import View, render
+    from kiln.style import load_style
+
+    style, findings = load_style(style_name, project.styles_dir if project.styles_dir.is_dir() else None)
+    if style is None:
+        out.failure(findings)
+        return 1
+    palette, _ = project.palette(None)
+    names: dict[str, str] = {}
+    for key, hx in palette.items():
+        if not key.isdigit() and len(key) > 1:
+            names.setdefault(hx, key)
+    colours = list(names.items())
+    cols = 8
+    parts = "".join(f"  - sphere: {{ at: [{(k % cols) * 0.3:.2f}, {-(k // cols) * 0.3:.2f}, 0], radius: 0.12 }}\n    color: {n}\n"
+                    for k, (_, n) in enumerate(colours))  # fmt: skip
+    tmp = project.root / ".kiln-cache" / "style-check" / f"swatches{MODEL_SUFFIX}"
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_text(f"name: swatches\nclass: prop\nparts:\n{parts}", encoding="utf-8")
+    model, mf = load_model(tmp, palette, set(style.materials))
+    if model is None:
+        out.failure(mf)
+        return 1
+    built = build_model(model, style, palette=palette)
+    size = 120 * cols
+    image = render(built, View(0.0, 0.0), size, background=(30, 30, 34, 255))
+    lo, hi = built.bounds()
+    centre, half = (lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2  # render's own framing when no fit is given
+    rgba = np.asarray(image.convert("RGB")).astype(int)
+    rows, sheet_rows = [], []
+    for k, (hx, n) in enumerate(colours):
+        x, y = (k % cols) * 0.3, -(k // cols) * 0.3
+        px = int(size / 2 + (x - centre[0]) / (2 * half) * size)
+        py = int(size / 2 - (y - centre[1]) / (2 * half) * size)
+        lit = rgba[max(0, py - 2) : py + 3, max(0, px - 2) : px + 3].reshape(-1, 3).mean(axis=0)
+        want = np.array([int(hx[i : i + 2], 16) for i in (1, 3, 5)])
+        lit_hex = "#" + "".join(f"{int(round(v)):02x}" for v in lit)
+
+        def hue_l(c: np.ndarray) -> tuple[float, float]:
+            r, g, b = c / 255.0
+            mx, mn = max(r, g, b), min(r, g, b)
+            if mx == mn:
+                return 0.0, (mx + mn) / 2
+            d = mx - mn
+            h = ((g - b) / d) % 6 if mx == r else (b - r) / d + 2 if mx == g else (r - g) / d + 4
+            return 60.0 * h, (mx + mn) / 2
+
+        (h0, l0), (h1, l1) = hue_l(want.astype(float)), hue_l(lit)
+        grey = float(want.max() - want.min()) < 26  # a near-grey has no hue to shift
+        shift = None if grey else round((h1 - h0 + 180) % 360 - 180, 1)
+        rows.append({"name": n, "hex": hx, "lit": lit_hex, "hue_shift": shift, "lightness": round(l1 - l0, 3)})
+        hue_text = "  (grey)    " if shift is None else f"hue {shift:+5.1f} deg"
+        out.say(f"{n:<14} {hx} -> {lit_hex}   {hue_text}, lightness {l1 - l0:+.2f}")
+        sheet_rows.append((n, hx, lit_hex))
+    sheet = Image.new("RGB", (420, 26 * len(sheet_rows) + 10), (30, 30, 34))
+    draw = ImageDraw.Draw(sheet)
+    for k, (n, hx, lit_hex) in enumerate(sheet_rows):
+        y = 5 + 26 * k
+        draw.rectangle([5, y, 85, y + 22], fill=hx)
+        draw.rectangle([90, y, 170, y + 22], fill=lit_hex)
+        draw.text((180, y + 5), f"{n}  {hx} -> {lit_hex}", fill=(230, 230, 230))
+    path = project.preview_dir / f"style_check.{style.name}.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(path)
+    out.say(f"swatches (hex, then lit): {display_path(path)}. A whole look drifting warm or bright: lower exposure or sun_energy, "
+            "or pick palette colours for the lit result")
+    out.result({"style": style.name, "colours": rows, "sheet": display_path(path)})
+    return 0
+
+
 def cmd_style(args: argparse.Namespace, out: Output) -> int:
     project = load_project()
     styles_dir = project.styles_dir if project.styles_dir.is_dir() else None
+    if args.style_cmd == "check":
+        return _style_check(project, args.name or project.config.default_style, out)
     if args.style_cmd == "list":
         own = sorted(p.name[: -len(STYLE_SUFFIX)] for p in project.styles_dir.glob(f"*{STYLE_SUFFIX}")) if styles_dir else []
         rows = []
@@ -1367,6 +1479,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--force", action="store_true")
     s = sub.add_parser("library", parents=[common], help="KILN's templates: bodies, heads, helmets, armour; a name prints that one")
     s.add_argument("name", nargs="?", help="a template: print its YAML (parts, ids, sizes)")
+    s = sub.add_parser("examples", parents=[common], help="the worked example models the docs point to: list, or print one")
+    s.add_argument("name", nargs="?")
     s = sub.add_parser("clips", parents=[common], help="the CC0 humanoid clips KILN ships (idle, walk, run, jump, ...): list, or add to imports/")
     cs = s.add_subparsers(dest="clips_cmd")
     cs.add_parser("list", parents=[common], help="the clip files and their clips")
@@ -1432,6 +1546,8 @@ def parser() -> argparse.ArgumentParser:
     x.add_argument("name")
     x.add_argument("--extends", default="soft_toy")
     x.add_argument("--description")
+    x = ss.add_parser("check", parents=[common], help="each palette colour as the style lights it, next to its hex")
+    x.add_argument("name", nargs="?")
     x = ss.add_parser("bump", parents=[common])
     x.add_argument("--message", "-m", required=True)
     s = sub.add_parser("config", parents=[common], help="show, get or set kiln.toml settings")
@@ -1488,11 +1604,29 @@ def parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_build, "preview": cmd_preview, "lineup": cmd_lineup, "fit": cmd_fit,
             "gallery": cmd_gallery, "status": cmd_status, "mark": cmd_mark, "style": cmd_style, "config": cmd_config,
-            "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "docs": cmd_docs, "mcp": cmd_mcp, "library": cmd_library, "clips": cmd_clips}  # fmt: skip
+            "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "docs": cmd_docs, "mcp": cmd_mcp, "library": cmd_library, "clips": cmd_clips, "examples": cmd_examples}  # fmt: skip
+
+
+NUMBER_FLAGS = ("--frame-box", "--at", "--rotate", "--pitch")  # take comma lists that may start with a minus (#317)
+
+
+def _joined(argv: Sequence[str]) -> list[str]:
+    """`--frame-box -0.25,1,...`: argparse reads a value starting with a minus as a flag; joined as `--frame-box=-0.25,...`."""
+    out: list[str] = []
+    items = list(argv)
+    k = 0
+    while k < len(items):
+        if items[k] in NUMBER_FLAGS and k + 1 < len(items) and re.match(r"^-[\d.]", items[k + 1]):
+            out.append(f"{items[k]}={items[k + 1]}")
+            k += 2
+            continue
+        out.append(items[k])
+        k += 1
+    return out
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parser().parse_args(argv)
+    args = parser().parse_args(_joined(sys.argv[1:] if argv is None else argv))
     out = Output(args.json)
     import warnings
 

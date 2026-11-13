@@ -87,6 +87,29 @@ def _filmic(x: Array) -> Array:
     return curve(x * 2.0) / curve(np.array(FILMIC_WHITE * 2.0))
 
 
+def _aces(x: Array) -> Array:
+    """An ACES fit (Narkowicz), normalised at the look kit's white: the previews' stand-in for Godot's ACES (#337)."""
+    def curve(v: Array) -> Array:
+        return (v * (2.51 * v + 0.03)) / (v * (2.43 * v + 0.59) + 0.14)
+
+    return np.asarray(np.clip(curve(np.maximum(x, 0.0)) / curve(np.array(FILMIC_WHITE)), 0.0, 1.0))
+
+
+AGX_INSET = np.array([[0.842479062253094, 0.0423282422610123, 0.0423756549057051],
+                      [0.0784335999999992, 0.878468636469772, 0.0784336],
+                      [0.0792237451477643, 0.0791661274605434, 0.879142973793104]])  # fmt: skip
+
+
+def _agx(x: Array) -> Array:
+    """AgX (Troy Sobotka's, in the usual polynomial fit): colours pulled toward grey as they brighten, a soft
+    shoulder; the previews' stand-in for Godot's AgX, so it no longer renders as filmic (#337). Linear in and out."""
+    v = np.maximum(x, 1e-10) @ AGX_INSET
+    lo, hi = -12.47393, 4.026069
+    t = np.clip((np.log2(v) - lo) / (hi - lo), 0.0, 1.0)
+    d = 15.5 * t**6 - 40.14 * t**5 + 31.96 * t**4 - 6.868 * t**3 + 0.4298 * t**2 + 0.1191 * t - 0.00232
+    return np.asarray(np.clip(d, 0.0, 1.0) ** 2.2)  # the fit's output is display-referred: back to linear for the rest
+
+
 def _to_srgb(x: Array) -> Array:
     x = np.clip(x, 0.0, 1.0)
     return np.where(x <= 0.0031308, x * 12.92, 1.055 * np.power(x, 1 / 2.4) - 0.055)
@@ -111,6 +134,7 @@ def render(
     fade: Array | None = None,
     colors: Array | None = None,
     fill: float = 0.0,
+    opaque: bool = False,
 ) -> Image.Image:
     """One view. `fit` = (centre, half-extent in metres) to frame several renders the same way; default: the
     model's own bounding sphere. `hide`: bones (part ids) left out, e.g. a detached helmet. `revealed` parts (stump caps)
@@ -129,9 +153,20 @@ def render(
 
         colors = fade_colors(built, swap)
     see = np.array([built.style.materials.get(gr.material, built.style.materials["default"]).alpha for gr in built.painted.groups])
-    if (see < 1).any():  # see-through presets (glass, #175): dithered at their alpha, as fading pieces are
+    if (see < 1).any() and fade is None and not opaque:  # see-through presets (glass, #175): blended at their alpha (#342), not dithered:
+        face_alpha = see[built.painted.face_group]  # drawn without the glass and with it opaque, then mixed where it shows
+        glass = face_alpha < 1
+        kw = {"size": size, "track": track, "frame": frame, "swap": swap, "fit": fit, "background": background, "hide": hide, "colors": colors, "fill": fill,
+              "opaque": True}
+        behind = np.asarray(render(built, view, fade=np.where(glass, 0.0, 1.0), **kw)).astype(np.float64)  # type: ignore[arg-type]
+        front = np.asarray(render(built, view, fade=np.ones(len(face_alpha)), **kw)).astype(np.float64)  # type: ignore[arg-type]
+        a = float(face_alpha[glass].mean())
+        shows = np.abs(front - behind).sum(axis=2, keepdims=True) > 0  # where the glass is what's in front
+        mixed = np.where(shows, behind * (1 - a) + front * a, behind)
+        return Image.fromarray(np.clip(mixed + 0.5, 0, 255).astype(np.uint8), "RGBA")
+    if (see < 1).any() and not opaque:  # with a fade asked for as well: dithered at their alpha, as fading pieces are
         face_alpha = see[built.painted.face_group]
-        fade = face_alpha if fade is None else fade * face_alpha
+        fade = fade * face_alpha
     look: Look = built.style.look
     swap = swap or {}
     corners, normals = posed(built, track, frame)
@@ -357,7 +392,8 @@ def _grade(color: Array, look: Look) -> Array:
     """Linear colours (N, 3) through the look's exposure, tone curve, saturation and contrast, as Godot's
     environment does to everything drawn (the unshaded outline too)."""
     color = color * look.exposure
-    color = _filmic(color) if look.tonemapper != "linear" else color
+    curve = {"filmic": _filmic, "aces": _aces, "agx": _agx}.get(look.tonemapper)
+    color = curve(color) if curve is not None else color
     lum = (color * np.array([0.2126, 0.7152, 0.0722])).sum(axis=1, keepdims=True)
     color = lum + (color - lum) * look.saturation
     return (color - 0.18) * look.contrast + 0.18

@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 import multiprocessing
 import os
+import re
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -22,7 +23,7 @@ from kiln.cover import covers, mostly_covered
 from kiln.export import Built
 from kiln.jit import set_threads
 from kiln.mesher import CELL_LIMIT, crack_groups, mesh_steps, open_edges, pinches
-from kiln.notation import ROOT_ID, Model
+from kiln.notation import ROOT_ID, Model, Part
 from kiln.packs import lock_findings
 from kiln.project import Project
 from kiln.retarget import JOINTS
@@ -31,7 +32,7 @@ from kiln.style import MaterialPreset, Style
 from kiln.vendor.findings import Finding
 
 WARNING_RULES = {
-    "W101": "a part has no visible surface (covered by later parts, or cut away)",
+    "W101": "a part has no visible surface (covered by other parts, or cut away)",
     "W102": "a part is thinner than the style's mesh resolution (it may break up)",
     "W103": "the model is in several separate pieces (floating parts)",
     "W104": "a colour isn't from the project's palette",
@@ -64,6 +65,8 @@ WARNING_RULES = {
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
     "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
     "W138": "a part's emission is above the cap for its colour in this look: the extra strength changes nothing",
+    "W141": "a substantial part (a leg, a head) vanished when the mesh was reduced to its budget: the model is broken",
+    "W140": "a mirrored part blends into one side of a mirror_id pair: its other half meets the other side crisply",
     "W139": "the triangle budget took bevels off hard parts (they became plain edges)",
     "W137": "a pixel-art texture or decal has colours off the palette: the model's variants can't swap them",
     "W136": "a pattern paints nothing: it misses the part's surface (a band's `at` or a pixel strip's place)",
@@ -93,14 +96,23 @@ class LintResult:
 
 
 GROUND_DIP = 0.002  # W123: metres below y = 0 a grounded model's built mesh may reach unremarked (or a tenth of a cell)
-LOST_THICK = 0.02  # E016: and thicker than this share (a lock, a fin or a blade lost to the budget stays W111)
-LOST_SHARE = 0.15  # E016: a lost part bigger than this share of the model (its box's diagonal) breaks it
+LOST_THICK = 0.02  # W141: and thicker than this share (a lock, a fin or a blade lost to the budget stays W111)
+LOST_SHARE = 0.15  # W141: a lost part bigger than this share of the model (its box's diagonal) breaks it
 CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than asked
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
-BUILT_RULES = ("E009", "E013", "E016", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135", "W136", "W139")  # fmt: skip
+BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W106", "W108", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
+               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135", "W136", "W139", "W141")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
+
+
+def part_name(part: Part) -> str:
+    """A part as the model file has it (#314): its place in `parts:` (as written, before hardware expands), the kind
+    written (`garment`, not the box it became), its id, and its line."""
+    kind = part.written or part.geometry.shape
+    ident = f" {part.id}" if part.id != ROOT_ID else ""
+    line = f", line {part.line}" if part.line else ""
+    return f"{part.where} ({kind}{ident}, {part.color_name}{line})"
 
 
 def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -> list[Finding]:
@@ -177,7 +189,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         field = field_of(m, built.step) if m.parts else None
 
         def named(parts: tuple[int, ...]) -> str:
-            shown = [f"part {m.parts[j].index} ({m.parts[j].geometry.shape}, {m.parts[j].color_name})" for j in parts[:3]]
+            shown = [part_name(m.parts[j]) for j in parts[:3]]
             return ", ".join(shown) + (f" and {len(parts) - 3} more" if len(parts) > 3 else "")
 
         exact = frozenset(hard_parts(m, built.style))
@@ -185,15 +197,16 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         for i in built.hidden:
             part = m.parts[i]
             by = hidden_by[i].by if i in hidden_by else ()
-            what = f"{named(by)} cover{'s' if len(by) == 1 else ''} it" if by else "later parts cover it or a cut removes it"
-            warn("W101", f"part {part.index} ({part.geometry.shape}, {part.color_name}) has no visible surface: {what}; move it out, or "
+            what = f"{named(by)} cover{'s' if len(by) == 1 else ''} it" if by else "other parts cover it or a cut removes it"
+            warn("W101", f"{part_name(part)} has no visible surface: {what}; move it out, or "
                  "make the covering part a shell", part.line, part.where)  # fmt: skip
         for i, c in (mostly_covered(m, field, built.step, built.hidden, exact) if field else {}).items():
             part = m.parts[i]
-            warn("W124", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is {c.covered * 100:.0f}% inside {named(c.by)}: only "
+            warn("W124", f"{part_name(part)} is {c.covered * 100:.0f}% inside {named(c.by)}: only "
                  "a sliver shows (clipped flat or nearly gone); move it out, or make it bigger", part.line, part.where)  # fmt: skip
         lo_all, hi_all = built.bounds()
         whole = float(np.linalg.norm(hi_all - lo_all))
+        small_lost: list[Part] = []
         for i in built.lost:
             part = m.parts[i]
             from dataclasses import replace as _rep
@@ -203,12 +216,25 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             blo, bhi = _rep(part.geometry, mirror=(), copies=(IDENTITY,)).bounds()  # one copy: mirrored eyes aren't one wide part
             thick = part_thickness(part.geometry)
             if float(np.linalg.norm(bhi - blo)) > LOST_SHARE * whole and (thick is None or thick > LOST_THICK * whole):  # a leg, a head (#324)
-                warn("E016", f"part {part.index} ({part.geometry.shape}, {part.color_name}) vanished when the mesh was reduced to its triangle "
+                warn("W141", f"{part_name(part)} vanished when the mesh was reduced to its triangle "
                      f"budget ({m.budget or built.style.budget(m.cls)}): raise budget:, paint fine patterns into the colour map (paint: map), "
                      "or use fewer cut patterns", part.line, part.where)  # fmt: skip
                 continue
-            warn("W111", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is there at full detail but the triangle budget "
-                 f"({m.budget or built.style.budget(m.cls)}) is too low to keep it: raise budget:, or make it thicker", part.line, part.where)  # fmt: skip
+            small_lost.append(part)
+        by_kind: dict[str, list[Part]] = {}
+        for part in small_lost:
+            by_kind.setdefault(part.written or part.geometry.shape, []).append(part)
+        for kind, lost_parts in by_kind.items():  # (#235) one line per kind when several go, not one each
+            if len(lost_parts) <= 3:
+                for part in lost_parts:
+                    warn("W111", f"{part_name(part)} is there at full detail but the triangle budget "
+                         f"({m.budget or built.style.budget(m.cls)}) is too low to keep it: raise budget:, or make it thicker", part.line, part.where)  # fmt: skip
+                continue
+            total = sum(1 for q in m.parts if (q.written or q.geometry.shape) == kind and q.geometry.op == "add")
+            first = lost_parts[0]
+            warn("W111", f"{len(lost_parts)} of {total} {kind} parts were lost to the triangle budget ({m.budget or built.style.budget(m.cls)}): "
+                 f"{', '.join(q.where for q in lost_parts[:6])}{' ...' if len(lost_parts) > 6 else ''}; raise budget:, or make them thicker",
+                 first.line, first.where)  # fmt: skip
         hard = hard_parts(m, built.style)  # exact polygons: no mesh resolution
         kept = kept_parts(m, hard)  # meshed finer: they don't break up
         separate = {pid for pid, e in m.rig.items() if e.separate} if m.skin != "none" else set()
@@ -217,8 +243,14 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             g = part.geometry
             if not g.blend_to:
                 continue
-            apart = sorted({m.parts[j].id for j in g.blend_to if j in hard or j in kept or m.parts[j].id in separate
-                            or (per_bone and m.parts[j].id != part.id)})  # fmt: skip
+            def away(j: int) -> bool:
+                return j in hard or j in kept or m.parts[j].id in separate or (per_bone and m.parts[j].id != part.id)  # noqa: B023
+
+            by_id: dict[str, list[int]] = {}
+            for j in g.blend_to:
+                by_id.setdefault(m.parts[j].id, []).append(j)
+            # (#152) an id with a soft part to melt into is fine, though its crisp details (eyes, teeth) are kept apart
+            apart = sorted(pid for pid, js in by_id.items() if all(away(j) for j in js))
             if apart:
                 warn("W122", f"blend_to {', '.join(apart)}: those parts are meshed apart from this one (hard, kept, separate or another "
                      "bone's piece), so it joins them crisply; make them soft and part of the same piece, or drop blend_to", part.line,
@@ -227,19 +259,26 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             if part.geometry.op != "add" or k in kept or k in hard:
                 continue
             t = part_thickness(part.geometry)
-            if t is not None and t < 2 * built.step:
-                warn("W102", f"this {part.geometry.shape} is {t:.3g} m thick but the mesh resolution here is {built.step:.3g} m: it may break "
-                     f"into bits; make it at least {2 * built.step:.3g} m thick", part.line, part.where)  # fmt: skip
+            if t is not None and t < 2 * built.step:  # (#304) its thinnest width across, and the fixes that fit the shape
+                polygonal = part.geometry.shape in ("box", "wedge", "cylinder", "cone", "capsule", "tube", "extrude", "lathe")
+                fix = (f"make it hard (`hard: true`, or `sides:` on round ones: exact polygons don't break up), make it at least "
+                       f"{2 * built.step:.3g} m across, or give it `resolution:` (finer cells in its box)") if polygonal else \
+                    f"make it at least {2 * built.step:.3g} m across, or give it `resolution:` (finer cells in its box)"
+                warn("W102", f"{part_name(part)} is {t:.3g} m across at its thinnest, under two mesh cells ({built.step:.3g} m each): it "
+                     f"may break into bits or vanish; {fix}", part.line, part.where)  # fmt: skip
         budget = m.budget or built.style.budget(m.cls)
         for k, n, copies in few_triangles(m, built, field, hard | kept) if field else ():
             part = m.parts[k]
             each = f" in each of its {copies} copies" if copies > 1 else ""
             need = FEW_TRIANGLES / max(n, 1)  # how many times the triangles it has
             dense = min(8.0, math.ceil(part.density * need * 2) / 2)
-            more = f"give it density: {dense:g}" + (f" (now {part.density:g})" if part.density != 1 else "") if part.density < 8 else ""
-            raise_to = f"budget: {int(math.ceil(budget * need / 100) * 100)} (now {budget})"
-            warn("W128", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is {n} triangles{each}: it reads as a polygon; "
-                 f"{more + ', or ' if more else ''}{raise_to}", part.line, part.where)  # fmt: skip
+            adds = int(n * copies * (dense / max(part.density, 1e-9) - 1))
+            more = (f"give it density: {dense:g}" + (f" (now {part.density:g})" if part.density != 1 else "") + f" (about {adds} more triangles, "
+                    "taken from the rest of the model)") if part.density < 8 else ""  # fmt: skip
+            new_budget = int(math.ceil(budget * need / 100) * 100)
+            raise_to = f"budget: {new_budget} (now {budget}: {new_budget - budget} more for the whole model)"
+            warn("W128", f"{part_name(part)} is {n} triangles{each}: it reads as a polygon; "
+                 f"{more + '; or ' if more else ''}{raise_to}", part.line, part.where)  # fmt: skip
         for k, part in enumerate(m.parts):
             if part.skin_falloff is None:
                 continue
@@ -257,8 +296,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             for g in details:
                 t = part_thickness(g)
                 if not m.normal_map:
-                    warn("W121", f"{len(details)} detail part(s) but no normal_map: they show nowhere; add normal_map: 1024")
-                    break
+                    break  # (said by text_warnings: no map)
                 if t is not None and t < 2 * texel:
                     warn("W121", f"a detail {g.shape} is {t:.3g} m thick, under two texels of the {m.normal_map} map ({2 * texel:.3g} m): it "
                          "won't show; make it thicker or the map bigger")  # fmt: skip
@@ -284,22 +322,16 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                 first = next(part for part in m.parts if part.color_blend > 0 and part.color_blend_set)
                 warn("W127", "color_blend fades nothing here (and still bakes the maps): a fade needs a neighbour of another colour that "
                      "the part joins with a blend (not a crisp seam, a hard or glowing part, or a decal)", first.line, f"{first.where}.color_blend")  # fmt: skip
-        if built.asked_step and built.step > built.asked_step * CAPPED:
+        if built.asked_step and built.step > built.asked_step * CAPPED and built.step_reason:  # (#177: nothing on the grid in an all-hard model)
             cells = m.max_cells or built.style.max_cells
             need = math.ceil(built.step * (cells - 6) / built.asked_step) + 6  # the step is the model's size / (cells - 6)
             fix = f"set max_cells: {need}" if need <= CELL_LIMIT else f"set max_cells: {CELL_LIMIT} (the most), or a coarser resolution"
             warn("W120", f"meshed at {built.step * 1000:.3g} mm, not the {built.asked_step * 1000:.3g} mm asked for: {cells} cells across "
                  f"is the cap; {fix} (slower builds)")  # fmt: skip
-        if palette:
-            hexes = set(palette.values())
-            for part in m.parts:
-                if part.geometry.op == "add" and part.color not in hexes:
-                    warn("W104", f"colour {part.color} isn't in the palette: use a palette colour name", part.line, f"{part.where}.color")
     if m.source is None:
         for i, j, volume, centre in penetrations(built):
             a, b = m.parts[i], m.parts[j]
-            warn("W113", f"part {b.index} ({b.geometry.shape}, {b.color_name}) pokes through the shell of part {a.index} ({a.geometry.shape}, "
-                 f"{a.color_name}) around [{centre[0]:.2f}, {centre[1]:.2f}, {centre[2]:.2f}] ({volume * 1e6:.0f} cm3 inside its wall): move or "
+            warn("W113", f"{part_name(b)} pokes through the shell of {part_name(a)} around [{centre[0]:.2f}, {centre[1]:.2f}, {centre[2]:.2f}] ({volume * 1e6:.0f} cm3 inside its wall): move or "
                  "shrink it so it stays inside (or outside), or cut it where it meets the wall", b.line, b.where)  # fmt: skip
     if m.fit_to is not None:  # an attachment mustn't sink into the character it's made for
         from kiln.fitting import MeshDistance, read_surface
@@ -324,12 +356,30 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         warn("W139", f"the budget ({budget}) took the bevels off {lost} of {bevelled} bevelled hard part(s), the smallest first: with them "
              f"the hard parts take {need} triangles; budget: {int(need * 1.1) + 1} keeps them (or fewer segments, or chamfer instead of bevel)")
     pieces = built.pieces
-    if m.instances and len(built.painted.faces):  # instances set against the model join what they touch (#333)
-        from kiln.instances import joined_pieces
+    if pieces > 1 and len(built.painted.faces):  # touching pieces are one (#173, #333): a smooth detail on a hard part, an instance
+        from kiln.instances import piece_labels
 
-        pieces = joined_pieces(built.painted.vertices, built.painted.faces, max(built.step, 0.002) * 1.5)
-    if pieces > 1 and not (m.instances and not m.parts):  # (a scene of instances only: its pieces are separate models)
-        warn("W103", f"the model is {pieces} separate pieces: a floating part, or a gap between parts that should touch")
+        pv = built.painted
+        labels = piece_labels(pv.vertices, pv.faces, max(built.step, 0.002) * 1.5)
+        separate_bones = {pid for pid, e in m.rig.items() if e.separate} if m.skin != "none" else set()
+        face_label = labels[pv.faces[:, 0]]
+        attached = np.array([pv.groups[g].bone in separate_bones for g in pv.face_group])  # separate: true parts float on purpose
+        kinds = np.unique(face_label[~attached])
+        pieces = len(kinds)
+        if pieces > 1 and not (m.instances and not m.parts):  # (a scene of instances only: its pieces are separate models)
+            def extent(k: int) -> float:  # by size, not triangles (a hard box has few)
+                pts = pv.vertices[pv.faces[(face_label == k) & ~attached]].reshape(-1, 3)
+                return float(np.linalg.norm(pts.max(axis=0) - pts.min(axis=0)))
+
+            small = min(kinds, key=extent)
+            faces_small = (face_label == small) & ~attached
+            centre = pv.vertices[pv.faces[faces_small]].reshape(-1, 3).mean(axis=0)
+            bones = sorted({pv.groups[g].bone for g in pv.face_group[faces_small]})
+            colours = sorted({pv.groups[g].color_name.split("#")[0] for g in pv.face_group[faces_small]})
+            who = (f"parts with id {', '.join(bones)}" if bones != [ROOT_ID] else f"{', '.join(colours)} parts")
+            warn("W103", f"the model is {pieces} separate pieces: the smallest ({who}) floats around [{centre[0]:.2f}, {centre[1]:.2f}, "
+                 f"{centre[2]:.2f}]; move it to touch (or overlap) the rest, or mark it `separate: true` in rig if it is meant to come off",
+                 None, "parts")  # fmt: skip
     lo, hi = built.bounds()
     size = float((hi - lo).max())
     tol = max(0.01, 0.01 * size)
@@ -353,12 +403,34 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     limits = CLASS_SIZES.get(m.cls)
     if limits and not limits[0] <= size <= limits[1]:
         warn("W108", f"a {m.cls} {size:.3g} m across is unusual (expected {limits[0]:g}-{limits[1]:g} m): units are metres")
-    animated = {name for t in built.tracks for name in _moved(m, t.name)}
-    for name in sorted(animated):
-        entry = m.rig.get(name)
-        humanoid_joint = m.skeleton == "humanoid" and name in JOINTS  # the skeleton sets its pivot at the joint (#187)
-        if name != "root" and (entry is None or entry.pivot is None) and not humanoid_joint:
-            warn("W109", f"part {name!r} is animated but has no rig pivot: it turns about the middle of its box; set rig: {{ {name}: {{ pivot: [x, y, z] }} }}")
+    return _grouped(out)
+
+
+GROUPED = ("W101", "W102", "W111", "W128")  # per-part warnings: more than GROUP_AT of one kind become one line (#235)
+GROUP_AT = 3
+
+
+def _grouped(found: list[Finding]) -> list[Finding]:
+    """Per-part warnings of one rule about parts of one kind (120 thin locks) as one line: the first's message, how many
+    more, and where (their parts: entries)."""
+    groups: dict[tuple[str, str], list[Finding]] = {}
+    for f in found:
+        hit = re.match(r"^parts\[\d+\] \((\w+)", f.message) if f.rule in GROUPED else None
+        if hit:
+            groups.setdefault((f.rule, hit.group(1)), []).append(f)
+    out: list[Finding] = []
+    done: set[int] = set()
+    for f in found:
+        hit = re.match(r"^parts\[\d+\] \((\w+)", f.message) if f.rule in GROUPED else None
+        same = groups.get((f.rule, hit.group(1))) if hit else None
+        if not same or len(same) <= GROUP_AT:
+            out.append(f)
+            continue
+        if id(same[0]) in done:
+            continue
+        done.add(id(same[0]))
+        others = ", ".join(str(g.where) for g in same[1:7]) + (" ..." if len(same) > 7 else "")
+        out.append(Finding(f.rule, f"{same[0].message} (and {len(same) - 1} more {hit.group(1)} parts like it: {others})", f.path, f.line, f.where))  # type: ignore[union-attr]
     return out
 
 
@@ -469,6 +541,44 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
             envelope = gi.distance(mine, filled=True)
             if ((envelope > 0) & (envelope < gi.shell + 2 * step)).any():
                 out.append((i, j, volume, pts[overlap].mean(axis=0)))
+    return out
+
+
+def text_warnings(m: Model, palette: dict[str, str]) -> list[Finding]:
+    """The warnings that need only the model's text (#249), so `lint --fast` gives them too: W104 a colour off the
+    palette, W109 an animated part without a pivot, W121 detail parts without a normal map."""
+    out = []
+    if palette and m.source is None:
+        hexes = set(palette.values())
+        for part in m.parts:
+            if part.geometry.op == "add" and part.color not in hexes:
+                out.append(Finding("W104", f"colour {part.color} isn't in the palette: use a palette colour name", m.path, part.line, f"{part.where}.color"))
+    if m.detail and not m.normal_map:
+        out.append(Finding("W121", f"{len(m.detail)} detail part(s) but no normal_map: they show nowhere; add normal_map: 1024", m.path, None, "normal_map"))
+    if m.source is None:
+        animated = {name for anim in m.animations for name in _moved(m, anim)}
+        for name in sorted(animated):
+            entry = m.rig.get(name)
+            humanoid_joint = m.skeleton == "humanoid" and name in JOINTS  # the skeleton sets its pivot at the joint (#187)
+            if name != "root" and (entry is None or entry.pivot is None) and not humanoid_joint:
+                out.append(Finding("W109", f"part {name!r} is animated but has no rig pivot: it turns about the middle of its box; set rig: "
+                                   f"{{ {name}: {{ pivot: [x, y, z] }} }}", m.path, None, f"rig.{name}"))  # fmt: skip
+    return out
+
+
+def one_sided_blends(model: Model) -> list[Finding]:
+    """W140 (#252): a part with a plain `mirror` (both halves one part) whose blend_to names one side of a mirror_id pair
+    (arm_l): its mirrored half meets the other side (arm_r) crisply."""
+    twins = {p.twin_of: p.id for p in model.parts if p.twin_of is not None}
+    out = []
+    for part in model.parts:
+        if not part.geometry.mirror or part.twin_of is not None or not part.blend_to:
+            continue
+        missing = sorted(twins[n] for n in part.blend_to if n in twins and twins[n] not in part.blend_to)
+        if missing:
+            out.append(Finding("W140", f"{part_name(part)} is mirrored in one part but blends into {', '.join(n for n in part.blend_to if n in twins)} "
+                               f"only: its other half meets {', '.join(missing)} crisply; add {', '.join(missing)} to blend_to, or give it a mirror_id",
+                               model.path, part.line, f"{part.where}.blend_to"))  # fmt: skip
     return out
 
 
@@ -631,6 +741,8 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
             keep += variant_warnings(model, palette)
             keep += off_palette(model, palette)
             keep += glow_caps(model, style)
+            keep += one_sided_blends(model)
+            keep += text_warnings(model, palette)
             if model.vertex_fades and not project.config.vertex_colors:  # #262
                 first = next((p for p in model.parts if p.color_blend > 0), None)
                 keep.append(Finding("W134", "color_blend fades per vertex here (the model has no baked maps"

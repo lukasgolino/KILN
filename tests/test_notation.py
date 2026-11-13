@@ -528,3 +528,14 @@ def test_base_places_a_cone_by_its_bottom() -> None:
     assert np.allclose(model.parts[0].geometry.at, [0, 1.2, 0]) and np.allclose(model.parts[1].geometry.at, [0, 0, 0.1])
     _, findings = parse("name: m\nparts:\n  - sphere: { base: [0, 0, 0], radius: 0.2 }\n    color: red\n")
     assert any(f.where == "parts[0].sphere.base" for f in findings)
+
+
+def test_wording_for_common_slips() -> None:
+    """#168, #190, #177: no name takes the file's; `shape: sphere` shows the right form; a part option inside the shape
+    and a shape field beside it say where they go."""
+    _, findings = parse("name: m\nparts:\n  - { shape: sphere, at: [0, 1, 0], radius: 0.3 }\n")
+    assert any("write - sphere: { at: [0, 1, 0], radius: 0.3 }" in f.message for f in findings), findings
+    _, findings = parse("name: m\nparts:\n  - box: { size: [1, 1, 1], bevel: 0.01 }\n    color: red\n")
+    assert any("bevel is a part option" in f.message for f in findings), findings
+    _, findings = parse("name: m\nparts:\n  - cylinder: { radius: 0.3, height: 0.2 }\n    sides: 8\n    color: red\n")
+    assert any("sides goes inside the shape" in f.message for f in findings), findings

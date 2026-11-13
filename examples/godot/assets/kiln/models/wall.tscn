@@ -43,10 +43,30 @@ extends Node3D
 @export var outline := 0.0
 @export var outline_color := Color(0.1, 0.08, 0.12)
 @export var rims: Dictionary = {}
+@export var grains: Dictionary = {}  # preset -> [strength, metres per bump] (#329)
+@export var emissions: Dictionary = {}  # glowing preset -> its strength (a variant's recoloured glow is capped from it, #288)
+@export var glow_peak := 0.75  # the style's glow cap (#290)
+const GLOW_ALBEDO := 0.3
 @export var swap: Dictionary = {}  # variant: \"rrggbb\" (a material's colour, from its name) -> new colour
+@export var refs: Dictionary = {}  # placed model -> its scene: instances drawn by their own scene, maps and all (#355)
 
 # Materials are made once and shared by every instance (and every model) with the same source and settings.
 static var _shared: Dictionary = {}
+
+static var _grain: NoiseTexture2D
+
+
+static func _grain_texture() -> NoiseTexture2D:  # one tiling bump texture for every grainy material
+	if _grain == null:
+		var noise := FastNoiseLite.new()
+		noise.frequency = 8.0 / 256.0
+		_grain = NoiseTexture2D.new()
+		_grain.noise = noise
+		_grain.seamless = true
+		_grain.as_normal_map = true
+		_grain.bump_strength = 4.0
+	return _grain
+
 
 static func _see_through(shader: Shader) -> Shader:  # the toon shader with the material's alpha (glass)
 	var key := \"alpha|%d\" % shader.get_instance_id()
@@ -57,6 +77,11 @@ static func _see_through(shader: Shader) -> Shader:  # the toon shader with the 
 	return _shared[key]
 
 func _ready() -> void:
+	for holder in find_children(\"kiln_ref_*\", \"\", true, false):  # (#355) an instance with baked maps: its own scene here
+		var placed := String(holder.name).trim_prefix(\"kiln_ref_\")
+		placed = placed.substr(0, placed.rfind(\"_\"))
+		if refs.has(placed) and holder.get_child_count() == 0:
+			holder.add_child((load(refs[placed]) as PackedScene).instantiate())
 	for node in find_children(\"*\", \"MeshInstance3D\", true, false):
 		var mesh_instance := node as MeshInstance3D
 		if mesh_instance.mesh == null:
@@ -69,6 +94,16 @@ func _ready() -> void:
 			var hex := source.resource_name.get_slice(\"#\", 1)
 			if swap.has(hex) and source.albedo_texture == null:
 				albedo = Color(swap[hex], source.albedo_color.a)  # (glass keeps its see-through)
+			var glow := source.emission
+			var glow_energy := source.emission_energy_multiplier
+			if source.emission_enabled and swap.has(hex) and source.albedo_texture == null:  # a recoloured glow: capped and dimmed as the glb's (#288)
+				var preset := source.resource_name.get_slice(\"_\", 0)
+				var strength: float = preset.get_slice(\"@\", 1).to_float() if preset.contains(\"@\") else float(emissions.get(preset, glow_energy))
+				var lin := Color(swap[hex]).srgb_to_linear()
+				glow = Color(swap[hex])
+				glow_energy = minf(strength, glow_peak / maxf(maxf(lin.r, lin.g), maxf(lin.b, 0.000001)))
+				var dim := Color(lin.r * GLOW_ALBEDO, lin.g * GLOW_ALBEDO, lin.b * GLOW_ALBEDO).linear_to_srgb()
+				albedo = Color(dim.r, dim.g, dim.b, source.albedo_color.a)
 			var key := \"%d|%s|%s|%d|%s|%s|%s\" % [source.get_instance_id(), shader_kind, albedo.to_html(), bands, outline, outline_color.to_html(), rims]
 			if _shared.has(key):
 				mesh_instance.set_surface_override_material(i, _shared[key])
@@ -78,17 +113,30 @@ func _ready() -> void:
 				var toon := ShaderMaterial.new()
 				toon.shader = toon_shader if source.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED else _see_through(toon_shader)
 				toon.set_shader_parameter(\"albedo\", albedo)
-				toon.set_shader_parameter(\"emission\", Vector3(source.emission.r, source.emission.g, source.emission.b) * source.emission_energy_multiplier if source.emission_enabled else Vector3.ZERO)
+				toon.set_shader_parameter(\"emission\", Vector3(glow.r, glow.g, glow.b) * glow_energy if source.emission_enabled else Vector3.ZERO)
 				toon.set_shader_parameter(\"bands\", bands)
 				material = toon
 			else:
 				var standard := source.duplicate() as BaseMaterial3D
 				standard.albedo_color = albedo
+				var tri := source.resource_name.get_slice(\"#\", 0).get_slice(\"_decal\", 1).get_slice(\"_tri\", 1)
+				if tri != \"\":  # a triplanar texture (#320): three projections blended, a tile w x h metres
+					standard.uv1_triplanar = true
+					standard.uv1_triplanar_sharpness = 4.0
+					standard.uv1_scale = Vector3(1.0 / tri.get_slice(\"x\", 0).to_float(), 1.0 / tri.get_slice(\"x\", 1).to_float(), 1.0 / tri.get_slice(\"x\", 0).to_float())
 				if mesh_instance.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_COLOR:
 					standard.vertex_color_use_as_albedo = true  # vertex_colors = true: glTF colours are linear
 				if source.emission_enabled and swap.has(hex):
-					standard.emission = albedo
+					standard.emission = glow
+					standard.emission_energy_multiplier = glow_energy
 				var rim: float = rims.get(source.resource_name.get_slice(\"_\", 0).get_slice(\"@\", 0), 0.0)  # (glow@0.6: the glow preset)
+				var grain: Array = grains.get(source.resource_name.get_slice(\"_\", 0).get_slice(\"@\", 0), [])
+				if grain.size() == 2 and standard.normal_texture == null and standard.albedo_texture == null:  # a fine bumpy finish (#329)
+					standard.normal_enabled = true
+					standard.normal_texture = _grain_texture()
+					standard.normal_scale = grain[0]
+					standard.uv1_triplanar = true
+					standard.uv1_scale = Vector3.ONE / (grain[1] * 8.0)  # the texture holds about 8 bumps across
 				if rim > 0.0:
 					standard.rim_enabled = true
 					standard.rim = rim
@@ -113,4 +161,6 @@ bands = 3
 outline = 0
 outline_color = Color(0.101961, 0.0784314, 0.12549, 1)
 rims = {"skin": 0.2}
+emissions = {"glow": 2}
+glow_peak = 0.75
 metadata/kiln_style = "soft_toy"

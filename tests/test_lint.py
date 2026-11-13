@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import make_project, sphere_text, write_model
+from conftest import load, make_project, sphere_text, write_model
 
 from kiln.lint import WARNING_RULES, lint_paths, lint_project
 from kiln.project import Project
@@ -40,7 +40,7 @@ def test_w101_cut_away_part(project: Project) -> None:
 def test_w102_thin_part(project: Project) -> None:
     text = sphere_text() + "  - box: { at: [0, 0.6, 0], size: [0.3, 0.02, 0.3] }\n    color: white\n"
     findings = [f for f in lint(project, text) if f.rule == "W102"]
-    assert len(findings) == 1 and findings[0].where == "parts[1]" and "thick" in findings[0].message
+    assert len(findings) == 1 and findings[0].where == "parts[1]" and "across at its thinnest" in findings[0].message and "hard: true" in findings[0].message
 
 
 def test_w103_floating_piece(project: Project) -> None:
@@ -237,7 +237,7 @@ def test_w101_names_the_covering_part(project: Project) -> None:
     """#98: W101 says which part covers the hidden one."""
     text = BODY.replace("parts:\n", "parts:\n  - sphere: { at: [0, 0.5, 0.1], radius: 0.1 }\n    color: blue\n")
     found = [f for f in lint(project, text) if f.rule == "W101"]
-    assert len(found) == 1 and "part 1 (sphere, red) covers it" in found[0].message
+    assert len(found) == 1 and "parts[1] (sphere, red, line 5) covers it" in found[0].message
 
 
 @pytest.mark.parametrize(("extra", "expected"), [
@@ -249,7 +249,7 @@ def test_w124_a_part_that_shows_only_a_sliver(project: Project, extra: str, expe
     w124 = [f for f in findings if f.rule == "W124"]
     assert bool(w124) == expected, findings
     if expected:
-        assert "part 1 (sphere, blue) is" in w124[0].message and "inside part 0 (sphere, red)" in w124[0].message
+        assert "parts[1] (sphere, blue, line 6) is" in w124[0].message and "inside parts[0] (sphere, red, line 4)" in w124[0].message
 
 
 def test_cover_counts_what_a_cut_opens(project: Project) -> None:
@@ -317,12 +317,12 @@ def test_w136_a_band_that_misses_its_part(project: Project) -> None:
     assert "W136" not in hit and any(f.rule == "W136" and "measured from" in f.message for f in miss), [f.format() for f in miss]
 
 
-def test_e016_a_big_part_that_vanishes_is_an_error(project: Project) -> None:
+def test_w141_a_big_part_that_vanishes(project: Project) -> None:
     """#324: a part a tenth of the model or more lost to the budget breaks the model: an error, not W111."""
     text = ("name: thing\nbudget: 40\nparts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.4 }\n    color: red\n"
             "  - capsule: { from: [0.5, 0.1, 0], to: [0.5, 0.9, 0], radius: 0.012 }\n    color: blue\n")  # fmt: skip
     found = lint_paths(project, [write_model(project, text)]).findings
-    assert any(f.rule == "E016" and f.severity == "error" for f in found), [f.format() for f in found]
+    assert any(f.rule == "W141" for f in found), [f.format() for f in found]
 
 
 def test_w137_off_palette_pixel_art_with_variants(project: Project) -> None:
@@ -353,3 +353,61 @@ def test_w139_bevels_dropped_for_the_budget_step_by_step(project: Project) -> No
     assert w and "keeps them" in w[0].message, [f.format() for f in tight.findings]
     built = tight.built["thing"]
     assert built.hard_note is not None and built.hard_note[0] < built.hard_note[1]  # some kept theirs: not all at once
+
+
+def test_warnings_name_parts_as_written_and_group_lost_ones(project: Project) -> None:
+    """#314: a garment is named as a garment, by its place in parts: and its line; #235: many lost parts of one kind
+    are one W111."""
+    from kiln.lint import part_name
+
+    text = ("name: thing\nparts:\n  - capsule: { from: [0, 0.6, 0], to: [0, 1.2, 0], radius: 0.22 }\n    id: body\n    color: wood\n"
+            "  - garment: { fit: [body], from_y: 0.75, to_y: 1.3 }\n    id: shirt\n    color: blue\n")  # fmt: skip
+    model, _, findings = load(project, text)
+    assert model is not None and not findings, findings
+    shirt = next(p for p in model.parts if p.id == "shirt")
+    assert part_name(shirt).startswith("parts[1] (garment shirt, blue, line 6")
+    locks = "".join(f"  - lock: {{ points: [[{0.3 * (k % 10) - 1.4}, 0.5, {0.3 * (k // 10)}], [{0.3 * (k % 10) - 1.4}, 0.8, {0.3 * (k // 10)}]], width: 0.01, thickness: 0.004 }}\n    color: red\n"
+                    for k in range(30))  # fmt: skip
+    found = lint_paths(project, [write_model(project, "name: thing\nbudget: 200\nparts:\n  - box: { at: [0, 0.2, 0], size: [3, 0.4, 3] }\n    color: wood\n" + locks)]).findings
+    for rule in ("W101", "W102", "W111"):  # 30 thin locks: one line per rule, not 30
+        lines = [f for f in found if f.rule == rule]
+        assert len(lines) <= 1, (rule, len(lines))
+    assert any("more lock parts like it" in f.message for f in found), [f.format() for f in found]
+
+
+def test_w140_mirrored_part_blending_into_one_side(project: Project) -> None:
+    """#252: a plain-mirrored part whose blend_to names arm_l (twin arm_r) gets W140 naming arm_r."""
+    text = ("name: thing\nparts:\n  - capsule: { from: [0.3, 1, 0], to: [0.6, 1, 0], radius: 0.05 }\n    id: arm_l\n    color: red\n    mirror: x\n"
+            "    mirror_id: arm_r\n  - sphere: { at: [0.62, 1, 0], radius: 0.06 }\n    color: red\n    mirror: x\n    blend: 0.02\n    blend_to: [arm_l]\n")  # fmt: skip
+    found = lint_paths(project, [write_model(project, text)], geometry=False).findings
+    w = [f for f in found if f.rule == "W140"]
+    assert w and "arm_r" in w[0].message, [f.format() for f in found]
+    fixed = lint_paths(project, [write_model(project, text.replace("blend_to: [arm_l]", "blend_to: [arm_l, arm_r]"))], geometry=False).findings
+    assert "W140" not in [f.rule for f in fixed]
+
+
+def test_fast_lint_gives_the_text_only_warnings(project: Project) -> None:
+    """#249: W104, W109 and W121 (no map) need no mesh: --fast gives them."""
+    text = ("name: thing\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: \"#123456\"\n    id: body\n"
+            "  - box: { at: [0, 0.3, 0.3], size: [0.1, 0.01, 0.01] }\n    detail: true\n    cut: true\nskin: rigid\n"
+            "animations:\n  spin: { cycle: { type: spin, part: body } }\n")  # fmt: skip
+    rules = {f.rule for f in lint_paths(project, [write_model(project, text)], geometry=False).findings}
+    assert {"W104", "W109", "W121"} <= rules, rules
+
+
+def test_w103_joins_touching_pieces_and_names_the_floating_one(project: Project) -> None:
+    """#173: a smooth detail on a hard part is not a separate piece; a floating one is named, with where it is."""
+    on_hard = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.6, 0.4, 0.6] }\n    color: wood\n    chamfer: 0.01\n"
+               "  - sphere: { at: [0, 0.42, 0], radius: 0.05 }\n    color: red\n")  # fmt: skip
+    assert "W103" not in warnings(lint_paths(project, [write_model(project, on_hard)]).findings)
+    floating = on_hard.replace("at: [0, 0.42, 0], radius: 0.05", "at: [0, 0.9, 0], radius: 0.05")
+    w = [f for f in lint_paths(project, [write_model(project, floating)]).findings if f.rule == "W103"]
+    assert w and "red parts" in w[0].message and "0.90" in w[0].message, [f.format() for f in w]
+
+
+def test_w122_quiet_when_the_target_has_a_soft_part(project: Project) -> None:
+    """#152: tufts blended into a head whose eyes (kept crisp details with the head's id) are apart: no W122."""
+    text = ("name: thing\nparts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.3 }\n    id: head\n    color: wood\n"
+            "  - sphere: { at: [0.1, 0.55, 0.29], radius: 0.01 }\n    id: head\n    color: black\n    blend: none\n"
+            "  - cone: { at: [0, 0.82, 0], radius: 0.05, height: 0.1 }\n    color: wood\n    blend: 0.02\n    blend_to: [head]\n")  # fmt: skip
+    assert "W122" not in warnings(lint_paths(project, [write_model(project, text)]).findings)

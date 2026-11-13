@@ -96,7 +96,7 @@ def test_lint_reports_errors_and_warnings(in_project: Project, capsys: pytest.Ca
     code, result = run_json(["lint", "--fast", "good"], capsys)
     assert code == 0 and result["warnings"] == 0 and result["geometry"] is False  # (#186) it says nothing was meshed
     assert main(["lint", "--fast", "good"]) == 0
-    assert "--fast: the findings that need the built model were not looked for (E009, E013, E016, W101-W104, W106, W108-W111, W113, W120-W129, W132, W133, W135, W136, W139)" \
+    assert "--fast: the findings that need the built model were not looked for (E009, E013, W101-W103, W106, W108, W110, W111, W113, W120-W129, W132, W133, W135, W136, W139, W141)" \
         in capsys.readouterr().out  # fmt: skip
     code, result = run_json(["lint", "--fast", "bad"], capsys)  # a failing fast lint says so too
     assert code == 1 and result["ok"] is False and result["geometry"] is False
@@ -643,3 +643,82 @@ def test_mount_shares_a_frame_and_preview_with(in_project: Project, capsys: pyte
     assert manifest["models"]["lid"]["mount"] == {"to": "case", "at": [0, 0.1, 0], "rotate": [0, 0, 0]}
     code, result = run_json(["preview", "case", "--with", "lid", "--views", "front", "--size", "96"], capsys)
     assert code == 0, result
+
+
+def test_negative_numbers_after_flags() -> None:
+    """#317: --frame-box -0.25,... (a value starting with a minus) is read as the flag's value."""
+    from kiln.cli import _joined
+
+    assert _joined(["preview", "m", "--frame-box", "-0.25,1,-0.2,0.25,1.6,0.2", "--pitch", "-10"]) == [
+        "preview", "m", "--frame-box=-0.25,1,-0.2,0.25,1.6,0.2", "--pitch=-10"]
+    assert _joined(["preview", "m", "--views", "front"]) == ["preview", "m", "--views", "front"]
+
+
+def test_closeup_takes_views_and_pitch(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#309: --closeup honours --views and --pitch (one row per pitch, a tile per view)."""
+    from PIL import Image
+
+    (in_project.models_dir / "ball.kiln.yaml").write_text("name: ball\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: red\n    id: body\nskin: rigid\n")
+    code, result = run_json(["preview", "ball", "--closeup", "body", "--views", "front,34", "--pitch", "5", "--size", "100"], capsys)
+    assert code == 0, result
+    sheet = Image.open(in_project.root / result["outputs"]["closeup"]["body"])
+    assert sheet.height < 2.5 * 100  # one row (the default is three)
+
+
+def test_pose_tiles_grow_for_few_frames_and_take_the_style_background(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#322, #331: a single-frame pose gets big tiles; the sheet takes the --bg background (dark for low-key styles)."""
+    import numpy as np
+    from PIL import Image
+
+    (in_project.models_dir / "bob.kiln.yaml").write_text(
+        "name: bob\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: red\n    id: body\nskin: rigid\nanimations:\n  hop: { cycle: { type: bob, part: body } }\n")
+    code, result = run_json(["preview", "bob", "--pose", "hop", "--frame", "0", "--bg", "dark"], capsys)
+    assert code == 0, result
+    path = in_project.root / next(iter(result["outputs"]["pose"].values()))
+    sheet = Image.open(path).convert("RGB")
+    assert sheet.width >= 400  # one frame: a 450 px tile, not 200
+    corner = np.asarray(sheet)[sheet.height - 20, 30]
+    assert corner.sum() < 3 * 120  # a dark tile background
+
+
+def test_examples_list_and_print(capsys: pytest.CaptureFixture[str]) -> None:
+    """#308: the worked examples the docs point to are readable from the CLI, the same files as examples/demo."""
+    from pathlib import Path
+
+    code, result = run_json(["examples"], capsys)
+    assert code == 0 and "cub" in {r["name"] for r in result["examples"]}
+    code, result = run_json(["examples", "cub"], capsys)
+    demo = Path(__file__).parent.parent / "examples" / "demo" / "models" / "cub.kiln.yaml"
+    assert code == 0 and result["text"] == demo.read_text()
+    shipped = Path(__file__).parent.parent / "src" / "kiln" / "examples"
+    for f in (demo.parent).glob("*.kiln.yaml"):
+        assert (shipped / f.name).read_text() == f.read_text(), f"{f.name}: copy examples/demo/models into src/kiln/examples"
+
+
+def test_style_check_lists_lit_colours(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#336: kiln style check: each palette colour as the style lights it, next to its hex, and a swatch sheet."""
+    code, result = run_json(["style", "check"], capsys)
+    assert code == 0, result
+    red = next(r for r in result["colours"] if r["name"] == "red")
+    assert red["lit"].startswith("#") and isinstance(red["hue_shift"], float) and (in_project.root / result["sheet"]).is_file()
+
+
+def test_new_model_uses_a_palette_colour(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#340: a template colour the project palette lacks is replaced by the palette's first colour."""
+    pal = in_project.root / "palettes" / "main.pal.yaml"
+    pal.write_text(pal.read_text().replace("name: grey", "name: slate"))
+    code, _ = run_json(["new", "model", "blob", "--template", "empty"], capsys)
+    text = (in_project.models_dir / "blob.kiln.yaml").read_text()
+    assert code == 0 and "color: grey" not in text
+    code, result = run_json(["lint", "--fast", "blob"], capsys)
+    assert code == 0, result
+
+
+def test_build_of_a_deleted_model_says_its_old_files_stay(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#182: building a model whose file is gone says its old glb stays until a full build removes it."""
+    (in_project.models_dir / "ball.kiln.yaml").write_text("name: ball\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: red\n")
+    code, _ = run_json(["build"], capsys)
+    assert code == 0
+    (in_project.models_dir / "ball.kiln.yaml").unlink()
+    code, result = run_json(["build", "ball"], capsys)
+    assert code != 0 and "until a full `kiln build` removes it" in result["findings"][0]["message"]

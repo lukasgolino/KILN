@@ -186,7 +186,8 @@ def variants_sheet(built: Built, yaws: list[tuple[str, float]], pitch: float = 1
     return sheet(f"{m.name} variants", f"style {built.style.name} · {len(m.variants)} variants · {pitch:+g} degrees{_notes(tiles)}", rows)
 
 
-def closeup(built: Built, part_id: str, size: int = 260, tiles: Tiles | None = None) -> Image.Image:
+def closeup(built: Built, part_id: str, size: int = 260, tiles: Tiles | None = None, yaws: list[tuple[str, float]] | None = None,
+            pitches: list[float] | None = None) -> Image.Image:  # fmt: skip
     """One part (bone) filling the view, in place: what a close camera (a kill cam, a dialogue shot) sees. A number
     is a part's place in the file's `parts:` list (0 = the first), so a hat or a face can be framed apart from the
     bone it moves with."""
@@ -206,9 +207,10 @@ def closeup(built: Built, part_id: str, size: int = 260, tiles: Tiles | None = N
         lo, hi = v.min(axis=0), v.max(axis=0)
     fit = ((lo + hi) / 2, max(float(np.linalg.norm(hi - lo)) / 2 * 1.3, built.step * 8))
     rows = []
-    for pitch in (-15.0, 15.0, 45.0):
+    views = yaws or list(HEADINGS[::2] + HEADINGS[1::2][:2])  # (#309) --views and --pitch pick them
+    for pitch in pitches or (-15.0, 15.0, 45.0):
         rows.append((f"{part_id} in place, {pitch:+g} degrees", [(n, render(built, View(yaw, pitch), size, fit=fit, background=tiles.bg, fill=tiles.fill))
-                                                                 for n, yaw in HEADINGS[::2] + HEADINGS[1::2][:2]]))  # fmt: skip
+                                                                 for n, yaw in views]))  # fmt: skip
     return sheet(f"{built.model.name} closeup: {part_id}", "framed on the part; other parts may cover it, as in the game", rows)
 
 
@@ -263,8 +265,8 @@ def fitted(built: Built, size: int = 240) -> Image.Image:
 POSE_VIEWS = [("3/4 front", 30.0, 12.0), ("left side", 90.0, 5.0), ("right side", 270.0, 5.0)]  # both sides: a limb on either shows
 
 
-def filmstrip(built: Built, animation: str, size: int = 200, views: list[tuple[str, float, float]] | None = None,
-              frames: list[int] | None = None, swap: dict[str, str] | None = None) -> Image.Image:  # fmt: skip
+def filmstrip(built: Built, animation: str, size: int | None = None, views: list[tuple[str, float, float]] | None = None,
+              frames: list[int] | None = None, swap: dict[str, str] | None = None, background: tuple[int, int, int, int] | None = None) -> Image.Image:  # fmt: skip
     """An animation's frames, a row per view (name, yaw, pitch): by default 3/4 front and both sides (#201).
     `frames` picks some (e.g. one frame up close with a big `size`)."""
     names = [t.name for t in built.tracks]
@@ -279,9 +281,12 @@ def filmstrip(built: Built, animation: str, size: int = 200, views: list[tuple[s
     shown = list(frames) if frames is not None else list(range(t.frames))
     if not shown or any(not 0 <= i < t.frames for i in shown):
         raise ValueError(f"{animation} has frames 0-{t.frames - 1}")
+    if size is None:  # (#322) few frames: bigger tiles, so a single pose shows its detail (about 1600 px across in all)
+        size = int(min(450, max(200, 1600 // len(shown))))
+    bg = background if background is not None else TILE_BG  # (#331) the style's background: glows read on low-key looks
     rows = []
     for label, yaw, pitch in views or POSE_VIEWS:
-        rows.append((label, [(f"{i}", render(built, View(yaw, pitch), size, track=k, frame=i, swap=swap, fit=fit, background=TILE_BG)) for i in shown]))
+        rows.append((label, [(f"{i}", render(built, View(yaw, pitch), size, track=k, frame=i, swap=swap, fit=fit, background=bg)) for i in shown]))
     loop = "loops" if t.loop else "plays once"
     return sheet(f"{built.model.name} · {animation}", f"{t.frames} frames at {t.fps:g} fps ({t.frames / t.fps:.2f} s), {loop}, {t.interpolation}", rows)
 

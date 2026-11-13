@@ -1,0 +1,32 @@
+name: tree
+description: round toy tree
+class: nature
+tags: [siege, nature]
+status: approved
+style_version: 1
+parts:
+  - capsule: { from: [0, 0.16, 0], to: [0, 1.3, 0], radius: 0.15, radius_to: 0.08 }
+    color: bark
+    material: wood
+    noise: { amount: 0.01, scale: 0.1 }
+  - capsule: { from: [0, 0.9, 0], to: [0.35, 1.3, 0.05], radius: 0.06, radius_to: 0.035 }
+    blend: 0.05
+    color: bark
+    material: wood
+  - sphere: { at: [0, 1.65, 0], radius: 0.6 }
+    color: green
+    material: leaf
+    noise: { amount: 0.05, scale: 0.25 }
+  - sphere: { at: [0.42, 1.4, 0.1], radius: 0.42 }
+    blend: 0.15
+    color: green
+    material: leaf
+  - sphere: { at: [-0.38, 1.45, -0.1], radius: 0.45 }
+    blend: 0.15
+    color: green
+    material: leaf
+  - sphere: { at: [0.05, 2.05, -0.05], radius: 0.42 }
+    blend: 0.15
+    color: green
+    material: leaf
+lod: [1500]
