@@ -12,7 +12,9 @@ before 1.0).
 
 - A `mirror` part written on the negative side of its axis (e.g. a left leg at x < 0) vanished along with its mirror
   image: the mirror folded space onto the positive side only. It now folds onto the side the part is on, so left and
-  right mirror alike (#363). Meshes change only for such parts (they now appear); everything else is unchanged.
+  right mirror alike (#363), for smooth and hard parts (`hard`, `sides`) and lint's open-shell checks. Meshes change
+  for such parts (they now appear) and for a part straddling 0 with its box centre below 0, which now mirrors its
+  negative half (as one with its centre above 0 always mirrored its positive half); everything else is unchanged.
 
 ## [0.33.0] - 2026-11-13
 

@@ -638,8 +638,10 @@ def _rim_distance(g: Geometry, pts: Array) -> Array:
     """How far each point is from where a shell is open: an open side's plane, or a garment box's hem and top (its
     fitted wall ends there). Elsewhere: infinity."""
     p = pts.copy()
-    for axis in g.mirror or ():
-        p[:, axis] = np.abs(p[:, axis])
+    sides = g.mirror_sides() if g.mirror else None
+    for axis in g.mirror or ():  # folded onto the part's own side, as its distance is (#363)
+        assert sides is not None
+        p[:, axis] = sides[axis] * np.abs(p[:, axis])
     q = p - g.at
     if g.rotation is not None:
         q = q @ g.rotation
