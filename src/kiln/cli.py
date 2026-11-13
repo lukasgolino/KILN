@@ -559,6 +559,19 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
         raise _usage("--ref-height goes with --vs <ref.glb>")
     if args.at is not None and not args.effect:
         raise _usage("--at goes with --effect")
+    if args.variants:  # every variant in one sheet (#330)
+        if not built.model.variants:
+            raise _usage(f"{name} has no variants")
+        try:
+            sides = [pv.heading(v) for v in args.views.split(",")] if args.views else [pv.heading(v) for v in ("front", "34", "back")]
+            pitch = float(args.pitch.split(",")[0]) if args.pitch else 15.0
+        except ValueError as exc:
+            raise _usage(str(exc)) from None
+        path = folder / "variants.png"
+        pv.variants_sheet(built, sides, pitch, size or 300, tiles).save(path)
+        out.say(f"{name} variants: {display_path(path)}")
+        out.result({"variants": display_path(path)})
+        return 0
     if args.turntable or not wanted_any:
         path = folder / (f"turntable.{args.variant}.png" if args.variant else "turntable.png")
         pv.turntable(built, swap=swap, tiles=tiles, **tile).save(path)
@@ -1310,6 +1323,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--frame", metavar="N,N,...", help="with --pose: only these frames (e.g. one, up close with --size)")
     s.add_argument("--engine", action="store_true", help="render through Godot, offscreen (needs a build; Linux: xvfb); --views/--pitch/--size pick its views")
     s.add_argument("--variant")
+    s.add_argument("--variants", action="store_true", help="every variant side by side in one sheet (a row each; --views and --pitch pick the views)")
     s.add_argument("--draft", action="store_true",
                    help="a quick coarse look while iterating (coarser mesh cells, rough colour edges, plain hard parts, no normal map): shapes and placement, not the final surface")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")

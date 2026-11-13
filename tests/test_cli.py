@@ -592,3 +592,15 @@ def test_clips_lists_and_adds_the_bundled_cc0_clips(in_project: Project, capsys:
     code, result = run_json(["clips", "add"], capsys)
     folder = in_project.root / "imports" / "kaykit-animations"
     assert code == 0 and (folder / "Rig_Medium_General.glb").is_file() and "CC0" in (folder / "LICENSE-kaykit-animations.txt").read_text()
+
+
+def test_preview_variants_sheet(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#330: every variant in one sheet."""
+    from PIL import Image
+
+    (in_project.models_dir / "ball.kiln.yaml").write_text(
+        "name: ball\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: red\nvariants:\n  b: { swap: { red: blue } }\n  g: { swap: { red: green } }\n")
+    code, result = run_json(["preview", "ball", "--variants", "--size", "96"], capsys)
+    assert code == 0, result
+    sheet = Image.open(in_project.root / result["variants"])
+    assert sheet.height > 3 * 96  # base + two variants

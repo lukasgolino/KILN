@@ -8,6 +8,7 @@ before 1.0).
 
 ### Added
 
+- `kiln preview <model> --variants`: every variant side by side in one sheet, a row each (#330).
 - Palette-indexed textures (`texture: { rows, key }`) and generated pixel art in palette colours (`generate: brushed |
   specks | scratches | grid | noise`), recoloured by variants (each such variant gets its own glb); lint W137: a
   pixel-art image off the palette on a model with variants. Decals and textures moved to `kiln docs textures` (#325).
