@@ -26,6 +26,9 @@ HARD_MODES = ("auto", "always", "never")
 TONEMAPPERS = ("linear", "filmic", "aces", "agx")
 OUTLINE_SPACES = ("metres", "pixels")
 TOON_SHADOWS = ("soft", "band")
+POSTS = ("", "retro")
+DITHERS = ("bayer4", "bayer8", "none")
+MAX_POST_COLORS = 16  # the retro pass's palette uniform
 TOON_DARKEN = 0.15  # outline_color = "darken": the part's linear colour times this (~0.42 in sRGB)
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -83,6 +86,13 @@ class Look:
     rim_light: float = 0.0  # strength of an added fresnel glow on every surface (reads on bright skies); 0 = none
     rim_light_color: str = "#ffffff"
     rim_light_power: float = 3.0  # higher: a thinner rim
+    post: str = ""  # "retro": the frame drawn at a low resolution, snapped to post_palette with ordered dithering (#358)
+    post_lines: int = 200  # retro: vertical resolution (200: CGA / Atari ST low res; 400: ST mono)
+    pixel_aspect: float = 0.8333  # retro: pixel width / height (320x200 on a 4:3 screen: 5/6; 640x400: 1)
+    post_palette: str = ""  # retro: the palette (palettes/<name>.pal.yaml) every pixel is snapped to, at most 16 colours
+    dither: str = "bayer4"  # retro: bayer4 | bayer8 | none
+    dither_strength: float = 1.0  # retro: 0 (nearest colour only) to 1 (full ordered dithering)
+    post_colors: tuple[str, ...] = ()  # retro: post_palette's colours, filled in when the project loads the style
 
     @property
     def fill_direction(self) -> float:
@@ -132,7 +142,7 @@ class Style:
 
 SHAPE_KEYS = {"smooth": bool, "sharp_angle": float, "resolution": float, "hard_surface": str, "hard_sides": int, "max_cells": int,
               "scale_with_size": bool, "color_blend": float}
-LOOK_TYPES: dict[str, type] = {k: type(v) for k, v in Look().__dict__.items()}
+LOOK_TYPES: dict[str, type] = {k: type(v) for k, v in Look().__dict__.items() if k != "post_colors"}  # post_colors: not written
 
 
 def builtin_dir() -> Path:
@@ -288,6 +298,18 @@ def load_style(name: str, project_styles: Path | None = None) -> tuple[Style | N
         bad(f"[look] outline_space is {' or '.join(OUTLINE_SPACES)}", "look.outline_space")
     elif look.outline_space == "pixels" and 0 < look.outline < 0.5:
         bad(f"[look] outline is pixels with outline_space = \"pixels\" ({look.outline:g} px won't show), e.g. 2", "look.outline")
+    if look.post not in POSTS:
+        bad("[look] post is \"\" (none) or \"retro\" (low resolution, a fixed palette, ordered dithering)", "look.post")
+    if look.dither not in DITHERS:
+        bad(f"[look] dither is {', '.join(DITHERS)}", "look.dither")
+    if not 16 <= look.post_lines <= 2160:
+        bad("[look] post_lines is the retro pass's vertical resolution (16-2160), e.g. 200 (CGA, Atari ST) or 400 (ST mono)", "look.post_lines")
+    if not 0.25 <= look.pixel_aspect <= 4:
+        bad("[look] pixel_aspect is pixel width / height (0.25-4), e.g. 0.8333 (320x200 on a 4:3 screen) or 1", "look.pixel_aspect")
+    if not 0 <= look.dither_strength <= 1:
+        bad("[look] dither_strength is 0 (nearest colour only) to 1 (full ordered dithering)", "look.dither_strength")
+    if look.post and not look.post_palette:
+        bad("[look] post = \"retro\" needs post_palette: the palette every pixel is snapped to, e.g. post_palette = \"cga\"", "look.post_palette")
     if any(f.severity == "error" for f in findings):
         return None, findings
     style = Style(name, str(data.get("description", "")), bool(smooth), float(sharp), float(resolution), dict(budgets), materials, look,

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from kiln.vendor.findings import Finding, PaganError, has_errors
+from kiln.vendor.hardware import HARDWARE, HARDWARE_HELP
 from kiln.vendor.yamlio import LineMap, YamlError, load_yaml
 
 TRANSPARENT = "."
@@ -30,7 +31,7 @@ def is_key(text: str) -> bool:
 PALETTE_SUFFIX = ".pal.yaml"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
-_FIELDS = ("name", "description", "colors", "ramps", "variants", "base_variant")
+_FIELDS = ("name", "description", "hardware", "colors", "ramps", "variants", "base_variant")
 _VARIANT_FIELDS = ("ramp_swap", "key_swap", "tags")
 _COLOR_FIELDS = ("hex", "name")
 
@@ -74,6 +75,7 @@ class Palette:
     path: Path | None = None
     variants: dict[str, PaletteVariant] = field(default_factory=dict)  # palette-wide recolours, by name
     base_variant: str | None = None  # what the base colours are called on assets that get palette variants
+    hardware: str | None = None  # the machine whose colours it keeps to (kiln.vendor.hardware.HARDWARE)
 
 
 def _line(data: Any, key: Any = None) -> int | None:
@@ -194,9 +196,35 @@ def parse_palette(
     if inline and ("variants" in data or base_variant is not None):
         error("E006", "inline palettes can't have variants; use the asset's own variants", _line(data, "variants") or bline, "variants")
 
+    hardware = _check_hardware(data, colors, error)
     if has_errors(findings):
         return None, findings
-    return Palette(name=name, colors=colors, ramps=ramps, path=path, variants=variants, base_variant=base_variant), findings
+    palette = Palette(name=name, colors=colors, ramps=ramps, path=path, variants=variants, base_variant=base_variant, hardware=hardware)
+    return palette, findings
+
+
+def _check_hardware(data: dict[str, Any], colors: dict[str, Color], error: ErrorFn) -> str | None:
+    """PAGAN 0.23's `hardware:` (pagan#91): the palette keeps to what that machine could show. PAGAN's E017 is E004
+    here (KILN's palette rule); PAGAN's W015 (CGA sets) is left to `pagan lint`."""
+    raw = data.get("hardware")
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or raw not in HARDWARE:
+        error("E004", f"unknown hardware {raw!r}; one of: {HARDWARE_HELP}", _line(data, "hardware"), "hardware")
+        return None
+    hw = HARDWARE[raw]
+    raw_colors = data.get("colors")
+    for key, color in colors.items():
+        line = None
+        if isinstance(raw_colors, LineMap):
+            line = raw_colors.key_lines.get(key) or (raw_colors.key_lines.get(int(key)) if key.isdigit() else None)
+        if not hw.can_show(color.hex):
+            error("E004", f"{hw.name} can't show {color.hex}; nearest is {hw.nearest(color.hex)} (`pagan palette snap` fixes them all)",
+                  line, f"colors.{key}")
+    distinct = {c.hex for c in colors.values()}
+    if len(distinct) > hw.max_colors:
+        error("E004", f"{len(distinct)} colours, but {hw.name} shows {hw.max_colors} at once; remove some", _line(data, "colors"), "colors")
+    return raw
 
 
 def _parse_palette_variants(

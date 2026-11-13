@@ -9,7 +9,7 @@ from typing import Any
 
 from kiln.atlas import AO_STRENGTH
 from kiln.notation import MODEL_SUFFIX, NAME_RE, Model, apply_style, load_model
-from kiln.style import Style, load_style, resolve_look
+from kiln.style import MAX_POST_COLORS, Style, load_style, resolve_look
 from kiln.vendor.findings import Finding, PaganError, has_errors
 from kiln.vendor.palette import PALETTE_SUFFIX, load_palette_file
 
@@ -45,6 +45,7 @@ class Config:
     atlas_ao: float = 0.0  # with atlas: strength of the ambient occlusion baked into the vertex colours (0 = none)
     godot_bonemap: bool = False  # true: humanoids get a Godot BoneMap in their glb's .import (bones take the profile's names)
     preview_size: int | None = None  # kiln preview's tile size in pixels (None: each sheet's own, 220 for the turntable)
+    looks: tuple[str, ...] = ()  # more look kits to build than the models' styles give (a game switching looks, #360)
 
 
 @dataclass
@@ -78,8 +79,25 @@ class Project:
     def style(self, name: str | None = None) -> tuple[Style | None, list[Finding]]:
         key = name or self.config.default_style
         if key not in self._styles:
-            self._styles[key] = load_style(key, self.styles_dir if self.styles_dir.is_dir() else None)
+            style, findings = load_style(key, self.styles_dir if self.styles_dir.is_dir() else None)
+            if style is not None and style.look.post:
+                style, pf = self._post_colors(style)
+                findings = [*findings, *pf]
+            self._styles[key] = (style, findings)
         return self._styles[key]
+
+    def _post_colors(self, style: Style) -> tuple[Style | None, list[Finding]]:
+        """The style with its retro pass's palette (`[look] post_palette`) read into `post_colors`."""
+        name = style.look.post_palette
+        lookup, findings = self.palette(name)
+        where = (style.path, None, "look.post_palette")
+        if has_errors(findings):
+            return None, [Finding("E006", f"[look] post_palette {name!r}: {f.message}", *where) for f in findings]
+        colors = tuple(sorted({h.lower()[:7] for h in lookup.values()}))
+        if len(colors) > MAX_POST_COLORS:
+            return None, [Finding("E006", f"[look] post_palette {name!r} has {len(colors)} colours; the retro pass takes at most "
+                                  f"{MAX_POST_COLORS} (an Atari ST shows 16): use a smaller palette", *where)]
+        return replace(style, look=replace(style.look, post_colors=colors)), []
 
     def palette(self, name: str | None = None) -> tuple[dict[str, str], list[Finding]]:
         """Colour lookup (names and keys -> hex) for a PAGAN palette file; empty when the project has none."""
@@ -210,7 +228,7 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
         findings.append(Finding("E000", message, path, None, where))
 
     allowed = {"default_style", "default_palette", "output_dir", "preview_dir", "export", "style_version", "variant_glbs", "vertex_colors",
-               "atlas", "atlas_ao", "merge_rigid", "godot_bonemap", "preview_size", "lint"}  # fmt: skip
+               "atlas", "atlas_ao", "merge_rigid", "godot_bonemap", "preview_size", "looks", "lint"}  # fmt: skip
     for key in data:
         if key not in allowed:
             bad(f"unknown setting {key!r}; allowed: {', '.join(sorted(allowed))}", key)
@@ -236,6 +254,12 @@ def parse_config(data: dict[str, Any], path: Path | None) -> tuple[Config, list[
             bad("preview_size is kiln preview's tile size in pixels, 64-1024 (e.g. 500 to judge a face)", "preview_size")
         else:
             cfg.preview_size = size
+    if "looks" in data:
+        lk = data["looks"]
+        if not isinstance(lk, list) or any(not isinstance(n, str) or not NAME_RE.match(n) for n in lk):
+            bad('looks is a list of style names whose look kits are built too (a game switching looks), e.g. ["retro_st", "retro_cga"]', "looks")
+        else:
+            cfg.looks = tuple(lk)
     if "export" in data:
         ex = data["export"]
         if not isinstance(ex, list) or not ex or any(e not in EXPORTS for e in ex):

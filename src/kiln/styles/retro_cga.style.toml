@@ -1,0 +1,34 @@
+description = "IBM CGA: 320x200, 4 colours (black, cyan, magenta, white), ordered dithering"
+extends = "low_poly"
+notes = """
+Retro look (#360): every frame is drawn at 200 lines and snapped to the cga palette with ordered dithering
+([look] post = "retro"), in Godot (the look kit's CanvasLayer: put the look kit in the scene) and in previews
+(`kiln preview --no-post` shows what's under it). Light falls into 3 hard toon bands, so shading becomes a few
+clean dither patterns. Model for it: big flat colour areas, few colours per object, strong silhouettes; tiny parts
+vanish at this resolution. Colours: use the post palette's own colours in models (or close to them), or every
+surface dithers. Your own palette: copy cga.pal.yaml from KILN's library into palettes/, edit it, and set
+post_palette in a project style that extends this one. Dither shimmers when the camera moves (it's in screen
+space): slow or fixed cameras suit it.
+"""
+
+[look]
+shader = "toon"
+toon_bands = 3
+outline = 0.0
+tonemapper = "linear"
+exposure = 1.0
+saturation = 1.0
+contrast = 1.0
+ssao = false
+glow = false
+fog = 0.0
+ambient = 0.5
+sky_top = "#55ffff"
+sky_horizon = "#ffffff"
+ground = "#ff55ff"
+post = "retro"
+post_lines = 200
+pixel_aspect = 0.8333
+post_palette = "cga"
+dither = "bayer4"
+dither_strength = 1.0

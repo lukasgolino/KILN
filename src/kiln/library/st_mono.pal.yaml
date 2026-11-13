@@ -1,0 +1,12 @@
+name: st_mono
+# KILN's retro looks (retro_cga, retro_st, retro_mono) snap the screen to these colours ([look] post_palette).
+# Your own: copy this file into palettes/ under a new name, edit it (`pagan lint` keeps it legal), set post_palette.
+# Atari ST high resolution, 640x400: black and white.
+hardware: atari-st-mono
+# Quote keys and hex values: YAML treats an unquoted # as the start of a comment.
+colors:
+  "0": { hex: "#000000", name: black }
+  "1": { hex: "#ffffff", name: white }
+ramps:
+  # shadow -> highlight
+  mono: ["0", "1"]

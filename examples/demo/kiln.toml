@@ -1,9 +1,10 @@
-# KILN demo: a toy airline and a toy siege, one style (soft_toy). `kiln build` writes into the Godot example.
+# KILN demo: a toy airline and a toy siege, one style (soft_toy), plus the retro look kits. `kiln build` writes into the Godot example.
 default_style = "soft_toy"
 default_palette = "toybox"
 output_dir = "../godot/assets/kiln"
 preview_dir = "previews"
 export = ["glb", "godot"]
+looks = ["retro_st", "retro_cga", "retro_mono"]  # look kits the showcase cycles with L (the retro looks, #360)
 style_version = 1
 
 [lint]

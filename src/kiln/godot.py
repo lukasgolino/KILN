@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TypeAlias
 
 from kiln.export import GLOW_ALBEDO, GLOW_PEAK, glow_peak
+from kiln.post import shader as post_shader
 from kiln.style import FILMIC_WHITE, TOON_DARKEN, Look, Style
 
 TOON_SHADER = """shader_type spatial;
@@ -713,7 +714,8 @@ AMBIENT_REF = 0.9
 
 
 def look_scene(style: Style) -> str:
-    """`looks/<style>.tscn`: WorldEnvironment (sky, tonemapper, SSAO, glow, grading, fog) + the sun."""
+    """`looks/<style>.tscn`: WorldEnvironment (sky, tonemapper, SSAO, glow, grading, fog) + the sun (+ the retro pass:
+    a CanvasLayer over the game, so the look kit must be in the scene for it to show)."""
     look: Look = style.look
     env = [
         '[sub_resource type="ProceduralSkyMaterial" id="Sky_material"]',
@@ -753,6 +755,15 @@ def look_scene(style: Style) -> str:
         "\t\tshadow_enabled = false",
         '"',
     ] if look.shadows and not look.compat_shadows else []
+    if look.post:  # the retro pass (#358): a full-screen canvas shader over the game
+        env += [
+            "",
+            '[sub_resource type="Shader" id="Shader_post"]',
+            f"code = {_quote(post_shader(look))}",
+            "",
+            '[sub_resource type="ShaderMaterial" id="ShaderMaterial_post"]',
+            'shader = SubResource("Shader_post")',
+        ]
     nodes = [
         "",
         f'[node name={_quote("look_" + style.name)} type="Node3D"]',
@@ -777,6 +788,21 @@ def look_scene(style: Style) -> str:
             "",
         ] if look.fill_energy > 0 else []),
     ]
+    if look.post:
+        nodes += [
+            '[node name="Retro" type="CanvasLayer" parent="."]',
+            "layer = 100",
+            "",
+            '[node name="Pass" type="ColorRect" parent="Retro"]',
+            'material = SubResource("ShaderMaterial_post")',
+            "anchors_preset = 15",
+            "anchor_right = 1.0",
+            "anchor_bottom = 1.0",
+            "grow_horizontal = 2",
+            "grow_vertical = 2",
+            "mouse_filter = 2",  # never takes the game's clicks
+            "",
+        ]
     return "\n".join(["[gd_scene format=3]", "", *env, *nodes])
 
 

@@ -48,6 +48,7 @@ atlas = false                  # true: one material per model from small palette
 atlas_ao = false               # true or a strength 0..1 (with atlas): ambient occlusion baked into the vertex colours (normal_map models too)
 godot_bonemap = false          # true: humanoids get models/<name>.bonemap.tres in their glb's .import; Godot RENAMES
                                #   their bones to SkeletonProfileHumanoid's (see Humanoids)
+looks = []                     # more look kits to build (looks/<style>.tscn), e.g. ["retro_st", "retro_cga"]: a game switching looks
 [lint]
 disable = ["W106"]
 ```

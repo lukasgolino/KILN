@@ -109,6 +109,19 @@ def _init_output(root: Path, godot: Path | None) -> tuple[str, tuple[str, ...], 
     return rel, ("glb", "godot"), True
 
 
+def _init_palette(style_name: str) -> str:
+    """palettes/main.pal.yaml: the starter, or for a retro style (#360) its post palette's colours, so models paint with
+    colours the screen can show."""
+    from kiln.notation import library_dir
+    from kiln.style import load_style
+
+    style, _ = load_style(style_name)
+    if style is None or not style.look.post:
+        return _template("main.pal.yaml")
+    text = (library_dir() / f"{style.look.post_palette}.pal.yaml").read_text(encoding="utf-8")
+    return re.sub(r"^name: .*$", "name: main", text, count=1, flags=re.MULTILINE)
+
+
 def cmd_init(args: argparse.Namespace, out: Output) -> int:
     root = Path(args.dir).resolve()
     if (root / CONFIG_NAME).exists():
@@ -126,7 +139,7 @@ def cmd_init(args: argparse.Namespace, out: Output) -> int:
               "output_note": "the Godot project's assets/kiln: Godot imports it" if inside else 'put this inside your Godot project, e.g. "../game/assets/kiln"',
               "export_note": "glb + Godot scenes and look kits" if "godot" in export else 'add "godot" for .tscn scenes + look kits (output_dir must be in a Godot project)'}
     (root / CONFIG_NAME).write_text(Template(_template("kiln.toml")).safe_substitute(values), encoding="utf-8")
-    (root / "palettes" / "main.pal.yaml").write_text(_template("main.pal.yaml"), encoding="utf-8")
+    (root / "palettes" / "main.pal.yaml").write_text(_init_palette(args.style), encoding="utf-8")
     for doc in ("BRIEF.md", "STYLE.md"):
         if not (root / doc).exists():
             (root / doc).write_text(Template(_template(doc)).safe_substitute(values), encoding="utf-8")
@@ -549,6 +562,9 @@ def _stamp_drafts(outputs: Any) -> None:
 
 def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     from kiln import preview as pv
+    from kiln import render as rd
+
+    rd.POST = not args.no_post
 
     project = load_project(start=Path(args.model) if Path(args.model).suffix == ".yaml" else None)
     terrain = _terrain_preview(project, args, out)
@@ -1515,6 +1531,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--at", metavar="T,T,...", help="with --effect: a contact sheet at these times (seconds) instead of 8 evenly spaced frames")
     s.add_argument("--frame", metavar="N,N,...", help="with --pose: only these frames (e.g. one, up close with --size)")
     s.add_argument("--engine", action="store_true", help="render through Godot, offscreen (needs a build; Linux: xvfb); --views/--pitch/--size pick its views")
+    s.add_argument("--no-post", action="store_true", help="without the style's retro pass ([look] post): the shapes and colours under it")
     s.add_argument("--variant")
     s.add_argument("--with", dest="with_", metavar="MODELS", help="other models shown with it, in their shared frame (each at its mount: if it mounts on this one)")
     s.add_argument("--variants", action="store_true", help="every variant side by side in one sheet (a row each; --views and --pitch pick the views)")

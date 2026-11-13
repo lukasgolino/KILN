@@ -77,6 +77,38 @@ def posed(built: Built, track: int | None, frame: int) -> tuple[Array, Array]:
     return out, nrm
 
 
+POST = True  # previews draw the style's retro pass ([look] post); `kiln preview --no-post` turns it off
+
+
+def render(
+    built: Built,
+    view: View,
+    size: int = 384,
+    track: int | None = None,
+    frame: int = 0,
+    swap: dict[str, str] | None = None,
+    fit: tuple[Array, float] | None = None,
+    background: tuple[int, int, int, int] = (0, 0, 0, 0),
+    hide: frozenset[str] = frozenset(),
+    fade: Array | None = None,
+    colors: Array | None = None,
+    fill: float = 0.0,
+    opaque: bool = False,
+    post: bool | None = None,
+) -> Image.Image:
+    """One view (see `_render`), through the style's retro pass ([look] post = "retro", #359) as the look kit draws it
+    on a screen this size: the tile is the whole screen, `post_lines` tall. `post`: None = the module's POST."""
+    image = _render(built, view, size, track, frame, swap, fit, background, hide, fade, colors, fill, opaque)
+    look = built.style.look
+    if not (look.post and look.post_colors and (POST if post is None else post)):
+        return image
+    from kiln.post import retro
+
+    rgba = np.asarray(image).astype(np.float64) / 255
+    out = retro(rgba, look)
+    return Image.fromarray((out * 255 + 0.5).astype(np.uint8), "RGBA")
+
+
 def _filmic(x: Array) -> Array:
     """Godot's Filmic tonemapper (Hable's curve with its exposure bias of 2) at white = FILMIC_WHITE."""
     a, b, c, d, e, f = 0.22, 0.30, 0.10, 0.20, 0.01, 0.30
@@ -121,7 +153,7 @@ def with_unrevealed(built: Built, hide: frozenset[str] = frozenset()) -> frozens
     return hide | waiting
 
 
-def render(
+def _render(
     built: Built,
     view: View,
     size: int = 384,
@@ -141,7 +173,7 @@ def render(
     are left out too, as in the exported scenes, unless a part that reveals them is hidden. `fade`: an opacity per face
     (0..1), drawn as ordered (Bayer 4x4) dithering at the output's pixel scale: what's behind shows through the holes,
     and outlines leave them alone. `colors`: a linear albedo per face corner (F, 3, 3) instead of the paint groups'
-    colours (terrains: blended splat layers)."""
+    colours (terrains: blended splat layers). Without the style's retro pass (see `render`)."""
     hide = with_unrevealed(built, hide)
     mapped_shade_all = None
     if built.bake is not None and built.bake.layers is not None:
@@ -158,8 +190,8 @@ def render(
         glass = face_alpha < 1
         kw = {"size": size, "track": track, "frame": frame, "swap": swap, "fit": fit, "background": background, "hide": hide, "colors": colors, "fill": fill,
               "opaque": True}
-        behind = np.asarray(render(built, view, fade=np.where(glass, 0.0, 1.0), **kw)).astype(np.float64)  # type: ignore[arg-type]
-        front = np.asarray(render(built, view, fade=np.ones(len(face_alpha)), **kw)).astype(np.float64)  # type: ignore[arg-type]
+        behind = np.asarray(_render(built, view, fade=np.where(glass, 0.0, 1.0), **kw)).astype(np.float64)  # type: ignore[arg-type]
+        front = np.asarray(_render(built, view, fade=np.ones(len(face_alpha)), **kw)).astype(np.float64)  # type: ignore[arg-type]
         a = float(face_alpha[glass].mean())
         shows = np.abs(front - behind).sum(axis=2, keepdims=True) > 0  # where the glass is what's in front
         mixed = np.where(shows, behind * (1 - a) + front * a, behind)
