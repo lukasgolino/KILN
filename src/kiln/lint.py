@@ -65,6 +65,7 @@ WARNING_RULES = {
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
     "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
     "W138": "a part's emission is above the cap for its colour in this look: the extra strength changes nothing",
+    "W140": "a mirrored part blends into one side of a mirror_id pair: its other half meets the other side crisply",
     "W139": "the triangle budget took bevels off hard parts (they became plain edges)",
     "W137": "a pixel-art texture or decal has colours off the palette: the model's variants can't swap them",
     "W136": "a pattern paints nothing: it misses the part's surface (a band's `at` or a pixel strip's place)",
@@ -530,6 +531,22 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
     return out
 
 
+def one_sided_blends(model: Model) -> list[Finding]:
+    """W140 (#252): a part with a plain `mirror` (both halves one part) whose blend_to names one side of a mirror_id pair
+    (arm_l): its mirrored half meets the other side (arm_r) crisply."""
+    twins = {p.twin_of: p.id for p in model.parts if p.twin_of is not None}
+    out = []
+    for part in model.parts:
+        if not part.geometry.mirror or part.twin_of is not None or not part.blend_to:
+            continue
+        missing = sorted(twins[n] for n in part.blend_to if n in twins and twins[n] not in part.blend_to)
+        if missing:
+            out.append(Finding("W140", f"{part_name(part)} is mirrored in one part but blends into {', '.join(n for n in part.blend_to if n in twins)} "
+                               f"only: its other half meets {', '.join(missing)} crisply; add {', '.join(missing)} to blend_to, or give it a mirror_id",
+                               model.path, part.line, f"{part.where}.blend_to"))  # fmt: skip
+    return out
+
+
 def glow_caps(model: Model, style: Style) -> list[Finding]:
     """W138 (#290): a glowing part's strength above its colour's cap in this look (export.glow_peak) does nothing."""
     from kiln.export import glow_peak, srgb_to_linear
@@ -689,6 +706,7 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
             keep += variant_warnings(model, palette)
             keep += off_palette(model, palette)
             keep += glow_caps(model, style)
+            keep += one_sided_blends(model)
             if model.vertex_fades and not project.config.vertex_colors:  # #262
                 first = next((p for p in model.parts if p.color_blend > 0), None)
                 keep.append(Finding("W134", "color_blend fades per vertex here (the model has no baked maps"

@@ -8,6 +8,7 @@ before 1.0).
 
 ### Added
 
+- Lint W140: a part mirrored in one piece whose `blend_to` names one side of a mirror_id pair (#252).
 - `kiln style check [style]`: each palette colour as the look lights it beside its hex, with its hue and lightness
   shift, and a swatch sheet (#336).
 - `kiln examples [name]`: the worked example models (the demo's) ship with KILN and print from the CLI; the docs

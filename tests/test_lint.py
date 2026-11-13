@@ -373,3 +373,14 @@ def test_warnings_name_parts_as_written_and_group_lost_ones(project: Project) ->
         lines = [f for f in found if f.rule == rule]
         assert len(lines) <= 1, (rule, len(lines))
     assert any("more lock parts like it" in f.message for f in found), [f.format() for f in found]
+
+
+def test_w140_mirrored_part_blending_into_one_side(project: Project) -> None:
+    """#252: a plain-mirrored part whose blend_to names arm_l (twin arm_r) gets W140 naming arm_r."""
+    text = ("name: thing\nparts:\n  - capsule: { from: [0.3, 1, 0], to: [0.6, 1, 0], radius: 0.05 }\n    id: arm_l\n    color: red\n    mirror: x\n"
+            "    mirror_id: arm_r\n  - sphere: { at: [0.62, 1, 0], radius: 0.06 }\n    color: red\n    mirror: x\n    blend: 0.02\n    blend_to: [arm_l]\n")  # fmt: skip
+    found = lint_paths(project, [write_model(project, text)], geometry=False).findings
+    w = [f for f in found if f.rule == "W140"]
+    assert w and "arm_r" in w[0].message, [f.format() for f in found]
+    fixed = lint_paths(project, [write_model(project, text.replace("blend_to: [arm_l]", "blend_to: [arm_l, arm_r]"))], geometry=False).findings
+    assert "W140" not in [f.rule for f in fixed]
