@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Windows exe of the retro room: godot/build/RetroRoom.exe (PCK embedded). Rebuilds the art first (kiln build).
-# Usage: export.sh [tag]   with a tag, also copies it to D:\cernbox\Documents\GMT\RetroRoom-<tag>-<shorthash>.exe
+# Usage: export.sh [label]   with a play-test label (e.g. the KILN version it was built with), also copies it to
+#   D:\cernbox\Documents\GMT\RetroRoom-<label>-<shorthash>.exe; only from a clean tree (the hash names the commit)
 # SKIP_ART=1 skips the art build and exports whatever godot/assets/kiln holds.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,7 +11,11 @@ export DISPLAY=  # never a window: everything below runs headless
 LOG="$(mktemp)"
 trap 'rm -f "$LOG"' EXIT
 hash="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-[ -z "$(git -C "$REPO" status --porcelain -- examples/retro_room src 2>/dev/null)" ] || hash="$hash-dirty"
+dirty="$(git -C "$REPO" status --porcelain 2>/dev/null)"
+[ -z "$dirty" ] || hash="$hash-dirty"
+if [ -n "${1:-}" ] && [ -n "$dirty" ]; then  # a play-test build names its commit: only from a clean tree
+	echo "refusing to copy a play-test build from a dirty tree (commit or stash first):"; echo "$dirty"; exit 1
+fi
 if [ -z "${SKIP_ART:-}" ]; then
 	(cd "$HERE/art" && "$REPO/.venv/bin/kiln" build)
 fi

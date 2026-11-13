@@ -21,15 +21,19 @@ parts:
   - box: { at: [-0.6, 0.72, 1.9], size: [0.3, 0.14, 0.04] }
     color: gold
     material: glow
+    emission: 0.75
   - box: { at: [0.6, 0.72, 1.9], size: [0.3, 0.14, 0.04] }
     color: gold
     material: glow
+    emission: 0.75
   - box: { at: [-0.6, 0.72, -1.9], size: [0.3, 0.14, 0.04] }
     color: blood
     material: glow
+    emission: 0.75
   - box: { at: [0.6, 0.72, -1.9], size: [0.3, 0.14, 0.04] }
     color: blood
     material: glow
+    emission: 0.75
   - cylinder: { at: [-0.82, 0.32, 1.2], radius: 0.32, height: 0.24, rotate: [0, 0, 90], sides: 12 }
     color: black
     material: rubber

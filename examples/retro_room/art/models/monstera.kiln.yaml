@@ -18,19 +18,19 @@ parts:
     color: pine
   - tube: { points: [[0.07, 0.25, -0.07], [0.1, 0.6, -0.05], [0.35, 0.8, -0.15]], smooth: true, radius: 0.025, sides: 6 }
     color: pine
-  - lock: { points: [[0.22, 1.02, 0.18], [0.4, 1.12, 0.35], [0.52, 1.0, 0.5]], width: 0.34, width_to: 0.04, thickness: 0.05, facing: [0, 1, 0.3], smooth: true }
+  - lock: { points: [[0.22, 1.02, 0.18], [0.4, 1.12, 0.35], [0.52, 1.0, 0.5]], width: 0.34, width_to: 0.04, thickness: 0.06, facing: [0, 1, 0.3], smooth: true }
     color: leaf
     material: leaf
-  - lock: { points: [[-0.27, 1.12, -0.04], [-0.48, 1.25, -0.08], [-0.65, 1.12, -0.12]], width: 0.36, width_to: 0.04, thickness: 0.05, facing: [0, 1, 0], smooth: true }
+  - lock: { points: [[-0.27, 1.12, -0.04], [-0.48, 1.25, -0.08], [-0.65, 1.12, -0.12]], width: 0.36, width_to: 0.04, thickness: 0.06, facing: [0, 1, 0], smooth: true }
     color: grass
     material: leaf
-  - lock: { points: [[0.05, 1.22, -0.28], [0.08, 1.4, -0.48], [0.1, 1.3, -0.68]], width: 0.38, width_to: 0.05, thickness: 0.05, facing: [0, 1, -0.3], smooth: true }
+  - lock: { points: [[0.05, 1.22, -0.28], [0.08, 1.4, -0.48], [0.1, 1.3, -0.68]], width: 0.38, width_to: 0.05, thickness: 0.06, facing: [0, 1, -0.3], smooth: true }
     color: leaf
     material: leaf
-  - lock: { points: [[-0.18, 0.83, 0.3], [-0.3, 0.92, 0.48], [-0.4, 0.82, 0.62]], width: 0.3, width_to: 0.04, thickness: 0.05, facing: [0, 1, 0.4], smooth: true }
+  - lock: { points: [[-0.18, 0.83, 0.3], [-0.3, 0.92, 0.48], [-0.4, 0.82, 0.62]], width: 0.3, width_to: 0.04, thickness: 0.06, facing: [0, 1, 0.4], smooth: true }
     color: grass
     material: leaf
-  - lock: { points: [[0.33, 0.78, -0.14], [0.52, 0.86, -0.22], [0.66, 0.76, -0.28]], width: 0.3, width_to: 0.04, thickness: 0.05, facing: [0.2, 1, 0], smooth: true }
+  - lock: { points: [[0.33, 0.78, -0.14], [0.52, 0.86, -0.22], [0.66, 0.76, -0.28]], width: 0.3, width_to: 0.04, thickness: 0.06, facing: [0.2, 1, 0], smooth: true }
     color: leaf
     material: leaf
   - box: { at: [0.42, 1.08, 0.4], size: [0.24, 0.12, 0.03], rotate: [0, -45, 0] }
