@@ -58,7 +58,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `cut: [case, lid]` | cuts only the parts with these ids (`cut: lid`: one); those parts are then meshed as their own surface (crisp against the rest), so the pad under a watch case or a tray's screws stay whole |
 | `cut: true` + `color: black` | the walls the cut makes are painted (an inked groove, a clasp's lid line, panel lines; `material:` too); the surface round it keeps its colour. Not in `--draft` |
 | `intersect: true` | keep only what's inside this shape (trim) |
-| `mirror: x` | also on the other side of 0 (x, y, z or a list); same id |
+| `mirror: x` | also on the other side of 0 (x, y, z or a list); same id. Write the part on either side |
 | `mirror_id: arm_r` | with `mirror: x`: the copy is a separate part with this id (rig entries are mirrored too) |
 | `array: { count: 4, step: [1, 0, 0] }` | repeat in a row |
 | `array: { count: 8, around: y, center: [0, 0, 0], angle: 360 }` | repeat in a ring (`around` may be any direction `[x, y, z]`: a ring on a tilted wheel). The first copy is the part as written; the others turn about `around` through `center`, counter-clockwise seen from the tip of `around` (right-handed: +90 degrees about y takes +z to +x), and each copy is turned with the ring, not only moved (it faces outwards as the first does, also on a tilted axis). `angle` under 360 is an arc from the part as written to `angle`, both ends included (count - 1 gaps); negative runs clockwise. A fringe across the back only: write the first tuft at one end, e.g. at `[0.1, y, -0.1]` (the model's left is +x, its back -z), and give the arc's span: `angle: 90` ends at `[-0.1, y, -0.1]`. A full ring's count spreads evenly (no copy at 360) |

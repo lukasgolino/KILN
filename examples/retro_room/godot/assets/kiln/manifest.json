@@ -24,7 +24,7 @@
     "manifest.json"
   ],
   "front": "+Z",
-  "generator": "kiln 0.33.0",
+  "generator": "kiln 0.33.1",
   "looks": {
     "retro_cga": "res://assets/kiln/looks/retro_cga.tscn",
     "retro_mono": "res://assets/kiln/looks/retro_mono.tscn",

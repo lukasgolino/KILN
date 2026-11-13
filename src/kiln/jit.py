@@ -125,9 +125,10 @@ def pack(g: Geometry) -> Packed:
     if cached is not None:
         return cached
     prm, pts, aux = _pack_shape(g)
-    mirror = np.zeros(3)
+    mirror = np.zeros(3)  # 0 = not folded, else the side folded onto (sdf.Geometry.mirror_sides)
+    sides = g.mirror_sides() if g.mirror else np.ones(3)
     for axis in g.mirror:
-        mirror[axis] = 1.0
+        mirror[axis] = sides[axis]
     crot = np.stack([c.rotation for c in g.copies]).astype(float)
     cpiv = np.stack([c.pivot for c in g.copies]).astype(float)
     coff = np.stack([c.offset for c in g.copies]).astype(float)
@@ -427,11 +428,11 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
         pts = pts_all[pts_off[i] : pts_off[i + 1]]
         aux = aux_all[pts_off[i] : pts_off[i + 1]]
         if mirror[i, 0] != 0.0:
-            x = abs(x)
+            x = mirror[i, 0] * abs(x)
         if mirror[i, 1] != 0.0:
-            y = abs(y)
+            y = mirror[i, 1] * abs(y)
         if mirror[i, 2] != 0.0:
-            z = abs(z)
+            z = mirror[i, 2] * abs(z)
         sh, s_in, oa = shell[i], shell_in[i], open_axis[i]
         shrink = min(scale[i, 0], min(scale[i, 1], scale[i, 2])) if has_scale[i] else 1.0
         best = math.inf

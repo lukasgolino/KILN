@@ -684,8 +684,9 @@ class Geometry:
             return jit.distance(self, p, filled)
         if self.mirror:
             p = p.copy()
-            for axis in self.mirror:
-                p[:, axis] = np.abs(p[:, axis])
+            sides = self.mirror_sides()
+            for axis in self.mirror:  # folded onto the side the part is on (#363: a part left of 0 was folded away)
+                p[:, axis] = sides[axis] * np.abs(p[:, axis])
         fn = SHAPES[self.shape].fn
         best = np.full(len(p), np.inf)
         for copy in self.copies:
@@ -719,8 +720,15 @@ class Geometry:
             return d
         return np.maximum(d, -d - self.shell) if self.shell_side == "in" else np.abs(d) - self.shell
 
-    def bounds(self) -> tuple[Array, Array]:
-        """World bounding box (expanded for noise/twist), mirror and copies included."""
+    def mirror_sides(self) -> Array:
+        """(3,) +1 or -1 per axis: the side of 0 the unmirrored part's box centre is on (+1 at 0). A mirror folds space
+        onto that side, so a part written left of 0 mirrors to the right as one written right of 0 mirrors left."""
+        points = self._placed_corners()
+        centre = (points.min(axis=0) + points.max(axis=0)) / 2
+        return np.where(centre < 0, -1.0, 1.0)
+
+    def _placed_corners(self) -> Array:
+        """The shape's box corners in world space, every copy, before the mirror."""
         lo, hi = SHAPES[self.shape].bounds(self.params)
         if self.scale is not None:
             lo, hi = lo * self.scale, hi * self.scale
@@ -731,7 +739,11 @@ class Geometry:
         if self.rotation is not None:
             corners = corners @ self.rotation.T
         corners = corners + self.at
-        points = np.concatenate([copy.to_world(corners) for copy in self.copies])
+        return np.concatenate([copy.to_world(corners) for copy in self.copies])
+
+    def bounds(self) -> tuple[Array, Array]:
+        """World bounding box (expanded for noise/twist), mirror and copies included."""
+        points = self._placed_corners()
         for axis in self.mirror:
             flipped = points.copy()
             flipped[:, axis] = -flipped[:, axis]

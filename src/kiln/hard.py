@@ -1013,12 +1013,15 @@ def _union_all(solids: list[Solid]) -> Solid:
     return out
 
 
-def _halfspace(axis: int, lo: Array, hi: Array, tag: int) -> Solid:
-    """A box covering [lo, hi] but only the positive side of `axis` (for mirror folds)."""
-    lo2 = lo.copy()
-    lo2[axis] = 0.0
-    size = np.maximum(hi - lo2, 1e-6)
-    centre = (hi + lo2) / 2
+def _halfspace(axis: int, lo: Array, hi: Array, tag: int, side: float = 1.0) -> Solid:
+    """A box covering [lo, hi] but only one side of `axis` (side > 0: positive; for mirror folds)."""
+    lo2, hi2 = lo.copy(), hi.copy()
+    if side > 0:
+        lo2[axis] = 0.0
+    else:
+        hi2[axis] = 0.0
+    size = np.maximum(hi2 - lo2, 1e-6)
+    centre = (hi2 + lo2) / 2
     faces = convex(*_planes_box(size))
     return _place([[(float(x), float(y), float(z)) for x, y, z in pts] for pts, _ in faces], np.eye(3), centre, tag)
 
@@ -1093,10 +1096,12 @@ def solid(g: Geometry, spec: HardSpec, tag: int) -> Solid:
             moved = [[(float(x), float(y), float(z)) for x, y, z in c.to_world(np.array(poly.points))] for poly in placed]
             copies.append([q for q in (polygon(pts, tag) for pts in moved) if q])
     out = _union_all(copies) if len(copies) > 1 else copies[0]
-    for axis in g.mirror:
+    fold_sides = g.mirror_sides() if g.mirror else None
+    for axis in g.mirror:  # the half on the part's own side, and its mirror image (#363: a part left of 0 was cut away)
         lo, hi = _box(out)
         span = np.maximum(np.abs(lo), np.abs(hi)) + 1.0
-        half = intersect(out, _halfspace(axis, -span, span, tag))
+        assert fold_sides is not None
+        half = intersect(out, _halfspace(axis, -span, span, tag, float(fold_sides[axis])))
         flip = np.eye(3)
         flip[axis, axis] = -1.0
         mirrored = _place([list(poly.points) for poly in half], flip, np.zeros(3), tag)
