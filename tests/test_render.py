@@ -158,3 +158,15 @@ def test_preview_shows_a_texture(project: Project) -> None:
     img = np.asarray(render(built_of(project, text), View(0.0, 0.0), 64).convert("RGB")).astype(int)
     r, g, b = img[32, 32]
     assert b > r + 40
+
+
+def test_tone_curves_differ_in_previews() -> None:
+    """#337: agx and aces no longer render as filmic in previews."""
+    import numpy as np
+
+    from kiln.render import _aces, _agx, _filmic
+
+    c = np.array([[0.05, 0.2, 0.8], [2.0, 0.5, 0.1], [0.5, 0.5, 0.5]])
+    f, a, x = _filmic(c), _aces(c), _agx(c)
+    assert not np.allclose(f, x, atol=0.01) and not np.allclose(f, a, atol=0.01)
+    assert (x >= 0).all() and (x <= 1).all() and x[1].std() < c[1].std()  # agx pulls a bright colour toward grey

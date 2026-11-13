@@ -57,7 +57,7 @@ toon_shadows = "soft"          # toon: soft = Godot's received shadows; band = t
 outline = 0.0                  # metres (toon outlines), 0 = none; pixels with outline_space = "pixels" (e.g. 2)
 outline_color = "#1a1420"      # or "darken": each part's own colour, darkened
 outline_space = "metres"       # metres: a shell that thins with distance; pixels: constant thickness on screen
-tonemapper = "filmic"          # linear | filmic | aces | agx
+tonemapper = "filmic"          # linear | filmic | aces | agx (previews match filmic exactly; aces and agx closely)
 exposure = 1.0
 saturation = 1.15
 contrast = 1.0

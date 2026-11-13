@@ -87,6 +87,29 @@ def _filmic(x: Array) -> Array:
     return curve(x * 2.0) / curve(np.array(FILMIC_WHITE * 2.0))
 
 
+def _aces(x: Array) -> Array:
+    """An ACES fit (Narkowicz), normalised at the look kit's white: the previews' stand-in for Godot's ACES (#337)."""
+    def curve(v: Array) -> Array:
+        return (v * (2.51 * v + 0.03)) / (v * (2.43 * v + 0.59) + 0.14)
+
+    return np.asarray(np.clip(curve(np.maximum(x, 0.0)) / curve(np.array(FILMIC_WHITE)), 0.0, 1.0))
+
+
+AGX_INSET = np.array([[0.842479062253094, 0.0423282422610123, 0.0423756549057051],
+                      [0.0784335999999992, 0.878468636469772, 0.0784336],
+                      [0.0792237451477643, 0.0791661274605434, 0.879142973793104]])  # fmt: skip
+
+
+def _agx(x: Array) -> Array:
+    """AgX (Troy Sobotka's, in the usual polynomial fit): colours pulled toward grey as they brighten, a soft
+    shoulder; the previews' stand-in for Godot's AgX, so it no longer renders as filmic (#337). Linear in and out."""
+    v = np.maximum(x, 1e-10) @ AGX_INSET
+    lo, hi = -12.47393, 4.026069
+    t = np.clip((np.log2(v) - lo) / (hi - lo), 0.0, 1.0)
+    d = 15.5 * t**6 - 40.14 * t**5 + 31.96 * t**4 - 6.868 * t**3 + 0.4298 * t**2 + 0.1191 * t - 0.00232
+    return np.asarray(np.clip(d, 0.0, 1.0) ** 2.2)  # the fit's output is display-referred: back to linear for the rest
+
+
 def _to_srgb(x: Array) -> Array:
     x = np.clip(x, 0.0, 1.0)
     return np.where(x <= 0.0031308, x * 12.92, 1.055 * np.power(x, 1 / 2.4) - 0.055)
@@ -357,7 +380,8 @@ def _grade(color: Array, look: Look) -> Array:
     """Linear colours (N, 3) through the look's exposure, tone curve, saturation and contrast, as Godot's
     environment does to everything drawn (the unshaded outline too)."""
     color = color * look.exposure
-    color = _filmic(color) if look.tonemapper != "linear" else color
+    curve = {"filmic": _filmic, "aces": _aces, "agx": _agx}.get(look.tonemapper)
+    color = curve(color) if curve is not None else color
     lum = (color * np.array([0.2126, 0.7152, 0.0722])).sum(axis=1, keepdims=True)
     color = lum + (color - lum) * look.saturation
     return (color - 0.18) * look.contrast + 0.18
