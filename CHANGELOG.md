@@ -8,6 +8,13 @@ before 1.0).
 
 ### Added
 
+- Retro pass settings are live (#365): every setting is a shader uniform starting at the style's values, and the look
+  kit's `Retro` node has a runtime API (`set_enabled`, `set_lines`, `set_pixel_aspect`, `set_strength`, `set_pattern`,
+  `set_palette` with 1-16 colours, `get_settings`). The shader text is the same for every look; the material holds
+  the settings.
+- Dither patterns `halftone`, `lines`, `hatch` and `noise` (#366), in Godot and in previews; halftone and hatch are
+  ranked tiles like Bayer's, so every tone fills exactly its share.
+
 - `examples/retro_room/` (#362): a walkable Godot room with nine models on pedestals; 1 / 2 / 3 switch the Atari ST
   colour, CGA and ST mono looks (Tab cycles). `export.sh` builds a Windows exe. CI runs its headless check.
 

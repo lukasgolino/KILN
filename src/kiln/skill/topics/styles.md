@@ -88,7 +88,7 @@ post = ""                      # "retro": a low-res, fixed-palette, dithered scr
 post_lines = 200               # retro: vertical resolution (200: CGA / Atari ST; 400: ST mono)
 pixel_aspect = 0.8333          # retro: pixel width / height (320x200 on a 4:3 screen: 5/6; 640x400: 1.0)
 post_palette = "cga"           # retro: the palette every pixel is snapped to (palettes/ or KILN's library), at most 16 colours
-dither = "bayer4"              # retro: bayer4 | bayer8 | none
+dither = "bayer4"              # retro: bayer4 | bayer8 | none | halftone | lines | hatch | noise
 dither_strength = 1.0          # retro: 0 (nearest colour only) to 1 (full ordered dithering)
 
 [shade]                        # shade paint baked into the vertex colours (off by default; each 0 to 0.9)
@@ -166,8 +166,13 @@ light falls into a few clean dither patterns. `kiln init --style retro_cga` writ
   `rendering/viewport/hdr_2d` off (Godot's default): the pass reads the screen as sRGB.
 - Previews draw the same pass, treating each tile as a screen `post_lines` tall; `kiln preview --no-post` shows what's
   under it. `--engine` renders through the real shader (its background comes out black: a game's screen is opaque).
-- Method, per low-res pixel: one sample at its centre, the two nearest palette colours, and a Bayer threshold
-  choosing between them by how far the colour lies from the first to the second.
+- Method, per low-res pixel: one sample at its centre, the two nearest palette colours, and the pattern's threshold
+  choosing between them by how far the colour lies from the first to the second. Patterns: `bayer4`, `bayer8` (fine
+  ordered dither), `halftone` (round dots on a 45-degree grid), `lines` (horizontal bands), `hatch` (diagonal lines,
+  crossing as it darkens), `noise` (blue-noise-like), `none` (flat posterised colours).
+- Runtime: every setting is a shader uniform, and the look kit's `Retro` node is the API: `set_enabled(false)` shows
+  the plain render, `set_lines`, `set_pixel_aspect`, `set_strength`, `set_pattern("hatch")`,
+  `set_palette(PackedColorArray)` (1-16 colours), `get_settings()`. Each kit instance has its own material.
 - Your own palette: copy `cga.pal.yaml`, `atari_st.pal.yaml` or `st_mono.pal.yaml` from KILN's library (they carry
   PAGAN's `hardware:`, so `pagan lint` keeps edits legal), and set `post_palette` in a project style that extends a
   retro preset. A hardware palette's colours are checked when KILN loads it (E004 names the nearest legal colour).
