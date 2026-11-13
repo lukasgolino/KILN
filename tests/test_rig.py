@@ -125,7 +125,7 @@ def test_cycles_expand_to_poses(project: Project, cycle: str) -> None:
     assert changing, cycle
     expected = {"walk": {"leg_l", "leg_r", "arm_l", "arm_r", "root"}, "waddle": {"leg_l", "leg_r", "root"}, "wave": {"arm_r"},
                 "run": {"leg_l", "leg_r", "arm_l", "arm_r", "root"}, "sneak": {"leg_l", "leg_r", "arm_l", "arm_r", "root"},
-                "chain": set(model.ids) - {"root"}}
+                "chain": set(model.ids) - {"root"}, "idle": {"root", "head"}}
     if cycle in ("hop", "bob", "spin", "swing", "breathe"):
         assert moved == {"head"}
     else:

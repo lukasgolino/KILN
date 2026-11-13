@@ -98,7 +98,7 @@ def test_part_lost_in_decimation_is_w111(project: Project, monkeypatch: pytest.M
     assert built.lost == (1,) and built.hidden == ()
     from kiln.lint import geometry_warnings
 
-    assert [f.rule for f in geometry_warnings(built, {}, project)].count("W111") == 1
+    assert [f.rule for f in geometry_warnings(built, {}, project)].count("E016") == 1  # a whole pole gone: an error (#324)
 
 
 def test_lod_missing_its_target_is_w112(project: Project) -> None:

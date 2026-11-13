@@ -92,7 +92,8 @@ class LintResult:
 
 
 GROUND_DIP = 0.002  # W123: metres below y = 0 a grounded model's built mesh may reach unremarked (or a tenth of a cell)
-LOST_SHARE = 0.1  # E016: a lost part bigger than this share of the model (its box's diagonal) breaks it
+LOST_THICK = 0.02  # E016: and thicker than this share (a lock, a fin or a blade lost to the budget stays W111)
+LOST_SHARE = 0.15  # E016: a lost part bigger than this share of the model (its box's diagonal) breaks it
 CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than asked
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
@@ -194,8 +195,13 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         whole = float(np.linalg.norm(hi_all - lo_all))
         for i in built.lost:
             part = m.parts[i]
-            blo, bhi = part.geometry.bounds()
-            if float(np.linalg.norm(bhi - blo)) > LOST_SHARE * whole:  # a leg, an arm, a head: the model is broken (#324)
+            from dataclasses import replace as _rep
+
+            from kiln.sdf import IDENTITY
+
+            blo, bhi = _rep(part.geometry, mirror=(), copies=(IDENTITY,)).bounds()  # one copy: mirrored eyes aren't one wide part
+            thick = part_thickness(part.geometry)
+            if float(np.linalg.norm(bhi - blo)) > LOST_SHARE * whole and (thick is None or thick > LOST_THICK * whole):  # a leg, a head (#324)
                 warn("E016", f"part {part.index} ({part.geometry.shape}, {part.color_name}) vanished when the mesh was reduced to its triangle "
                      f"budget ({m.budget or built.style.budget(m.cls)}): raise budget:, paint fine patterns into the colour map (paint: map), "
                      "or use fewer cut patterns", part.line, part.where)  # fmt: skip

@@ -518,3 +518,13 @@ def test_no_rig_e007_for_a_part_that_failed() -> None:
                             "    pattern: { type: pixel, color: blue, size: 0.02, rows: [\"#.\"] }\nrig:\n  hat: { pivot: [0, 0, 0] }\n")  # fmt: skip
     rules = [f.rule for f in findings]
     assert "E003" in rules and "E007" not in rules, findings
+
+
+def test_base_places_a_cone_by_its_bottom() -> None:
+    """#332: base: the bottom centre of a cone or cylinder (turned with it), instead of at (its middle)."""
+    model, findings = parse("name: m\nparts:\n  - cone: { base: [0, 1.0, 0], radius: 0.2, radius_top: 0, height: 0.4 }\n    color: red\n"
+                            "  - cylinder: { base: [0, 0, 0], radius: 0.1, height: 0.2, rotate: [90, 0, 0] }\n    color: red\n")  # fmt: skip
+    assert model is not None and not findings, findings
+    assert np.allclose(model.parts[0].geometry.at, [0, 1.2, 0]) and np.allclose(model.parts[1].geometry.at, [0, 0, 0.1])
+    _, findings = parse("name: m\nparts:\n  - sphere: { base: [0, 0, 0], radius: 0.2 }\n    color: red\n")
+    assert any(f.where == "parts[0].sphere.base" for f in findings)

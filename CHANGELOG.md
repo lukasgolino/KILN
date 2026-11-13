@@ -8,6 +8,7 @@ before 1.0).
 
 ### Added
 
+- `base: [x, y, z]` places a cone or cylinder by its bottom centre (turned with it) instead of `at` (#332).
 - `kiln.api.transform(parts, rotate, about, translate, cut_only)` (positions, rotations, aims, array centres, decal
   centres and axes; mirrors written out as pairs; scoped cuts), `kiln.api.surface_point()` on lathes and cones,
   `from_=` for capsules, and a reference with signatures in `kiln docs api` (#172, #206, #346).
@@ -16,8 +17,8 @@ before 1.0).
   specks | scratches | grid | noise`), recoloured by variants (each such variant gets its own glb); lint W137: a
   pixel-art image off the palette on a model with variants. Decals and textures moved to `kiln docs textures` (#325).
 - Patterns painted per texel into the base colour map (`paint: map`; by default pixel and dots patterns of a model
-  that bakes maps), so trims cost no triangles; error E016 when a part a tenth of the model or bigger vanishes to
-  the budget (smaller ones stay W111) (#324).
+  that bakes maps), so trims cost no triangles; error E016 when a substantial part (15% of the model across, not a
+  thin blade) vanishes to the budget (others stay W111) (#324).
 - Lint W136: a band, pixel or stripes pattern that paints nothing on its part; the docs say a pixel band's `at` is
   from the part's own `at` (a lathe's origin) (#326).
 - Motif prints: `texture: { motif: { images, count, scale, rotate, seed } }` scatters multicolour stamps over a

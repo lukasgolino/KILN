@@ -485,6 +485,15 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if not isinstance(spec, dict):
         ctx.error("E003", f"{kind} takes a mapping: {SHAPES[kind].help}", line, swhere)
         return []
+    if "base" in spec:  # (#332) a cone's or cylinder's bottom centre instead of its middle: where a hat or collar sits
+        base, height = _vec(spec.get("base")), spec.get("height", 0)
+        if kind not in ("cone", "cylinder") or base is None or not _num(height) or "at" in spec or "at" in raw or "aim" in spec or "aim" in raw:
+            ctx.error("E003", "base: [x, y, z] places a cone's or cylinder's bottom centre (with its height), instead of at (its middle) or aim",
+                      line, f"{swhere}.base")  # fmt: skip
+            return []
+        spin = _vec(spec.get("rotate", raw.get("rotate", [0, 0, 0]))) or [0.0, 0.0, 0.0]
+        up = rotation_matrix((spin[0], spin[1], spin[2])) @ np.array([0.0, float(height) / 2, 0.0])
+        spec = {**{k: v for k, v in spec.items() if k != "base"}, "at": [round(float(base[i] + up[i]), 6) for i in range(3)]}
     sdef = SHAPES[kind]
     params: dict[str, Any] = dict(sdef.defaults)
     ok = True
