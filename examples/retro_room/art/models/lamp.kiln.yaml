@@ -1,0 +1,23 @@
+name: lamp
+description: an angled desk lamp with a blue shade
+class: prop
+parts:
+  - cylinder: { at: [0, 0.02, 0], radius: 0.1, height: 0.04 }
+    color: sea
+    material: metal
+  - tube: { points: [[0, 0.03, 0], [0.04, 0.3, -0.05]], radius: 0.012 }
+    color: mist
+    material: metal
+  - sphere: { at: [0.04, 0.3, -0.05], radius: 0.022 }
+    color: slate
+    material: metal
+  - tube: { points: [[0.04, 0.3, -0.05], [0.0, 0.5, 0.12]], radius: 0.012 }
+    color: mist
+    material: metal
+  - cone: { aim: [[0.0, 0.5, 0.12], [0.0, 0.38, 0.24]], radius: 0.1, radius_top: 0.04 }
+    color: sea
+    material: metal
+  - sphere: { at: [0.0, 0.38, 0.24], radius: 0.035 }
+    color: gold
+    material: glow
+    emission: 0.75

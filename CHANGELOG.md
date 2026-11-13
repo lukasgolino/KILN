@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- `examples/retro_room/` (#362): a walkable Godot room with nine models on pedestals; 1 / 2 / 3 switch the Atari ST
+  colour, CGA and ST mono looks (Tab cycles). `export.sh` builds a Windows exe. CI runs its headless check.
+
 ## [0.32.0] - 2026-11-13
 
 Retro looks: 3D that reads as CGA, Atari ST colour or Atari ST mono (milestone 0.32). Existing styles' output is

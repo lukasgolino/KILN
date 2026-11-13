@@ -1,0 +1,29 @@
+name: main
+# KILN's retro looks (retro_cga, retro_st, retro_mono) snap the screen to these colours ([look] post_palette).
+# Your own: copy this file into palettes/ under a new name, edit it (`pagan lint` keeps it legal), set post_palette.
+# Atari ST, 320x200: 16 colours from 512 (3 bits per channel).
+hardware: atari-st
+# Quote keys and hex values: YAML treats an unquoted # as the start of a comment.
+colors:
+  "0": { hex: "#000000", name: black }
+  "1": { hex: "#242449", name: night }
+  "2": { hex: "#49496d", name: slate }
+  "3": { hex: "#9292b6", name: mist }
+  "4": { hex: "#ffffff", name: white }
+  "5": { hex: "#492400", name: earth }
+  "6": { hex: "#924900", name: rust }
+  "7": { hex: "#db9249", name: sand }
+  "8": { hex: "#ffdbb6", name: skin }
+  "9": { hex: "#004900", name: pine }
+  "a": { hex: "#249224", name: grass }
+  "b": { hex: "#92db49", name: leaf }
+  "c": { hex: "#002492", name: sea }
+  "d": { hex: "#2492db", name: sky }
+  "e": { hex: "#920000", name: blood }
+  "f": { hex: "#ffdb00", name: gold }
+ramps:
+  # shadow -> highlight
+  grey: ["0", "1", "2", "3", "4"]
+  warm: ["5", "6", "7", "8"]
+  green: ["9", "a", "b"]
+  blue: ["c", "d"]

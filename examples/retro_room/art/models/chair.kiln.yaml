@@ -1,0 +1,35 @@
+name: chair
+description: a plain wooden kitchen chair with a red seat cushion
+class: prop
+# both sides written out: mirrored parts vanish (#363)
+parts:
+  - box: { at: [0, 0.46, 0], size: [0.46, 0.04, 0.46] }
+    color: rust
+    material: wood
+  - box: { at: [-0.19, 0.22, 0.19], size: [0.05, 0.44, 0.05] }
+    color: earth
+    material: wood
+  - box: { at: [0.19, 0.22, 0.19], size: [0.05, 0.44, 0.05] }
+    color: earth
+    material: wood
+  - box: { at: [-0.19, 0.22, -0.19], size: [0.05, 0.44, 0.05] }
+    color: earth
+    material: wood
+  - box: { at: [0.19, 0.22, -0.19], size: [0.05, 0.44, 0.05] }
+    color: earth
+    material: wood
+  - box: { at: [0, 0.5, 0.01], size: [0.4, 0.05, 0.4], round: 0.02 }
+    color: blood
+    material: fabric
+  - box: { at: [-0.19, 0.7, -0.21], size: [0.05, 0.5, 0.04] }
+    color: earth
+    material: wood
+  - box: { at: [0.19, 0.7, -0.21], size: [0.05, 0.5, 0.04] }
+    color: earth
+    material: wood
+  - box: { at: [0, 0.82, -0.21], size: [0.43, 0.18, 0.03] }
+    color: rust
+    material: wood
+  - box: { at: [0, 0.62, -0.21], size: [0.43, 0.04, 0.03] }
+    color: rust
+    material: wood

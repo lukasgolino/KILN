@@ -1,0 +1,44 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scenes/room.gd" id="1_room"]
+[ext_resource type="Script" path="res://scenes/player.gd" id="2_player"]
+
+[sub_resource type="CapsuleShape3D" id="Capsule_player"]
+radius = 0.3
+height = 1.8
+
+[node name="Room" type="Node3D"]
+script = ExtResource("1_room")
+
+[node name="Player" type="CharacterBody3D" parent="."]
+script = ExtResource("2_player")
+
+[node name="Collider" type="CollisionShape3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("Capsule_player")
+
+[node name="Camera" type="Camera3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+fov = 70.0
+current = true
+
+[node name="Hud" type="CanvasLayer" parent="."]
+layer = 110
+
+[node name="Backing" type="ColorRect" parent="Hud"]
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 720.0
+offset_bottom = 74.0
+mouse_filter = 2
+color = Color(0, 0, 0, 0.8)
+
+[node name="Label" type="Label" parent="Hud"]
+offset_left = 16.0
+offset_top = 12.0
+offset_right = 900.0
+offset_bottom = 70.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 18
