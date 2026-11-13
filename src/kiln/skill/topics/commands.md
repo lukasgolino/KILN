@@ -9,7 +9,7 @@ Every command and its flags.
 `kiln lineup [models] [--pitch DEG]` · `kiln fit <a> <b> [--at X,Y,Z] [--rotate X,Y,Z]` (does b fit a: overlap volume, how deep each goes into the other, the smallest gap, in their shared frame) · `kiln gallery` · `kiln build [models] [--verify-godot] [--no-dependents]` (named models only, and the models placing them: the others keep their last output) · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
 `kiln config show|get|set` · `kiln import <file> --licence L` (.glb/.gltf; .fbx/.blend/.obj with Blender 4.x) · `kiln pack list|add|search|import` · `kiln credits` · `kiln doctor` ·
-`kiln docs [topic...] [--search words]` (these docs: list, print one, find paragraphs) · `kiln skill install` · `kiln mcp`. Every command takes `--json` (before or after the command). `--closeup` takes a part
+`kiln docs [topic...] [--search words]` (these docs: list, print one, find paragraphs) · `kiln examples [name]` (worked example models: list, print one) · `kiln clips [add]` · `kiln skill install` · `kiln mcp`. Every command takes `--json` (before or after the command). `--closeup` takes a part
 id (`root` = parts without one) or a part's number in the file (`--closeup 3`).
 Framing: `--tight` fits each tile to what it shows (flat props), `--frame-box` frames the sheets on a region (a scene's
 corner; both: turntable and `--views` only), `lineup --pitch 60` looks down on flat props (no ground line past 10). `--fill` adds a neutral light from the
