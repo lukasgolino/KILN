@@ -34,6 +34,8 @@ func _init() -> void:
 	if OS.get_environment("KILN_NO_POST") == "1" and kit.has_node("Retro"):  # kiln preview --engine --no-post
 		kit.get_node("Retro").free()
 	_viewport.add_child(kit)
+	if kit.has_node("Retro"):  # world-space dither would paint over the transparent background: stills use screen space
+		kit.get_node("Retro").set_space("screen")
 	_viewport.add_child(load(args[0]).instantiate())
 	_camera = Camera3D.new()
 	_camera.projection = Camera3D.PROJECTION_ORTHOGONAL

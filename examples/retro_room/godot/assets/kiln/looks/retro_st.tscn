@@ -46,6 +46,7 @@ uniform float strength = 1.0;
 uniform int pattern = 0;  // 0 bayer4, 1 bayer8, 2 none, 3 halftone, 4 lines, 5 hatch, 6 noise
 uniform int count = 2;
 uniform vec3 colors[16];
+uniform int space = 0;  // 0 screen, 1 world (the World pass has dithered the frame: snap only)
 
 const float BAYER4[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 const float BAYER8[64] = float[64](0.0, 32.0, 8.0, 40.0, 2.0, 34.0, 10.0, 42.0, 48.0, 16.0, 56.0, 24.0, 50.0, 18.0, 58.0, 26.0, 12.0, 44.0, 4.0, 36.0, 14.0, 46.0, 6.0, 38.0, 60.0, 28.0, 52.0, 20.0, 62.0, 30.0, 54.0, 22.0, 3.0, 35.0, 11.0, 43.0, 1.0, 33.0, 9.0, 41.0, 51.0, 19.0, 59.0, 27.0, 49.0, 17.0, 57.0, 25.0, 15.0, 47.0, 7.0, 39.0, 13.0, 45.0, 5.0, 37.0, 63.0, 31.0, 55.0, 23.0, 61.0, 29.0, 53.0, 21.0);
@@ -81,14 +82,7 @@ float threshold(vec2 cell) {
 	return 1.0;  // none
 }
 
-void fragment() {
-	vec2 screen_px = 1.0 / SCREEN_PIXEL_SIZE;
-	float bh = screen_px.y / min(lines, screen_px.y);  // never under one screen pixel
-	vec2 block = vec2(bh * pixel_aspect, bh);
-	vec2 cell = floor(SCREEN_UV * screen_px / block);
-	vec2 uv = clamp((cell + 0.5) * block / screen_px, vec2(0.0), vec2(1.0));
-	vec4 sampled = texture(screen, uv);
-	vec3 p = sampled.rgb;
+vec3 quantise(vec3 p, float threshold) {
 	int n = clamp(count, 1, 16);
 	int i1 = 0;
 	int i2 = 0;
@@ -107,7 +101,17 @@ void fragment() {
 	vec3 c2 = colors[i2];
 	vec3 span = c2 - c1;
 	float t = n > 1 ? clamp(dot(p - c1, span) / max(dot(span, span), 1e-9), 0.0, 1.0) : 0.0;
-	COLOR = vec4(threshold(cell) < t * strength ? c2 : c1, step(0.5, sampled.a));  // a game's screen is opaque; engine previews keep their transparent background
+	return threshold < t * strength ? c2 : c1;
+}
+
+void fragment() {
+	vec2 screen_px = 1.0 / SCREEN_PIXEL_SIZE;
+	float bh = screen_px.y / min(lines, screen_px.y);  // never under one screen pixel
+	vec2 block = vec2(bh * pixel_aspect, bh);
+	vec2 cell = floor(SCREEN_UV * screen_px / block);
+	vec2 uv = clamp((cell + 0.5) * block / screen_px, vec2(0.0), vec2(1.0));
+	vec4 sampled = texture(screen, uv);
+	COLOR = vec4(quantise(sampled.rgb, space == 1 ? 1.0 : threshold(cell)), step(0.5, sampled.a));  // a game's screen is opaque; engine previews keep their transparent background
 }
 "
 
@@ -120,13 +124,15 @@ shader_parameter/strength = 1.0
 shader_parameter/pattern = 0
 shader_parameter/count = 16
 shader_parameter/colors = PackedVector3Array(0.0, 0.0, 0.0, 0.0, 0.141176, 0.572549, 0.0, 0.286275, 0.0, 0.141176, 0.141176, 0.286275, 0.141176, 0.572549, 0.141176, 0.141176, 0.572549, 0.858824, 0.286275, 0.141176, 0.0, 0.286275, 0.286275, 0.427451, 0.572549, 0.0, 0.0, 0.572549, 0.286275, 0.0, 0.572549, 0.572549, 0.713725, 0.572549, 0.858824, 0.286275, 0.858824, 0.572549, 0.286275, 1.0, 0.858824, 0.0, 1.0, 0.858824, 0.713725, 1.0, 1.0, 1.0)
+shader_parameter/space = 0
 
 [sub_resource type="GDScript" id="GDScript_retro"]
 script/source = "extends CanvasLayer
 ## KILN's retro pass. Change the look at runtime: set_enabled, set_lines, set_pixel_aspect, set_strength,
-## set_pattern, set_palette; get_settings returns them all.
+## set_pattern, set_palette, set_space; get_settings returns them all.
 
 const PATTERNS := [\"bayer4\", \"bayer8\", \"none\", \"halftone\", \"lines\", \"hatch\", \"noise\"]
+const SPACES := [\"screen\", \"world\"]
 const MAX_COLORS := 16
 
 
@@ -134,8 +140,29 @@ func _material() -> ShaderMaterial:
 	return $Pass.material
 
 
+func _set_both(parameter: String, value: Variant) -> void:  # a setting the World pass reads too
+	_material().set_shader_parameter(parameter, value)
+	$World.material_override.set_shader_parameter(parameter, value)
+
+
+func _ready() -> void:
+	if not world_supported():
+		_material().set_shader_parameter(\"space\", 0)
+	_show_world()
+
+
+## World space reads the depth and screen textures in the 3D pass: Forward+ only (Mobile and Compatibility keep screen space).
+func world_supported() -> bool:
+	return RenderingServer.get_current_rendering_method() == \"forward_plus\"
+
+
+func _show_world() -> void:
+	$World.visible = visible and _material().get_shader_parameter(\"space\") == 1
+
+
 func set_enabled(on: bool) -> void:
 	visible = on
+	_show_world()
 
 
 func is_enabled() -> bool:
@@ -143,21 +170,32 @@ func is_enabled() -> bool:
 
 
 func set_lines(value: float) -> void:
-	_material().set_shader_parameter(\"lines\", maxf(value, 1.0))
+	_set_both(\"lines\", maxf(value, 1.0))
 
 
 func set_pixel_aspect(value: float) -> void:
-	_material().set_shader_parameter(\"pixel_aspect\", maxf(value, 0.05))
+	_set_both(\"pixel_aspect\", maxf(value, 0.05))
 
 
 func set_strength(value: float) -> void:
-	_material().set_shader_parameter(\"strength\", clampf(value, 0.0, 1.0))
+	_set_both(\"strength\", clampf(value, 0.0, 1.0))
 
 
 func set_pattern(pattern_name: String) -> void:
 	var index := PATTERNS.find(pattern_name)
 	if index >= 0:
-		_material().set_shader_parameter(\"pattern\", index)
+		_set_both(\"pattern\", index)
+
+
+## \"screen\" (the pattern fixed to the screen) or \"world\" (fixed to the surfaces: needs the depth buffer).
+func set_space(space_name: String) -> void:
+	var index := SPACES.find(space_name)
+	if index == 1 and not world_supported():
+		push_warning(\"KILN retro: world-space dither needs Forward+; keeping screen space\")
+		return
+	if index >= 0:
+		_material().set_shader_parameter(\"space\", index)
+		_show_world()
 
 
 func set_palette(palette: PackedColorArray) -> void:
@@ -167,8 +205,8 @@ func set_palette(palette: PackedColorArray) -> void:
 	var count := vectors.size()
 	while vectors.size() < MAX_COLORS:
 		vectors.append(Vector3.ZERO)
-	_material().set_shader_parameter(\"colors\", vectors)
-	_material().set_shader_parameter(\"count\", count)
+	_set_both(\"colors\", vectors)
+	_set_both(\"count\", count)
 
 
 func get_palette() -> PackedColorArray:
@@ -188,9 +226,159 @@ func get_settings() -> Dictionary:
 		\"pixel_aspect\": material.get_shader_parameter(\"pixel_aspect\"),
 		\"strength\": material.get_shader_parameter(\"strength\"),
 		\"pattern\": PATTERNS[material.get_shader_parameter(\"pattern\")],
+		\"space\": SPACES[material.get_shader_parameter(\"space\")],
 		\"palette\": get_palette(),
 	}
 "
+
+[sub_resource type="QuadMesh" id="QuadMesh_retro"]
+size = Vector2(2, 2)
+
+[sub_resource type="Shader" id="Shader_retro_world"]
+code = "shader_type spatial;
+render_mode unshaded, depth_draw_never, depth_test_disabled, cull_disabled, fog_disabled, shadows_disabled;
+
+// KILN's retro pass, world space ([look] dither_space = \"world\"): see kiln/post.py.
+uniform sampler2D screen : hint_screen_texture, filter_nearest;
+uniform sampler2D depth : hint_depth_texture, filter_nearest;
+uniform float lines = 200.0;
+uniform float pixel_aspect = 1.0;
+uniform float strength = 1.0;
+uniform int pattern = 0;
+uniform int count = 2;
+uniform vec3 colors[16];
+uniform float exposure = 1.0;  // the look's tonemap_exposure
+
+const float BAYER4[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+const float BAYER8[64] = float[64](0.0, 32.0, 8.0, 40.0, 2.0, 34.0, 10.0, 42.0, 48.0, 16.0, 56.0, 24.0, 50.0, 18.0, 58.0, 26.0, 12.0, 44.0, 4.0, 36.0, 14.0, 46.0, 6.0, 38.0, 60.0, 28.0, 52.0, 20.0, 62.0, 30.0, 54.0, 22.0, 3.0, 35.0, 11.0, 43.0, 1.0, 33.0, 9.0, 41.0, 51.0, 19.0, 59.0, 27.0, 49.0, 17.0, 57.0, 25.0, 15.0, 47.0, 7.0, 39.0, 13.0, 45.0, 5.0, 37.0, 63.0, 31.0, 55.0, 23.0, 61.0, 29.0, 53.0, 21.0);
+const float HALFTONE[64] = float[64](56.0, 40.0, 8.0, 4.0, 0.0, 16.0, 32.0, 60.0, 44.0, 50.0, 30.0, 12.0, 20.0, 26.0, 54.0, 36.0, 10.0, 28.0, 48.0, 42.0, 34.0, 52.0, 24.0, 18.0, 6.0, 14.0, 46.0, 58.0, 62.0, 38.0, 22.0, 2.0, 1.0, 17.0, 33.0, 61.0, 57.0, 41.0, 9.0, 5.0, 21.0, 27.0, 55.0, 37.0, 45.0, 51.0, 31.0, 13.0, 35.0, 53.0, 25.0, 19.0, 11.0, 29.0, 49.0, 43.0, 63.0, 39.0, 23.0, 3.0, 7.0, 15.0, 47.0, 59.0);
+const float HATCH[16] = float[16](0.0, 6.0, 14.0, 8.0, 10.0, 4.0, 12.0, 2.0, 15.0, 9.0, 1.0, 7.0, 13.0, 3.0, 11.0, 5.0);
+const float LINE_ORDER[4] = float[4](0.0, 2.0, 1.0, 3.0);
+
+float threshold(vec2 cell) {
+	if (pattern == 0) {
+		ivec2 a = ivec2(mod(cell, 4.0));
+		return (BAYER4[a.y * 4 + a.x] + 0.5) / 16.0;
+	}
+	if (pattern == 1) {
+		ivec2 a = ivec2(mod(cell, 8.0));
+		return (BAYER8[a.y * 8 + a.x] + 0.5) / 64.0;
+	}
+	if (pattern == 3) {
+		ivec2 a = ivec2(mod(cell, 8.0));
+		return (HALFTONE[a.y * 8 + a.x] + 0.5) / 64.0;
+	}
+	if (pattern == 4) {
+		return (LINE_ORDER[int(mod(cell.y, 4.0))] + 0.5) / 4.0;
+	}
+	if (pattern == 5) {
+		ivec2 a = ivec2(mod(cell, 4.0));
+		return (HATCH[a.y * 4 + a.x] + 0.5) / 16.0;
+	}
+	if (pattern == 6) {
+		float f = 0.06711056 * cell.x + 0.00583715 * cell.y;
+		float g = 52.9829189 * (f - floor(f));
+		return clamp(g - floor(g), 0.001, 0.999);
+	}
+	return 1.0;  // none
+}
+
+vec3 quantise(vec3 p, float threshold) {
+	int n = clamp(count, 1, 16);
+	int i1 = 0;
+	int i2 = 0;
+	float d1 = 1e9;
+	float d2 = 1e9;
+	for (int i = 0; i < n; i++) {
+		vec3 e = p - colors[i];
+		float d = dot(e, e);
+		if (d < d1) {
+			d2 = d1; i2 = i1; d1 = d; i1 = i;
+		} else if (d < d2) {
+			d2 = d; i2 = i;
+		}
+	}
+	vec3 c1 = colors[i1];
+	vec3 c2 = colors[i2];
+	vec3 span = c2 - c1;
+	float t = n > 1 ? clamp(dot(p - c1, span) / max(dot(span, span), 1e-9), 0.0, 1.0) : 0.0;
+	return threshold < t * strength ? c2 : c1;
+}
+
+void vertex() {
+	POSITION = vec4(VERTEX.xy, 0.5, 1.0);  // the quad (2 x 2) covers the screen whatever the camera
+}
+
+vec3 to_srgb(vec3 c) {  // as Godot's tonemapper writes the frame
+	return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, 12.92 * c, lessThan(c, vec3(0.0031308)));
+}
+
+vec3 to_linear(vec3 c) {
+	return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, lessThan(c, vec3(0.04045)));
+}
+
+float depth_at(vec2 uv) {
+	return textureLod(depth, uv, 0.0).r;
+}
+
+vec3 view_at(vec2 uv, float d, mat4 inv_projection) {
+	vec4 v = inv_projection * vec4(uv * 2.0 - 1.0, d, 1.0);  // Forward+ depth (other renderers keep screen space)
+	return v.xyz / v.w;
+}
+
+vec2 face(vec3 a, vec3 p) {  // the plane of a's dominant axis
+	if (a.x >= a.y && a.x >= a.z) {
+		return p.zy;
+	}
+	return a.y >= a.z ? p.xz : p.xy;
+}
+
+void fragment() {
+	vec2 px = 1.0 / VIEWPORT_SIZE;
+	float bh = VIEWPORT_SIZE.y / min(lines, VIEWPORT_SIZE.y);  // the canvas pass's blocks
+	vec2 block = vec2(bh * pixel_aspect, bh);
+	vec2 uv = clamp((floor(SCREEN_UV * VIEWPORT_SIZE / block) + 0.5) * block * px, vec2(0.0), vec2(1.0));
+	float d = depth_at(uv);
+	vec3 c = view_at(uv, d, INV_PROJECTION_MATRIX);
+	float block_ndc = 2.0 * bh * max(pixel_aspect, 1.0) * px.y;  // a block's longer side, in NDC units
+	bool ortho = PROJECTION_MATRIX[3][3] == 1.0;
+	bool sky = c.z <= view_at(uv, 0.0, INV_PROJECTION_MATRIX).z * 0.999;  // nothing drawn here but the background
+	vec2 cell;
+	if (sky && !ortho) {
+		vec3 dir = normalize(mat3(INV_VIEW_MATRIX) * c);
+		vec3 a = abs(dir);
+		float size = exp2(ceil(log2(2.0 * block_ndc / abs(PROJECTION_MATRIX[1][1]))));  // cube-face units per block, x 2 at the edges
+		cell = floor(face(a, dir / max(a.x, max(a.y, a.z))) / size);
+	} else {
+		vec3 l = view_at(uv - vec2(px.x, 0.0), depth_at(uv - vec2(px.x, 0.0)), INV_PROJECTION_MATRIX);
+		vec3 r = view_at(uv + vec2(px.x, 0.0), depth_at(uv + vec2(px.x, 0.0)), INV_PROJECTION_MATRIX);
+		vec3 u = view_at(uv - vec2(0.0, px.y), depth_at(uv - vec2(0.0, px.y)), INV_PROJECTION_MATRIX);
+		vec3 b = view_at(uv + vec2(0.0, px.y), depth_at(uv + vec2(0.0, px.y)), INV_PROJECTION_MATRIX);
+		vec3 dx = abs(c.z - l.z) < abs(r.z - c.z) ? c - l : r - c;  // the nearer neighbour: no normals across edges
+		vec3 dy = abs(c.z - u.z) < abs(b.z - c.z) ? c - u : b - c;
+		vec3 a = abs(mat3(INV_VIEW_MATRIX) * cross(dx, dy));
+		vec2 du = abs(face(a, mat3(INV_VIEW_MATRIX) * dx)) * block.x;  // a block's extent on the face plane, per axis
+		vec2 dv = abs(face(a, mat3(INV_VIEW_MATRIX) * dy)) * block.y;
+		vec2 size = exp2(ceil(log2(max(du + dv, vec2(1e-6)))));  // metres, per axis: long cells where the surface recedes
+		cell = floor(face(a, (INV_VIEW_MATRIX * vec4(c, 1.0)).xyz) / size);
+	}
+	vec4 sampled = textureLod(screen, uv, 0.0);
+	vec3 p = to_srgb(clamp(sampled.rgb * exposure, vec3(0.0), vec3(1.0)));
+	ALBEDO = to_linear(quantise(p, threshold(cell))) / exposure;
+}
+"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_retro_world"]
+resource_local_to_scene = true
+render_priority = -128
+shader = SubResource("Shader_retro_world")
+shader_parameter/lines = 200.0
+shader_parameter/pixel_aspect = 0.8333
+shader_parameter/strength = 1.0
+shader_parameter/pattern = 0
+shader_parameter/count = 16
+shader_parameter/colors = PackedVector3Array(0.0, 0.0, 0.0, 0.0, 0.141176, 0.572549, 0.0, 0.286275, 0.0, 0.141176, 0.141176, 0.286275, 0.141176, 0.572549, 0.141176, 0.141176, 0.572549, 0.858824, 0.286275, 0.141176, 0.0, 0.286275, 0.286275, 0.427451, 0.572549, 0.0, 0.0, 0.572549, 0.286275, 0.0, 0.572549, 0.572549, 0.713725, 0.572549, 0.858824, 0.286275, 0.858824, 0.572549, 0.286275, 1.0, 0.858824, 0.0, 1.0, 0.858824, 0.713725, 1.0, 1.0, 1.0)
+shader_parameter/exposure = 1.0
 
 [node name="look_retro_st" type="Node3D"]
 metadata/kiln_style = "retro_st"
@@ -217,3 +405,12 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+
+[node name="World" type="MeshInstance3D" parent="Retro"]
+visible = false
+mesh = SubResource("QuadMesh_retro")
+material_override = SubResource("ShaderMaterial_retro_world")
+cast_shadow = 0
+extra_cull_margin = 16384.0
+ignore_occlusion_culling = true
+gi_mode = 0

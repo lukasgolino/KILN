@@ -17,6 +17,11 @@ before 1.0).
 
 - `examples/retro_room/` (#362): a walkable Godot room with nine models on pedestals; 1 / 2 / 3 switch the Atari ST
   colour, CGA and ST mono looks (Tab cycles). `export.sh` builds a Windows exe. CI runs its headless check.
+- `[look] dither_space = "screen" | "world"` (#367) and `set_space()` on the Retro node (`get_settings()` reports
+  `space`), switchable live: world space fixes the retro dither to surfaces through a depth-reading full-screen quad
+  in the look kit, so it doesn't crawl when the camera moves. Best with `dither = "noise"`; ordered patterns come out
+  irregular in world space. Godot Forward+ only; Mobile, Compatibility and previews keep screen space. Screen space output
+  is unchanged (the look kit gains the quad, hidden).
 
 ## [0.32.0] - 2026-11-13
 
