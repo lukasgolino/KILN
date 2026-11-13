@@ -21,7 +21,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TypeAlias
 
-from kiln.export import GLOW_ALBEDO, GLOW_PEAK
+from kiln.export import GLOW_ALBEDO, GLOW_PEAK, glow_peak
 from kiln.style import FILMIC_WHITE, TOON_DARKEN, Look, Style
 
 TOON_SHADER = """shader_type spatial;
@@ -64,7 +64,7 @@ extends Node3D
 @export var rims: Dictionary = {}
 @export var grains: Dictionary = {}  # preset -> [strength, metres per bump] (#329)
 @export var emissions: Dictionary = {}  # glowing preset -> its strength (a variant's recoloured glow is capped from it, #288)
-const GLOW_PEAK := %GLOW_PEAK%
+@export var glow_peak := %GLOW_PEAK%  # the style's glow cap (#290)
 const GLOW_ALBEDO := %GLOW_ALBEDO%
 @export var swap: Dictionary = {}  # variant: "rrggbb" (a material's colour, from its name) -> new colour
 
@@ -114,7 +114,7 @@ func _ready() -> void:
 \t\t\t\tvar strength: float = preset.get_slice("@", 1).to_float() if preset.contains("@") else float(emissions.get(preset, glow_energy))
 \t\t\t\tvar lin := Color(swap[hex]).srgb_to_linear()
 \t\t\t\tglow = Color(swap[hex])
-\t\t\t\tglow_energy = minf(strength, GLOW_PEAK / maxf(maxf(lin.r, lin.g), maxf(lin.b, 0.000001)))
+\t\t\t\tglow_energy = minf(strength, glow_peak / maxf(maxf(lin.r, lin.g), maxf(lin.b, 0.000001)))
 \t\t\t\tvar dim := Color(lin.r * GLOW_ALBEDO, lin.g * GLOW_ALBEDO, lin.b * GLOW_ALBEDO).linear_to_srgb()
 \t\t\t\talbedo = Color(dim.r, dim.g, dim.b, source.albedo_color.a)
 \t\t\tvar key := "%d|%s|%s|%d|%s|%s|%s" % [source.get_instance_id(), shader_kind, albedo.to_html(), bands, outline, outline_color.to_html(), rims]
@@ -683,7 +683,7 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
         *([] if look.outline_color == "darken" else [f"outline_color = {_color(look.outline_color)}"]),
         f"rims = {{{rims}}}",
         *([f"grains = {{{grains}}}"] if grains else []),
-        *([f"emissions = {{{emissions}}}"] if emissions else []),
+        *([f"emissions = {{{emissions}}}", f"glow_peak = {glow_peak(look):.6g}"] if emissions else []),
         *([f"revealed = [{', '.join(_quote(n) for n in revealed)}]"] if revealed else []),
         *(['rim_shader = SubResource("Shader_rim")', f"rim_light = {look.rim_light:.6g}", f"rim_light_color = {_color(look.rim_light_color)}",
            f"rim_light_power = {look.rim_light_power:.6g}"] if rim else []),  # fmt: skip

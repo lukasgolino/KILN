@@ -81,7 +81,7 @@ def test_godot_variant_scene_recolours_glow_with_the_cap(tmp_path: Path) -> None
     result = build(project)
     assert not result.errors, [f.format() for f in result.errors]
     scene = (project.output_dir / "models" / "lamp.w.tscn").read_text()
-    assert "emissions = {" in scene and "GLOW_PEAK := 0.75" in scene
+    assert "emissions = {" in scene and "glow_peak = 0.75" in scene  # soft_toy: filmic, exposure 1
     assert result.godot_root is not None
     check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
     assert check.ok, check.output[-3000:]

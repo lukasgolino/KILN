@@ -335,3 +335,9 @@ def test_w137_off_palette_pixel_art_with_variants(project: Project) -> None:
     with_variants = lint_paths(project, [write_model(project, text.replace("VARIANTS", "variants:\n  b: { swap: { red: blue } }\n"))], geometry=False)
     without = lint_paths(project, [write_model(project, text.replace("VARIANTS", ""))], geometry=False)
     assert "W137" in warnings(with_variants.findings) and "W137" not in warnings(without.findings)
+
+
+def test_w138_emission_above_its_colours_cap(project: Project) -> None:
+    text = "name: thing\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: white\n    material: glow\n    emission: 3\n"
+    assert "W138" in warnings(lint_paths(project, [write_model(project, text)], geometry=False).findings)
+    assert "W138" not in warnings(lint_paths(project, [write_model(project, text.replace("emission: 3", "emission: 0.5"))], geometry=False).findings)

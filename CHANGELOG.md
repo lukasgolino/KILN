@@ -62,6 +62,8 @@ before 1.0).
 
 ### Fixed
 
+- Toon `outline_color = "darken"` previews take what Godot's outline takes: a glowing part's dimmed colour, vertex
+  colours and shade, and the colour map (#290, #292).
 - Godot variant scenes that recolour by the swap table cap and dim a recoloured glow as the glb does (standard and
   toon), instead of keeping the source colour's strength (#288).
 - Small cut dots no longer vanish: the mesh refines down to the smallest dot, not the dot spacing (#283).
@@ -100,6 +102,9 @@ before 1.0).
 
 ### Changed
 
+- The glow cap follows the look: divided by its `exposure`, and 1 (where it clips) instead of 0.75 under a linear
+  tone curve; previews cap per material from its flat colour, as the glb does; lint W138 for an emission above its
+  colour's cap (#290).
 - Lint W123 (the mesh dips under the ground) names the part that dips, where, and by how much, on that part's line
   (#195).
 - Shade paint on a model with a base colour map (relief, `color_blend`) is painted per texel into the map, from

@@ -76,10 +76,18 @@ GLOW_PEAK = 0.75  # a glowing colour's brightest channel x its strength at most:
 GLOW_ALBEDO = 0.3  # a glowing part's lit colour, scaled: the glow carries it
 
 
-def glow_strength(rgb: list[float] | tuple[float, ...], emission: float) -> float:
+def glow_peak(look: Any = None) -> float:
+    """The brightest a glowing channel x its strength may be for a look (#290): GLOW_PEAK was measured under filmic
+    at exposure 1; exposure scales it down; a linear tone curve clips at 1 instead of bending."""
+    if look is None:
+        return GLOW_PEAK
+    return (1.0 if look.tonemapper == "linear" else GLOW_PEAK) / max(float(look.exposure), 1e-6)
+
+
+def glow_strength(rgb: list[float] | tuple[float, ...], emission: float, peak: float = GLOW_PEAK) -> float:
     """The emissive strength a colour gets (#202): the preset's, capped so its brightest channel stays under GLOW_PEAK
     (a pale pink at strength 2 went white in Godot and in previews; capped, it keeps its hue)."""
-    return float(min(emission, GLOW_PEAK / max(max(rgb), 1e-6)))
+    return float(min(emission, peak / max(max(rgb), 1e-6)))
 
 
 def fade_colors(built: Built, swap: dict[str, str] | None = None) -> Array | None:
@@ -212,7 +220,7 @@ class _Writer:
             pbr["baseColorFactor"][3] = preset.alpha
             mat["alphaMode"] = "BLEND"
         if preset.emission > 0:
-            strength = glow_strength(rgb, preset.emission)
+            strength = glow_strength(rgb, preset.emission, glow_peak(self.b.style.look))
             if decal < 0:  # (a decal keeps its white factor: the image is its colour)
                 dim = [c * GLOW_ALBEDO for c in rgb] if "baseColorTexture" not in pbr else [GLOW_ALBEDO] * 3
                 pbr["baseColorFactor"] = [*dim, preset.alpha]

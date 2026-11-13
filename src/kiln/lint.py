@@ -63,6 +63,7 @@ WARNING_RULES = {
     "W131": "a see-through material (alpha < 1) in an atlas project: the atlas draws every part opaque",
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
     "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
+    "W138": "a part's emission is above the cap for its colour in this look: the extra strength changes nothing",
     "W137": "a pixel-art texture or decal has colours off the palette: the model's variants can't swap them",
     "W136": "a pattern paints nothing: it misses the part's surface (a band's `at` or a pixel strip's place)",
     "W135": "a limb is fused to another branch of a soft-skinned body at rest, away from its joint: posing it stretches the skin",
@@ -453,6 +454,25 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
     return out
 
 
+def glow_caps(model: Model, style: Style) -> list[Finding]:
+    """W138 (#290): a glowing part's strength above its colour's cap in this look (export.glow_peak) does nothing."""
+    from kiln.export import glow_peak, srgb_to_linear
+
+    peak = glow_peak(style.look)
+    out, seen = [], set()
+    for part in model.parts:
+        preset = style.materials.get(part.material, style.materials["default"])
+        if preset.emission <= 0 or part.geometry.op != "add" or (part.color, part.material) in seen:
+            continue
+        seen.add((part.color, part.material))
+        cap = peak / max(max(srgb_to_linear(part.color)), 1e-6)
+        if preset.emission > cap * 1.05:
+            out.append(Finding("W138", f"emission {preset.emission:g} on {part.color_name} is above what that colour can show in this look ({cap:.2g}: "
+                               f"brighter would bend its hue): it glows at {cap:.2g}; lower it, or pick a darker colour to glow brighter",
+                               model.path, part.line, f"{part.where}.material"))  # fmt: skip
+    return out
+
+
 def off_palette(model: Model, palette: dict[str, str]) -> list[Finding]:
     """W137 (#325): with variants, a pixel-art image (up to 256 px) whose opaque pixels are mostly not palette colours
     stays as drawn while the parts around it swap; palette-indexed rows would swap with them."""
@@ -588,6 +608,7 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
             palette, _ = project.palette(model.palette)
             keep += variant_warnings(model, palette)
             keep += off_palette(model, palette)
+            keep += glow_caps(model, style)
             if model.vertex_fades and not project.config.vertex_colors:  # #262
                 first = next((p for p in model.parts if p.color_blend > 0), None)
                 keep.append(Finding("W134", "color_blend fades per vertex here (the model has no baked maps"

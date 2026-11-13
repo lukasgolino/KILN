@@ -119,6 +119,11 @@ def render(
     and outlines leave them alone. `colors`: a linear albedo per face corner (F, 3, 3) instead of the paint groups'
     colours (terrains: blended splat layers)."""
     hide = with_unrevealed(built, hide)
+    mapped_shade_all = None
+    if built.bake is not None and built.bake.layers is not None:
+        from kiln.shade import texel_shade as _ts
+
+        mapped_shade_all = _ts(built, built.ao_strength)
     if colors is None and built.corner_fade is not None:  # colour fades in the vertices (#262), as COLOR_0
         from kiln.export import fade_colors
 
@@ -214,10 +219,11 @@ def render(
         metal = np.array([pr.metallic for pr in presets])[g]
         emit = np.array([pr.emission for pr in presets])[g]
         if (emit > 0).any():  # as export: a glowing colour's strength capped so it keeps its hue, its lit colour dimmed (#202)
-            from kiln.export import GLOW_ALBEDO, GLOW_PEAK
+            from kiln.export import GLOW_ALBEDO, glow_peak
 
             glowing = emit > 0
-            emit = np.where(glowing, np.minimum(emit, GLOW_PEAK / np.maximum(lit_albedo.max(axis=1), 1e-6)), 0.0)
+            flat = albedo_table[g]  # (#290) capped per material from its flat colour, as the glb is, not per texel
+            emit = np.where(glowing, np.minimum(emit, glow_peak(look) / np.maximum(flat.max(axis=1), 1e-6)), 0.0)
             albedo = np.where(glowing[:, None], albedo * GLOW_ALBEDO, albedo)
         rim = np.array([pr.rim for pr in presets])[g]
         lights = [(look.sun_pitch, look.sun_yaw, look.sun_color, look.sun_energy)]
@@ -283,14 +289,28 @@ def render(
         back = (hx[:, 1] - hx[:, 0]) * (hy[:, 2] - hy[:, 0]) - (hx[:, 2] - hx[:, 0]) * (hy[:, 1] - hy[:, 0]) > 0
         if hidden is not None:
             back &= ~hidden
-        hull_depth, hull_tri, _, _ = _raster(hx, hy, hz, np.flatnonzero(back), res, fade)  # dithered as its face
+        hull_depth, hull_tri, hull_bary, _ = _raster(hx, hy, hz, np.flatnonzero(back), res, fade)  # dithered as its face
         holes = (dropped < best_depth).reshape(res, res)  # dither holes: a faded piece isn't outlined around every hole
         holes = holes | np.roll(holes, 1, 0) | np.roll(holes, -1, 0) | np.roll(holes, 1, 1) | np.roll(holes, -1, 1)
         drawn = (hull_tri >= 0) & (hull_depth < best_depth) & ~holes.reshape(-1)
         flat = image.reshape(-1, 4)
-        if look.outline_color == "darken":  # each part's flat colour, darkened (Godot also multiplies in vertex colours and colour maps: #292)
-            table = np.array([srgb_to_linear(swap.get(gr.color, gr.color)) for gr in built.painted.groups]) * TOON_DARKEN
-            flat[drawn, :3] = _to_srgb(_grade(table[built.painted.face_group[hull_tri[drawn]]], look))
+        if look.outline_color == "darken":  # each part's colour darkened, as Godot's outline takes the material's albedo (#290, #292)
+            from kiln.export import GLOW_ALBEDO
+
+            groups_ = built.painted.groups
+            table = np.array([srgb_to_linear(swap.get(gr.color, gr.color)) for gr in groups_])
+            presets_ = built.style.materials
+            glows_ = np.array([presets_.get(gr.material, presets_["default"]).emission > 0 for gr in groups_])
+            table = np.where(glows_[:, None], table * GLOW_ALBEDO, table)  # a glowing part's lit colour is dimmed
+            ht, hb = hull_tri[drawn], hull_bary[drawn]
+            col = table[built.painted.face_group[ht]]
+            if colors is not None:  # per-corner colours (colour fades in COLOR_0, terrains)
+                col = (colors[ht] * hb[:, :, None]).sum(axis=1)
+            elif built.bake is not None and built.bake.layers is not None:  # the colour map, as the outline shader samples it
+                col = _mapped_colours(built.bake, ht, hb, [gr.color for gr in groups_], swap, mapped_shade_all)
+            if built.ao is not None and mapped_shade_all is None:  # baked shade / occlusion in COLOR (none on mapped faces: #266)
+                col = col * (built.ao[ht] * hb).sum(axis=1)[:, None]
+            flat[drawn, :3] = _to_srgb(_grade(col * TOON_DARKEN, look))
         else:
             flat[drawn, :3] = _to_srgb(_grade(np.array([srgb_to_linear(look.outline_color)]), look))
         flat[drawn, 3] = 1.0
