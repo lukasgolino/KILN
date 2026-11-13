@@ -693,3 +693,11 @@ def test_examples_list_and_print(capsys: pytest.CaptureFixture[str]) -> None:
     shipped = Path(__file__).parent.parent / "src" / "kiln" / "examples"
     for f in (demo.parent).glob("*.kiln.yaml"):
         assert (shipped / f.name).read_text() == f.read_text(), f"{f.name}: copy examples/demo/models into src/kiln/examples"
+
+
+def test_style_check_lists_lit_colours(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#336: kiln style check: each palette colour as the style lights it, next to its hex, and a swatch sheet."""
+    code, result = run_json(["style", "check"], capsys)
+    assert code == 0, result
+    red = next(r for r in result["colours"] if r["name"] == "red")
+    assert red["lit"].startswith("#") and isinstance(red["hue_shift"], float) and (in_project.root / result["sheet"]).is_file()

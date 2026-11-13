@@ -973,9 +973,89 @@ def cmd_mark(args: argparse.Namespace, out: Output) -> int:
     return 0
 
 
+def _style_check(project: Project, style_name: str, out: Output) -> int:
+    """Each palette colour as the style lights it, next to its hex (#336): a sphere per colour in the look, lit from
+    the front like a preview, its middle sampled; the hue and lightness it shifts by; a sheet in previews/."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from kiln.builder import build_model
+    from kiln.notation import load_model
+    from kiln.render import View, render
+    from kiln.style import load_style
+
+    style, findings = load_style(style_name, project.styles_dir if project.styles_dir.is_dir() else None)
+    if style is None:
+        out.failure(findings)
+        return 1
+    palette, _ = project.palette(None)
+    names: dict[str, str] = {}
+    for key, hx in palette.items():
+        if not key.isdigit() and len(key) > 1:
+            names.setdefault(hx, key)
+    colours = list(names.items())
+    cols = 8
+    parts = "".join(f"  - sphere: {{ at: [{(k % cols) * 0.3:.2f}, {-(k // cols) * 0.3:.2f}, 0], radius: 0.12 }}\n    color: {n}\n"
+                    for k, (_, n) in enumerate(colours))  # fmt: skip
+    tmp = project.root / ".kiln-cache" / "style-check" / f"swatches{MODEL_SUFFIX}"
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_text(f"name: swatches\nclass: prop\nparts:\n{parts}", encoding="utf-8")
+    model, mf = load_model(tmp, palette, set(style.materials))
+    if model is None:
+        out.failure(mf)
+        return 1
+    built = build_model(model, style, palette=palette)
+    size = 120 * cols
+    image = render(built, View(0.0, 0.0), size, background=(30, 30, 34, 255))
+    lo, hi = built.bounds()
+    centre, half = (lo + hi) / 2, float(np.linalg.norm(hi - lo)) / 2  # render's own framing when no fit is given
+    rgba = np.asarray(image.convert("RGB")).astype(int)
+    rows, sheet_rows = [], []
+    for k, (hx, n) in enumerate(colours):
+        x, y = (k % cols) * 0.3, -(k // cols) * 0.3
+        px = int(size / 2 + (x - centre[0]) / (2 * half) * size)
+        py = int(size / 2 - (y - centre[1]) / (2 * half) * size)
+        lit = rgba[max(0, py - 2) : py + 3, max(0, px - 2) : px + 3].reshape(-1, 3).mean(axis=0)
+        want = np.array([int(hx[i : i + 2], 16) for i in (1, 3, 5)])
+        lit_hex = "#" + "".join(f"{int(round(v)):02x}" for v in lit)
+
+        def hue_l(c: np.ndarray) -> tuple[float, float]:
+            r, g, b = c / 255.0
+            mx, mn = max(r, g, b), min(r, g, b)
+            if mx == mn:
+                return 0.0, (mx + mn) / 2
+            d = mx - mn
+            h = ((g - b) / d) % 6 if mx == r else (b - r) / d + 2 if mx == g else (r - g) / d + 4
+            return 60.0 * h, (mx + mn) / 2
+
+        (h0, l0), (h1, l1) = hue_l(want.astype(float)), hue_l(lit)
+        grey = float(want.max() - want.min()) < 26  # a near-grey has no hue to shift
+        shift = None if grey else round((h1 - h0 + 180) % 360 - 180, 1)
+        rows.append({"name": n, "hex": hx, "lit": lit_hex, "hue_shift": shift, "lightness": round(l1 - l0, 3)})
+        hue_text = "  (grey)    " if shift is None else f"hue {shift:+5.1f} deg"
+        out.say(f"{n:<14} {hx} -> {lit_hex}   {hue_text}, lightness {l1 - l0:+.2f}")
+        sheet_rows.append((n, hx, lit_hex))
+    sheet = Image.new("RGB", (420, 26 * len(sheet_rows) + 10), (30, 30, 34))
+    draw = ImageDraw.Draw(sheet)
+    for k, (n, hx, lit_hex) in enumerate(sheet_rows):
+        y = 5 + 26 * k
+        draw.rectangle([5, y, 85, y + 22], fill=hx)
+        draw.rectangle([90, y, 170, y + 22], fill=lit_hex)
+        draw.text((180, y + 5), f"{n}  {hx} -> {lit_hex}", fill=(230, 230, 230))
+    path = project.preview_dir / f"style_check.{style.name}.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(path)
+    out.say(f"swatches (hex, then lit): {display_path(path)}. A whole look drifting warm or bright: lower exposure or sun_energy, "
+            "or pick palette colours for the lit result")
+    out.result({"style": style.name, "colours": rows, "sheet": display_path(path)})
+    return 0
+
+
 def cmd_style(args: argparse.Namespace, out: Output) -> int:
     project = load_project()
     styles_dir = project.styles_dir if project.styles_dir.is_dir() else None
+    if args.style_cmd == "check":
+        return _style_check(project, args.name or project.config.default_style, out)
     if args.style_cmd == "list":
         own = sorted(p.name[: -len(STYLE_SUFFIX)] for p in project.styles_dir.glob(f"*{STYLE_SUFFIX}")) if styles_dir else []
         rows = []
@@ -1458,6 +1538,8 @@ def parser() -> argparse.ArgumentParser:
     x.add_argument("name")
     x.add_argument("--extends", default="soft_toy")
     x.add_argument("--description")
+    x = ss.add_parser("check", parents=[common], help="each palette colour as the style lights it, next to its hex")
+    x.add_argument("name", nargs="?")
     x = ss.add_parser("bump", parents=[common])
     x.add_argument("--message", "-m", required=True)
     s = sub.add_parser("config", parents=[common], help="show, get or set kiln.toml settings")

@@ -58,6 +58,7 @@ outline = 0.0                  # metres (toon outlines), 0 = none; pixels with o
 outline_color = "#1a1420"      # or "darken": each part's own colour, darkened
 outline_space = "metres"       # metres: a shell that thins with distance; pixels: constant thickness on screen
 tonemapper = "filmic"          # linear | filmic | aces | agx (previews match filmic exactly; aces and agx closely)
+                               # `kiln style check` shows each palette colour lit: a warm, bright look drifts orange to gold
 exposure = 1.0
 saturation = 1.15
 contrast = 1.0

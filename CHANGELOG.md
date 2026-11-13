@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `kiln style check [style]`: each palette colour as the look lights it beside its hex, with its hue and lightness
+  shift, and a swatch sheet (#336).
 - `kiln examples [name]`: the worked example models (the demo's) ship with KILN and print from the CLI; the docs
   point there (#308).
 - `kiln docs --search` knows engine words: emissive finds glow, metallic metal, transparent alpha and clear,
