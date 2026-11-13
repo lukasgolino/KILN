@@ -90,6 +90,7 @@ pixel_aspect = 0.8333          # retro: pixel width / height (320x200 on a 4:3 s
 post_palette = "cga"           # retro: the palette every pixel is snapped to (palettes/ or KILN's library), at most 16 colours
 dither = "bayer4"              # retro: bayer4 | bayer8 | none
 dither_strength = 1.0          # retro: 0 (nearest colour only) to 1 (full ordered dithering)
+dither_space = "screen"        # retro: screen | world (the pattern fixed to surfaces; Godot Forward+, see Retro looks)
 
 [shade]                        # shade paint baked into the vertex colours (off by default; each 0 to 0.9)
 cavity = 0.25                  # crevices darker: x the field's occlusion (as atlas_ao)
@@ -172,5 +173,18 @@ light falls into a few clean dither patterns. `kiln init --style retro_cga` writ
   PAGAN's `hardware:`, so `pagan lint` keeps edits legal), and set `post_palette` in a project style that extends a
   retro preset. A hardware palette's colours are checked when KILN loads it (E004 names the nearest legal colour).
 - Model for it: big flat colour areas, few colours per object, strong silhouettes; parts under a few pixels vanish.
-  The dither is in screen space, so it shimmers when the camera moves: slow or fixed cameras suit it.
+  The dither is in screen space by default, so it shimmers when the camera moves: slow or fixed cameras suit it.
+- World-space dither (`dither_space = "world"`, or `set_space("world")` on the Retro node at runtime): the pattern is
+  fixed to surfaces, so it stays put as the camera moves instead of crawling. A full-screen quad in the look kit
+  (`Retro/World`) reads the depth buffer, takes each block's pattern cell from the block centre's world position
+  (triplanar, flat per face) and dithers there; the canvas pass then only snaps to the palette. Cells are a block's
+  footprint rounded up to a power of two metres per axis, so the pattern never goes finer than a block and steps
+  (rather than swims) with distance. Trade-offs: cells come out 1 to 2 blocks wide, so ordered patterns (bayer,
+  halftone, hatch, lines) look irregular (doubled rows and columns) and receding floors show wood-grain moire;
+  `dither = "noise"` reads cleanly (a stable grain on each surface) and suits world space best. The sky gets coarser
+  cells on a cube of view directions. Transparent surfaces draw over the dither and are snapped to the palette
+  undithered. The colour maths assumes the linear tonemapper (all retro presets). Forward+ only: on Mobile and
+  Compatibility the kit stays in screen space (`set_space` warns). Every camera of the World3D draws the quad,
+  SubViewports too (a minimap comes out dithered as well). Previews (`kiln preview`, also
+  `--engine`) draw screen space.
 

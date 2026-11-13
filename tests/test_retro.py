@@ -47,6 +47,7 @@ def test_defaults_are_off_and_scenes_unchanged() -> None:
     ("post_lines = 8", "look.post_lines"),
     ("pixel_aspect = 0", "look.pixel_aspect"),
     ("dither_strength = 1.5", "look.dither_strength"),
+    ('dither_space = "object"', "look.dither_space"),
     ("post_colors = []", "look.post_colors"),
 ])  # fmt: skip
 def test_bad_values_are_e006(tmp_path: Path, text: str, where: str) -> None:
@@ -130,12 +131,12 @@ def test_pixel_aspect_widens_blocks() -> None:
 
 @pytest.mark.slow
 @pytest.mark.skipif(find_godot_binary() is None, reason="needs a Godot 4 binary (GODOT=/path)")
-@pytest.mark.parametrize("dither", ["bayer4", "bayer8", "none"])
-def test_godot_loads_the_pass(tmp_path: Path, dither: str) -> None:
+@pytest.mark.parametrize(("dither", "space"), [("bayer4", "screen"), ("bayer8", "screen"), ("none", "screen"), ("noise", "world")])
+def test_godot_loads_the_pass(tmp_path: Path, dither: str, space: str) -> None:
     godot = find_godot_binary()
     assert godot is not None
     (tmp_path / "project.godot").write_text("config_version=5\n")
-    project = _retro_project(tmp_path / "art", RETRO + f'dither = "{dither}"\ndither_strength = 0.5\n',
+    project = _retro_project(tmp_path / "art", RETRO + f'dither = "{dither}"\ndither_strength = 0.5\ndither_space = "{space}"\n',
                              extra='output_dir = "../assets/kiln"\nexport = ["glb", "godot"]\n')
     result = build(project)
     assert not result.errors and result.godot_root is not None
@@ -146,12 +147,16 @@ def test_godot_loads_the_pass(tmp_path: Path, dither: str) -> None:
 
 @pytest.mark.slow
 @pytest.mark.skipif(find_godot_binary() is None, reason="needs a Godot 4 binary (GODOT=/path)")
-def test_godot_check_catches_post_shader_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("which", ["canvas", "world"])
+def test_godot_check_catches_post_shader_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, which: str) -> None:
     from kiln import godot as kg
 
     godot = find_godot_binary()
     assert godot is not None
-    monkeypatch.setattr(kg, "post_shader", lambda look: "shader_type canvas_item;\nvoid fragment() {\n\tCOLOR = vec4(no_such_thing);\n}\n")
+    if which == "canvas":
+        monkeypatch.setattr(kg, "post_shader", lambda look: "shader_type canvas_item;\nvoid fragment() {\n\tCOLOR = vec4(no_such_thing);\n}\n")
+    else:  # the World pass compiles too, though hidden in screen space
+        monkeypatch.setattr(kg, "POST_WORLD_SHADER", "shader_type spatial;\nvoid fragment() {\n\tALBEDO = vec3(no_such_thing);\n}\n")
     (tmp_path / "project.godot").write_text("config_version=5\n")
     project = _retro_project(tmp_path / "art", extra='output_dir = "../assets/kiln"\nexport = ["glb", "godot"]\n')
     result = build(project)
@@ -248,3 +253,69 @@ def test_shader_names_every_pattern_in_order() -> None:
     for i, name in enumerate(post.PATTERNS):
         assert f"{i} {name}" in post.SHADER
     assert set(post.PATTERNS) == set(__import__("kiln.style", fromlist=["DITHERS"]).DITHERS)
+
+
+def test_world_space_pass_in_the_kit(tmp_path: Path) -> None:
+    style, _ = _retro_project(tmp_path / "a").style()
+    assert style is not None and style.look.dither_space == "screen"
+    scene = look_scene(style)
+    world = scene[scene.index('[node name="World" type="MeshInstance3D" parent="Retro"]'):]
+    assert world.splitlines()[1] == "visible = false"  # screen space: the quad is there for set_space, hidden
+    for text in ("shader_parameter/space = 0", "hint_depth_texture", "render_priority = -128", "extra_cull_margin = 16384.0",
+                 "shader_parameter/exposure = 1.0", "func set_space", "SPACES[material.get_shader_parameter"):  # fmt: skip
+        assert text in scene, text
+    style, _ = _retro_project(tmp_path / "b", RETRO + 'dither_space = "world"\n').style()
+    assert style is not None
+    scene = look_scene(style)
+    assert "shader_parameter/space = 1" in scene and "visible = false" not in scene[scene.index('name="World"'):]
+    assert scene.count("shader_parameter/count = 4") == 2  # both passes quantise with the palette
+
+
+def test_shaders_share_the_pattern_and_snap() -> None:
+    assert post.PATTERN_GLSL in post.SHADER and post.PATTERN_GLSL in post.WORLD_SHADER
+    assert post.QUANTISE_GLSL in post.SHADER and post.QUANTISE_GLSL in post.WORLD_SHADER
+    assert "space == 1 ? 1.0 : threshold(cell)" in post.SHADER  # world: the canvas pass only snaps (1.0 never dithers)
+    assert post.SPACES == __import__("kiln.style", fromlist=["DITHER_SPACES"]).DITHER_SPACES
+    for i, name in enumerate(post.SPACES):
+        assert f"{i} {name}" in post.SHADER
+
+
+RUNTIME_GD = """extends SceneTree
+func _init() -> void:
+\tvar kit: Node = load(OS.get_cmdline_user_args()[0]).instantiate()
+\troot.add_child(kit)
+\tvar retro: Node = kit.get_node("Retro")
+\tretro._ready()
+\tprint("A ", retro.get_settings()["space"], " ", kit.get_node("Retro/World").visible)
+\tretro.set_space("world")
+\tprint("B ", retro.get_settings()["space"], " ", kit.get_node("Retro/World").visible)
+\tretro.set_enabled(false)
+\tprint("C ", kit.get_node("Retro/World").visible)
+\tretro.set_enabled(true)
+\tretro.set_space("screen")
+\tretro.set_pattern("noise")
+\tretro.set_strength(0.5)
+\tvar world: ShaderMaterial = kit.get_node("Retro/World").material_override
+\tprint("D ", retro.get_settings()["space"], " ", kit.get_node("Retro/World").visible, " ", world.get_shader_parameter("pattern"), " ", world.get_shader_parameter("strength"))
+\tquit(0)
+"""
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(find_godot_binary() is None, reason="needs a Godot 4 binary (GODOT=/path)")
+def test_godot_switches_space_at_runtime(tmp_path: Path) -> None:
+    import os
+    import subprocess
+
+    godot = find_godot_binary()
+    assert godot is not None
+    (tmp_path / "project.godot").write_text("config_version=5\n")
+    project = _retro_project(tmp_path / "art", extra='output_dir = "../assets/kiln"\nexport = ["glb", "godot"]\n')
+    assert not build(project).errors
+    (tmp_path / "runtime.gd").write_text(RUNTIME_GD)
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+    subprocess.run([godot, "--headless", "--path", str(tmp_path), "--import"], capture_output=True, timeout=300, env=env)
+    run = subprocess.run([godot, "--headless", "--path", str(tmp_path), "-s", "runtime.gd", "--", "res://assets/kiln/looks/fast.tscn"],
+                         capture_output=True, text=True, timeout=300, env=env)  # fmt: skip
+    lines = [line for line in run.stdout.splitlines() if line[:2] in ("A ", "B ", "C ", "D ")]
+    assert lines == ["A screen false", "B world true", "C false", "D screen false 6 0.5"], run.stdout + run.stderr
