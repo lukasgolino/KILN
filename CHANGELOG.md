@@ -56,6 +56,8 @@ before 1.0).
 
 ### Fixed
 
+- CI: the godot job and its long steps have timeouts (a hung render once ran 4 hours); a test checks the committed
+  demo says the package's version, so a release can't forget to rebuild it (#264, #254).
 - W122 is quiet when a blend_to id has a soft part to melt into, though its crisp details (eyes, teeth) are kept
   apart (#152).
 - `kiln build <deleted model>` says its last glb and scene stay until a full `kiln build` removes them (#182).
