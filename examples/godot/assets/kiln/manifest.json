@@ -32,7 +32,7 @@
     "manifest.json"
   ],
   "front": "+Z",
-  "generator": "kiln 0.23.0",
+  "generator": "kiln 0.25.0",
   "looks": {
     "soft_toy": "res://assets/kiln/looks/soft_toy.tscn"
   },
@@ -297,7 +297,7 @@
       },
       "class": "character",
       "color_map": {
-        "patches": 2357,
+        "patches": 2378,
         "png": "models/cub.color.png",
         "size": [
           1024,
@@ -1188,7 +1188,7 @@
       "tags": [
         "siege"
       ],
-      "triangles": 13844
+      "triangles": 13846
     },
     "tree": {
       "animations": {},
