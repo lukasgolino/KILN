@@ -529,6 +529,23 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
         raise _usage("--draft is a quick look at the model itself (turntable, --views, --closeup, --pose, --detach): not with --engine, --vs, --fit or --effect")
     built = _built(project, args.model, args.draft)
     name = built.model.name
+    if args.with_:  # (#181) an assembly's parts together: each placed as an instance at its mount, else in the shared frame
+        from dataclasses import replace as _replace
+
+        from kiln.instances import InstanceError, place
+        from kiln.notation import Instance
+
+        extra = []
+        for other in [n.strip() for n in args.with_.split(",") if n.strip()]:
+            om, _, _ = project.load(project.models_dir / f"{other}{MODEL_SUFFIX}")
+            if om is None:
+                raise _usage(f"--with: no model {other!r}")
+            mount = om.mount if om.mount is not None and om.mount.model == name else None
+            extra.append(Instance(other, mount.at if mount else (0.0, 0.0, 0.0), mount.rotate if mount else (0.0, 0.0, 0.0)))
+        try:
+            built = place(project, _replace(built, model=_replace(built.model, instances=tuple(extra))))  # (its own are in already)
+        except InstanceError as exc:
+            raise _usage(f"--with: {exc}") from None
     folder = project.preview_dir / name / "draft" if args.draft else project.preview_dir / name  # drafts never replace the real sheets
     folder.mkdir(parents=True, exist_ok=True)
     outputs: dict[str, Any] = {}
@@ -1385,6 +1402,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--frame", metavar="N,N,...", help="with --pose: only these frames (e.g. one, up close with --size)")
     s.add_argument("--engine", action="store_true", help="render through Godot, offscreen (needs a build; Linux: xvfb); --views/--pitch/--size pick its views")
     s.add_argument("--variant")
+    s.add_argument("--with", dest="with_", metavar="MODELS", help="other models shown with it, in their shared frame (each at its mount: if it mounts on this one)")
     s.add_argument("--variants", action="store_true", help="every variant side by side in one sheet (a row each; --views and --pitch pick the views)")
     s.add_argument("--draft", action="store_true",
                    help="a quick coarse look while iterating (coarser mesh cells, rough colour edges, plain hard parts, no normal map): shapes and placement, not the final surface")

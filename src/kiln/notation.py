@@ -63,7 +63,7 @@ PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "d
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances", "transforms", "textures",
+TOP_FIELDS = {"mount", "name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances", "transforms", "textures",
               "rig", "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
@@ -323,7 +323,8 @@ class Model:
     shape_text: str = ""  # the fields a build's mesh, paint and skin come from, as one text (the mesh cache's key)
     motion_text: str = ""  # the animations, as one text (the cached build's tracks are made again when it changes)
     effect: Effect | None = None  # a burst of other models' meshes (models/<name>.effect.json)
-    instances: tuple[Instance, ...] = ()  # other models placed in this one, each its own build (a desk with its props)
+    instances: tuple[Instance, ...] = ()
+    mount: Instance | None = None  # an assembly part (#181): where it sits on another model, in a shared frame (no ground checks)  # other models placed in this one, each its own build (a desk with its props)
     terrain: Terrain | None = None  # a heightfield with splat layers instead of parts (kiln.terrain)
     scatter: Scatter | None = None  # other models placed many times over a surface instead of parts (kiln.scatter)
 
@@ -2398,6 +2399,16 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig"), model.template), model.parts)
     if "instances" in data:  # (after the parts: `id` names one)
         model.instances = _parse_instances(ctx, data["instances"], _line(data, "instances"), model)
+    if "mount" in data:  # (#181) a part of an assembly: shares the frame of the model it mounts on
+        mraw = data["mount"]
+        usage = "mount is { to: <model>, at: [x, y, z], rotate: [x, y, z] }: where this model sits on another, in their shared frame"
+        mat = _vec(mraw.get("at", [0, 0, 0])) if isinstance(mraw, dict) else None
+        mrot = _vec(mraw.get("rotate", [0, 0, 0])) if isinstance(mraw, dict) else None
+        if not isinstance(mraw, dict) or not isinstance(mraw.get("to"), str) or not NAME_RE.match(mraw["to"]) or mat is None or mrot is None \
+                or any(k not in ("to", "at", "rotate") for k in mraw):
+            ctx.error("E003", usage, _line(data, "mount"), "mount")
+        else:
+            model.mount = Instance(str(mraw["to"]), (mat[0], mat[1], mat[2]), (mrot[0], mrot[1], mrot[2]), line=_line(data, "mount"))
     if "transforms" in data:  # (last: the parts as placed, fitted and rigged)
         _apply_transforms(ctx, data["transforms"], _line(data, "transforms"), model)
     skeleton = data.get("skeleton")

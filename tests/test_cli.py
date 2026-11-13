@@ -625,3 +625,21 @@ def test_fit_reports_overlap_and_gap(in_project: Project, capsys: pytest.Capture
     assert result["fits"] and result["gap_mm"] is not None and result["gap_mm"] < 10
     code, result = run_json(["fit", "case", "lid", "--at", "0,-0.02,0"], capsys)
     assert code == 0 and not result["fits"] and result["b_into_a_mm"] > 3
+
+
+def test_mount_shares_a_frame_and_preview_with(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#181: a model mounted on another shares its frame: no ground warnings, a manifest entry; preview --with shows
+    them together (the mounted one at its mount)."""
+    (in_project.models_dir / "case.kiln.yaml").write_text("name: case\nparts:\n  - box: { at: [0, 0.05, 0], size: [0.2, 0.1, 0.2] }\n    color: grey\n")
+    (in_project.models_dir / "lid.kiln.yaml").write_text(
+        "name: lid\nmount: { to: case, at: [0, 0.1, 0] }\nparts:\n  - box: { at: [0, 0.6, 0], size: [0.2, 0.03, 0.2] }\n    color: red\n")
+    code, result = run_json(["lint", "lid"], capsys)
+    assert code == 0 and not [f for f in result["findings"] if f["rule"] in ("W106", "W123")], result["findings"]
+    code, result = run_json(["build"], capsys)
+    assert code == 0
+    import json as _json
+
+    manifest = _json.loads((in_project.output_dir / "manifest.json").read_text())
+    assert manifest["models"]["lid"]["mount"] == {"to": "case", "at": [0, 0.1, 0], "rotate": [0, 0, 0]}
+    code, result = run_json(["preview", "case", "--with", "lid", "--views", "front", "--size", "96"], capsys)
+    assert code == 0, result

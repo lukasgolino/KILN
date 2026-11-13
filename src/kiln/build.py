@@ -152,6 +152,8 @@ def model_entry(built: Built, out: Path, glb: Path, merged: bool = False) -> dic
             entry["mesh_node"] = f"{m.node_prefix}mesh"  # the skinned mesh
     if m.origin is not None:  # the glb's origin in model space (everything else here is model space): glb = model - origin
         entry["origin"] = [_f(v) for v in built.origin()]
+    if m.mount is not None:  # an assembly part (#181): where it snaps onto another model (its glb in that model's frame)
+        entry["mount"] = {"to": m.mount.model, "at": [_f(v) for v in m.mount.at], "rotate": [_f(v) for v in m.mount.rotate]}
     if m.fit_to is not None:  # an attachment: hang it on this bone of that character (the glb is in the bone's space)
         entry["attach"] = {"file": m.fit_to[0].name, "bone": m.fit_to[1]}
     if m.skeleton == "humanoid":  # the standard names of its joints, for engines' retargeting (Godot: SkeletonProfileHumanoid)

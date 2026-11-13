@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- Assemblies: `mount: { to, at, rotate }` on a model built to sit on another (a shared frame: no W106/W123 ground
+  checks; `mount` in the manifest), and `kiln preview <model> --with <others>` to see them together (#181).
 - `kiln fit <a> <b> [--at] [--rotate]`: does b fit a in their shared frame: overlap volume, how deep each goes into
   the other, the smallest gap (a movement in its case, a crystal under its lip) (#341).
 - `base: [x, y, z]` places a cone or cylinder by its bottom centre (turned with it) instead of `at` (#332).

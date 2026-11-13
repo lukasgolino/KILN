@@ -5,7 +5,7 @@ Every command and its flags.
 ## Commands
 
 `kiln init [dir] --style soft_toy` · `kiln new model <name> --template bean|prop|empty --class C` ·
-`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM [--frame N,N]] [--vs] [--detach] [--fit] [--effect [--at T,T,...]] [--engine] [--variant V | --variants] [--views front,34,side,back] [--pitch 5,30] [--size PX] [--draft] [--tight] [--frame-box X0,Y0,Z0,X1,Y1,Z1] [--fill] [--bg auto|light|dark]` ·
+`kiln lint [models]` · `kiln preview <model> [--closeup ID|NUMBER] [--pose ANIM [--frame N,N]] [--vs] [--detach] [--fit] [--effect [--at T,T,...]] [--engine] [--variant V | --variants] [--with MODELS] [--views front,34,side,back] [--pitch 5,30] [--size PX] [--draft] [--tight] [--frame-box X0,Y0,Z0,X1,Y1,Z1] [--fill] [--bg auto|light|dark]` ·
 `kiln lineup [models] [--pitch DEG]` · `kiln fit <a> <b> [--at X,Y,Z] [--rotate X,Y,Z]` (does b fit a: overlap volume, how deep each goes into the other, the smallest gap, in their shared frame) · `kiln gallery` · `kiln build [models] [--verify-godot] [--no-dependents]` (named models only, and the models placing them: the others keep their last output) · `kiln status` ·
 `kiln mark <models> --approved|--draft [--current]` · `kiln style list|show|new|bump` ·
 `kiln config show|get|set` · `kiln import <file> --licence L` (.glb/.gltf; .fbx/.blend/.obj with Blender 4.x) · `kiln pack list|add|search|import` · `kiln credits` · `kiln doctor` ·

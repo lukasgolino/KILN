@@ -100,6 +100,11 @@ arm_l], rotate: [x, y, z], pivot: [x, y, z], move: [x, y, z] }]` at the top of t
 keep their copies) about `pivot`, then moves them; their rig pivots and sockets go with them. Items apply in order.
 A `mirror: x` part takes only turns about x and moves in y/z (anything else breaks its mirror: E003).
 
+Parts of one assembly built as separate models (a watch case, its caseback, its movement) share a frame: `mount: { to:
+case, at: [x, y, z], rotate: [x, y, z] }` at the top of the part's model says where it sits on `to`; it skips the
+ground checks (W106, W123), goes in the manifest (`mount`) for a game to snap it on, and `kiln preview case --with
+lid,movement` shows them together. `kiln fit case movement` checks they fit.
+
 Placing other models (a desk with its props, a tray of screws): `instances: [{ model: screw, at: [x, y, z], rotate:
 [x, y, z], scale: 1, id: tray }]` at the top of the model. Each is that model's own build (its mesh at its own cell size
 and budget: fine screws stay fine in a coarse scene), merged in after the scene is built. `at`/`rotate` are in the

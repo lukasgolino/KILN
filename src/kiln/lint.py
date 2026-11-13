@@ -328,14 +328,14 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     lo, hi = built.bounds()
     size = float((hi - lo).max())
     tol = max(0.01, 0.01 * size)
-    grounded = m.origin is not None or abs(float(lo[1])) <= tol  # a model with an explicit `origin` chose its own anchor
+    grounded = m.origin is not None or m.mount is not None or abs(float(lo[1])) <= tol  # an explicit `origin` / `mount`: its own frame (#181)
     if not grounded and m.parts:  # the mesh may sit up to a cell above the shapes' own bottom (rounded edges, coarse cells)
         shapes_lo = float((field or field_of(m, built.step)).bounds()[0][1])
         grounded = abs(shapes_lo) <= tol and 0 <= float(lo[1]) - shapes_lo <= 1.5 * built.step
     if not grounded:
         warn("W106", f"the lowest point is at y = {float(lo[1]):.3g} m: models stand on y = 0 (feet, wheels, base). Move the parts, "
              "or disable W106 for things that hang or float")  # fmt: skip
-    elif m.origin is None and float(lo[1]) < -max(GROUND_DIP, 0.1 * built.step):  # coarse cells round a little anyway
+    elif m.origin is None and m.mount is None and float(lo[1]) < -max(GROUND_DIP, 0.1 * built.step):  # coarse cells round a little anyway
         v = built.painted.vertices
         low = v[np.argmin(v[:, 1])]
         adding = [i for i, q in enumerate(m.parts) if q.geometry.op == "add"]
