@@ -359,13 +359,17 @@ func _show_palette() -> void:
 		swatches.add_child(cell)
 
 
-func _same(colours: PackedColorArray, hexes: Array) -> bool:
+func _same(colours: PackedColorArray, hexes: Array) -> bool:  # the same colours in any order (KILN sorts a kit's)
 	if colours.size() != hexes.size():
 		return false
+	var mine: Array = []
+	var theirs: Array = []
 	for i in colours.size():
-		if colours[i].to_html(false) != Color(hexes[i]).to_html(false):
-			return false
-	return true
+		mine.append(colours[i].to_html(false))
+		theirs.append(Color(hexes[i]).to_html(false))
+	mine.sort()
+	theirs.sort()
+	return mine == theirs
 
 
 # --- saving ---
