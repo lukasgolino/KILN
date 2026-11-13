@@ -103,7 +103,7 @@ def place(project: Project, built: Built, seen: tuple[str, ...] = (), share: flo
             weights.append(w)
         count += len(q.vertices)
     painted = Painted(np.concatenate(vertices), np.concatenate(faces), np.concatenate(face_group), groups, np.concatenate(face_decal), decals)
-    return replace(built, painted=painted, normals=np.concatenate(normals), ao=np.concatenate(ao) if ao is not None else None,
+    return replace(built, own_triangles=built.own_triangles or built.triangles, painted=painted, normals=np.concatenate(normals), ao=np.concatenate(ao) if ao is not None else None,
                    joints=np.concatenate(joints) if joints is not None else None, weights=np.concatenate(weights) if weights is not None else None)  # fmt: skip
 
 
@@ -121,3 +121,38 @@ def _compose(outer: Copy, inner: tuple[float, ...] | None) -> tuple[float, ...]:
     # f2(f1(p)) = (p - a1) @ R1 @ R2 + (piv1 - a2) @ R2 + piv2 = (p - o) @ R with pivot 0
     o = a1 - ((outer.pivot - a2) @ r2 + piv2) @ rot.T
     return _copy_key(Copy(rot, np.zeros(3), o))
+
+
+def joined_pieces(vertices: np.ndarray, faces: np.ndarray, gap: float) -> int:
+    """Separate pieces, counting those within about `gap` of each other as one: an instance set against the model
+    (a link between two clasp halves) joins them though they share no vertex (#333)."""
+    n = len(vertices)
+    parent = np.arange(n)
+
+    def find(i: np.ndarray) -> np.ndarray:
+        while True:
+            up = parent[i]
+            if np.array_equal(up, i):
+                return i
+            parent[i] = parent[up]
+            i = parent[i]
+
+    def union(a: np.ndarray, b: np.ndarray) -> None:
+        for _ in range(64):  # pointer jumping until settled
+            ra, rb = find(a.copy()), find(b.copy())
+            differ = ra != rb
+            if not differ.any():
+                return
+            lo, hi = np.minimum(ra[differ], rb[differ]), np.maximum(ra[differ], rb[differ])
+            parent[hi] = lo
+
+    used = np.unique(faces)
+    for k in range(3):
+        union(faces[:, k], faces[:, (k + 1) % 3])
+    for shift in (0.0, 0.5):  # vertices in one cell of a grid `gap` wide (and a grid offset by half) join
+        cells = np.floor(vertices[used] / gap + shift).astype(np.int64)
+        _, inverse = np.unique(cells, axis=0, return_inverse=True)
+        first = np.full(inverse.max() + 1, -1)
+        first[inverse[::-1]] = used[::-1]
+        union(used, first[inverse])
+    return int(len(np.unique(find(used.copy()))))

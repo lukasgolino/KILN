@@ -312,13 +312,19 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             warn("W113", f"{int(inside.sum())} points of it are inside {m.fit_to[0].name} (up to {float(-depth.min()) * 100:.1f} cm) around "
                  f"[{where[0]:.2f}, {where[1]:.2f}, {where[2]:.2f}]: move it out, or wrap it with fit: target", None, "fit_to")  # fmt: skip
     budget = m.budget or built.style.budget(m.cls)
-    if m.source is None and built.triangles > budget * 1.25:
+    own = built.own_triangles or built.triangles  # (#333) the budget is the model's own parts; instances bring their own
+    if m.source is None and m.parts and own > budget * 1.25:
         patterned = sum(1 for p in m.parts if p.pattern is not None)
         why = f"its {patterned} pattern(s) need edges shorter than their repeat" if patterned else "fine details and colour borders"
-        warn("W110", f"{built.triangles} triangles for a budget of {budget}: {why}. Use bigger pattern repeats, fewer patterns, model "
+        warn("W110", f"{own} triangles for a budget of {budget}: {why}. Use bigger pattern repeats, fewer patterns, model "
              "the details as parts, or raise budget:")  # fmt: skip
-    if built.pieces > 1:
-        warn("W103", f"the model is {built.pieces} separate pieces: a floating part, or a gap between parts that should touch")
+    pieces = built.pieces
+    if m.instances and len(built.painted.faces):  # instances set against the model join what they touch (#333)
+        from kiln.instances import joined_pieces
+
+        pieces = joined_pieces(built.painted.vertices, built.painted.faces, max(built.step, 0.002) * 1.5)
+    if pieces > 1 and not (m.instances and not m.parts):  # (a scene of instances only: its pieces are separate models)
+        warn("W103", f"the model is {pieces} separate pieces: a floating part, or a gap between parts that should touch")
     lo, hi = built.bounds()
     size = float((hi - lo).max())
     tol = max(0.01, 0.01 * size)
@@ -652,6 +658,13 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                 keep.append(Finding("E009", built, path, None, "parts"))
             else:
                 assert model is not None
+                if model.instances:  # lint sees the scene as built: its instances placed (#333)
+                    from kiln.instances import InstanceError, place
+
+                    try:
+                        built = place(project, built)
+                    except InstanceError as exc:
+                        keep.append(Finding("E011", str(exc), path, None, "instances"))
                 result.built[model.name] = built
                 keep += geometry_warnings(built, palette, project)
         if geometry and model is not None and model.terrain is not None and not any(f.severity == "error" for f in keep):

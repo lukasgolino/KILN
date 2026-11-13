@@ -147,3 +147,21 @@ def test_instances_keep_their_textures_and_decals(project: Project, monkeypatch:
     assert not build(project).errors
     doc, _ = read_glb((project.output_dir / "models" / "shelf.glb").read_bytes())
     assert doc.get("images")
+
+
+def test_lint_sees_the_instances_and_a_scene_of_instances_only(project: Project) -> None:
+    """#333: lint measures the scene with its instances (size, triangle line, pieces joined by them); the budget is
+    the model's own; a scene needs no parts of its own."""
+    write_model(project, SCREW, "screw")
+    write_model(project, "name: link\nparts:\n  - box: { at: [0, 0.01, 0], size: [0.1, 0.02, 0.02] }\n    color: grey\n", "link")
+    clasp = ("name: clasp\nparts:\n  - box: { at: [-0.1, 0.01, 0], size: [0.1, 0.02, 0.04] }\n    color: wood\n"
+             "  - box: { at: [0.1, 0.01, 0], size: [0.1, 0.02, 0.04] }\n    color: wood\ninstances:\n  - { model: link, at: [0, 0, 0] }\n")  # fmt: skip
+    result = lint_paths(project, [write_model(project, clasp, "clasp")])
+    rules = [f.rule for f in result.findings]
+    assert "W103" not in rules, [f.format() for f in result.findings]  # the link joins the two halves
+    built = result.built["clasp"]
+    assert built.own_triangles and built.triangles > built.own_triangles
+    tray = lint_paths(project, [write_model(project, "name: tray\ninstances:\n  - { model: screw, at: [0.1, 0, 0] }\n  - { model: screw, at: [-0.1, 0, 0] }\n", "tray")])
+    assert not [f for f in tray.findings if f.severity == "error"], [f.format() for f in tray.findings]
+    assert tray.built["tray"].triangles > 0
+    assert not build(project).errors

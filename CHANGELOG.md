@@ -66,6 +66,9 @@ before 1.0).
 
 ### Fixed
 
+- Lint measures a scene with its instances placed (W108 size, W103 pieces joined by instances, the triangle line;
+  W110 holds the model's own parts to its budget); a scene may be instances only, without `parts:`; the docs say
+  `rotate` turns an instance about its origin before `at` (#333).
 - `kiln.api.offset()` moves mirrored parts as written-out pairs, a lathe's part-level `at` (not a second one), array
   centres and decal centres (#172).
 - Scatter LODs of a model with a normal map (or colour map) keep their own maps instead of LOD 0's on their own

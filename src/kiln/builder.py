@@ -89,6 +89,8 @@ def kept_parts(model: Model, hard: frozenset[int]) -> frozenset[int]:
     separate = {pid for pid, e in model.rig.items() if e.separate} if model.skin != "none" else set()
     adding = [i for i, p in enumerate(model.parts) if p.geometry.op == "add"]
     boxes = [model.parts[i].geometry.bounds() for i in adding]
+    if not boxes:
+        return frozenset()
     lo, hi = np.min([b[0] for b in boxes], axis=0), np.max([b[1] for b in boxes], axis=0)
     size = float(np.linalg.norm(hi - lo))
     out = set()
@@ -287,6 +289,10 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
         from kiln.importer import build_imported
 
         return build_imported(model, style, palette)
+    if not model.parts:  # a scene of instances only (#333): nothing of its own; place() brings the rest
+        empty = Painted(np.zeros((0, 3)), np.zeros((0, 3), np.int64), np.zeros(0, np.int64), [], np.zeros(0, np.int64), [])
+        root = Skeleton([Bone(ROOT_ID, -1, np.zeros(3), {}, False)])
+        return Built(model, style, empty, np.zeros((0, 3, 3)), root, "none", None, None, [], 0.01, 0)
     field = field_of(model, 0.01)
     for part in model.parts:
         lo, hi = part.geometry.bounds()

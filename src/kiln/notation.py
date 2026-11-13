@@ -2295,8 +2295,11 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
             ctx.error("E003", "normal_map bakes from a KILN model's shapes: an imported mesh (source) has none", _line(data, "normal_map"), "normal_map")
     else:
         raw_parts = data.get("parts")
-        if not isinstance(raw_parts, list) or not raw_parts:
-            ctx.error("E003", "parts must be a non-empty list, e.g. - sphere: { at: [0, 0.5, 0], radius: 0.5 }", _line(data, "parts"), "parts")
+        if raw_parts is None and data.get("instances"):  # a scene of instances only (#333)
+            pass
+        elif not isinstance(raw_parts, list) or not raw_parts:
+            ctx.error("E003", "parts must be a non-empty list, e.g. - sphere: { at: [0, 0.5, 0], radius: 0.5 } (or none, with instances:)",
+                      _line(data, "parts"), "parts")  # fmt: skip
         else:
             named = data.get("textures", {})  # model-level textures used by name (#320)
             if not isinstance(named, dict) or not all(isinstance(v, dict) for v in named.values()):
