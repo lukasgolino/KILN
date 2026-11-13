@@ -532,8 +532,12 @@ def _moved(m: Model, anim: str) -> set[str]:
 
 
 def _build_job(job: tuple[Model, Style, dict[str, str], Path]) -> Built | str:
+    import warnings
+
     try:
-        return build_cached(*job)
+        with warnings.catch_warnings(), np.errstate(divide="ignore", invalid="ignore", over="ignore"):  # (#339) a worker prints none either
+            warnings.simplefilter("ignore", RuntimeWarning)
+            return build_cached(*job)
     except ValueError as exc:
         return build_error(exc)
 

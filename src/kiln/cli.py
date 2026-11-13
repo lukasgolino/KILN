@@ -1409,8 +1409,14 @@ COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_bui
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     out = Output(args.json)
+    import warnings
+
+    import numpy as np
+
     try:
-        return COMMANDS[args.cmd](args, out)
+        with warnings.catch_warnings(), np.errstate(divide="ignore", invalid="ignore", over="ignore"):  # (#339) never raw numpy noise
+            warnings.simplefilter("ignore", RuntimeWarning)
+            return COMMANDS[args.cmd](args, out)
     except PaganError as exc:
         out.failure(exc.findings)
         return 1

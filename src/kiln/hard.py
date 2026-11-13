@@ -539,7 +539,7 @@ def _planes_wedge(size: Sequence[float]) -> tuple[Array, Array]:
     n, off = _planes_box(size)
     keep = [0, 1, 3]  # x sides and the floor; the top is the ridge
     slope = np.array([[0.0, d / 2, h], [0.0, d / 2, -h]])
-    slope /= np.linalg.norm(slope, axis=1, keepdims=True)
+    slope /= np.maximum(np.linalg.norm(slope, axis=1, keepdims=True), 1e-12)  # (a degenerate edge: no NaN, #339)
     # both slopes pass through the ridge (y = h/2, z = 0)
     return np.concatenate([n[keep], slope]), np.concatenate([off[keep], slope[:, 1] * h / 2])
 
@@ -904,7 +904,7 @@ def _capsule_solid(a: Array, b: Array, ra: float, rb: float, sides: int, tag: in
     y = axis / length if length > 0 else np.array([0.0, 1.0, 0.0])
     helper = np.array([1.0, 0.0, 0.0]) if abs(y[0]) < 0.9 else np.array([0.0, 0.0, 1.0])
     x = np.cross(y, helper)
-    x /= np.linalg.norm(x)
+    x /= max(float(np.linalg.norm(x)), 1e-12)
     z = np.cross(x, y)
     m = np.stack([x, y, z], axis=1)
     return _place(polys, m, a, tag)

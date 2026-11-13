@@ -62,6 +62,7 @@ before 1.0).
 
 ### Fixed
 
+- No raw numpy RuntimeWarnings in `kiln` output (lint workers too); degenerate hard normals are guarded (#339).
 - An instance's decals and textures come with it into the scene, turned with it (they were dropped); scaled
   instances still leave them out. Shared meshes and maps through instances: #353 (#295).
 - Toon `outline_color = "darken"` previews take what Godot's outline takes: a glowing part's dimmed colour, vertex
