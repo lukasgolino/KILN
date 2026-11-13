@@ -6,6 +6,14 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-13
+
+Iteration speed and the hero skin look (milestones 0.24 and 0.25; 0.24 was not released on its own). A colour or
+relief edit rebuilds from cache in under a second and a large model's lint is about twice as fast; relief by colour,
+new relief kinds and displacement; a part's own finer resolution; group posing; hand, foot and eye generators; colour
+fades per vertex; shade paint per texel; a fill light in the look kit (on in skin); lint W133-W135. Builds of models
+with relief, fades, shade paint or the skin style change (see Changed).
+
 ### Added
 
 - `transforms:` turn and move a group of parts about a pivot (a hunched rest pose), rig pivots and sockets with
