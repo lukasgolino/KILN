@@ -403,3 +403,11 @@ def test_w103_joins_touching_pieces_and_names_the_floating_one(project: Project)
     floating = on_hard.replace("at: [0, 0.42, 0], radius: 0.05", "at: [0, 0.9, 0], radius: 0.05")
     w = [f for f in lint_paths(project, [write_model(project, floating)]).findings if f.rule == "W103"]
     assert w and "red parts" in w[0].message and "0.90" in w[0].message, [f.format() for f in w]
+
+
+def test_w122_quiet_when_the_target_has_a_soft_part(project: Project) -> None:
+    """#152: tufts blended into a head whose eyes (kept crisp details with the head's id) are apart: no W122."""
+    text = ("name: thing\nparts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.3 }\n    id: head\n    color: wood\n"
+            "  - sphere: { at: [0.1, 0.55, 0.29], radius: 0.01 }\n    id: head\n    color: black\n    blend: none\n"
+            "  - cone: { at: [0, 0.82, 0], radius: 0.05, height: 0.1 }\n    color: wood\n    blend: 0.02\n    blend_to: [head]\n")  # fmt: skip
+    assert "W122" not in warnings(lint_paths(project, [write_model(project, text)]).findings)

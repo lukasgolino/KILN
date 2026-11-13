@@ -56,6 +56,8 @@ before 1.0).
 
 ### Fixed
 
+- W122 is quiet when a blend_to id has a soft part to melt into, though its crisp details (eyes, teeth) are kept
+  apart (#152).
 - `kiln build <deleted model>` says its last glb and scene stay until a full `kiln build` removes them (#182).
 - `kiln new` writes the project palette's first colour where a template's colour isn't in the palette (#340).
 - A look's `ambient` above 0.9 now brightens Godot too (the sky's `energy_multiplier`; Godot ignores

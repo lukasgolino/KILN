@@ -242,8 +242,14 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             g = part.geometry
             if not g.blend_to:
                 continue
-            apart = sorted({m.parts[j].id for j in g.blend_to if j in hard or j in kept or m.parts[j].id in separate
-                            or (per_bone and m.parts[j].id != part.id)})  # fmt: skip
+            def away(j: int) -> bool:
+                return j in hard or j in kept or m.parts[j].id in separate or (per_bone and m.parts[j].id != part.id)  # noqa: B023
+
+            by_id: dict[str, list[int]] = {}
+            for j in g.blend_to:
+                by_id.setdefault(m.parts[j].id, []).append(j)
+            # (#152) an id with a soft part to melt into is fine, though its crisp details (eyes, teeth) are kept apart
+            apart = sorted(pid for pid, js in by_id.items() if all(away(j) for j in js))
             if apart:
                 warn("W122", f"blend_to {', '.join(apart)}: those parts are meshed apart from this one (hard, kept, separate or another "
                      "bone's piece), so it joins them crisply; make them soft and part of the same piece, or drop blend_to", part.line,
