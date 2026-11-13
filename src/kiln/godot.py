@@ -698,6 +698,12 @@ def model_scene(name: str, glb_res: str, style: Style, swap: dict[str, str] | No
 TONEMAP = {"linear": 0, "filmic": 2, "aces": 3, "agx": 4}
 
 
+# Godot ignores ambient_light_energy while the sky gives all the ambient light (ambient_light_sky_contribution 1), so a
+# look's `ambient` scales the sky itself; at multiplier 1 Godot's sky light matches the previews' ambient 0.55 (measured
+# on the colour-parity grid, #350).
+AMBIENT_REF = 0.9
+
+
 def look_scene(style: Style) -> str:
     """`looks/<style>.tscn`: WorldEnvironment (sky, tonemapper, SSAO, glow, grading, fog) + the sun."""
     look: Look = style.look
@@ -707,6 +713,7 @@ def look_scene(style: Style) -> str:
         f"sky_horizon_color = {_color(look.sky_horizon)}",
         f"ground_bottom_color = {_color(look.ground)}",
         f"ground_horizon_color = {_color(look.sky_horizon)}",
+        *([f"energy_multiplier = {look.ambient / AMBIENT_REF:.6g}"] if look.ambient > AMBIENT_REF else []),  # (#350) a bright `ambient`
         "",
         '[sub_resource type="Sky" id="Sky_main"]',
         'sky_material = SubResource("Sky_material")',

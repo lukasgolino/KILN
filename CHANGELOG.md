@@ -55,6 +55,9 @@ before 1.0).
 
 ### Fixed
 
+- A look's `ambient` above 0.9 now brightens Godot too (the sky's `energy_multiplier`; Godot ignores
+  `ambient_light_energy` while the sky gives all the ambient light): the skin and clay looks match their previews,
+  and both join the colour-parity grid (#350).
 - Reading a glb (references for `--vs`, imports): a skinned mesh ignores its node's transform, as glTF says; a model
   compared against its own skinned, vertex-coloured build matches (#227).
 - See-through parts (`clear`, glass) are alpha-blended in software previews instead of dithered, so they read

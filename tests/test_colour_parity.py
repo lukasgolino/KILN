@@ -98,7 +98,7 @@ def _renders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, renderer: str, sty
 
 @RENDER
 @pytest.mark.parametrize("renderer", ["forward_plus", "gl_compatibility"])
-@pytest.mark.parametrize("style", ["soft_toy", "toon", "lit_fill"])  # lit_fill: soft_toy with a strong fill light (#275)
+@pytest.mark.parametrize("style", ["soft_toy", "toon", "lit_fill", "skin", "clay"])  # lit_fill: soft_toy with a strong fill light (#275)
 def test_engine_render_matches_the_preview(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, renderer: str, style: str) -> None:
     gaps = [g for _, g in _grid(tmp_path, monkeypatch, renderer, style, MATERIALS)]
     assert np.mean(gaps) < 0.035, f"mean OKLab gap {np.mean(gaps):.3f}, worst {max(gaps):.3f}"
