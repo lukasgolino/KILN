@@ -6,14 +6,6 @@ before 1.0).
 
 ## [Unreleased]
 
-## [0.25.0] - 2026-11-13
-
-Iteration speed and the hero skin look (milestones 0.24 and 0.25; 0.24 was not released on its own). A colour or
-relief edit rebuilds from cache in under a second and a large model's lint is about twice as fast; relief by colour,
-new relief kinds and displacement; a part's own finer resolution; group posing; hand, foot and eye generators; colour
-fades per vertex; shade paint per texel; a fill light in the look kit (on in skin); lint W133-W135. Builds of models
-with relief, fades, shade paint or the skin style change (see Changed).
-
 ### Added
 
 - `bevel` and `chamfer` on lathes: the outline's corners are rounded before it is spun (a bezel ring with a lip),
@@ -54,31 +46,6 @@ with relief, fades, shade paint or the skin style change (see Changed).
 - An `idle` cycle: breathing, a slow sway, the head glancing to either side, arms and elbows settling. KILN ships
   KayKit's CC0 humanoid clips (26: idles, walks, runs, jumps, hits, deaths, throw, pick up): `kiln clips` lists
   them, `kiln clips add` copies them with their licence into `imports/kaykit-animations/` (#150).
-- `transforms:` turn and move a group of parts about a pivot (a hunched rest pose), rig pivots and sockets with
-  them; a mirrored part refuses a turn that breaks its mirror (E003) (#305).
-- A part's own `resolution:` (metres): the mesh inside its box is refined to that cell and moved onto the surface
-  along its normals, so a face gets its lids, nostrils and nose on a body meshed coarsely, without the whole model's
-  cells shrinking; pair it with `density` (#306).
-- Relief kinds `scales` (a round lobe), `feathers` (one point and a rib) and `shingles` (a straight edge) next to
-  `fur`; `flow: along` follows each part's own axis out from the body; `displace: true` moves the mesh out by the
-  layer, so tufts break the silhouette (the normals stay, so the map isn't counted twice); a model's LODs stamp its
-  full build's patches, so the pattern is the same at every level; lint W133: patches under four texels wide (#261).
-- Relief picks its faces by painted colour (`on_colors: [fur]`; alone: every smooth part in those colours) and leaves
-  ids bare (`except: [face, chest]`), so a bare chest or face that shares bones with the fur needs no extra bones
-  (#301). The docs list `kind: fur` (#307); folds, relief and colour fades moved to `kiln docs surfaces`.
-- `hand:` and `foot:` hardware: a soft hand (palm, curled tapered fingers, thumb, claws with their own colour) or
-  foot (sole standing on `at`, toes, heel) as ordinary parts that blend into the arm or leg (#310).
-- `eye:` hardware: a recessed eye (a socket cut into the face, a ball sunk in it, a thin rim lining the edge, flush
-  with the surface, optionally glowing) instead of a torus and a flattened ellipsoid that stand proud (#328).
-- `color_blend` without the baked maps: with `normal_map: 0` (or without `kiln-gen[bake]`) the fade goes in the
-  vertex colours (COLOR_0, `vertex_colors = true`), previews too; lint W134 when the project doesn't export vertex
-  colours (#262).
-- A fill light in the look kit: `[look] fill_energy`, `fill_pitch`, `fill_yaw` (default: opposite the sun),
-  `fill_color`; a second DirectionalLight3D without shadows in the look scene, and the same light in the previews
-  (parity tested in both renderers). On in the `skin` preset (0.3) (#275).
-- Lint W135: on a soft-skinned body, a limb fused to another branch at rest (an arm hanging into the belly, a leg
-  into the other leg) away from its joint, with how far to move it (#255).
-- `kiln build <models> --no-dependents`: the models that place them (instances) keep their last build (#343).
 
 ### Fixed
 
@@ -118,6 +85,59 @@ with relief, fades, shade paint or the skin style change (see Changed).
   from a bent elbow, whatever the rest pose, instead of raising the straight arm up by the head (#319).
 - `frames:` written on an animation instead of inside its `cycle:` now says where it goes (E008); the docs show it
   inside the cycle (#318).
+
+### Changed
+
+- Under budget pressure hard parts lose their bevels a few at a time, the smallest first, after the chamfer step,
+  instead of all at once; lint W139 says when bevels went and what budget keeps them (#334).
+- UV charts in baked maps sit 8 texels apart as meant (they were 17: xatlas pads each side), so the maps hold more
+  detail; lint W121 and W133 use the bake's real texel size instead of assuming a half-full map (#257).
+- A model of hard parts only reports its hard part count instead of a mesh cell size in the lint and build
+  summaries, and lint `--json` lists no `cells` entry for it (#243).
+- The glow cap follows the look: divided by its `exposure`, and 1 (where it clips) instead of 0.75 under a linear
+  tone curve; previews cap per material from its flat colour, as the glb does; lint W138 for an emission above its
+  colour's cap (#290).
+- Lint W123 (the mesh dips under the ground) names the part that dips, where, and by how much, on that part's line
+  (#195).
+
+## [0.25.0] - 2026-11-13
+
+Iteration speed and the hero skin look (milestones 0.24 and 0.25; 0.24 was not released on its own). A colour or
+relief edit rebuilds from cache in under a second and a large model's lint is about twice as fast; relief by colour,
+new relief kinds and displacement; a part's own finer resolution; group posing; hand, foot and eye generators; colour
+fades per vertex; shade paint per texel; a fill light in the look kit (on in skin); lint W133-W135. Builds of models
+with relief, fades, shade paint or the skin style change (see Changed).
+
+### Added
+
+- `transforms:` turn and move a group of parts about a pivot (a hunched rest pose), rig pivots and sockets with
+  them; a mirrored part refuses a turn that breaks its mirror (E003) (#305).
+- A part's own `resolution:` (metres): the mesh inside its box is refined to that cell and moved onto the surface
+  along its normals, so a face gets its lids, nostrils and nose on a body meshed coarsely, without the whole model's
+  cells shrinking; pair it with `density` (#306).
+- Relief kinds `scales` (a round lobe), `feathers` (one point and a rib) and `shingles` (a straight edge) next to
+  `fur`; `flow: along` follows each part's own axis out from the body; `displace: true` moves the mesh out by the
+  layer, so tufts break the silhouette (the normals stay, so the map isn't counted twice); a model's LODs stamp its
+  full build's patches, so the pattern is the same at every level; lint W133: patches under four texels wide (#261).
+- Relief picks its faces by painted colour (`on_colors: [fur]`; alone: every smooth part in those colours) and leaves
+  ids bare (`except: [face, chest]`), so a bare chest or face that shares bones with the fur needs no extra bones
+  (#301). The docs list `kind: fur` (#307); folds, relief and colour fades moved to `kiln docs surfaces`.
+- `hand:` and `foot:` hardware: a soft hand (palm, curled tapered fingers, thumb, claws with their own colour) or
+  foot (sole standing on `at`, toes, heel) as ordinary parts that blend into the arm or leg (#310).
+- `eye:` hardware: a recessed eye (a socket cut into the face, a ball sunk in it, a thin rim lining the edge, flush
+  with the surface, optionally glowing) instead of a torus and a flattened ellipsoid that stand proud (#328).
+- `color_blend` without the baked maps: with `normal_map: 0` (or without `kiln-gen[bake]`) the fade goes in the
+  vertex colours (COLOR_0, `vertex_colors = true`), previews too; lint W134 when the project doesn't export vertex
+  colours (#262).
+- A fill light in the look kit: `[look] fill_energy`, `fill_pitch`, `fill_yaw` (default: opposite the sun),
+  `fill_color`; a second DirectionalLight3D without shadows in the look scene, and the same light in the previews
+  (parity tested in both renderers). On in the `skin` preset (0.3) (#275).
+- Lint W135: on a soft-skinned body, a limb fused to another branch at rest (an arm hanging into the belly, a leg
+  into the other leg) away from its joint, with how far to move it (#255).
+- `kiln build <models> --no-dependents`: the models that place them (instances) keep their last build (#343).
+
+### Fixed
+
 - Scatter-scene previews draw a placed relief (or colour-faded) model with its colour map, sampled at the corners,
   instead of flat paint. Gibs of a relief model keep their fur and fades on a quarter-size map of their own instead
   of flat colours (#349).
@@ -139,17 +159,6 @@ with relief, fades, shade paint or the skin style change (see Changed).
 
 ### Changed
 
-- Under budget pressure hard parts lose their bevels a few at a time, the smallest first, after the chamfer step,
-  instead of all at once; lint W139 says when bevels went and what budget keeps them (#334).
-- UV charts in baked maps sit 8 texels apart as meant (they were 17: xatlas pads each side), so the maps hold more
-  detail; lint W121 and W133 use the bake's real texel size instead of assuming a half-full map (#257).
-- A model of hard parts only reports its hard part count instead of a mesh cell size in the lint and build
-  summaries, and lint `--json` lists no `cells` entry for it (#243).
-- The glow cap follows the look: divided by its `exposure`, and 1 (where it clips) instead of 0.75 under a linear
-  tone curve; previews cap per material from its flat colour, as the glb does; lint W138 for an emission above its
-  colour's cap (#290).
-- Lint W123 (the mesh dips under the ground) names the part that dips, where, and by how much, on that part's line
-  (#195).
 - Shade paint on a model with a base colour map (relief, `color_blend`) is painted per texel into the map, from
   the normal map's normals and each texel's occlusion, with the same strengths; its mapped faces carry no COLOR_0
   multiplier any more (no double shading). Fine grooves and relief now shade too (#266).
