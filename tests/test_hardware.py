@@ -262,3 +262,22 @@ def test_a_bevelled_hard_lathe_ring(project: Project) -> None:
     top_outer = (np.isclose(v[:, 1], 0.06, atol=1e-6)) & (r > 0.39)
     assert not top_outer.any()  # the outer top corner is cut back
     assert np.isclose(r.max(), 0.4, atol=1e-3) and len(open_edges(v, built.painted.faces)) == 0
+
+
+def test_hard_flats_shade_flat_to_their_corners(project: Project) -> None:
+    """#335: a bevelled hard box's big flat flanks keep their own normal at every corner (only the bevel bands blend),
+    so long triangles across a flank shade no diagonal crease; a cylinder's equal sides still blend round."""
+    text = "name: thing\nparts:\n  - box: { at: [0, 0.3, 0], size: [0.8, 0.6, 0.4] }\n    color: wood\n    bevel: 0.03\n"
+    model, style = ok_model(project, text)
+    built = build_model(model, style, palette=project.palette(None)[0])
+    n = built.normals
+    tri = built.painted.vertices[built.painted.faces]
+    face_n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    face_n /= np.linalg.norm(face_n, axis=1, keepdims=True)
+    flank = face_n[:, 2] > 0.999  # the front face
+    assert flank.any() and np.allclose(n[flank], face_n[flank][:, None, :], atol=1e-6)
+    cyl = "name: thing\nparts:\n  - cylinder: { at: [0, 0.3, 0], radius: 0.3, height: 0.6, sides: 12 }\n    color: wood\n"
+    model, style = ok_model(project, cyl)
+    built = build_model(model, style, palette=project.palette(None)[0])
+    side = np.abs(built.normals[..., 1]) < 0.5
+    assert np.abs(built.normals[side] - built.normals[side].mean()).max() > 0  # (not every corner the same flat normal)

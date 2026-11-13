@@ -1516,6 +1516,10 @@ def _patches(mesh: HardMesh) -> Array:
     return np.array([find(i) for i in range(len(f))])
 
 
+FLAT_DOMINANT = 4.0  # a face whose flat patch is this many times the biggest other at a corner keeps its own normal there
+# (a flank beside its bevel band; a cylinder's equal sides still blend round)
+
+
 def corner_normals(mesh: HardMesh, smooth: bool, sharp_angle: float) -> Array:
     """(F, 3, 3): each face's polygon normal; smooth styles blend it with neighbouring faces of the same part that
     turn less than `sharp_angle`, weighted by their flat patch's area: big faces stay flat, bevel bands between them
@@ -1547,6 +1551,10 @@ def corner_normals(mesh: HardMesh, smooth: bool, sharp_angle: float) -> Array:
         weight = patch_area[patches]
         for c, fi in zip(corners, fids, strict=True):
             mine = (parts == mesh.face_part[fi]) & (normals @ mesh.face_normal[fi] >= cos_limit)
+            own = patch_area[patch[fi]]
+            others = weight[mine & (patches != patch[fi])]
+            if len(others) and own >= others.max() * FLAT_DOMINANT:  # a big flat face stays flat to its corners (#335): only
+                continue  # the narrow bands between flats blend, so long triangles across a flank shade no diagonal crease
             acc = (normals[mine] * weight[mine, None]).sum(axis=0)
             length = float(np.linalg.norm(acc))
             if length > 0:

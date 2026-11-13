@@ -74,6 +74,9 @@ before 1.0).
 
 ### Fixed
 
+- Hard flat faces keep their own normal to every corner when their flat is clearly the biggest there (only bevel
+  bands blend), so long triangles across a flank no longer shade a diagonal crease; cavity shade on a sliver
+  triangle (a fan across a flat where parts rest) is evened out over it instead of streaking (#335).
 - Lint measures a scene with its instances placed (W108 size, W103 pieces joined by instances, the triangle line;
   W110 holds the model's own parts to its budget); a scene may be instances only, without `parts:`; the docs say
   `rotate` turns an instance about its origin before `at` (#333).
