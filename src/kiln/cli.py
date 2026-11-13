@@ -253,6 +253,11 @@ def cmd_new(args: argparse.Namespace, out: Output) -> int:
         text = Template(_template(f"model_{args.template}.kiln.yaml")).safe_substitute(name=name, description=json.dumps(args.description or ""))
     if args.cls:
         text = re.sub(r"^class: .*$", f"class: {args.cls}", text, count=1, flags=re.M)
+    palette, _ = project.palette(None)
+    names = [k for k in palette if not k.isdigit() and len(k) > 1]
+    for colour in sorted(set(re.findall(r"^    color: (\w+)$", text, re.M))):  # (#340) a template colour the palette lacks: its first
+        if colour not in palette and names:
+            text = re.sub(rf"^    color: {colour}$", f"    color: {names[0]}", text, flags=re.M)
     text = text.replace("status: draft\n", f"status: draft\nstyle_version: {project.config.style_version}\n", 1)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")

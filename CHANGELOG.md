@@ -55,6 +55,7 @@ before 1.0).
 
 ### Fixed
 
+- `kiln new` writes the project palette's first colour where a template's colour isn't in the palette (#340).
 - A look's `ambient` above 0.9 now brightens Godot too (the sky's `energy_multiplier`; Godot ignores
   `ambient_light_energy` while the sky gives all the ambient light): the skin and clay looks match their previews,
   and both join the colour-parity grid (#350).

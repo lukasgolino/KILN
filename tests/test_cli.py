@@ -701,3 +701,14 @@ def test_style_check_lists_lit_colours(in_project: Project, capsys: pytest.Captu
     assert code == 0, result
     red = next(r for r in result["colours"] if r["name"] == "red")
     assert red["lit"].startswith("#") and isinstance(red["hue_shift"], float) and (in_project.root / result["sheet"]).is_file()
+
+
+def test_new_model_uses_a_palette_colour(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#340: a template colour the project palette lacks is replaced by the palette's first colour."""
+    pal = in_project.root / "palettes" / "main.pal.yaml"
+    pal.write_text(pal.read_text().replace("name: grey", "name: slate"))
+    code, _ = run_json(["new", "model", "blob", "--template", "empty"], capsys)
+    text = (in_project.models_dir / "blob.kiln.yaml").read_text()
+    assert code == 0 and "color: grey" not in text
+    code, result = run_json(["lint", "--fast", "blob"], capsys)
+    assert code == 0, result
