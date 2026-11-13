@@ -44,6 +44,7 @@ class Built:
     asked_step: float = 0.0  # the mesh step the style or model asked for; above it, the grid cap decided `step` (lint W120)
     step_reason: str = ""  # why `step` is what it is, in words (kiln lint / build print it)
     ao: Array | None = None  # (F, 3) per corner: shade paint / baked occlusion (kiln.shade) the previews multiply in, as the engine does
+    hard_note: Any = None  # (bevelled parts that lost them, bevelled parts, triangles with them) when the budget dropped bevels (#334)
     own_triangles: int = 0  # with instances placed (#333): the model's own triangles (its budget counts these); 0: all its own
     ao_strength: float = 0.0  # kiln.toml atlas_ao the previews' shade was made with (a cavity strength)
     corner_fade: Any = None  # colour fades without the maps (#262): per corner (F x 3) group toward, weight, second group, weight

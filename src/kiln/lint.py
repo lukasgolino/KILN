@@ -64,6 +64,7 @@ WARNING_RULES = {
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
     "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
     "W138": "a part's emission is above the cap for its colour in this look: the extra strength changes nothing",
+    "W139": "the triangle budget took bevels off hard parts (they became plain edges)",
     "W137": "a pixel-art texture or decal has colours off the palette: the model's variants can't swap them",
     "W136": "a pattern paints nothing: it misses the part's surface (a band's `at` or a pixel strip's place)",
     "W135": "a limb is fused to another branch of a soft-skinned body at rest, away from its joint: posing it stretches the skin",
@@ -98,7 +99,7 @@ CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than a
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
 BUILT_RULES = ("E009", "E013", "E016", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135", "W136")  # fmt: skip
+               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135", "W136", "W139")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -318,6 +319,10 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         why = f"its {patterned} pattern(s) need edges shorter than their repeat" if patterned else "fine details and colour borders"
         warn("W110", f"{own} triangles for a budget of {budget}: {why}. Use bigger pattern repeats, fewer patterns, model "
              "the details as parts, or raise budget:")  # fmt: skip
+    if built.hard_note and budget:  # (#334)
+        lost, bevelled, need = built.hard_note
+        warn("W139", f"the budget ({budget}) took the bevels off {lost} of {bevelled} bevelled hard part(s), the smallest first: with them "
+             f"the hard parts take {need} triangles; budget: {int(need * 1.1) + 1} keeps them (or fewer segments, or chamfer instead of bevel)")
     pieces = built.pieces
     if m.instances and len(built.painted.faces):  # instances set against the model join what they touch (#333)
         from kiln.instances import joined_pieces

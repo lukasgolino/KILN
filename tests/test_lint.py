@@ -341,3 +341,15 @@ def test_w138_emission_above_its_colours_cap(project: Project) -> None:
     text = "name: thing\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: white\n    material: glow\n    emission: 3\n"
     assert "W138" in warnings(lint_paths(project, [write_model(project, text)], geometry=False).findings)
     assert "W138" not in warnings(lint_paths(project, [write_model(project, text.replace("emission: 3", "emission: 0.5"))], geometry=False).findings)
+
+
+def test_w139_bevels_dropped_for_the_budget_step_by_step(project: Project) -> None:
+    """#334: under budget pressure bevels go a few parts at a time, the smallest first, and lint says what keeps them."""
+    parts = "".join(f"  - box: {{ at: [{x * 0.5}, 0.2, 0], size: [{0.1 + 0.08 * x}, 0.4, 0.3] }}\n    color: red\n    bevel: 0.02\n    segments: 3\n" for x in range(4))
+    roomy = lint_paths(project, [write_model(project, "name: thing\nbudget: 20000\nparts:\n" + parts)])
+    assert "W139" not in warnings(roomy.findings)
+    tight = lint_paths(project, [write_model(project, "name: thing\nbudget: 300\nparts:\n" + parts)])  # chamfered: 368
+    w = [f for f in tight.findings if f.rule == "W139"]
+    assert w and "keeps them" in w[0].message, [f.format() for f in tight.findings]
+    built = tight.built["thing"]
+    assert built.hard_note is not None and built.hard_note[0] < built.hard_note[1]  # some kept theirs: not all at once

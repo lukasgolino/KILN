@@ -124,6 +124,8 @@ before 1.0).
 
 ### Changed
 
+- Under budget pressure hard parts lose their bevels a few at a time, the smallest first, after the chamfer step,
+  instead of all at once; lint W139 says when bevels went and what budget keeps them (#334).
 - UV charts in baked maps sit 8 texels apart as meant (they were 17: xatlas pads each side), so the maps hold more
   detail; lint W121 and W133 use the bake's real texel size instead of assuming a half-full map (#257).
 - A model of hard parts only reports its hard part count instead of a mesh cell size in the lint and build
