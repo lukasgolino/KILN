@@ -652,3 +652,14 @@ def test_negative_numbers_after_flags() -> None:
     assert _joined(["preview", "m", "--frame-box", "-0.25,1,-0.2,0.25,1.6,0.2", "--pitch", "-10"]) == [
         "preview", "m", "--frame-box=-0.25,1,-0.2,0.25,1.6,0.2", "--pitch=-10"]
     assert _joined(["preview", "m", "--views", "front"]) == ["preview", "m", "--views", "front"]
+
+
+def test_closeup_takes_views_and_pitch(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#309: --closeup honours --views and --pitch (one row per pitch, a tile per view)."""
+    from PIL import Image
+
+    (in_project.models_dir / "ball.kiln.yaml").write_text("name: ball\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: red\n    id: body\nskin: rigid\n")
+    code, result = run_json(["preview", "ball", "--closeup", "body", "--views", "front,34", "--pitch", "5", "--size", "100"], capsys)
+    assert code == 0, result
+    sheet = Image.open(in_project.root / result["outputs"]["closeup"]["body"])
+    assert sheet.height < 2.5 * 100  # one row (the default is three)

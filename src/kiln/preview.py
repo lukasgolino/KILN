@@ -186,7 +186,8 @@ def variants_sheet(built: Built, yaws: list[tuple[str, float]], pitch: float = 1
     return sheet(f"{m.name} variants", f"style {built.style.name} · {len(m.variants)} variants · {pitch:+g} degrees{_notes(tiles)}", rows)
 
 
-def closeup(built: Built, part_id: str, size: int = 260, tiles: Tiles | None = None) -> Image.Image:
+def closeup(built: Built, part_id: str, size: int = 260, tiles: Tiles | None = None, yaws: list[tuple[str, float]] | None = None,
+            pitches: list[float] | None = None) -> Image.Image:  # fmt: skip
     """One part (bone) filling the view, in place: what a close camera (a kill cam, a dialogue shot) sees. A number
     is a part's place in the file's `parts:` list (0 = the first), so a hat or a face can be framed apart from the
     bone it moves with."""
@@ -206,9 +207,10 @@ def closeup(built: Built, part_id: str, size: int = 260, tiles: Tiles | None = N
         lo, hi = v.min(axis=0), v.max(axis=0)
     fit = ((lo + hi) / 2, max(float(np.linalg.norm(hi - lo)) / 2 * 1.3, built.step * 8))
     rows = []
-    for pitch in (-15.0, 15.0, 45.0):
+    views = yaws or list(HEADINGS[::2] + HEADINGS[1::2][:2])  # (#309) --views and --pitch pick them
+    for pitch in pitches or (-15.0, 15.0, 45.0):
         rows.append((f"{part_id} in place, {pitch:+g} degrees", [(n, render(built, View(yaw, pitch), size, fit=fit, background=tiles.bg, fill=tiles.fill))
-                                                                 for n, yaw in HEADINGS[::2] + HEADINGS[1::2][:2]]))  # fmt: skip
+                                                                 for n, yaw in views]))  # fmt: skip
     return sheet(f"{built.model.name} closeup: {part_id}", "framed on the part; other parts may cover it, as in the game", rows)
 
 

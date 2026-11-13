@@ -609,14 +609,14 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
             raise _usage(str(exc) if "view" in str(exc) else "--pitch is degrees above the horizon, e.g. 5 or 5,30") from None
         if not all(-89 <= p <= 89 for p in pitches):
             raise _usage("--pitch is between -89 and 89 degrees")
-    if want_views and not args.engine and not args.pose:  # with --engine or --pose, the views flags pick theirs
+    if want_views and not args.engine and not args.pose and not args.closeup:  # with --engine, --pose or --closeup, the views flags pick theirs
         path = folder / (f"views.{args.variant}.png" if args.variant else "views.png")
         pv.views(built, yaws, pitches, size or 400, swap=swap, tiles=tiles).save(path)
         outputs["views"] = display_path(path)
     for part in args.closeup or []:
         try:
             path = folder / f"closeup_{part}.png"
-            pv.closeup(built, part, tiles=tiles, **tile).save(path)
+            pv.closeup(built, part, tiles=tiles, yaws=yaws if args.views else None, pitches=pitches if args.pitch else None, **tile).save(path)
             outputs.setdefault("closeup", {})[part] = display_path(path)
         except KeyError:
             raise _usage(f"{name} has no part {part!r} (ids: {', '.join(built.model.ids)}, or a part's number in the file: 0-{len(built.model.parts) - 1})") from None
