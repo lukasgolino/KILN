@@ -6,10 +6,29 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-13
+
+Retro tuning (milestone 0.33): the retro pass is tunable live, with four new dither patterns and an opt-in world-space
+dither; the retro room gets a dev panel. Screen-space output of existing looks is unchanged.
+
 ### Added
 
+- Retro pass settings are live (#365): every setting is a shader uniform starting at the style's values, and the look
+  kit's `Retro` node has a runtime API (`set_enabled`, `set_lines`, `set_pixel_aspect`, `set_strength`, `set_pattern`,
+  `set_palette` with 1-16 colours, `get_settings`). The shader text is the same for every look; the material holds
+  the settings.
+- Dither patterns `halftone`, `lines`, `hatch` and `noise` (#366), in Godot and in previews; halftone and hatch are
+  ranked tiles like Bayer's, so every tone fills exactly its share.
 - `examples/retro_room/` (#362): a walkable Godot room with nine models on pedestals; 1 / 2 / 3 switch the Atari ST
   colour, CGA and ST mono looks (Tab cycles). `export.sh` builds a Windows exe. CI runs its headless check.
+- `[look] dither_space = "screen" | "world"` (#367) and `set_space()` on the Retro node (`get_settings()` reports
+  `space`), switchable live: world space fixes the retro dither to surfaces through a depth-reading full-screen quad
+  in the look kit, so it doesn't crawl when the camera moves. Best with `dither = "noise"`; ordered patterns come out
+  irregular in world space. Godot Forward+ only; Mobile, Compatibility and previews keep screen space. Screen space output
+  is unchanged (the look kit gains the quad, hidden).
+- Retro room dev panel (#369): F1 tunes the look live (effect on/off, screen or world dither, pattern, lines, pixel
+  aspect, strength, light bands, palette presets, colour count, colour pickers, randomise one or all) and saves the
+  result as a KILN style + palette (`user://presets/`, the style also to the clipboard).
 
 ## [0.32.0] - 2026-11-13
 
@@ -1210,7 +1229,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.32.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.33.0...HEAD
+[0.33.0]: https://github.com/lukasgolino/kiln/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/lukasgolino/kiln/compare/v0.31.0...v0.32.0
 [0.23.0]: https://github.com/lukasgolino/kiln/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/lukasgolino/kiln/compare/v0.21.0...v0.22.0

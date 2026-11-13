@@ -1,5 +1,6 @@
 # The retro room (#362): a closed room with the manifest's models on a 3x3 grid of pedestals, walked through in
-# first person. 1 / 2 / 3 pick a look kit (Atari ST colour, CGA, ST mono), Tab cycles them.
+# first person. 1 / 2 / 3 pick a look kit (Atari ST colour, CGA, ST mono), Tab cycles them; F1 opens the dev panel
+# (scenes/dev_panel.gd) to tune the look live.
 extends Node3D
 
 const MANIFEST := "res://assets/kiln/manifest.json"
@@ -13,7 +14,7 @@ const LOOKS := [  # [style, label], in key order
 	["retro_cga", "CGA"],
 	["retro_mono", "Atari ST mono"],
 ]
-const HINT := "WASD walk · Shift run · mouse look · 1 / 2 / 3 or Tab: look · Esc frees the mouse"
+const HINT := "WASD walk · Shift run · mouse look · Esc frees the mouse\n1 / 2 / 3 or Tab: look · F1: tune the look"
 
 const FLOOR_COLOUR := Color("#242449")
 const WALL_COLOUR := Color("#b6b6db")
@@ -24,6 +25,7 @@ var looks: Array = []  # [style, label, res path], the styles the manifest has a
 var look_index := -1
 var look_kit: Node = null
 var pedestals: Array[Node3D] = []
+var panel: CanvasLayer = null
 
 @onready var _label: Label = $Hud/Label
 
@@ -39,6 +41,16 @@ func _ready() -> void:
 			looks.append([look[0], look[1], kits[look[0]]])
 	_build_room()
 	_place_models(manifest["models"])
+	panel = preload("res://scenes/dev_panel.gd").new()
+	panel.name = "DevPanel"
+	add_child(panel)
+	var models: Array[Node] = []
+	for pedestal in pedestals:
+		var model := pedestal.get_node_or_null("Model")
+		if model != null:
+			models.append(model)
+	panel.set_models(models)
+	panel.toggled.connect(func(open: bool) -> void: $Player.frozen = open)
 	show_look(0)
 
 
@@ -113,7 +125,10 @@ func show_look(index: int) -> void:
 	if look_kit != null:
 		look_kit.queue_free()
 	look_kit = load(looks[look_index][2]).instantiate()
+	var retro := look_kit.get_node_or_null("Retro")
 	add_child(look_kit)
+	if panel != null:
+		panel.load_kit(retro)
 	_label.text = "%s\n%s" % [looks[look_index][1], HINT]
 
 

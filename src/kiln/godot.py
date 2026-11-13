@@ -22,7 +22,11 @@ from pathlib import Path
 from typing import TypeAlias
 
 from kiln.export import GLOW_ALBEDO, GLOW_PEAK, glow_peak
+from kiln.post import RETRO_SCRIPT
+from kiln.post import WORLD_SHADER as POST_WORLD_SHADER
+from kiln.post import material_params as post_material_params
 from kiln.post import shader as post_shader
+from kiln.post import world_params as post_world_params
 from kiln.style import FILMIC_WHITE, TOON_DARKEN, Look, Style
 
 TOON_SHADER = """shader_type spatial;
@@ -762,7 +766,24 @@ def look_scene(style: Style) -> str:
             f"code = {_quote(post_shader(look))}",
             "",
             '[sub_resource type="ShaderMaterial" id="ShaderMaterial_post"]',
+            "resource_local_to_scene = true",  # each instance of the kit tunes its own pass
             'shader = SubResource("Shader_post")',
+            *post_material_params(look),
+            "",
+            '[sub_resource type="GDScript" id="GDScript_retro"]',
+            f"script/source = {_quote(RETRO_SCRIPT)}",
+            "",  # world-space dither (#367): a full-screen quad writing each pixel's world pattern threshold into alpha
+            '[sub_resource type="QuadMesh" id="QuadMesh_retro"]',
+            "size = Vector2(2, 2)",
+            "",
+            '[sub_resource type="Shader" id="Shader_retro_world"]',
+            f"code = {_quote(POST_WORLD_SHADER)}",
+            "",
+            '[sub_resource type="ShaderMaterial" id="ShaderMaterial_retro_world"]',
+            "resource_local_to_scene = true",
+            "render_priority = -128",  # before every other transparent surface: they draw over the dither
+            'shader = SubResource("Shader_retro_world")',
+            *post_world_params(look),
         ]
     nodes = [
         "",
@@ -792,6 +813,7 @@ def look_scene(style: Style) -> str:
         nodes += [
             '[node name="Retro" type="CanvasLayer" parent="."]',
             "layer = 100",
+            'script = SubResource("GDScript_retro")',
             "",
             '[node name="Pass" type="ColorRect" parent="Retro"]',
             'material = SubResource("ShaderMaterial_post")',
@@ -801,6 +823,15 @@ def look_scene(style: Style) -> str:
             "grow_horizontal = 2",
             "grow_vertical = 2",
             "mouse_filter = 2",  # never takes the game's clicks
+            "",
+            '[node name="World" type="MeshInstance3D" parent="Retro"]',
+            *(["visible = false"] if look.dither_space != "world" else []),
+            'mesh = SubResource("QuadMesh_retro")',
+            'material_override = SubResource("ShaderMaterial_retro_world")',
+            "cast_shadow = 0",
+            "extra_cull_margin = 16384.0",  # never culled: the shader puts it over the whole screen
+            "ignore_occlusion_culling = true",
+            "gi_mode = 0",
             "",
         ]
     return "\n".join(["[gd_scene format=3]", "", *env, *nodes])
