@@ -663,3 +663,19 @@ def test_closeup_takes_views_and_pitch(in_project: Project, capsys: pytest.Captu
     assert code == 0, result
     sheet = Image.open(in_project.root / result["outputs"]["closeup"]["body"])
     assert sheet.height < 2.5 * 100  # one row (the default is three)
+
+
+def test_pose_tiles_grow_for_few_frames_and_take_the_style_background(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#322, #331: a single-frame pose gets big tiles; the sheet takes the --bg background (dark for low-key styles)."""
+    import numpy as np
+    from PIL import Image
+
+    (in_project.models_dir / "bob.kiln.yaml").write_text(
+        "name: bob\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: red\n    id: body\nskin: rigid\nanimations:\n  hop: { cycle: { type: bob, part: body } }\n")
+    code, result = run_json(["preview", "bob", "--pose", "hop", "--frame", "0", "--bg", "dark"], capsys)
+    assert code == 0, result
+    path = in_project.root / next(iter(result["outputs"]["pose"].values()))
+    sheet = Image.open(path).convert("RGB")
+    assert sheet.width >= 400  # one frame: a 450 px tile, not 200
+    corner = np.asarray(sheet)[sheet.height - 20, 30]
+    assert corner.sum() < 3 * 120  # a dark tile background

@@ -638,7 +638,7 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     for anim in args.pose or []:
         try:
             path = folder / (f"pose_{anim}.{args.variant}.png" if args.variant else f"pose_{anim}.png")
-            pv.filmstrip(built, anim, args.size or 200, pose_views, pose_frames, swap).save(path)
+            pv.filmstrip(built, anim, args.size, pose_views, pose_frames, swap, tiles.bg).save(path)
             outputs.setdefault("pose", {})[anim] = display_path(path)
             if anim in tracks:  # (--json) where each bone ends up, per frame: check a pose without looking (#200)
                 from kiln.rig import bone_ends

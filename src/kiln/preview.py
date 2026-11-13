@@ -265,8 +265,8 @@ def fitted(built: Built, size: int = 240) -> Image.Image:
 POSE_VIEWS = [("3/4 front", 30.0, 12.0), ("left side", 90.0, 5.0), ("right side", 270.0, 5.0)]  # both sides: a limb on either shows
 
 
-def filmstrip(built: Built, animation: str, size: int = 200, views: list[tuple[str, float, float]] | None = None,
-              frames: list[int] | None = None, swap: dict[str, str] | None = None) -> Image.Image:  # fmt: skip
+def filmstrip(built: Built, animation: str, size: int | None = None, views: list[tuple[str, float, float]] | None = None,
+              frames: list[int] | None = None, swap: dict[str, str] | None = None, background: tuple[int, int, int, int] | None = None) -> Image.Image:  # fmt: skip
     """An animation's frames, a row per view (name, yaw, pitch): by default 3/4 front and both sides (#201).
     `frames` picks some (e.g. one frame up close with a big `size`)."""
     names = [t.name for t in built.tracks]
@@ -281,9 +281,12 @@ def filmstrip(built: Built, animation: str, size: int = 200, views: list[tuple[s
     shown = list(frames) if frames is not None else list(range(t.frames))
     if not shown or any(not 0 <= i < t.frames for i in shown):
         raise ValueError(f"{animation} has frames 0-{t.frames - 1}")
+    if size is None:  # (#322) few frames: bigger tiles, so a single pose shows its detail (about 1600 px across in all)
+        size = int(min(450, max(200, 1600 // len(shown))))
+    bg = background if background is not None else TILE_BG  # (#331) the style's background: glows read on low-key looks
     rows = []
     for label, yaw, pitch in views or POSE_VIEWS:
-        rows.append((label, [(f"{i}", render(built, View(yaw, pitch), size, track=k, frame=i, swap=swap, fit=fit, background=TILE_BG)) for i in shown]))
+        rows.append((label, [(f"{i}", render(built, View(yaw, pitch), size, track=k, frame=i, swap=swap, fit=fit, background=bg)) for i in shown]))
     loop = "loops" if t.loop else "plays once"
     return sheet(f"{built.model.name} · {animation}", f"{t.frames} frames at {t.fps:g} fps ({t.frames / t.fps:.2f} s), {loop}, {t.interpolation}", rows)
 

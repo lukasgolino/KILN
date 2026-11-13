@@ -49,6 +49,8 @@ before 1.0).
 
 ### Fixed
 
+- Pose sheets: bigger tiles when there are few frames (one pose up to 450 px), and the style's background (`--bg`)
+  as the other sheets have, so glows read on low-key looks (#322, #331).
 - `preview --closeup` honours `--views` and `--pitch` (#309).
 - `--frame-box`, `--at`, `--rotate` and `--pitch` take values starting with a minus (`--frame-box -0.25,...`) (#317).
 - Hard flat faces keep their own normal to every corner when their flat is clearly the biggest there (only bevel
