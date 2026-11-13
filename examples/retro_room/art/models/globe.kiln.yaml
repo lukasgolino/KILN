@@ -1,0 +1,25 @@
+name: globe
+description: a world globe on a wooden stand with a brass ring
+class: prop
+parts:
+  - cylinder: { at: [0, 0.02, 0], radius: 0.13, height: 0.04 }
+    color: earth
+    material: wood
+  - cylinder: { at: [0, 0.1, 0], radius: 0.02, height: 0.14 }
+    color: earth
+    material: wood
+  - sphere: { at: [0, 0.37, 0], radius: 0.2 }
+    color: sea
+    material: plastic
+  - ellipsoid: { at: [0.09, 0.45, 0.13], radii: [0.08, 0.1, 0.06] }
+    color: grass
+    material: plastic
+  - ellipsoid: { at: [-0.12, 0.33, 0.12], radii: [0.06, 0.09, 0.07] }
+    color: grass
+    material: plastic
+  - ellipsoid: { at: [0.02, 0.28, -0.17], radii: [0.1, 0.06, 0.06] }
+    color: sand
+    material: plastic
+  - torus: { at: [0, 0.37, 0], radius: 0.225, thickness: 0.012, rotate: [0, 0, 67] }
+    color: gold
+    material: gold

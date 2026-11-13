@@ -1,0 +1,56 @@
+name: car
+description: a small red 1980s hatchback
+class: vehicle
+# both sides written out: mirrored parts vanish (#363)
+parts:
+  - box: { at: [0, 0.55, 0], size: [1.7, 0.6, 3.8], round: 0.08 }
+    color: blood
+    material: paint
+  - box: { at: [0, 1.05, -0.35], size: [1.5, 0.5, 2.0], round: 0.06 }
+    color: blood
+    material: paint
+  - box: { at: [0, 1.06, -0.35], size: [1.52, 0.34, 1.8] }
+    color: night
+    material: glass
+  - box: { at: [0, 1.06, 0.66], size: [1.36, 0.34, 0.04], rotate: [-30, 0, 0] }
+    color: night
+    material: glass
+  - box: { at: [0, 0.6, 1.9], size: [1.6, 0.16, 0.04] }
+    color: mist
+    material: metal
+  - box: { at: [-0.6, 0.72, 1.9], size: [0.3, 0.14, 0.04] }
+    color: gold
+    material: glow
+  - box: { at: [0.6, 0.72, 1.9], size: [0.3, 0.14, 0.04] }
+    color: gold
+    material: glow
+  - box: { at: [-0.6, 0.72, -1.9], size: [0.3, 0.14, 0.04] }
+    color: blood
+    material: glow
+  - box: { at: [0.6, 0.72, -1.9], size: [0.3, 0.14, 0.04] }
+    color: blood
+    material: glow
+  - cylinder: { at: [-0.82, 0.32, 1.2], radius: 0.32, height: 0.24, rotate: [0, 0, 90], sides: 12 }
+    color: black
+    material: rubber
+  - cylinder: { at: [0.82, 0.32, 1.2], radius: 0.32, height: 0.24, rotate: [0, 0, 90], sides: 12 }
+    color: black
+    material: rubber
+  - cylinder: { at: [-0.82, 0.32, -1.25], radius: 0.32, height: 0.24, rotate: [0, 0, 90], sides: 12 }
+    color: black
+    material: rubber
+  - cylinder: { at: [0.82, 0.32, -1.25], radius: 0.32, height: 0.24, rotate: [0, 0, 90], sides: 12 }
+    color: black
+    material: rubber
+  - cylinder: { at: [-0.95, 0.32, 1.2], radius: 0.16, height: 0.02, rotate: [0, 0, 90], sides: 8 }
+    color: mist
+    material: metal
+  - cylinder: { at: [0.95, 0.32, 1.2], radius: 0.16, height: 0.02, rotate: [0, 0, 90], sides: 8 }
+    color: mist
+    material: metal
+  - cylinder: { at: [-0.95, 0.32, -1.25], radius: 0.16, height: 0.02, rotate: [0, 0, 90], sides: 8 }
+    color: mist
+    material: metal
+  - cylinder: { at: [0.95, 0.32, -1.25], radius: 0.16, height: 0.02, rotate: [0, 0, 90], sides: 8 }
+    color: mist
+    material: metal

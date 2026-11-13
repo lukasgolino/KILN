@@ -87,6 +87,11 @@ jobs:
           # a fresh checkout has no import cache (.godot/ is ignored): import first, or the glbs don't load
           $GODOT --headless --path examples/godot --import
           $GODOT --headless --path examples/godot -s res://tests/check_showcase.gd
+      - name: Retro room (#362)
+        run: |
+          (cd examples/retro_room/art && kiln build --verify-godot)
+          $GODOT --headless --path examples/retro_room/godot --import
+          $GODOT --headless --path examples/retro_room/godot -s res://tests/check_room.gd
       - name: Godot tests
         timeout-minutes: 15
         run: timeout 840 pytest -q -k godot

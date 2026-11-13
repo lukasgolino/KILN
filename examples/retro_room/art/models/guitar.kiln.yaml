@@ -1,0 +1,26 @@
+name: guitar
+description: an acoustic guitar standing upright
+class: prop
+parts:
+  - ellipsoid: { at: [0, 0.2, 0], radii: [0.19, 0.2, 0.05] }
+    color: sand
+    material: wood
+  - ellipsoid: { at: [0, 0.44, 0], radii: [0.14, 0.13, 0.05] }
+    color: sand
+    material: wood
+    blend: 0.06
+  - cylinder: { at: [0, 0.33, 0.04], radius: 0.045, height: 0.04, rotate: [90, 0, 0] }
+    cut: true
+    color: black
+  - box: { at: [0, 0.14, 0.05], size: [0.14, 0.025, 0.02] }
+    color: earth
+    material: wood
+  - box: { at: [0, 0.78, 0.01], size: [0.05, 0.5, 0.03] }
+    color: earth
+    material: wood
+  - box: { at: [0, 1.08, 0.0], size: [0.08, 0.16, 0.025] }
+    color: earth
+    material: wood
+  - box: { at: [0, 0.6, 0.032], size: [0.03, 0.9, 0.004] }
+    color: mist
+    material: metal
