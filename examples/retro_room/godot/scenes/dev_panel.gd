@@ -4,6 +4,7 @@
 extends CanvasLayer
 
 signal toggled(open: bool)
+signal snap_toggled(on: bool)
 
 var patterns: Array = ["bayer4"]  # the kit's own list (its Retro script's PATTERNS), read in load_kit
 var kit_style := "retro_st"  # the kit a saved preset extends
@@ -29,7 +30,9 @@ var palette := PackedColorArray()
 var bands := 4
 
 var effect: CheckButton
-var space: CheckButton
+var space: OptionButton
+var snap: CheckButton
+var spaces: Array = ["screen"]  # the kit's own list (its Retro script's SPACES)
 var space_hint: Label
 var pattern: OptionButton
 var lines: HSlider
@@ -103,13 +106,16 @@ func _build() -> void:
 		if retro != null:
 			retro.set_enabled(on))
 	column.add_child(_unfocused(effect))
-	space = CheckButton.new()
-	space.text = "dither fixed to the world"
-	space.toggled.connect(func(on: bool) -> void:
+	space = OptionButton.new()
+	space.item_selected.connect(func(i: int) -> void:
 		if retro != null and retro.has_method("set_space"):
-			retro.set_space("world" if on else "screen")
+			retro.set_space(spaces[i])
 		_update_space_hint())
-	column.add_child(_unfocused(space))
+	column.add_child(_row("dither on", _unfocused(space)))
+	snap = CheckButton.new()
+	snap.text = "snap turning to pixels"
+	snap.toggled.connect(func(on: bool) -> void: snap_toggled.emit(on))
+	column.add_child(_unfocused(snap))
 	space_hint = Label.new()
 	space_hint.text = "world space reads best with the noise pattern"
 	space_hint.add_theme_font_size_override("font_size", 12)
@@ -272,10 +278,15 @@ func load_kit(kit_retro: Node) -> void:
 	var has_space := retro != null and retro.has_method("set_space")
 	space.disabled = not has_space
 	space.tooltip_text = "" if has_space else "this kit's Retro pass has no set_space"
-	space.set_pressed_no_signal(has_space and str(settings.get("space", "screen")) == "world")
-	if has_space and retro.has_method("world_supported") and not retro.world_supported():
-		space.disabled = true
-		space.tooltip_text = "world space needs the Forward+ renderer"
+	if has_space:
+		spaces = retro.get_script().get_script_constant_map().get("SPACES", spaces)
+	space.clear()
+	for s in spaces:
+		space.add_item(s)
+	if "world" in spaces and retro != null and retro.has_method("world_supported") and not retro.world_supported():
+		space.set_item_disabled(spaces.find("world"), true)
+		space.set_item_tooltip(spaces.find("world"), "world space needs the Forward+ renderer")
+	space.select(maxi(spaces.find(str(settings.get("space", "screen"))), 0))
 	_update_space_hint()
 	pattern.select(maxi(patterns.find(str(settings.get("pattern", "bayer4"))), 0))
 	_set_slider(lines, float(settings.get("lines", 200.0)))
@@ -465,4 +476,4 @@ func _write(path: String, text: String) -> bool:
 
 func _update_space_hint() -> void:  # ordered patterns streak (moire) when fixed to the world; noise holds up
 	if space_hint != null:
-		space_hint.visible = space.button_pressed and patterns[pattern.selected] != "noise"
+		space_hint.visible = spaces[space.selected] == "world" and patterns[pattern.selected] != "noise"

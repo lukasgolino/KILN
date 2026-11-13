@@ -46,7 +46,18 @@ uniform float strength = 1.0;
 uniform int pattern = 0;  // 0 bayer4, 1 bayer8, 2 none, 3 halftone, 4 lines, 5 hatch, 6 noise
 uniform int count = 2;
 uniform vec3 colors[16];
-uniform int space = 0;  // 0 screen, 1 world (the World pass has dithered the frame: snap only)
+uniform int space = 0;  // 0 screen, 1 world, 2 view (world: the World pass has dithered the frame: snap only)
+uniform vec2 view_angles = vec2(0.0);  // view space: the camera's yaw and pitch, radians (the Retro script sets them)
+uniform vec2 view_tan = vec2(0.5774, 0.5774);  // view space: tan of half the field of view, x and y
+
+// View space (#372): the screen pattern shifted by the camera's yaw and pitch, counted in whole blocks (a block's
+// angle at the screen centre), so turning moves the pattern with the image: cells stay on the low-res grid, exact
+// at the centre and drifting a little towards the edges. Walking still shimmers.
+vec2 view_cell(vec2 cell, float shown_lines) {
+	float per_y = atan(2.0 * view_tan.y / shown_lines);
+	float per_x = atan(2.0 * view_tan.y * pixel_aspect / shown_lines);
+	return cell - floor(vec2(view_angles.x / per_x, view_angles.y / per_y) + 0.5);
+}
 
 const float BAYER4[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 const float BAYER8[64] = float[64](0.0, 32.0, 8.0, 40.0, 2.0, 34.0, 10.0, 42.0, 48.0, 16.0, 56.0, 24.0, 50.0, 18.0, 58.0, 26.0, 12.0, 44.0, 4.0, 36.0, 14.0, 46.0, 6.0, 38.0, 60.0, 28.0, 52.0, 20.0, 62.0, 30.0, 54.0, 22.0, 3.0, 35.0, 11.0, 43.0, 1.0, 33.0, 9.0, 41.0, 51.0, 19.0, 59.0, 27.0, 49.0, 17.0, 57.0, 25.0, 15.0, 47.0, 7.0, 39.0, 13.0, 45.0, 5.0, 37.0, 63.0, 31.0, 55.0, 23.0, 61.0, 29.0, 53.0, 21.0);
@@ -111,7 +122,8 @@ void fragment() {
 	vec2 cell = floor(SCREEN_UV * screen_px / block);
 	vec2 uv = clamp((cell + 0.5) * block / screen_px, vec2(0.0), vec2(1.0));
 	vec4 sampled = texture(screen, uv);
-	COLOR = vec4(quantise(sampled.rgb, space == 1 ? 1.0 : threshold(cell)), step(0.5, sampled.a));  // a game's screen is opaque; engine previews keep their transparent background
+	float level = space == 1 ? 1.0 : threshold(space == 2 ? view_cell(cell, screen_px.y / bh) : cell);
+	COLOR = vec4(quantise(sampled.rgb, level), step(0.5, sampled.a));  // a game's screen is opaque; engine previews keep their transparent background
 }
 "
 
@@ -132,7 +144,7 @@ script/source = "extends CanvasLayer
 ## set_pattern, set_palette, set_space; get_settings returns them all.
 
 const PATTERNS := [\"bayer4\", \"bayer8\", \"none\", \"halftone\", \"lines\", \"hatch\", \"noise\"]
-const SPACES := [\"screen\", \"world\"]
+const SPACES := [\"screen\", \"world\", \"view\"]
 const MAX_COLORS := 16
 
 
@@ -154,6 +166,26 @@ func _ready() -> void:
 ## World space reads the depth and screen textures in the 3D pass: Forward+ only (Mobile and Compatibility keep screen space).
 func world_supported() -> bool:
 	return RenderingServer.get_current_rendering_method() == \"forward_plus\"
+
+
+func _process(_delta: float) -> void:  # view space follows the current camera
+	if visible and _material().get_shader_parameter(\"space\") == 2:
+		_feed_view()
+
+
+func _feed_view() -> void:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null or camera.projection != Camera3D.PROJECTION_PERSPECTIVE:
+		return
+	var size := get_viewport().get_visible_rect().size
+	var half := tan(deg_to_rad(camera.fov) / 2.0)
+	var tangents := Vector2(half * size.x / size.y, half)
+	if camera.keep_aspect == Camera3D.KEEP_WIDTH:
+		tangents = Vector2(half, half * size.y / size.x)
+	var forward := -camera.global_transform.basis.z.normalized()
+	var angles := Vector2(atan2(-forward.x, -forward.z), asin(clampf(forward.y, -1.0, 1.0)))
+	_material().set_shader_parameter(\"view_angles\", angles)
+	_material().set_shader_parameter(\"view_tan\", tangents)
 
 
 func _show_world() -> void:
@@ -187,7 +219,8 @@ func set_pattern(pattern_name: String) -> void:
 		_set_both(\"pattern\", index)
 
 
-## \"screen\" (the pattern fixed to the screen) or \"world\" (fixed to the surfaces: needs the depth buffer).
+## \"screen\" (the pattern fixed to the screen), \"world\" (fixed to the surfaces: needs the depth buffer) or \"view\"
+## (fixed to view directions: steady while the camera turns; any renderer).
 func set_space(space_name: String) -> void:
 	var index := SPACES.find(space_name)
 	if index == 1 and not world_supported():
@@ -196,6 +229,8 @@ func set_space(space_name: String) -> void:
 	if index >= 0:
 		_material().set_shader_parameter(\"space\", index)
 		_show_world()
+		if index == 2:
+			_feed_view()
 
 
 func set_palette(palette: PackedColorArray) -> void:

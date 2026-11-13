@@ -221,6 +221,28 @@ func _check_panel() -> void:
 	_settings_say("effect off", "enabled", false)
 	panel.effect.button_pressed = true
 	_settings_say("effect on", "enabled", true)
+	var view_index: int = panel.spaces.find("view")
+	if view_index < 0:
+		_fail("dev panel: the kit offers no view space (spaces: %s)" % [panel.spaces])
+	else:
+		panel.space.select(view_index)
+		panel.space.item_selected.emit(view_index)
+		if _retro().get_settings()["space"] != "view":
+			_fail("dev panel: picking view space left the kit on %s" % _retro().get_settings()["space"])
+		panel.space.select(0)
+		panel.space.item_selected.emit(0)
+	var player = _scene.get_node("Player")
+	panel.snap.button_pressed = true
+	if not player.snap_pixels:
+		_fail("dev panel: snap turning didn't reach the player")
+	var yaw_before: float = player.rotation.y
+	player._yaw += 0.0005  # far less than one block's angle: a snapped view doesn't move
+	player._turn()
+	if absf(player.rotation.y - yaw_before) > 0.0001:
+		_fail("dev panel: a turn smaller than a pixel moved the snapped view (%f -> %f)" % [yaw_before, player.rotation.y])
+	panel.snap.button_pressed = false
+	player._yaw -= 0.0005
+	player._turn()
 	if panel.space.disabled == _retro().has_method("set_space"):
 		_fail("dev panel: the dither space toggle is %s, the kit %s set_space" % [
 				"disabled" if panel.space.disabled else "enabled", "has" if _retro().has_method("set_space") else "lacks"])

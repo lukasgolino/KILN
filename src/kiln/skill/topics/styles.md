@@ -90,7 +90,7 @@ pixel_aspect = 0.8333          # retro: pixel width / height (320x200 on a 4:3 s
 post_palette = "cga"           # retro: the palette every pixel is snapped to (palettes/ or KILN's library), at most 16 colours
 dither = "bayer4"              # retro: bayer4 | bayer8 | none | halftone | lines | hatch | noise
 dither_strength = 1.0          # retro: 0 (nearest colour only) to 1 (full ordered dithering)
-dither_space = "screen"        # retro: screen | world (the pattern fixed to surfaces; Godot Forward+, see Retro looks)
+dither_space = "screen"        # retro: screen | view (steady while the camera turns) | world (fixed to surfaces; Forward+)
 
 [shade]                        # shade paint baked into the vertex colours (off by default; each 0 to 0.9)
 cavity = 0.25                  # crevices darker: x the field's occlusion (as atlas_ao)
@@ -179,6 +179,11 @@ light falls into a few clean dither patterns. `kiln init --style retro_cga` writ
   retro preset. A hardware palette's colours are checked when KILN loads it (E004 names the nearest legal colour).
 - Model for it: big flat colour areas, few colours per object, strong silhouettes; parts under a few pixels vanish.
   The dither is in screen space by default, so it shimmers when the camera moves: slow or fixed cameras suit it.
+- View-space dither (`dither_space = "view"`, or `set_space("view")`): the screen pattern is shifted by the camera's
+  yaw and pitch in whole blocks, so turning moves the pattern with the image instead of re-dithering it (measured:
+  after a 6-block turn 96% of the centre's blocks are unchanged, against at most 82% in screen space). Cells stay on
+  the low-res grid; the match is exact at the centre and drifts a little towards the edges; walking still shimmers.
+  Any renderer, any pattern; the cheapest fix for first-person crawl. Pairs well with turning in whole-block steps.
 - World-space dither (`dither_space = "world"`, or `set_space("world")` on the Retro node at runtime): the pattern is
   fixed to surfaces, so it stays put as the camera moves instead of crawling. A full-screen quad in the look kit
   (`Retro/World`) reads the depth buffer, takes each block's pattern cell from the block centre's world position

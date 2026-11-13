@@ -6,6 +6,17 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-13
+
+### Added
+
+- `dither_space = "view"` (#372) and `set_space("view")`: the retro pattern shifts with the camera's yaw and pitch in
+  whole blocks, so turning moves it with the image instead of re-dithering the frame (after a 6-block turn, 96% of
+  the centre's blocks stay the same, against at most 82% in screen space). Any renderer and pattern; walking still
+  shimmers. Previews draw screen space.
+- Retro room (#373): the dev panel picks screen / view / world dither and can snap turning to whole low-res pixels;
+  saved presets carry the space.
+
 ## [0.33.1] - 2026-11-13
 
 ### Fixed
@@ -1239,7 +1250,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.33.1...HEAD
+[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.34.0...HEAD
+[0.34.0]: https://github.com/lukasgolino/kiln/compare/v0.33.1...v0.34.0
 [0.33.1]: https://github.com/lukasgolino/kiln/compare/v0.33.0...v0.33.1
 [0.33.0]: https://github.com/lukasgolino/kiln/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/lukasgolino/kiln/compare/v0.31.0...v0.32.0
