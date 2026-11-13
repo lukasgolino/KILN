@@ -297,7 +297,7 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     with Phases(model.name) as phase:  # its heartbeat stops with the build, however it ends
         phase.loud = len(model.parts) >= MANY_PARTS  # a big model's build is rarely short: say each phase at once (#221)
         built = _build_meshed(model, style, budget, step, asked, phase, reason)
-        built.step_reason = reason
+        built.step_reason = "" if _all_hard(model, style) else reason  # (nothing meshed on a grid: no cell size to report, #243)
         return built
 
 
@@ -421,6 +421,12 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     elif model.vertex_fades:  # colour fades without the maps: per face corner (COLOR_0)
         built.corner_fade = vertex_fade(model, built, step, [inc for inc in groups_of if inc], kept)
     return built
+
+
+def _all_hard(model: Model, style: Style) -> bool:
+    """Whether every adding part is made as exact polygons (nothing is meshed on a grid)."""
+    adding = [k for k, p in enumerate(model.parts) if p.geometry.op == "add"]
+    return bool(adding) and set(adding) <= set(hard_parts(model, style))
 
 
 def soft_faces(built: Built, face_field: Array) -> Array:
@@ -1214,7 +1220,7 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
                 built.tracks = tracks(model, built.skeleton)
                 built.motion_key = motion
                 _store(built, path)
-        if not built.step_reason and model.source is None:  # cached before builds kept it
+        if not built.step_reason and model.source is None and not _all_hard(model, style):  # cached before builds kept it
             built.step_reason = mesh_cells(field_of(model, built.step), model, style)[2]
         if budget is None and model.relief:
             _BASE_PATCHES[model.name] = getattr(built, "relief_patches", None)

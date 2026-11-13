@@ -604,3 +604,13 @@ def test_preview_variants_sheet(in_project: Project, capsys: pytest.CaptureFixtu
     assert code == 0, result
     sheet = Image.open(in_project.root / result["variants"])
     assert sheet.height > 3 * 96  # base + two variants
+
+
+def test_a_hard_only_model_reports_no_mesh_cells(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#243: a model of hard parts only isn't meshed on a grid: the summary says so, and lint --json lists no cells."""
+    (in_project.models_dir / "crate.kiln.yaml").write_text("name: crate\nparts:\n  - box: { at: [0, 0.3, 0], size: [0.6, 0.6, 0.6] }\n    color: red\n    chamfer: 0.02\n")
+    assert main(["lint", "crate"]) == 0
+    text = capsys.readouterr().out
+    assert "hard parts (exact polygons, no mesh cells)" in text and "mm mesh cells" not in text
+    code, result = run_json(["lint", "crate"], capsys)
+    assert "crate" not in result.get("cells", {})

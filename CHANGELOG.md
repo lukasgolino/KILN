@@ -109,6 +109,8 @@ before 1.0).
 
 ### Changed
 
+- A model of hard parts only reports its hard part count instead of a mesh cell size in the lint and build
+  summaries, and lint `--json` lists no `cells` entry for it (#243).
 - The glow cap follows the look: divided by its `exposure`, and 1 (where it clips) instead of 0.75 under a linear
   tone curve; previews cap per material from its flat colour, as the glb does; lint W138 for an emission above its
   colour's cap (#290).

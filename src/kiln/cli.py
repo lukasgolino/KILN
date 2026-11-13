@@ -282,16 +282,20 @@ def cmd_lint(args: argparse.Namespace, out: Output) -> int:
         if f not in shown:
             out.say(f.format())
     seconds = time.monotonic() - start
-    meshed = {n: b for n, b in result.built.items() if b.step_reason}
+    meshed = {n: b for n, b in result.built.items() if b.model.source is None}
     if meshed and len(meshed) <= MESH_LINES:  # what each model was meshed at, and why (#223)
         for n, b in meshed.items():
+            if not b.step_reason:  # (#243) all hard parts: nothing on a grid
+                hard = sum(1 for p in b.model.parts if p.geometry.op == "add")
+                out.say(f"{n}: {b.triangles} triangles, {hard} hard parts (exact polygons, no mesh cells)")
+                continue
             out.say(f"{n}: {b.triangles} triangles, {b.step * 1000:.3g} mm mesh cells ({b.step_reason})")
     skipped = f"; --fast: the findings that need the built model were not looked for ({_rule_ranges(BUILT_RULES)}): kiln lint or kiln build gives them" if args.fast else ""
     out.say(f"{len(paths)} models: {len(result.errors)} errors, {len(result.warnings)} warnings ({cost_line(seconds)}){skipped}")
     data = {"models": len(paths), "errors": len(result.errors), "warnings": len(result.warnings), "geometry": not args.fast,
             "findings": [f.to_dict() for f in result.findings], "seconds": round(seconds, 1), "peak_memory_gb": peak_gb(),
             "cells": {n: {"step": b.step, "asked": b.asked_step, "capped": b.step > b.asked_step * (1 + 1e-9), "why": b.step_reason}
-                      for n, b in meshed.items()}}  # fmt: skip
+                      for n, b in meshed.items() if b.step_reason}}  # fmt: skip
     if result.errors:
         if out.as_json:  # human output: the findings are printed above already
             out.failure(result.findings, data)
@@ -332,8 +336,10 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
     meshed = {n: entries[n] for n in result.models if "step" in entries.get(n, {})}
     if meshed and len(meshed) <= MESH_LINES:
         for n, e in meshed.items():
-            why = f" ({result.cells[n]})" if n in result.cells else ""
-            out.say(f"{n}: {e['triangles']} triangles, {e['step'] * 1000:.3g} mm mesh cells{why}")
+            if n not in result.cells:  # (#243) all hard parts: no grid
+                out.say(f"{n}: {e['triangles']} triangles, exact polygons only (no mesh cells)")
+                continue
+            out.say(f"{n}: {e['triangles']} triangles, {e['step'] * 1000:.3g} mm mesh cells ({result.cells[n]})")
     if args.verify_godot:
         godot = find_godot_binary()
         if godot is None or result.godot_root is None:
