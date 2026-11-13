@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `kiln fit <a> <b> [--at] [--rotate]`: does b fit a in their shared frame: overlap volume, how deep each goes into
+  the other, the smallest gap (a movement in its case, a crystal under its lip) (#341).
 - `base: [x, y, z]` places a cone or cylinder by its bottom centre (turned with it) instead of `at` (#332).
 - `kiln.api.transform(parts, rotate, about, translate, cut_only)` (positions, rotations, aims, array centres, decal
   centres and axes; mirrors written out as pairs; scoped cuts), `kiln.api.surface_point()` on lathes and cones,

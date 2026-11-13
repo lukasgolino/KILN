@@ -614,3 +614,14 @@ def test_a_hard_only_model_reports_no_mesh_cells(in_project: Project, capsys: py
     assert "hard parts (exact polygons, no mesh cells)" in text and "mm mesh cells" not in text
     code, result = run_json(["lint", "crate"], capsys)
     assert "crate" not in result.get("cells", {})
+
+
+def test_fit_reports_overlap_and_gap(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#341: kiln fit a b: overlap, depth and the smallest gap between two models in their shared frame."""
+    (in_project.models_dir / "case.kiln.yaml").write_text("name: case\nparts:\n  - box: { at: [0, 0.05, 0], size: [0.2, 0.1, 0.2] }\n    color: grey\n")
+    (in_project.models_dir / "lid.kiln.yaml").write_text("name: lid\nparts:\n  - box: { at: [0, 0.12, 0], size: [0.18, 0.03, 0.18] }\n    color: red\n")
+    code, result = run_json(["fit", "case", "lid"], capsys)
+    assert code == 0, result
+    assert result["fits"] and result["gap_mm"] is not None and result["gap_mm"] < 10
+    code, result = run_json(["fit", "case", "lid", "--at", "0,-0.02,0"], capsys)
+    assert code == 0 and not result["fits"] and result["b_into_a_mm"] > 3

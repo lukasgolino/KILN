@@ -777,6 +777,62 @@ def _is_scatter(path: Path) -> bool:
         return False
 
 
+def cmd_fit(args: argparse.Namespace, out: Output) -> int:
+    """Does b fit a? (#341) Both built, in their shared frame (b moved by --at / turned by --rotate first): how much of
+    them overlaps, the deepest point of b inside a (and of a inside b), and the smallest gap between their surfaces."""
+    import numpy as np
+
+    from kiln.fitting import CELL, MeshDistance
+    from kiln.sdf import rotation_matrix
+
+    project = _require_project()
+
+    def triple(text: str | None, what: str) -> np.ndarray:
+        if not text:
+            return np.zeros(3)
+        try:
+            v = [float(x) for x in text.split(",")]
+        except ValueError:
+            v = []
+        if len(v) != 3:
+            raise _usage(f"--{what} is x,y,z")
+        return np.array(v)
+
+    a, b = _built(project, args.a), _built(project, args.b)
+    rot = rotation_matrix(tuple(triple(args.rotate, "rotate")))
+    va, fa = a.painted.vertices, a.painted.faces
+    vb, fb = b.painted.vertices @ rot.T + triple(args.at, "at"), b.painted.faces
+    if not len(fa) or not len(fb):
+        raise _usage("both models need a surface")
+    da, db = MeshDistance.build(va, fa), MeshDistance.build(vb, fb)
+    b_in_a, a_in_b = da.distance(vb), db.distance(va)
+    deepest_b, deepest_a = float(-min(b_in_a.min(), 0.0)), float(-min(a_in_b.min(), 0.0))
+    near = CELL * 1.5
+    gap = float(min(b_in_a[b_in_a > 0].min(initial=near), a_in_b[a_in_b > 0].min(initial=near)))
+    lo, hi = np.maximum(va.min(axis=0), vb.min(axis=0)), np.minimum(va.max(axis=0), vb.max(axis=0))
+    volume = 0.0
+    where = None
+    if (hi > lo).all():
+        cell = max(float(np.prod(hi - lo) / 200_000) ** (1 / 3), 1e-4)
+        axes = [np.arange(lo[k] + cell / 2, hi[k], cell) for k in range(3)]
+        if all(len(x) for x in axes):
+            pts = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
+            both = (da.distance(pts) < 0) & (db.distance(pts) < 0)
+            volume = float(both.sum()) * cell**3
+            if both.any():
+                where = [round(float(x), 4) for x in pts[both].mean(axis=0)]
+    fits = volume == 0.0 and deepest_b == 0.0 and deepest_a == 0.0
+    gap_text = f"{gap * 1000:.1f} mm" if gap < near else f"more than {near * 1000:.0f} mm"
+    if fits:
+        out.say(f"{args.b} fits {args.a}: no overlap; the smallest gap between them is {gap_text}")
+    else:
+        out.say(f"{args.b} and {args.a} overlap: {volume * 1e6:.2f} cm3 in both" + (f" around {where}" if where else "")
+                + f"; {args.b} goes {deepest_b * 1000:.1f} mm into {args.a}, {args.a} {deepest_a * 1000:.1f} mm into {args.b}")
+    out.result({"fits": fits, "overlap_cm3": round(volume * 1e6, 4), "where": where, "b_into_a_mm": round(deepest_b * 1000, 2),
+                "a_into_b_mm": round(deepest_a * 1000, 2), "gap_mm": round(gap * 1000, 2) if gap < near else None})
+    return 0
+
+
 def cmd_lineup(args: argparse.Namespace, out: Output) -> int:
     from kiln import preview as pv
 
@@ -1332,6 +1388,11 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--variants", action="store_true", help="every variant side by side in one sheet (a row each; --views and --pitch pick the views)")
     s.add_argument("--draft", action="store_true",
                    help="a quick coarse look while iterating (coarser mesh cells, rough colour edges, plain hard parts, no normal map): shapes and placement, not the final surface")
+    s = sub.add_parser("fit", parents=[common], help="does model b fit model a (overlap, depth, smallest gap) in their shared frame")
+    s.add_argument("a")
+    s.add_argument("b")
+    s.add_argument("--at", help="move b by x,y,z first")
+    s.add_argument("--rotate", help="turn b by x,y,z degrees first (about its origin)")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")
     s.add_argument("models", nargs="*")
     s.add_argument("--pitch", type=float, default=8.0, metavar="DEG", help="degrees above the horizon (default 8; past 10: from above, each model framed on its footprint)")
@@ -1407,7 +1468,7 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_build, "preview": cmd_preview, "lineup": cmd_lineup,
+COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_build, "preview": cmd_preview, "lineup": cmd_lineup, "fit": cmd_fit,
             "gallery": cmd_gallery, "status": cmd_status, "mark": cmd_mark, "style": cmd_style, "config": cmd_config,
             "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "docs": cmd_docs, "mcp": cmd_mcp, "library": cmd_library, "clips": cmd_clips}  # fmt: skip
 
