@@ -104,6 +104,7 @@ Placing other models (a desk with its props, a tray of screws): `instances: [{ m
 and budget: fine screws stay fine in a coarse scene), merged in after the scene is built. `at`/`rotate` are in the
 scene's model space and place the instance's origin (its `origin:`, as its own glb); `id` is the part it moves with
 (default root; not mirrored). A scene `lod:` builds every instance at the same share of its triangles. Materials are
-read in the scene's style; an instance's decals, animations and skin aren't carried over, and a scene with a normal map
-or relief can't take instances yet (#295). `kiln build screw` rebuilds the models that place it. Missing models:
+read in the scene's style; an instance's decals and textures come along (not when it is scaled); its animations, skin
+and baked maps don't, and a scene with a normal map or relief can't take instances yet. Each copy is merged into the
+scene's mesh (no shared mesh yet). `kiln build screw` rebuilds the models that place it. Missing models:
 E011; templates, terrains, scatters and circles (a model placing itself round about) are errors.

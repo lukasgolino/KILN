@@ -62,6 +62,8 @@ before 1.0).
 
 ### Fixed
 
+- An instance's decals and textures come with it into the scene, turned with it (they were dropped); scaled
+  instances still leave them out. Shared meshes and maps through instances: #353 (#295).
 - Toon `outline_color = "darken"` previews take what Godot's outline takes: a glowing part's dimmed colour, vertex
   colours and shade, and the colour map (#290, #292).
 - Godot variant scenes that recolour by the swap table cap and dim a recoloured glow as the glb does (standard and

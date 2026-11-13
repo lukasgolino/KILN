@@ -368,7 +368,7 @@ class _Writer:
                 uvs = np.zeros((len(sel), 3, 2))
                 for d in np.unique(own):
                     m = own == d
-                    uvs[m] = decal_uv(p.decals[int(d)], corners[m].reshape(-1, 3)).reshape(-1, 3, 2)
+                    uvs[m] = corner_uv(p.decals[int(d)], corners[m])
                 rows = np.concatenate([rows, np.round(uvs.reshape(-1, 2), 6)], axis=1)
             elif per_corner:  # a texture's UVs per corner: split along its seam
                 rows = np.concatenate([rows, np.round(corner_uv(p.decals[key[3]], p.vertices[p.faces[sel]]).reshape(-1, 2), 6)], axis=1)

@@ -413,6 +413,8 @@ def corner_uv(d: Decal, corners: Array) -> Array:
     flat = corners.reshape(-1, 3)
     if d.project == "planar":
         return decal_uv(d, flat).reshape(-1, 3, 2)
+    if d.copy is not None:  # a placed copy (an instance, #295): its points back in the frame the texture was made in
+        corners = _copy_of(d).to_local(flat).reshape(-1, 3, 3)
     rel = corners - np.array(d.at)
     normal = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
     normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)

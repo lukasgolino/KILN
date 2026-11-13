@@ -193,7 +193,10 @@ def render(
                 if d.project == "planar":
                     uv = decal_uv(d, rest[m]).clip(0, 0.999999)
                 elif d.project == "triplanar":  # (#320) three planar projections blended by the normal, as KILN's Godot scenes do
-                    texel = _triplanar(img, rest[m] - np.array(d.at), n[m], d.size)
+                    from kiln.paint import _copy_of
+
+                    back = _copy_of(d).to_local(rest[m]) if d.copy is not None else rest[m]
+                    texel = _triplanar(img, back - np.array(d.at), n[m], d.size)
                 else:  # textures: the glTF's per-corner coordinates, interpolated as the GPU does; they repeat
                     uv = (corner_uv(d, p.vertices[p.faces[T[m]]]) * bary[m][:, :, None]).sum(axis=1)
                     uv = np.mod(uv, 1.0).clip(0, 0.999999)
