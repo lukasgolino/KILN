@@ -6,6 +6,11 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-13
+
+Retro tuning (milestone 0.33): the retro pass is tunable live, with four new dither patterns and an opt-in world-space
+dither; the retro room gets a dev panel. Screen-space output of existing looks is unchanged.
+
 ### Added
 
 - Retro pass settings are live (#365): every setting is a shader uniform starting at the style's values, and the look
@@ -1224,7 +1229,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.32.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.33.0...HEAD
+[0.33.0]: https://github.com/lukasgolino/kiln/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/lukasgolino/kiln/compare/v0.31.0...v0.32.0
 [0.23.0]: https://github.com/lukasgolino/kiln/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/lukasgolino/kiln/compare/v0.21.0...v0.22.0
