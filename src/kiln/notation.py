@@ -60,7 +60,7 @@ INTERPOLATIONS = ("linear", "step")
 
 PART_FIELDS = {"bevel_edges", "id", "color", "material", "emission", "blend", "color_blend", "density", "resolution", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
                "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr", "on", "folds"}  # fmt: skip
-BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
+BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude", "lathe")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 TOP_FIELDS = {"mount", "name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances", "transforms", "textures",
@@ -856,7 +856,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         ok = False
     if ok and (bevel or chamfer):
         limit = (min(params["size"]) if kind in ("box", "wedge") else min(2 * params["radius"], params["height"]) if kind in ("cylinder", "cone")
-                 else params["height"]) / 2  # fmt: skip
+                 else math.inf if kind == "lathe" else params["height"]) / 2  # fmt: skip  (a lathe's corners take what their sides allow)
         if kind == "box" and bevel_edges == "vertical":  # only the x and z sides meet at those edges
             limit = min(params["size"][0], params["size"][2]) / 2
         if max(bevel, chamfer) >= limit:

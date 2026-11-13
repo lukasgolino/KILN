@@ -908,6 +908,37 @@ def _oriented(polys: list[list[Point]]) -> list[list[Point]]:
     return [list(reversed(p)) for p in polys] if volume < 0 else polys
 
 
+def _rounded_profile(profile: Sequence[Sequence[float]], radius: float, segments: int) -> list[list[float]]:
+    """A lathe's (r, y) outline with its corners off the axis cut back by up to `radius` along each side (never more
+    than a third of a side) and joined by `segments` straight bands (1: a chamfer). Points on the axis stay."""
+    pts = [[float(a), float(b)] for a, b in profile]
+    closed = len(pts) > 2 and pts[0] == pts[-1]
+    if closed:
+        pts = pts[:-1]
+    n = len(pts)
+    out: list[list[float]] = []
+    for k in range(n):
+        p = np.array(pts[k])
+        if p[0] <= 1e-9 or (not closed and k in (0, n - 1)):  # on the axis, or an open outline's end: kept as it is
+            out.append([float(p[0]), float(p[1])])
+            continue
+        a, b = np.array(pts[k - 1]), np.array(pts[(k + 1) % n])
+        da, db = a - p, b - p
+        la, lb = float(np.linalg.norm(da)), float(np.linalg.norm(db))
+        if la < 1e-9 or lb < 1e-9 or abs(float(da @ db)) / (la * lb) > 0.999:  # straight on: no corner
+            out.append([float(p[0]), float(p[1])])
+            continue
+        cut = min(radius, la / 3, lb / 3)
+        s0, s1 = p + da / la * cut, p + db / lb * cut
+        for i in range(segments + 1):  # a quadratic curve from s0 through the corner's pull to s1
+            t = i / segments
+            q = (1 - t) ** 2 * s0 + 2 * (1 - t) * t * p + t**2 * s1
+            out.append([float(max(q[0], 0.0)), float(q[1])])
+    if closed:
+        out.append(out[0])
+    return out
+
+
 def local_polys(shape: str, p: dict[str, object], spec: HardSpec) -> list[list[Point]]:
     """The shape in its own frame as polygons (counter-clockwise from outside)."""
     sides = int(p.get("sides") or spec.sides)  # type: ignore[call-overload]
@@ -932,6 +963,8 @@ def local_polys(shape: str, p: dict[str, object], spec: HardSpec) -> list[list[P
         return _oriented([[(x * r[0], y * r[1], z * r[2]) for x, y, z in poly] for poly in unit])
     if shape == "lathe":
         prof = p.get("hard_profile") or p["profile"]
+        if bevel > 0:  # (#338) the outline's corners rounded in `seg` bands before it is spun: a ring with a lip
+            prof = _rounded_profile(prof, bevel, seg)  # type: ignore[arg-type]
         return _oriented(_lathe_polys(prof, sides))  # type: ignore[arg-type]
     if shape == "torus":
         return _oriented(_torus_polys(float(p["radius"]), float(p["thickness"]), sides))  # type: ignore[arg-type]

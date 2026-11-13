@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `bevel` and `chamfer` on lathes: the outline's corners are rounded before it is spun (a bezel ring with a lip),
+  as a hard part (#338).
 - `bevel_edges: vertical | top | bottom | horizontal` picks the edges a bevel or chamfer rounds (a thin seat's corners
   only) (#345).
 - Assemblies: `mount: { to, at, rotate }` on a model built to sit on another (a shared frame: no W106/W123 ground

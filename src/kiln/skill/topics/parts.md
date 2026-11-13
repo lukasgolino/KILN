@@ -78,7 +78,7 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `loose: true` | this part may float free (flames, bees, sparks, rubble): W103 doesn't count it |
 | `blend: none` | a hard part, joined crisply (`kiln docs surfaces`) |
 | `hard: true` / `false` | make this part hard (exact polygons) or smooth, whatever the style says |
-| `chamfer: 0.02` | hard parts: one flat band cut along every edge (box, wedge, cylinder, cone, extrude) |
+| `chamfer: 0.02` | hard parts: one flat band cut along every edge (box, wedge, cylinder, cone, extrude; a lathe: its outline's corners) |
 | `bevel: 0.02` | hard parts: rounded edges in `segments: 1-4` flat bands (default 2); where an extrude outline is thinner than about twice the bevel (font serifs, hairlines) it flattens there to fit |
 | `keep: true` | this detail survives every reduction (LODs) as its own small mesh, sitting in the surface around it. Crisp (`blend` 0) parts smaller than 2% of the model are kept anyway (rivets, pupils, studs); `keep: false` opts out |
 | `aim: [[x, y, z], [x, y, z]]` | points the shape's own y axis from the first point to the second and puts it halfway (instead of `at`); a shape with a `height` that doesn't give one gets the distance. `{ from, to, roll: 30 }` spins it about that line; `rotate` turns it in its own frame first. Arrows, spears, struts, beams at any angle |

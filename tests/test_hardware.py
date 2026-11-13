@@ -249,3 +249,16 @@ def test_chamfer_only_the_vertical_edges(project: Project) -> None:
     side = v[np.isclose(np.abs(v[:, 0]), 0.25)]
     assert np.isclose(side[:, 1].min(), 0.0) and np.isclose(side[:, 1].max(), 0.04)
     assert errors_of(project, text.replace("vertical", "diagonal"))
+
+
+def test_a_bevelled_hard_lathe_ring(project: Project) -> None:
+    """#338: bevel and chamfer on a lathe round its outline's corners (a bezel ring with a lip), made hard."""
+    ring = "name: thing\nparts:\n  - lathe: { profile: [[0.3, 0], [0.4, 0], [0.4, 0.06], [0.3, 0.06], [0.3, 0]] }\n    color: grey\n    BEVEL\n"
+    model, style = ok_model(project, ring.replace("BEVEL", "chamfer: 0.015"))
+    assert model.parts[0].bevel == 0.015
+    built = build_model(model, style, palette=project.palette(None)[0])
+    v = built.painted.vertices
+    r = np.hypot(v[:, 0], v[:, 2])
+    top_outer = (np.isclose(v[:, 1], 0.06, atol=1e-6)) & (r > 0.39)
+    assert not top_outer.any()  # the outer top corner is cut back
+    assert np.isclose(r.max(), 0.4, atol=1e-3) and len(open_edges(v, built.painted.faces)) == 0
