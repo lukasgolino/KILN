@@ -62,6 +62,8 @@ before 1.0).
 
 ### Fixed
 
+- A cut accepts `id` and `mirror_id` (they name it; shared option sets in generators work) instead of E003; a
+  mirrored part's texture keeps its palette key (#153).
 - No raw numpy RuntimeWarnings in `kiln` output (lint workers too); degenerate hard normals are guarded (#339).
 - An instance's decals and textures come with it into the scene, turned with it (they were dropped); scaled
   instances still leave them out. Shared meshes and maps through instances: #353 (#295).

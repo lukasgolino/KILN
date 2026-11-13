@@ -240,9 +240,17 @@ def test_e003_bad_part_values(part: str, where: str, words: str) -> None:
 
 
 def test_e003_cut_parts_have_no_paint() -> None:
-    _, findings = parse("name: m\nparts:\n  - sphere: { radius: 1 }\n    color: red\n  - sphere: { radius: 0.5 }\n    cut: true\n    id: hole\n")
-    f = only(findings, "E003")  # (a cut's color paints its walls, #178; an id, pattern or decal it can't have)
-    assert f.where == "parts[1].id" and "removes material" in f.message
+    _, findings = parse("name: m\nparts:\n  - sphere: { radius: 1 }\n    color: red\n  - sphere: { radius: 0.5 }\n    cut: true\n    pattern: { type: stripes, color: blue }\n")
+    f = only(findings, "E003")  # (a cut's color paints its walls, #178; a pattern or decal it can't have)
+    assert f.where == "parts[1].pattern" and "removes material" in f.message
+
+
+def test_a_cut_takes_an_id_and_mirror_id_as_names() -> None:
+    """#153: a cut accepts id and mirror_id (shared option sets in generators); they name it, it moves with nothing."""
+    model, findings = parse("name: m\nparts:\n  - sphere: { radius: 1 }\n    color: red\n  - sphere: { at: [0.3, 0, 0.9], radius: 0.2 }\n    cut: true\n"
+                            "    id: eye_l\n    mirror: x\n    mirror_id: eye_r\n")  # fmt: skip
+    assert model is not None and not findings, findings
+    assert [p.id for p in model.parts] == ["root", "root", "root"] and model.ids == ["root"]
 
 
 @pytest.mark.parametrize(

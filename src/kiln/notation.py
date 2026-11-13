@@ -798,7 +798,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                 ok = False
     else:
         for paint in ("color", "material", "pattern", "gradient", "decal", "texture", "id"):
-            if paint in raw and not (op == "cut" and paint in ("color", "material")):
+            if paint in raw and not (op == "cut" and paint in ("color", "material", "id")):  # (a cut's id: a name only, #153)
                 ctx.error("E003", f"a {op} part removes material: it has no {paint}" + (" (a cut's color paints the walls it makes)" if op == "cut" else ""),
                           line, f"{where}.{paint}")  # fmt: skip
                 ok = False
@@ -909,6 +909,8 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         fold = replace(fold, axis=(tuple(map(float, params["from"])), tuple(map(float, params["to"]))))  # type: ignore[arg-type]
     elif fold is not None and kind == "tube":  # round its ends' line (a trouser leg)
         fold = replace(fold, axis=(tuple(map(float, params["points"][0])), tuple(map(float, params["points"][-1]))))  # type: ignore[arg-type]
+    if op == "cut":  # a cut's id and mirror_id name it only (shared option sets, generators): it moves with nothing (#153)
+        part_id = ROOT_ID
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale, folds=fold)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
@@ -928,8 +930,9 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         if texture is not None:  # the tiling's centre mirrored too
             t_at = list(texture.at)
             t_at[mirror[0]] = -t_at[mirror[0]]
-            twin_fields["texture"] = Decal(texture.image, texture.axis, (t_at[0], t_at[1], t_at[2]), texture.size, texture.project)
-        parts.append(Part(index, str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where, str(part_id), mirror[0],
+            twin_fields["texture"] = replace(texture, at=(t_at[0], t_at[1], t_at[2]))  # (a palette key and the rest kept)
+        parts.append(Part(index, ROOT_ID if op == "cut" else str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where,
+                          None if op == "cut" else str(part_id), mirror[0],
                           bool(loose), **twin_fields))  # fmt: skip
     return parts
 
