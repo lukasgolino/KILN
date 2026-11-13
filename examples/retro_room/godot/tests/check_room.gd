@@ -237,6 +237,8 @@ func _check_panel() -> void:
 	var saved: String = panel.save_preset("Check Room!")
 	if saved != "check_room_":
 		_fail("dev panel: preset name sanitised to %s, expected check_room_" % saved)
+	if panel.sanitise("__-Neon") != "neon" or panel.sanitise("!!") != "custom":
+		_fail("dev panel: names must start with a letter or digit (got %s, %s)" % [panel.sanitise("__-Neon"), panel.sanitise("!!")])
 	var style_path := "user://presets/%s.style.toml" % saved
 	var palette_path := "user://presets/%s.pal.yaml" % saved
 	if not FileAccess.file_exists(style_path) or not FileAccess.file_exists(palette_path):
@@ -256,7 +258,7 @@ func _check_panel() -> void:
 	_key(KEY_2)  # CGA: the panel shows that kit's own settings
 	var cga: Dictionary = _retro().get_settings()
 	if panel.lines.value != float(cga["lines"]) or panel.palette != cga["palette"] \
-			or panel.PATTERNS[panel.pattern.selected] != cga["pattern"]:
+			or panel.patterns[panel.pattern.selected] != cga["pattern"]:
 		_fail("dev panel: after key 2 it shows lines %s / %d colours, the CGA kit has %s / %d" % [
 				panel.lines.value, panel.palette.size(), cga["lines"], cga["palette"].size()])
 	if is_equal_approx(float(cga["lines"]), 321.0):

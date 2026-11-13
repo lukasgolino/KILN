@@ -5,7 +5,9 @@ extends CanvasLayer
 
 signal toggled(open: bool)
 
-const PATTERNS := ["bayer4", "bayer8", "none", "halftone", "lines", "hatch", "noise"]
+var patterns: Array = ["bayer4"]  # the kit's own list (its Retro script's PATTERNS), read in load_kit
+var kit_style := "retro_st"  # the kit a saved preset extends
+
 const MAX_COLOURS := 16
 const KEYS := "0123456789abcdefghijklmnopqrstuvwxyz"
 const PRESET_DIR := "user://presets/"
@@ -116,11 +118,9 @@ func _build() -> void:
 	column.add_child(space_hint)
 
 	pattern = OptionButton.new()
-	for p in PATTERNS:
-		pattern.add_item(p)
 	pattern.item_selected.connect(func(i: int) -> void:
 		if retro != null:
-			retro.set_pattern(PATTERNS[i])
+			retro.set_pattern(patterns[i])
 		_update_space_hint())
 	column.add_child(_row("pattern", _unfocused(pattern)))
 
@@ -261,6 +261,12 @@ func _set_slider(slider: HSlider, value: float) -> void:
 func load_kit(kit_retro: Node) -> void:
 	retro = kit_retro
 	var settings: Dictionary = retro.get_settings() if retro != null else {}
+	if retro != null:
+		patterns = retro.get_script().get_script_constant_map().get("PATTERNS", patterns)
+		kit_style = str(retro.get_parent().get_meta("kiln_style", kit_style))
+	pattern.clear()
+	for p in patterns:
+		pattern.add_item(p)
 	effect.set_pressed_no_signal(settings.get("enabled", true))
 	effect.disabled = retro == null
 	var has_space := retro != null and retro.has_method("set_space")
@@ -271,7 +277,7 @@ func load_kit(kit_retro: Node) -> void:
 		space.disabled = true
 		space.tooltip_text = "world space needs the Forward+ renderer"
 	_update_space_hint()
-	pattern.select(maxi(PATTERNS.find(str(settings.get("pattern", "bayer4"))), 0))
+	pattern.select(maxi(patterns.find(str(settings.get("pattern", "bayer4"))), 0))
 	_set_slider(lines, float(settings.get("lines", 200.0)))
 	_set_slider(aspect, float(settings.get("pixel_aspect", 1.0)))
 	_set_slider(strength, float(settings.get("strength", 1.0)))
@@ -391,6 +397,7 @@ static func sanitise(text: String) -> String:
 	var out := ""
 	for c in text.strip_edges().to_lower():
 		out += c if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") or c == "_" or c == "-" else "_"
+	out = out.lstrip("_-")  # palette and style names start with a letter or digit
 	return out if out != "" else "custom"
 
 
@@ -399,18 +406,18 @@ static func _toml_float(value: float) -> String:
 	return text if text.contains(".") else text + ".0"
 
 
-## The style file: retro_st with this panel's [look] settings and the palette saved next to it.
+## The style file: the current kit's style with this panel's [look] settings and the palette saved next to it.
 func style_text(preset_name: String) -> String:
 	var settings: Dictionary = retro.get_settings() if retro != null else {}
 	return "\n".join([
 		"description = \"%s: tuned in the retro room's dev panel\"" % preset_name,
-		"extends = \"retro_st\"",
+		"extends = \"%s\"" % kit_style,
 		"",
 		"[look]",
 		"post_palette = \"%s\"" % preset_name,
 		"post_lines = %d" % roundi(float(settings.get("lines", lines.value))),
 		"pixel_aspect = %s" % _toml_float(float(settings.get("pixel_aspect", aspect.value))),
-		"dither = \"%s\"" % str(settings.get("pattern", PATTERNS[pattern.selected])),
+		"dither = \"%s\"" % str(settings.get("pattern", patterns[pattern.selected])),
 		"dither_strength = %s" % _toml_float(float(settings.get("strength", strength.value))),
 		"dither_space = \"%s\"" % str(settings.get("space", "screen")),
 		"toon_bands = %d" % bands,
@@ -458,4 +465,4 @@ func _write(path: String, text: String) -> bool:
 
 func _update_space_hint() -> void:  # ordered patterns streak (moire) when fixed to the world; noise holds up
 	if space_hint != null:
-		space_hint.visible = space.button_pressed and PATTERNS[pattern.selected] != "noise"
+		space_hint.visible = space.button_pressed and patterns[pattern.selected] != "noise"

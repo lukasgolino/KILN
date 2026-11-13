@@ -126,11 +126,6 @@ func show_look(index: int) -> void:
 		look_kit.queue_free()
 	look_kit = load(looks[look_index][2]).instantiate()
 	var retro := look_kit.get_node_or_null("Retro")
-	var pass_rect := look_kit.get_node_or_null("Retro/Pass") as CanvasItem
-	if pass_rect != null and pass_rect.material != null:
-		# The kit's material is shared by every instance of it: a copy, so each switch starts from the kit's own
-		# settings and the dev panel's changes stay with this instance.
-		pass_rect.material = pass_rect.material.duplicate()
 	add_child(look_kit)
 	if panel != null:
 		panel.load_kit(retro)

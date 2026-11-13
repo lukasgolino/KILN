@@ -14,7 +14,6 @@ before 1.0).
   the settings.
 - Dither patterns `halftone`, `lines`, `hatch` and `noise` (#366), in Godot and in previews; halftone and hatch are
   ranked tiles like Bayer's, so every tone fills exactly its share.
-
 - `examples/retro_room/` (#362): a walkable Godot room with nine models on pedestals; 1 / 2 / 3 switch the Atari ST
   colour, CGA and ST mono looks (Tab cycles). `export.sh` builds a Windows exe. CI runs its headless check.
 - `[look] dither_space = "screen" | "world"` (#367) and `set_space()` on the Retro node (`get_settings()` reports
@@ -22,6 +21,9 @@ before 1.0).
   in the look kit, so it doesn't crawl when the camera moves. Best with `dither = "noise"`; ordered patterns come out
   irregular in world space. Godot Forward+ only; Mobile, Compatibility and previews keep screen space. Screen space output
   is unchanged (the look kit gains the quad, hidden).
+- Retro room dev panel (#369): F1 tunes the look live (effect on/off, screen or world dither, pattern, lines, pixel
+  aspect, strength, light bands, palette presets, colour count, colour pickers, randomise one or all) and saves the
+  result as a KILN style + palette (`user://presets/`, the style also to the clipboard).
 
 ## [0.32.0] - 2026-11-13
 
