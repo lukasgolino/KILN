@@ -16,6 +16,7 @@ import random
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import yaml
 
 API_VERSION = 1
@@ -30,6 +31,8 @@ def part(shape: str, color: str | None = None, material: str = "default", id: st
     part_keys = {"blend", "blend_to", "cut", "intersect", "mirror", "mirror_id", "array", "shell", "twist", "scale", "noise", "pattern",
                  "gradient", "decal", "texture", "loose",
                  "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "attr", "aim"}  # fmt: skip
+    if "from_" in params:  # `from` is a Python keyword (#206)
+        params["from"] = params.pop("from_")
     shape_params = {k: v for k, v in params.items() if k not in part_keys}
     out: Part = {shape: shape_params}
     if id is not None:
@@ -112,25 +115,187 @@ def tree(height: float = 3.0, crown: float = 1.0, seed: int = 1, bark: str = "br
     return parts
 
 
-def offset(parts: list[Part], dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> list[Part]:
-    """Move parts (their `at`, capsule from/to, tube points, decal and texture centres)."""
-    out = []
+SHAPE_SKIP = ("array", "noise", "pattern", "gradient", "decal", "texture", "fit", "uv", "attr", "aim", "scale", "on")
+AXES = "xyz"
+
+
+def _shape_key(p: Part) -> str:
+    return next(k for k in p if isinstance(p[k], dict) and k not in SHAPE_SKIP)
+
+
+def _copy(p: Part) -> Part:
+    import copy
+
+    return copy.deepcopy(p)
+
+
+def _reflect_part(p: Part, axis: int) -> Part:
+    """The part mirrored across the plane through 0 square to `axis` (what `mirror:` makes), written out."""
+    from kiln.hardware import _euler
+    from kiln.sdf import rotation_matrix
+
+    q = _copy(p)
+    q.pop("mirror", None)
+    if "mirror_id" in q:
+        q["id"] = q.pop("mirror_id")
+    flip = np.eye(3)
+    flip[axis, axis] = -1.0
+
+    def pt(v: list[float]) -> list[float]:
+        w = list(map(float, v))
+        w[axis] = -w[axis]
+        return [_r(c) for c in w]
+
+    s = q[_shape_key(q)]
+    for key in ("at", "from", "to", "facing"):
+        if key in s:
+            s[key] = pt(s[key])
+    if "at" in q:
+        q["at"] = pt(q["at"])
+    if "points" in s:
+        s["points"] = [pt(v) for v in s["points"]]
+    if "aim" in q:
+        q["aim"] = [pt(v) for v in q["aim"]]
+    for holder in (s, q):
+        if "rotate" in holder:
+            m = flip @ rotation_matrix(tuple(map(float, holder["rotate"]))) @ flip  # type: ignore[arg-type]
+            holder["rotate"] = [_r(v) for v in _euler(m)]
+    if isinstance(q.get("array"), dict) and "center" in q["array"]:
+        q["array"]["center"] = pt(q["array"]["center"])
+    for key in ("decal", "texture"):
+        d = q.get(key)
+        if isinstance(d, dict):
+            if "at" in d:
+                d["at"] = pt(d["at"])
+            if isinstance(d.get("axis"), str) and d["axis"].lstrip("-") == AXES[axis]:
+                d["axis"] = d["axis"][1:] if d["axis"].startswith("-") else "-" + d["axis"]
+    return q
+
+
+def _unmirror(parts: list[Part]) -> list[Part]:
+    """Mirrored parts written out as two (a mirror is about the model's origin: moved or turned, the copy must come
+    along explicitly)."""
+    out: list[Part] = []
     for p in parts:
-        q = {k: (dict(v) if isinstance(v, dict) else v) for k, v in p.items()}
-        shape = next(k for k in q if isinstance(q[k], dict) and k not in ("array", "noise", "pattern", "decal", "texture"))
-        s = q[shape]
-        for key in ("at", "from", "to"):
-            if key in s or (key == "at" and "from" not in s):
-                v = list(s.get(key, [0, 0, 0]))
-                s[key] = [_r(v[0] + dx), _r(v[1] + dy), _r(v[2] + dz)]
-        if "points" in s and shape == "tube":
-            s["points"] = [[_r(x + dx), _r(y + dy), _r(z + dz)] for x, y, z in s["points"]]
-        for key in ("decal", "texture"):  # model-space centres move with the part (a texture without `at` follows the part already)
-            if isinstance(q.get(key), dict) and "at" in q[key]:
-                x, y, z = q[key]["at"]
-                q[key]["at"] = [_r(x + dx), _r(y + dy), _r(z + dz)]
+        m = p.get("mirror")
+        if not m:
+            out.append(p)
+            continue
+        names = [m] if isinstance(m, str) else list(m)
+        first = _copy(p)
+        first.pop("mirror", None)
+        twin_id = first.pop("mirror_id", None)
+        copies = [first]
+        for name in names:
+            axis = AXES.index(name.lstrip("+-"))
+            more = []
+            for c in copies:
+                twin = _reflect_part({**c, "mirror_id": twin_id} if twin_id else c, axis)
+                more.append(twin)
+            copies += more
+        out += copies
+    return out
+
+
+def transform(parts: list[Part], rotate: tuple[float, float, float] | list[float] = (0.0, 0.0, 0.0), about: tuple[float, float, float] | list[float] = (0.0, 0.0, 0.0),
+              translate: tuple[float, float, float] | list[float] = (0.0, 0.0, 0.0), cut_only: list[str] | None = None) -> list[Part]:  # fmt: skip
+    """Parts turned by `rotate` (Euler degrees, as a part's rotate) about the point `about`, then moved by `translate`:
+    positions (at, from/to, points, aim, array centre, decal and texture centres), each part's own rotation and lock
+    facing, decal axes (an axis that no longer lies along x, y or z is an error). Mirrored parts are written out as
+    pairs first (a mirror is about the model's origin). `cut_only`: unscoped cuts cut only these ids (a placed group's
+    holes don't cut the rest of a scene)."""
+    from kiln.hardware import _euler
+    from kiln.sdf import rotation_matrix
+
+    rot = rotation_matrix(tuple(map(float, rotate)))  # type: ignore[arg-type]
+    c, t = np.asarray(about, float), np.asarray(translate, float)
+    turned = bool(np.abs(rot - np.eye(3)).max() > 1e-12)
+    moves_mirror = any(p.get("mirror") for p in parts) and (turned or bool(np.abs(t).max() > 0))
+    src = _unmirror(parts) if moves_mirror else [_copy(p) for p in parts]
+
+    def pt(v: list[float]) -> list[float]:
+        w = rot @ (np.asarray(v, float) - c) + c + t
+        return [_r(float(x)) for x in w]
+
+    def vec(v: list[float]) -> list[float]:
+        return [_r(float(x)) for x in rot @ np.asarray(v, float)]
+
+    out = []
+    for q in src:
+        s = q[_shape_key(q)]
+        if "from" in s or "points" in s:
+            for key in ("from", "to"):
+                if key in s:
+                    s[key] = pt(s[key])
+            if "points" in s:
+                s["points"] = [pt(v) for v in s["points"]]
+            if "facing" in s:
+                s["facing"] = vec(s["facing"])
+            if "at" in s:
+                s["at"] = pt(s["at"])
+        else:
+            holder = q if "at" in q else s  # a part-level at (lathes) moves instead of a second, shape-level one
+            holder["at"] = pt(holder.get("at", [0, 0, 0]))
+            if turned:
+                own = rotation_matrix(tuple(map(float, holder.get("rotate", s.get("rotate", [0, 0, 0])))))  # type: ignore[arg-type]
+                target = q if "rotate" in q else s
+                target["rotate"] = [_r(v) for v in _euler(rot @ own)]
+        if "aim" in q:
+            q["aim"] = [pt(v) for v in q["aim"]]
+        arr = q.get("array")
+        if isinstance(arr, dict):
+            if "center" in arr:
+                arr["center"] = pt(arr["center"])
+            if turned and isinstance(arr.get("around"), str):
+                axis = np.zeros(3)
+                axis[AXES.index(arr["around"])] = 1.0
+                if np.abs(np.abs(rot @ axis) - axis).max() > 1e-6:
+                    raise ValueError(f"transform: an array round {arr['around']} can't turn off its axis; turn about that axis or write the copies out")
+        for key in ("decal", "texture"):
+            d = q.get(key)
+            if isinstance(d, dict):
+                if "at" in d:
+                    d["at"] = pt(d["at"])
+                if turned and isinstance(d.get("axis"), str):
+                    name = d["axis"]
+                    v = np.zeros(3)
+                    v[AXES.index(name.lstrip("-"))] = -1.0 if name.startswith("-") else 1.0
+                    w = rot @ v
+                    k = int(np.argmax(np.abs(w)))
+                    if abs(abs(w[k]) - 1.0) > 1e-6:
+                        raise ValueError(f"transform: a {key} facing {name} no longer faces along x, y or z after the turn")
+                    d["axis"] = ("-" if w[k] < 0 else "") + AXES[k]
+        if cut_only is not None and q.get("cut") is True:
+            q["cut"] = list(cut_only)
         out.append(q)
     return out
+
+
+def offset(parts: list[Part], dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> list[Part]:
+    """Move parts (positions, part-level at, array centres, decal and texture centres; mirrored parts written out as
+    pairs, since a mirror is about the model's origin): `transform(parts, translate=(dx, dy, dz))`."""
+    return transform(parts, translate=(dx, dy, dz))
+
+
+def surface_point(profile: list[list[float]], y: float, angle: float, at: tuple[float, float, float] | list[float] = (0.0, 0.0, 0.0)) -> tuple[list[float], list[float]]:
+    """A point on a lathe's surface (its `profile` of [radius, y] pairs; a cone: [[radius, -h/2], [radius_top, h/2]])
+    at height `y` (its own frame) and `angle` degrees round y (0 = +z, 90 = +x), and the outward normal there, both in
+    model space (`at`: the part's at). For a ring of tiles on a cone: put each `at` the point and aim it along the
+    normal (#206)."""
+    pts = sorted(((float(r), float(h)) for r, h in profile), key=lambda q: q[1])
+    for (r0, y0), (r1, y1) in zip(pts, pts[1:], strict=False):
+        if y0 <= y <= y1 and y1 > y0:
+            u = (y - y0) / (y1 - y0)
+            radius, slope = r0 + (r1 - r0) * u, (r1 - r0) / (y1 - y0)
+            break
+    else:
+        raise ValueError(f"surface_point: y = {y} is outside the profile ({pts[0][1]} to {pts[-1][1]})")
+    a = math.radians(angle)
+    out = np.array([math.sin(a), 0.0, math.cos(a)])
+    normal = out - np.array([0.0, slope, 0.0])  # the profile leans by `slope` (radius per height): the normal leans back
+    normal /= np.linalg.norm(normal)
+    point = np.asarray(at, float) + out * radius + np.array([0.0, y, 0.0])
+    return [_r(float(v)) for v in point], [_r(float(v)) for v in normal]
 
 
 def model(name: str, parts: list[Part], cls: str = "prop", description: str = "", **fields: Any) -> dict[str, Any]:
@@ -172,4 +337,5 @@ def write_model(path: str | Path, data: dict[str, Any]) -> Path:
     return path
 
 
-__all__ = ["API_VERSION", "crenellated_wall", "dumps", "fence", "model", "offset", "part", "ring", "stairs", "tower", "tree", "write_model"]
+__all__ = ["API_VERSION", "crenellated_wall", "dumps", "fence", "model", "offset", "part", "ring", "stairs", "surface_point", "tower", "transform", "tree",
+           "write_model"]

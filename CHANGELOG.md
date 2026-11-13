@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- `kiln.api.transform(parts, rotate, about, translate, cut_only)` (positions, rotations, aims, array centres, decal
+  centres and axes; mirrors written out as pairs; scoped cuts), `kiln.api.surface_point()` on lathes and cones,
+  `from_=` for capsules, and a reference with signatures in `kiln docs api` (#172, #206, #346).
 - `kiln preview <model> --variants`: every variant side by side in one sheet, a row each (#330).
 - Palette-indexed textures (`texture: { rows, key }`) and generated pixel art in palette colours (`generate: brushed |
   specks | scratches | grid | noise`), recoloured by variants (each such variant gets its own glb); lint W137: a
@@ -62,6 +65,8 @@ before 1.0).
 
 ### Fixed
 
+- `kiln.api.offset()` moves mirrored parts as written-out pairs, a lathe's part-level `at` (not a second one), array
+  centres and decal centres (#172).
 - Scatter LODs of a model with a normal map (or colour map) keep their own maps instead of LOD 0's on their own
   UVs (#259).
 - A part that fails to read no longer drags in rig E007 for its id; the docs say `sides` makes a part hard (#327).
