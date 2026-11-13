@@ -1491,8 +1491,26 @@ COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_bui
             "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "docs": cmd_docs, "mcp": cmd_mcp, "library": cmd_library, "clips": cmd_clips}  # fmt: skip
 
 
+NUMBER_FLAGS = ("--frame-box", "--at", "--rotate", "--pitch")  # take comma lists that may start with a minus (#317)
+
+
+def _joined(argv: Sequence[str]) -> list[str]:
+    """`--frame-box -0.25,1,...`: argparse reads a value starting with a minus as a flag; joined as `--frame-box=-0.25,...`."""
+    out: list[str] = []
+    items = list(argv)
+    k = 0
+    while k < len(items):
+        if items[k] in NUMBER_FLAGS and k + 1 < len(items) and re.match(r"^-[\d.]", items[k + 1]):
+            out.append(f"{items[k]}={items[k + 1]}")
+            k += 2
+            continue
+        out.append(items[k])
+        k += 1
+    return out
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parser().parse_args(argv)
+    args = parser().parse_args(_joined(sys.argv[1:] if argv is None else argv))
     out = Output(args.json)
     import warnings
 

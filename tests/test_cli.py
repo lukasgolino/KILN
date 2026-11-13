@@ -643,3 +643,12 @@ def test_mount_shares_a_frame_and_preview_with(in_project: Project, capsys: pyte
     assert manifest["models"]["lid"]["mount"] == {"to": "case", "at": [0, 0.1, 0], "rotate": [0, 0, 0]}
     code, result = run_json(["preview", "case", "--with", "lid", "--views", "front", "--size", "96"], capsys)
     assert code == 0, result
+
+
+def test_negative_numbers_after_flags() -> None:
+    """#317: --frame-box -0.25,... (a value starting with a minus) is read as the flag's value."""
+    from kiln.cli import _joined
+
+    assert _joined(["preview", "m", "--frame-box", "-0.25,1,-0.2,0.25,1.6,0.2", "--pitch", "-10"]) == [
+        "preview", "m", "--frame-box=-0.25,1,-0.2,0.25,1.6,0.2", "--pitch=-10"]
+    assert _joined(["preview", "m", "--views", "front"]) == ["preview", "m", "--views", "front"]

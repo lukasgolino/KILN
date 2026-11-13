@@ -49,6 +49,7 @@ before 1.0).
 
 ### Fixed
 
+- `--frame-box`, `--at`, `--rotate` and `--pitch` take values starting with a minus (`--frame-box -0.25,...`) (#317).
 - Hard flat faces keep their own normal to every corner when their flat is clearly the biggest there (only bevel
   bands blend), so long triangles across a flank no longer shade a diagonal crease; cavity shade on a sliver
   triangle (a fan across a flat where parts rest) is evened out over it instead of streaking (#335).
