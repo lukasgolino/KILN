@@ -111,9 +111,9 @@ and budget: fine screws stay fine in a coarse scene), merged in after the scene 
 scene's model space: `rotate` turns the instance about its own origin (its `origin:`, as its own glb), then `at`
 places that origin (a flip is `rotate: [0, 180, 0]`; there is no mirror); `id` is the part it moves with
 (default root; not mirrored). A scene `lod:` builds every instance at the same share of its triangles. Materials are
-read in the scene's style; an instance's decals and textures come along (not when it is scaled); its animations, skin
-and baked maps don't, and a scene with a normal map or relief can't take instances yet. Each copy is merged into the
-scene's mesh (no shared mesh yet). A scene may be instances only (no `parts:`). Lint sees the scene with its
+read in the scene's style; an instance's decals and textures come along; its animations, skin and baked maps don't, and a
+scene with a normal map or relief can't take instances yet. In an unskinned or rigid scene a model placed several
+times is one mesh in the glb with a node per copy. A scene may be instances only (no `parts:`). Lint sees the scene with its
 instances (its size, its pieces: an instance joining two parts makes them one), and holds the model's own parts to
 its budget. `kiln build screw` rebuilds the models that place it. Missing models:
 E011; templates, terrains, scatters and circles (a model placing itself round about) are errors.

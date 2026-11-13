@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- A model placed several times in an unskinned or rigid scene is one mesh in the glb with a node per copy (Godot
+  shares it too); scaled instances keep their decals and textures; a scatter `onto:` a scene stands on its instances
+  as well (#353).
 - Lint W140: a part mirrored in one piece whose `blend_to` names one side of a mirror_id pair (#252).
 - `kiln style check [style]`: each palette colour as the look lights it beside its hex, with its hue and lightness
   shift, and a swatch sheet (#336).

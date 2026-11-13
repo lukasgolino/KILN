@@ -44,6 +44,7 @@ class Built:
     asked_step: float = 0.0  # the mesh step the style or model asked for; above it, the grid cap decided `step` (lint W120)
     step_reason: str = ""  # why `step` is what it is, in words (kiln lint / build print it)
     ao: Array | None = None  # (F, 3) per corner: shade paint / baked occlusion (kiln.shade) the previews multiply in, as the engine does
+    copies: Any = None  # placed instances (#353): (model, first face, end face, 4x4 model->scene, bone) per copy, in face order
     hard_note: Any = None  # (bevelled parts that lost them, bevelled parts, triangles with them) when the budget dropped bevels (#334)
     own_triangles: int = 0  # with instances placed (#333): the model's own triangles (its budget counts these); 0: all its own
     ao_strength: float = 0.0  # kiln.toml atlas_ao the previews' shade was made with (a cavity strength)
@@ -495,10 +496,12 @@ class _Writer:
                 if len(bone_faces[i]):
                     put_mesh(i, self.doc.add("meshes", {"name": sk.bones[i].name, "primitives": self.primitives(bone_faces[i], sk.bones[i].pivot, False)}))
         else:
+            shared = self.shared_copies(nodes, bone_faces)  # (#353) one mesh per placed model, a node per copy
             for i, bone in enumerate(sk.bones):
                 if len(bone_faces[i]):
                     put_mesh(i, self.doc.add("meshes", {"name": bone.name if b.skin != "none" else b.model.name,
                                                         "primitives": self.primitives(bone_faces[i], bone.pivot, False)}))  # fmt: skip
+            del shared
         if b.model.fit_to is not None:  # an attachment: everything in the target bone's space (hang it on that bone)
             from kiln.fitting import bone_matrix
 
@@ -513,6 +516,41 @@ class _Writer:
         for track in b.tracks if b.model.animation_library is None else ():  # a library's clips: in its own glb
             self.animation(track)
         return self.doc.glb()
+
+    def shared_copies(self, nodes: list[dict[str, Any]], bone_faces: dict[int, Array]) -> int:
+        """Instances placed more than once (#353): each placed model's mesh written once, from its first copy's faces,
+        and every copy a node under its bone referencing it (the copy's motion from the first's); their faces leave
+        the bones' own meshes (`bone_faces`, changed in place). Returns how many meshes are shared."""
+        copies = self.b.copies or []
+        sk = self.b.skeleton
+        groups: dict[tuple[str, int, str], list[tuple[int, int, Array]]] = {}
+        for model, start, end, transform, bone in copies:
+            groups.setdefault((model, end - start, bone), []).append((start, end, np.asarray(transform, float)))
+        made = 0
+        for (model, _, bone), group in groups.items():
+            if len(group) < 2:
+                continue
+            i = sk.index(bone)
+            pivot = sk.bones[i].pivot - (self.origin if i == 0 else 0)
+            first_start, first_end, first_t = group[0]
+            faces = np.arange(first_start, first_end)
+            mesh = self.doc.add("meshes", {"name": f"{model}", "primitives": self.primitives(faces, sk.bones[i].pivot, False)})
+            inv_first = np.linalg.inv(first_t)
+            gone = np.concatenate([np.arange(a, z) for a, z, _ in group])
+            bone_faces[i] = np.setdiff1d(bone_faces[i], gone)
+            for k, (_, _, t) in enumerate(group):
+                rel = t @ inv_first  # the first copy (where its mesh sits) onto this one, in model space
+                a, move = rel[:3, :3], rel[:3, 3]
+                m = np.eye(4)
+                m[:3, :3] = a
+                m[:3, 3] = a @ pivot + move - pivot  # in the bone's space (the mesh is written about its pivot)
+                node: dict[str, Any] = {"name": f"{model}_{k + 1}", "mesh": mesh, "extras": {"kiln_instance": model}}
+                if np.abs(m - np.eye(4)).max() > 1e-9:
+                    node["matrix"] = [float(np.float32(v)) for v in m.T.reshape(-1)]
+                nodes[i].setdefault("children", []).append(len(nodes))
+                nodes.append(node)
+            made += 1
+        return made
 
     def animation(self, track: Track) -> None:
         frames = track.frames

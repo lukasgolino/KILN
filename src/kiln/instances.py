@@ -67,9 +67,16 @@ def place(project: Project, built: Built, seen: tuple[str, ...] = (), share: flo
     joints = [built.joints] if built.joints is not None else None
     weights = [built.weights] if built.weights is not None else None
     count = len(p.vertices)
+    face_count = len(p.faces)
+    copies = list(built.copies or [])
     for inst, sub in instance_builds(project, built, seen, share):
         q = sub.painted
         r = rotation_matrix(inst.rotate)
+        motion = np.eye(4)  # its model space onto the scene's: (v - origin) R^T s + at, as below
+        motion[:3, :3] = r * inst.scale
+        motion[:3, 3] = np.asarray(inst.at, float) - (r * inst.scale) @ sub.origin()
+        copies.append((inst.model, face_count, face_count + len(q.faces), motion, inst.bone))
+        face_count += len(q.faces)
         vertices.append((q.vertices - sub.origin()) @ r.T * inst.scale + np.asarray(inst.at))  # its origin at `at`, as its glb
         faces.append(q.faces + count)
         remap = []
@@ -81,11 +88,8 @@ def place(project: Project, built: Built, seen: tuple[str, ...] = (), share: flo
             remap.append(index[key])
         face_group.append(np.asarray(remap, dtype=np.int64)[q.face_group] if len(q.face_group) else q.face_group)
         dmap = []
-        for d in q.decals:  # (#295) each decal back in the instance's own frame: a rigid copy (not when scaled)
-            if abs(inst.scale - 1.0) > 1e-9:
-                dmap.append(-1)
-                continue
-            placed_ = replace(d, copy=_compose(Copy(r, sub.origin(), np.asarray(inst.at, float) - sub.origin()), d.copy))
+        for d in q.decals:  # (#295, #353) each decal back in the instance's own frame (scaled ones too: the copy's matrix is r / scale)
+            placed_ = replace(d, copy=_compose(Copy(r / inst.scale, sub.origin(), np.asarray(inst.at, float) - sub.origin()), d.copy))
             if placed_ not in decals:
                 decals.append(placed_)
             dmap.append(decals.index(placed_))
@@ -103,7 +107,7 @@ def place(project: Project, built: Built, seen: tuple[str, ...] = (), share: flo
             weights.append(w)
         count += len(q.vertices)
     painted = Painted(np.concatenate(vertices), np.concatenate(faces), np.concatenate(face_group), groups, np.concatenate(face_decal), decals)
-    return replace(built, own_triangles=built.own_triangles or built.triangles, painted=painted, normals=np.concatenate(normals), ao=np.concatenate(ao) if ao is not None else None,
+    return replace(built, own_triangles=built.own_triangles or built.triangles, copies=copies, painted=painted, normals=np.concatenate(normals), ao=np.concatenate(ao) if ao is not None else None,
                    joints=np.concatenate(joints) if joints is not None else None, weights=np.concatenate(weights) if weights is not None else None)  # fmt: skip
 
 

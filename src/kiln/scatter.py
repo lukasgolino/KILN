@@ -375,9 +375,13 @@ def surface_of(project: Any, scatter: Scatter, cache: Path | None) -> tuple[Surf
             return None, [(f"size {size[0]:g} x {size[1]:g} m is larger than the terrain ({hi[0] - lo[0]:g} x {hi[2] - lo[2]:g} m)", "scatter.size", None)]
         x, z = (size[0] / 2, size[1] / 2) if size is not None else (float(hi[0]), float(hi[2]))
         return Surface("terrain", (-x, -z), (x, z), field=field_, layers=tuple(field_.layer_names)), []
+    from kiln.instances import InstanceError, place
+
     try:
         built = build_cached(model, style, palette, cache)
-    except ValueError as exc:
+        if model.instances:  # (#353) the surface as built: its instances placed (a desk with its props)
+            built = place(project, built)
+    except (ValueError, InstanceError) as exc:
         return None, [(f"onto {scatter.onto}: it doesn't build ({exc})", "scatter.onto", None)]
     vertices = built.painted.vertices - built.origin()  # the glb's frame
     faces = built.painted.faces
