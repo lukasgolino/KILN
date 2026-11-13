@@ -234,3 +234,18 @@ parts:
     assert float(v[:, 2].min()) > -0.14 - 0.012 - 0.02  # no flange at the back
     model, _ = ok_model(project, BARREL)
     assert model.parts[1].geometry.shape == "cylinder" and model.parts[1].hard
+
+
+def test_chamfer_only_the_vertical_edges(project: Project) -> None:
+    """#345: bevel_edges: vertical rounds a thin seat's corners only (the chamfer limit is then its width, not its
+    thickness); the top and bottom faces stay whole squares to the edge."""
+    text = "name: thing\nparts:\n  - box: { at: [0, 0.02, 0], size: [0.5, 0.04, 0.5] }\n    color: wood\n    chamfer: 0.05\n    bevel_edges: vertical\n"
+    model, style = ok_model(project, text)
+    built = build_model(model, style, palette=project.palette(None)[0])
+    v = built.painted.vertices
+    top = v[np.isclose(v[:, 1], 0.04)]
+    assert np.isclose(np.abs(top[:, 0]).max(), 0.25) and not np.any(np.isclose(np.abs(top[:, 0]), 0.25) & np.isclose(np.abs(top[:, 2]), 0.25))  # corners cut
+    assert np.isclose(v[:, 1].max(), 0.04) and np.isclose(v[:, 1].min(), 0.0)  # top and bottom edges sharp: no band in y
+    side = v[np.isclose(np.abs(v[:, 0]), 0.25)]
+    assert np.isclose(side[:, 1].min(), 0.0) and np.isclose(side[:, 1].max(), 0.04)
+    assert errors_of(project, text.replace("vertical", "diagonal"))

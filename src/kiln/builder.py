@@ -117,7 +117,7 @@ def hard_spec(part: Part, style: Style, level: int = 0, keep: frozenset[int] = f
         bevel = 0.0
     if level >= 3:
         sides = max(min(sides, 6), sides >> (level - 2))
-    return HardSpec(sides, bevel, segments)
+    return HardSpec(sides, bevel, segments, part.bevel_edges)
 
 
 def _hard_cut_applies(g: Geometry, include: frozenset[int]) -> bool:
@@ -206,10 +206,10 @@ HARD_GROWTH = 1.0  # time against joins done, as a power: about linear since tre
 ROUND_SHAPES = frozenset({"cylinder", "cone", "capsule", "tube", "lathe", "torus", "sphere", "ellipsoid"})
 
 
-def _spec_key(part: Part, spec: HardSpec) -> tuple[int, float, int]:
+def _spec_key(part: Part, spec: HardSpec) -> tuple[int, float, int, str]:
     """What of a HardSpec changes this part's solid: bevel bands only with a bevel, sides only on round shapes."""
     sides = int(part.geometry.params.get("sides") or spec.sides)  # as hard.local_polys reads it
-    return (sides if part.geometry.shape in ROUND_SHAPES else 0, spec.bevel, spec.segments if spec.bevel else 0)
+    return (sides if part.geometry.shape in ROUND_SHAPES else 0, spec.bevel, spec.segments if spec.bevel else 0, spec.edges if spec.bevel else "all")
 
 
 def _box_area(g: Geometry) -> float:

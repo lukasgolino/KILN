@@ -13,7 +13,9 @@ character (its joints bend by blending) and parts with `twist` or `noise`. Hard 
 (union, cut, intersect, in order); every later cut or intersect, of any shape, applies to them too. They sit in
 smooth parts without blending. A box's `round` is a chamfer on a hard part. Round hard shapes get the style's
 `hard_sides` (12 by default; low_poly 8) unless they say `sides`. When hard parts would take most of the budget
-(LODs), bevels become chamfers, then go, then round shapes lose sides. Flat faces stay flat; in smooth styles bevel
+(LODs), bevels become chamfers, then go (the smallest parts first; lint W139), then round shapes lose sides.
+`bevel_edges: vertical` (or `top`, `bottom`, `horizontal`; default `all`) rounds only those edges, in the part's own
+frame: a thin seat's corners without its top and bottom edges (the limit is then half its width, not its thickness). Flat faces stay flat; in smooth styles bevel
 bands shade round and designed edges stay crisp.
 
 ```yaml

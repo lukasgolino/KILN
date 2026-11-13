@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `bevel_edges: vertical | top | bottom | horizontal` picks the edges a bevel or chamfer rounds (a thin seat's corners
+  only) (#345).
 - Assemblies: `mount: { to, at, rotate }` on a model built to sit on another (a shared frame: no W106/W123 ground
   checks; `mount` in the manifest), and `kiln preview <model> --with <others>` to see them together (#181).
 - `kiln fit <a> <b> [--at] [--rotate]`: does b fit a in their shared frame: overlap volume, how deep each goes into

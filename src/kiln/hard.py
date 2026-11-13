@@ -471,11 +471,53 @@ def _unit(v: Array) -> Array:
     return np.asarray(v / np.linalg.norm(v))
 
 
-def bevelled(normals: Array, offsets: Array, radius: float, segments: int) -> list[tuple[Array, int]]:
+def _face_edges(faces: list[tuple[Array, int]]) -> set[tuple[int, int]]:
+    """The pairs of plane indices that meet along an edge of a convex shape's faces."""
+    points = np.concatenate([p for p, _ in faces])
+    _, index = _weld(points, 1e-7)
+    edge_faces: dict[tuple[int, int], set[int]] = {}
+    pos = 0
+    for pts, idx in faces:
+        ids = [int(i) for i in index[pos : pos + len(pts)]]
+        pos += len(pts)
+        for k, v in enumerate(ids):
+            w = ids[(k + 1) % len(ids)]
+            if v != w:
+                edge_faces.setdefault((min(v, w), max(v, w)), set()).add(idx)
+    return {(min(f), max(f)) for f in edge_faces.values() if len(f) == 2}
+
+
+def _bevelled_edges(normals: Array, offsets: Array, radius: float, segments: int, wanted: str) -> list[tuple[Array, int]]:
+    """Only the chosen edges rounded (#345): the faces along them pulled in by `radius` to find where the bands sit;
+    every other face stays where it is, and corners stay as the planes meet."""
+    picked = sorted(e for e in _face_edges(convex(normals, offsets)) if _edge_wanted(normals[e[0]], normals[e[1]], wanted))
+    if not picked:
+        return convex(normals, offsets)
+    involved = np.zeros(len(normals), bool)
+    for a, b in picked:
+        involved[a] = involved[b] = True
+    core = convex(normals, offsets - radius * involved)
+    points = np.concatenate([p for p, _ in core])
+    extra = [_unit(normals[a] * i + normals[b] * (segments + 1 - i)) for a, b in picked for i in range(1, segments + 1)]
+    ns = np.array(extra)
+    return convex(np.concatenate([normals, ns]), np.concatenate([offsets, (points @ ns.T).max(axis=0) + radius]))
+
+
+def _edge_wanted(na: Array, nb: Array, edges: str) -> bool:
+    """Whether the edge between faces with normals na and nb is bevelled under `edges` (#345)."""
+    if edges == "vertical":
+        return abs(float(na[1])) < 0.5 and abs(float(nb[1])) < 0.5
+    top, bottom = max(float(na[1]), float(nb[1])) > 0.5, min(float(na[1]), float(nb[1])) < -0.5
+    return {"top": top, "bottom": bottom, "horizontal": top or bottom}.get(edges, True)
+
+
+def bevelled(normals: Array, offsets: Array, radius: float, segments: int, wanted: str = "all") -> list[tuple[Array, int]]:
     """The convex shape with every edge and corner rounded by `radius` in `segments` flat bands (1 = a chamfer):
     the shape shrunk by `radius`, grown back by a ball cut to those bands. Its flat faces stay where they were."""
     if radius <= 0:
         return convex(normals, offsets)
+    if wanted != "all":
+        return _bevelled_edges(normals, offsets, radius, segments, wanted)
     core = convex(normals, offsets - radius)
     points = np.concatenate([p for p, _ in core])
     # which faces meet at each edge and corner of the core
@@ -494,10 +536,11 @@ def bevelled(normals: Array, offsets: Array, radius: float, segments: int) -> li
     edges = {(min(f), max(f)) for f in edge_faces.values() if len(f) == 2}
     extra: list[Array] = []
     s = segments
-    for a, b in sorted(edges):
+    picked = {e for e in edges if _edge_wanted(normals[e[0]], normals[e[1]], wanted)}
+    for a, b in sorted(picked):
         for i in range(1, s + 1):
             extra.append(_unit(normals[a] * i + normals[b] * (s + 1 - i)))
-    for key in sorted(vertex_faces):
+    for key in sorted(vertex_faces) if wanted == "all" else ():  # (chosen edges only: corners stay as the planes meet)
         around = sorted(vertex_faces[key])
         if len(around) < 3:
             continue
@@ -852,6 +895,7 @@ class HardSpec:
     sides: int = DEFAULT_SIDES
     bevel: float = 0.0
     segments: int = 2  # bevel bands; a chamfer is 1
+    edges: str = "all"  # which edges the bevel rounds (#345): all | vertical | top | bottom | horizontal
 
 
 def _oriented(polys: list[list[Point]]) -> list[list[Point]]:
@@ -878,7 +922,7 @@ def local_polys(shape: str, p: dict[str, object], spec: HardSpec) -> list[list[P
     elif shape == "cone":
         planes = _planes_prism(float(p["radius"]), float(p["radius_top"]), float(p["height"]), sides)  # type: ignore[arg-type]
     if planes is not None:
-        faces = bevelled(planes[0], planes[1], bevel, seg) if bevel > 0 else convex(*planes)
+        faces = bevelled(planes[0], planes[1], bevel, seg, spec.edges) if bevel > 0 else convex(*planes)
         return [[(float(x), float(y), float(z)) for x, y, z in pts] for pts, _ in faces]
     if shape == "sphere":
         return _oriented(_lathe_polys(_sphere_profile(float(p["radius"]), sides), sides))  # type: ignore[arg-type]
@@ -1051,7 +1095,7 @@ def _shrunk(g: Geometry, spec: HardSpec, tag: int, t: float) -> Solid:
     else:
         return []
     m = g.rotation if g.rotation is not None else np.eye(3)
-    return _place(local_polys(g.shape, p, HardSpec(spec.sides, max(spec.bevel - t, 0.0), spec.segments)), m, g.at, tag)
+    return _place(local_polys(g.shape, p, HardSpec(spec.sides, max(spec.bevel - t, 0.0), spec.segments, spec.edges)), m, g.at, tag)
 
 
 # --- the model's hard solid -> a welded triangle mesh -------------------------------------------------------------

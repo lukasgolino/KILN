@@ -58,7 +58,7 @@ UNIONS = ("whole", "per_bone")
 CYCLES = ("walk", "waddle", "run", "sneak", "hop", "bob", "spin", "swing", "breathe", "wave", "chain", "idle")
 INTERPOLATIONS = ("linear", "step")
 
-PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "density", "resolution", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
+PART_FIELDS = {"bevel_edges", "id", "color", "material", "emission", "blend", "color_blend", "density", "resolution", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
                "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr", "on", "folds"}  # fmt: skip
 BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
@@ -170,6 +170,7 @@ class Part:
     hard: bool | None = None  # exact polygons (True), the smooth field (False), or the style decides (None)
     crisp: bool = False  # blend: none (a hard part when the style allows)
     bevel: float = 0.0  # hard edges rounded in `segments` bands (a chamfer: one band)
+    bevel_edges: str = "all"  # which edges (#345): all | vertical | top | bottom | horizontal (top and bottom), in the part's frame
     segments: int = 2
     fit: tuple[tuple[str, ...], float] | None = None  # a shell wrapping the parts with these ids, this far from them
     cut_only: tuple[str, ...] | None = None  # a cut that only cuts the parts with these ids (#209: several)
@@ -848,9 +849,16 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if ok and (bevel or chamfer) and kind not in BEVEL_SHAPES:
         ctx.error("E003", f"bevel and chamfer work on {', '.join(BEVEL_SHAPES)} (round shapes: use sides)", line, where)
         ok = False
+    bevel_edges = raw.get("bevel_edges", "all")
+    if bevel_edges not in BEVEL_EDGES or (bevel_edges != "all" and not (bevel or chamfer)):
+        ctx.error("E003", f"bevel_edges picks the edges a bevel or chamfer rounds: {' | '.join(BEVEL_EDGES)} (in the part's own frame), with bevel or chamfer",
+                  line, f"{where}.bevel_edges")  # fmt: skip
+        ok = False
     if ok and (bevel or chamfer):
         limit = (min(params["size"]) if kind in ("box", "wedge") else min(2 * params["radius"], params["height"]) if kind in ("cylinder", "cone")
                  else params["height"]) / 2  # fmt: skip
+        if kind == "box" and bevel_edges == "vertical":  # only the x and z sides meet at those edges
+            limit = min(params["size"][0], params["size"][2]) / 2
         if max(bevel, chamfer) >= limit:
             ctx.error("E003", f"{'bevel' if bevel else 'chamfer'} {max(bevel, chamfer):g} must be less than half the {kind}'s smallest side ({limit:g})",
                       line, where)  # fmt: skip
@@ -925,6 +933,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale, folds=fold)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
+                   "bevel_edges": str(bevel_edges),
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
                    "texture": texture, "color_blend": float(color_blend), "color_blend_set": "color_blend" in raw, "density": float(density), "fine": None if fine is None else float(fine), "on": on,
                    "skin_falloff": None if skin_falloff is None else float(skin_falloff), "wall": op == "cut" and "color" in raw}  # fmt: skip
@@ -1208,6 +1217,7 @@ def _fades(raw_parts: Any) -> bool:
     return isinstance(raw_parts, list) and any(isinstance(p, dict) and _num(p.get("color_blend")) and float(p["color_blend"]) > 0 for p in raw_parts)
 
 
+BEVEL_EDGES = ("all", "vertical", "top", "bottom", "horizontal")
 MAP_PATTERNS = ("pixel", "dots")  # painted in the colour map by default when the model has one (#324)
 
 
