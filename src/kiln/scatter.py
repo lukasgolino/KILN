@@ -752,6 +752,19 @@ func _mesh(k: int, lod: int, tinted: bool, meshes: Dictionary) -> Mesh:
 \t\t\t\tmaterial = by_index[i]
 \t\tif material == null:
 \t\t\tmaterial = own
+\t\tif lod > 0 and own is BaseMaterial3D and material != own:  # (#259) the LOD's own maps (its own UV charts), not LOD 0's
+\t\t\tvar mine := own as BaseMaterial3D
+\t\t\tif mine.normal_texture != null or (mine.albedo_texture != null and material is ShaderMaterial):
+\t\t\t\tmaterial = material.duplicate()
+\t\t\t\tif material is BaseMaterial3D:
+\t\t\t\t\t(material as BaseMaterial3D).normal_texture = mine.normal_texture
+\t\t\t\t\tif mine.albedo_texture != null:
+\t\t\t\t\t\t(material as BaseMaterial3D).albedo_texture = mine.albedo_texture
+\t\t\t\telif material is ShaderMaterial:
+\t\t\t\t\tif mine.normal_texture != null:
+\t\t\t\t\t\t(material as ShaderMaterial).set_shader_parameter("normal_texture", mine.normal_texture)
+\t\t\t\t\tif mine.albedo_texture != null:
+\t\t\t\t\t\t(material as ShaderMaterial).set_shader_parameter("color_texture", mine.albedo_texture)
 \t\tif tinted and material is BaseMaterial3D and not (material as BaseMaterial3D).vertex_color_use_as_albedo:
 \t\t\tmaterial = material.duplicate()
 \t\t\t(material as BaseMaterial3D).vertex_color_use_as_albedo = true  # instance colours multiply vertex colours

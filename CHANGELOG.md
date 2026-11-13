@@ -62,6 +62,8 @@ before 1.0).
 
 ### Fixed
 
+- Scatter LODs of a model with a normal map (or colour map) keep their own maps instead of LOD 0's on their own
+  UVs (#259).
 - A part that fails to read no longer drags in rig E007 for its id; the docs say `sides` makes a part hard (#327).
 - `kiln.api.part(..., cut=True)` keeps `color` and `material` (they paint the cut's walls) (#344).
 - A cut accepts `id` and `mirror_id` (they name it; shared option sets in generators work) instead of E003; a
