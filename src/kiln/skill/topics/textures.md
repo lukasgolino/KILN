@@ -12,6 +12,9 @@ triplanar projection, motif prints, palette-indexed and generated pixel art that
 Projects an image (PNG with transparency, e.g. made with PAGAN) onto the faces of this part that face `axis`
 (x, -x, y, -y, z, -z), centred at `at` (model space, on or near the surface), `size` = width, height in metres. It
 shows on that side only (a flag needs a second decal with `axis: -z` for its back). Transparent pixels show the part's colour.
+The image is upright and unmirrored seen from the side it faces: on a side axis (x, z) its top is +y; facing +y its
+top points to -z (the back), facing -y to +z. A part turned 180 degrees with its decal still reads right only if the
+decal's `axis` turns with it (write the axis it ends up facing).
 Small images (<= 256 px) are sampled crisp (pixel art). `texel: 0.004` instead of `size`: metres per image pixel, so
 props at different scales keep the same pixel size. On an arrayed part, `per_copy: true` puts the decal on every
 copy, placed on each as written for the first (a badge on each of 12 links); the copies share one texture.

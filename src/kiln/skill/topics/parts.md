@@ -26,7 +26,7 @@ then y then z, about its centre).
 | `sphere` | `radius` |
 | `ellipsoid` | `radii: [x, y, z]` |
 | `box` | `size: [x, y, z]`, `round` (edge radius; size kept) |
-| `cylinder` | `radius`, `height` (along y), `round`, `sides` (8: an octagonal prism, a flat side facing +z). `at` is its middle: half of it is below `at` (or place it by its ends with `aim`) |
+| `cylinder` | `radius`, `height` (along y), `round`, `sides` (8: an octagonal prism, a flat side facing +z; `radius` reaches its corners, its flats sit at radius x cos(180/sides)). `at` is its middle: half of it is below `at` (or place it by its ends with `aim`) |
 | `cone` | `radius` (bottom), `radius_top` (0 = point), `height` (along y), `sides` (4: a pyramid). `at` is its middle, not its base: a tuft set `at` a surface is half buried. Stand it on a point with `aim: [[base], [tip]]` (y runs base to tip; without a `height`, the distance between them) |
 | `capsule` | `from: [x, y, z]`, `to: [x, y, z]`, `radius`, `radius_to` (taper) |
 | `tube` | `points: [[x, y, z], ...]` (2+; straight unless `smooth: true`), `radius`, `radius_to`: ropes, branches, rails, tails |
