@@ -712,3 +712,13 @@ def test_new_model_uses_a_palette_colour(in_project: Project, capsys: pytest.Cap
     assert code == 0 and "color: grey" not in text
     code, result = run_json(["lint", "--fast", "blob"], capsys)
     assert code == 0, result
+
+
+def test_build_of_a_deleted_model_says_its_old_files_stay(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#182: building a model whose file is gone says its old glb stays until a full build removes it."""
+    (in_project.models_dir / "ball.kiln.yaml").write_text("name: ball\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: red\n")
+    code, _ = run_json(["build"], capsys)
+    assert code == 0
+    (in_project.models_dir / "ball.kiln.yaml").unlink()
+    code, result = run_json(["build", "ball"], capsys)
+    assert code != 0 and "until a full `kiln build` removes it" in result["findings"][0]["message"]

@@ -84,7 +84,10 @@ def _model_path(project: Project, name: str) -> Path:
     candidate = project.models_dir / f"{name}{MODEL_SUFFIX}"
     if not candidate.is_file():
         known = ", ".join(p.name[: -len(MODEL_SUFFIX)] for p in project.model_paths()) or "none"
-        raise _usage(f"no model {name!r} (models: {known})")
+        left = sorted((project.output_dir / "models").glob(f"{name}.*")) if (project.output_dir / "models").is_dir() else []
+        stale = (f"; its last build ({', '.join(p.name for p in left[:4])}{' ...' if len(left) > 4 else ''}) stays in "
+                 f"{display_path(project.output_dir)} until a full `kiln build` removes it") if left else ""  # (#182)
+        raise _usage(f"no model {name!r} (models: {known}){stale}")
     return candidate
 
 
