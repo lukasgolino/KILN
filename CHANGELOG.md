@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `kiln examples [name]`: the worked example models (the demo's) ship with KILN and print from the CLI; the docs
+  point there (#308).
 - `kiln docs --search` knows engine words: emissive finds glow, metallic metal, transparent alpha and clear,
   instancing instances, and more (#164).
 - `bevel` and `chamfer` on lathes: the outline's corners are rounded before it is spun (a bezel ring with a lip),

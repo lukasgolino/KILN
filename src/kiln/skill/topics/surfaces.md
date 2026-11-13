@@ -133,7 +133,7 @@ relief:
 - Patches stay on the parts in `on`: eyes, a nose, claws and glowing or hard parts next to them stay clean.
   `normal_strength` scales the layer's shading with the rest of the map. `preview --draft` shows no relief.
 - The model's colours are then in `<name>.color.png` on the normal map's UVs (one material per preset; a variant has
-  its own map and glb). Manifest: `color_map` (`png`, `size`, `patches`). Example: `examples/demo/models/cub.kiln.yaml`.
+  its own map and glb). Manifest: `color_map` (`png`, `size`, `patches`). Example: `kiln examples cub` (prints it).
 
 ## Soft colour borders: `color_blend`
 

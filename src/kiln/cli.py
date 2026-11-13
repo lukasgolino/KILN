@@ -172,6 +172,30 @@ def cmd_library(args: argparse.Namespace, out: Output) -> int:
     return 0
 
 
+def cmd_examples(args: argparse.Namespace, out: Output) -> int:
+    """The worked example models the docs point to (#308): list them, or print one (to read or copy into models/)."""
+    here = Path(__file__).parent / "examples"
+    files = sorted(here.glob(f"*{MODEL_SUFFIX}"))
+    names = [f.name[: -len(MODEL_SUFFIX)] for f in files]
+    if args.name:
+        if args.name not in names:
+            raise _usage(f"no example {args.name!r} (examples: {', '.join(names)})")
+        text = (here / f"{args.name}{MODEL_SUFFIX}").read_text(encoding="utf-8")
+        out.say(text.rstrip("\n"))
+        out.result({"name": args.name, "text": text})
+        return 0
+    from kiln.vendor.yamlio import parse_yaml
+
+    rows = []
+    for f, n in zip(files, names, strict=True):
+        desc = str(parse_yaml(f.read_text(encoding="utf-8")).get("description", ""))
+        rows.append({"name": n, "description": desc})
+        out.say(f"{n:12s} {desc}")
+    out.say("`kiln examples <name>` prints one; copy it into models/ to build it")
+    out.result({"examples": rows})
+    return 0
+
+
 CLIPS_DIR = "kaykit-animations"  # imports/<this>/: the bundled CC0 humanoid clips (#150)
 
 
@@ -1367,6 +1391,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--force", action="store_true")
     s = sub.add_parser("library", parents=[common], help="KILN's templates: bodies, heads, helmets, armour; a name prints that one")
     s.add_argument("name", nargs="?", help="a template: print its YAML (parts, ids, sizes)")
+    s = sub.add_parser("examples", parents=[common], help="the worked example models the docs point to: list, or print one")
+    s.add_argument("name", nargs="?")
     s = sub.add_parser("clips", parents=[common], help="the CC0 humanoid clips KILN ships (idle, walk, run, jump, ...): list, or add to imports/")
     cs = s.add_subparsers(dest="clips_cmd")
     cs.add_parser("list", parents=[common], help="the clip files and their clips")
@@ -1488,7 +1514,7 @@ def parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_build, "preview": cmd_preview, "lineup": cmd_lineup, "fit": cmd_fit,
             "gallery": cmd_gallery, "status": cmd_status, "mark": cmd_mark, "style": cmd_style, "config": cmd_config,
-            "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "docs": cmd_docs, "mcp": cmd_mcp, "library": cmd_library, "clips": cmd_clips}  # fmt: skip
+            "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "docs": cmd_docs, "mcp": cmd_mcp, "library": cmd_library, "clips": cmd_clips, "examples": cmd_examples}  # fmt: skip
 
 
 NUMBER_FLAGS = ("--frame-box", "--at", "--rotate", "--pitch")  # take comma lists that may start with a minus (#317)

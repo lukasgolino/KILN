@@ -679,3 +679,17 @@ def test_pose_tiles_grow_for_few_frames_and_take_the_style_background(in_project
     assert sheet.width >= 400  # one frame: a 450 px tile, not 200
     corner = np.asarray(sheet)[sheet.height - 20, 30]
     assert corner.sum() < 3 * 120  # a dark tile background
+
+
+def test_examples_list_and_print(capsys: pytest.CaptureFixture[str]) -> None:
+    """#308: the worked examples the docs point to are readable from the CLI, the same files as examples/demo."""
+    from pathlib import Path
+
+    code, result = run_json(["examples"], capsys)
+    assert code == 0 and "cub" in {r["name"] for r in result["examples"]}
+    code, result = run_json(["examples", "cub"], capsys)
+    demo = Path(__file__).parent.parent / "examples" / "demo" / "models" / "cub.kiln.yaml"
+    assert code == 0 and result["text"] == demo.read_text()
+    shipped = Path(__file__).parent.parent / "src" / "kiln" / "examples"
+    for f in (demo.parent).glob("*.kiln.yaml"):
+        assert (shipped / f.name).read_text() == f.read_text(), f"{f.name}: copy examples/demo/models into src/kiln/examples"

@@ -1,0 +1,56 @@
+name: pilot
+description: bean crew member in a pilot's cap with the airline's wings
+class: character
+tags: [crew]
+status: approved
+style_version: 1
+parts:
+  - capsule: { from: [0, 0.32, 0], to: [0, 0.74, 0], radius: 0.3 }
+    color: red
+    material: plastic
+  - capsule: { from: [0.12, 0.1, 0], to: [0.12, 0.26, 0], radius: 0.1 }
+    id: leg_l
+    mirror: x
+    mirror_id: leg_r
+    blend: 0.05
+    color: red
+    material: plastic
+  - capsule: { from: [0.3, 0.6, 0], to: [0.42, 0.38, 0.08], radius: 0.08 }
+    id: arm_l
+    mirror: x
+    mirror_id: arm_r
+    blend: 0.04
+    color: red
+    material: plastic
+  - box: { at: [0, 0.56, 0.29], size: [0.09, 0.22, 0.05], round: 0.015 }
+    color: navy
+    material: fabric
+    pattern: { type: stripes, color: gold, size: 0.06, width: 0.3, axis: y }
+  - sphere: { at: [0.1, 0.84, 0.23], radius: 0.1 }
+    mirror: x
+    color: white
+    material: plastic
+  - sphere: { at: [0.11, 0.85, 0.32], radius: 0.042 }
+    mirror: x
+    color: black
+    material: plastic
+  - cylinder: { at: [0, 1.08, 0], radius: 0.25, height: 0.15, round: 0.03 }
+    id: cap
+    color: navy
+    material: fabric
+    decal: { image: decals/wings.png, axis: z, at: [0, 1.09, 0.25], size: [0.2, 0.1] }
+  - cylinder: { at: [0, 1.0, 0.07], radius: 0.27, height: 0.03, round: 0.012 }
+    id: cap
+    color: navy_dark
+    material: fabric
+rig:
+  leg_l: { pivot: [0.12, 0.26, 0] }
+  arm_l: { pivot: [0.3, 0.6, 0] }
+  cap: { pivot: [0, 1.0, 0], meta: { detachable: true }, separate: true }
+skin: soft
+animations:
+  walk: { fps: 12, cycle: { type: waddle } }
+  wave: { fps: 8, cycle: { type: wave, arms: [arm_r] } }
+  idle: { fps: 6, cycle: { type: breathe } }
+variants:
+  copilot: { swap: { red: teal } }
