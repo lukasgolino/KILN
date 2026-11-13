@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 import multiprocessing
 import os
+import re
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -22,7 +23,7 @@ from kiln.cover import covers, mostly_covered
 from kiln.export import Built
 from kiln.jit import set_threads
 from kiln.mesher import CELL_LIMIT, crack_groups, mesh_steps, open_edges, pinches
-from kiln.notation import ROOT_ID, Model
+from kiln.notation import ROOT_ID, Model, Part
 from kiln.packs import lock_findings
 from kiln.project import Project
 from kiln.retarget import JOINTS
@@ -103,6 +104,15 @@ BUILT_RULES = ("E009", "E013", "E016", "W101", "W102", "W103", "W104", "W106", "
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
+def part_name(part: Part) -> str:
+    """A part as the model file has it (#314): its place in `parts:` (as written, before hardware expands), the kind
+    written (`garment`, not the box it became), its id, and its line."""
+    kind = part.written or part.geometry.shape
+    ident = f" {part.id}" if part.id != ROOT_ID else ""
+    line = f", line {part.line}" if part.line else ""
+    return f"{part.where} ({kind}{ident}, {part.color_name}{line})"
+
+
 def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -> list[Finding]:
     m = built.model
     out: list[Finding] = []
@@ -177,7 +187,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         field = field_of(m, built.step) if m.parts else None
 
         def named(parts: tuple[int, ...]) -> str:
-            shown = [f"part {m.parts[j].index} ({m.parts[j].geometry.shape}, {m.parts[j].color_name})" for j in parts[:3]]
+            shown = [part_name(m.parts[j]) for j in parts[:3]]
             return ", ".join(shown) + (f" and {len(parts) - 3} more" if len(parts) > 3 else "")
 
         exact = frozenset(hard_parts(m, built.style))
@@ -186,14 +196,15 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             part = m.parts[i]
             by = hidden_by[i].by if i in hidden_by else ()
             what = f"{named(by)} cover{'s' if len(by) == 1 else ''} it" if by else "later parts cover it or a cut removes it"
-            warn("W101", f"part {part.index} ({part.geometry.shape}, {part.color_name}) has no visible surface: {what}; move it out, or "
+            warn("W101", f"{part_name(part)} has no visible surface: {what}; move it out, or "
                  "make the covering part a shell", part.line, part.where)  # fmt: skip
         for i, c in (mostly_covered(m, field, built.step, built.hidden, exact) if field else {}).items():
             part = m.parts[i]
-            warn("W124", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is {c.covered * 100:.0f}% inside {named(c.by)}: only "
+            warn("W124", f"{part_name(part)} is {c.covered * 100:.0f}% inside {named(c.by)}: only "
                  "a sliver shows (clipped flat or nearly gone); move it out, or make it bigger", part.line, part.where)  # fmt: skip
         lo_all, hi_all = built.bounds()
         whole = float(np.linalg.norm(hi_all - lo_all))
+        small_lost: list[Part] = []
         for i in built.lost:
             part = m.parts[i]
             from dataclasses import replace as _rep
@@ -203,12 +214,25 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             blo, bhi = _rep(part.geometry, mirror=(), copies=(IDENTITY,)).bounds()  # one copy: mirrored eyes aren't one wide part
             thick = part_thickness(part.geometry)
             if float(np.linalg.norm(bhi - blo)) > LOST_SHARE * whole and (thick is None or thick > LOST_THICK * whole):  # a leg, a head (#324)
-                warn("E016", f"part {part.index} ({part.geometry.shape}, {part.color_name}) vanished when the mesh was reduced to its triangle "
+                warn("E016", f"{part_name(part)} vanished when the mesh was reduced to its triangle "
                      f"budget ({m.budget or built.style.budget(m.cls)}): raise budget:, paint fine patterns into the colour map (paint: map), "
                      "or use fewer cut patterns", part.line, part.where)  # fmt: skip
                 continue
-            warn("W111", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is there at full detail but the triangle budget "
-                 f"({m.budget or built.style.budget(m.cls)}) is too low to keep it: raise budget:, or make it thicker", part.line, part.where)  # fmt: skip
+            small_lost.append(part)
+        by_kind: dict[str, list[Part]] = {}
+        for part in small_lost:
+            by_kind.setdefault(part.written or part.geometry.shape, []).append(part)
+        for kind, lost_parts in by_kind.items():  # (#235) one line per kind when several go, not one each
+            if len(lost_parts) <= 3:
+                for part in lost_parts:
+                    warn("W111", f"{part_name(part)} is there at full detail but the triangle budget "
+                         f"({m.budget or built.style.budget(m.cls)}) is too low to keep it: raise budget:, or make it thicker", part.line, part.where)  # fmt: skip
+                continue
+            total = sum(1 for q in m.parts if (q.written or q.geometry.shape) == kind and q.geometry.op == "add")
+            first = lost_parts[0]
+            warn("W111", f"{len(lost_parts)} of {total} {kind} parts were lost to the triangle budget ({m.budget or built.style.budget(m.cls)}): "
+                 f"{', '.join(q.where for q in lost_parts[:6])}{' ...' if len(lost_parts) > 6 else ''}; raise budget:, or make them thicker",
+                 first.line, first.where)  # fmt: skip
         hard = hard_parts(m, built.style)  # exact polygons: no mesh resolution
         kept = kept_parts(m, hard)  # meshed finer: they don't break up
         separate = {pid for pid, e in m.rig.items() if e.separate} if m.skin != "none" else set()
@@ -232,7 +256,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                 fix = (f"make it hard (`hard: true`, or `sides:` on round ones: exact polygons don't break up), make it at least "
                        f"{2 * built.step:.3g} m across, or give it `resolution:` (finer cells in its box)") if polygonal else \
                     f"make it at least {2 * built.step:.3g} m across, or give it `resolution:` (finer cells in its box)"
-                warn("W102", f"this {part.geometry.shape} is {t:.3g} m across at its thinnest, under two mesh cells ({built.step:.3g} m each): it "
+                warn("W102", f"{part_name(part)} is {t:.3g} m across at its thinnest, under two mesh cells ({built.step:.3g} m each): it "
                      f"may break into bits or vanish; {fix}", part.line, part.where)  # fmt: skip
         budget = m.budget or built.style.budget(m.cls)
         for k, n, copies in few_triangles(m, built, field, hard | kept) if field else ():
@@ -245,7 +269,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                     "taken from the rest of the model)") if part.density < 8 else ""  # fmt: skip
             new_budget = int(math.ceil(budget * need / 100) * 100)
             raise_to = f"budget: {new_budget} (now {budget}: {new_budget - budget} more for the whole model)"
-            warn("W128", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is {n} triangles{each}: it reads as a polygon; "
+            warn("W128", f"{part_name(part)} is {n} triangles{each}: it reads as a polygon; "
                  f"{more + '; or ' if more else ''}{raise_to}", part.line, part.where)  # fmt: skip
         for k, part in enumerate(m.parts):
             if part.skin_falloff is None:
@@ -305,8 +329,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     if m.source is None:
         for i, j, volume, centre in penetrations(built):
             a, b = m.parts[i], m.parts[j]
-            warn("W113", f"part {b.index} ({b.geometry.shape}, {b.color_name}) pokes through the shell of part {a.index} ({a.geometry.shape}, "
-                 f"{a.color_name}) around [{centre[0]:.2f}, {centre[1]:.2f}, {centre[2]:.2f}] ({volume * 1e6:.0f} cm3 inside its wall): move or "
+            warn("W113", f"{part_name(b)} pokes through the shell of {part_name(a)} around [{centre[0]:.2f}, {centre[1]:.2f}, {centre[2]:.2f}] ({volume * 1e6:.0f} cm3 inside its wall): move or "
                  "shrink it so it stays inside (or outside), or cut it where it meets the wall", b.line, b.where)  # fmt: skip
     if m.fit_to is not None:  # an attachment mustn't sink into the character it's made for
         from kiln.fitting import MeshDistance, read_surface
@@ -366,6 +389,34 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         humanoid_joint = m.skeleton == "humanoid" and name in JOINTS  # the skeleton sets its pivot at the joint (#187)
         if name != "root" and (entry is None or entry.pivot is None) and not humanoid_joint:
             warn("W109", f"part {name!r} is animated but has no rig pivot: it turns about the middle of its box; set rig: {{ {name}: {{ pivot: [x, y, z] }} }}")
+    return _grouped(out)
+
+
+GROUPED = ("W101", "W102", "W111", "W128")  # per-part warnings: more than GROUP_AT of one kind become one line (#235)
+GROUP_AT = 3
+
+
+def _grouped(found: list[Finding]) -> list[Finding]:
+    """Per-part warnings of one rule about parts of one kind (120 thin locks) as one line: the first's message, how many
+    more, and where (their parts: entries)."""
+    groups: dict[tuple[str, str], list[Finding]] = {}
+    for f in found:
+        hit = re.match(r"^parts\[\d+\] \((\w+)", f.message) if f.rule in GROUPED else None
+        if hit:
+            groups.setdefault((f.rule, hit.group(1)), []).append(f)
+    out: list[Finding] = []
+    done: set[int] = set()
+    for f in found:
+        hit = re.match(r"^parts\[\d+\] \((\w+)", f.message) if f.rule in GROUPED else None
+        same = groups.get((f.rule, hit.group(1))) if hit else None
+        if not same or len(same) <= GROUP_AT:
+            out.append(f)
+            continue
+        if id(same[0]) in done:
+            continue
+        done.add(id(same[0]))
+        others = ", ".join(str(g.where) for g in same[1:7]) + (" ..." if len(same) > 7 else "")
+        out.append(Finding(f.rule, f"{same[0].message} (and {len(same) - 1} more {hit.group(1)} parts like it: {others})", f.path, f.line, f.where))  # type: ignore[union-attr]
     return out
 
 

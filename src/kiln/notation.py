@@ -170,6 +170,7 @@ class Part:
     hard: bool | None = None  # exact polygons (True), the smooth field (False), or the style decides (None)
     crisp: bool = False  # blend: none (a hard part when the style allows)
     bevel: float = 0.0  # hard edges rounded in `segments` bands (a chamfer: one band)
+    written: str = ""  # the kind as written when hardware made it (garment, hand, band): lint names parts so (#314)
     bevel_edges: str = "all"  # which edges (#345): all | vertical | top | bottom | horizontal (top and bottom), in the part's frame
     segments: int = 2
     fit: tuple[tuple[str, ...], float] | None = None  # a shell wrapping the parts with these ids, this far from them
@@ -2349,7 +2350,9 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                     ctx.error("E003", problem, pline, f"parts[{i}].{kinds[0]}")
                     continue
                 for sub in subs:
-                    model.parts.extend(_parse_part(ctx, sub, i, pline))
+                    for made in _parse_part(ctx, sub, i, pline):
+                        made.written = kinds[0]
+                        model.parts.append(made)
             if model.parts and not any(p.geometry.op == "add" for p in model.parts):
                 ctx.error("E009", "the model has no adding parts (only cut/intersect)", _line(data, "parts"), "parts")
             if "fit_to" in data:

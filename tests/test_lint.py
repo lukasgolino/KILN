@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import make_project, sphere_text, write_model
+from conftest import load, make_project, sphere_text, write_model
 
 from kiln.lint import WARNING_RULES, lint_paths, lint_project
 from kiln.project import Project
@@ -237,7 +237,7 @@ def test_w101_names_the_covering_part(project: Project) -> None:
     """#98: W101 says which part covers the hidden one."""
     text = BODY.replace("parts:\n", "parts:\n  - sphere: { at: [0, 0.5, 0.1], radius: 0.1 }\n    color: blue\n")
     found = [f for f in lint(project, text) if f.rule == "W101"]
-    assert len(found) == 1 and "part 1 (sphere, red) covers it" in found[0].message
+    assert len(found) == 1 and "parts[1] (sphere, red, line 5) covers it" in found[0].message
 
 
 @pytest.mark.parametrize(("extra", "expected"), [
@@ -249,7 +249,7 @@ def test_w124_a_part_that_shows_only_a_sliver(project: Project, extra: str, expe
     w124 = [f for f in findings if f.rule == "W124"]
     assert bool(w124) == expected, findings
     if expected:
-        assert "part 1 (sphere, blue) is" in w124[0].message and "inside part 0 (sphere, red)" in w124[0].message
+        assert "parts[1] (sphere, blue, line 6) is" in w124[0].message and "inside parts[0] (sphere, red, line 4)" in w124[0].message
 
 
 def test_cover_counts_what_a_cut_opens(project: Project) -> None:
@@ -353,3 +353,23 @@ def test_w139_bevels_dropped_for_the_budget_step_by_step(project: Project) -> No
     assert w and "keeps them" in w[0].message, [f.format() for f in tight.findings]
     built = tight.built["thing"]
     assert built.hard_note is not None and built.hard_note[0] < built.hard_note[1]  # some kept theirs: not all at once
+
+
+def test_warnings_name_parts_as_written_and_group_lost_ones(project: Project) -> None:
+    """#314: a garment is named as a garment, by its place in parts: and its line; #235: many lost parts of one kind
+    are one W111."""
+    from kiln.lint import part_name
+
+    text = ("name: thing\nparts:\n  - capsule: { from: [0, 0.6, 0], to: [0, 1.2, 0], radius: 0.22 }\n    id: body\n    color: wood\n"
+            "  - garment: { fit: [body], from_y: 0.75, to_y: 1.3 }\n    id: shirt\n    color: blue\n")  # fmt: skip
+    model, _, findings = load(project, text)
+    assert model is not None and not findings, findings
+    shirt = next(p for p in model.parts if p.id == "shirt")
+    assert part_name(shirt).startswith("parts[1] (garment shirt, blue, line 6")
+    locks = "".join(f"  - lock: {{ points: [[{0.3 * (k % 10) - 1.4}, 0.5, {0.3 * (k // 10)}], [{0.3 * (k % 10) - 1.4}, 0.8, {0.3 * (k // 10)}]], width: 0.01, thickness: 0.004 }}\n    color: red\n"
+                    for k in range(30))  # fmt: skip
+    found = lint_paths(project, [write_model(project, "name: thing\nbudget: 200\nparts:\n  - box: { at: [0, 0.2, 0], size: [3, 0.4, 3] }\n    color: wood\n" + locks)]).findings
+    for rule in ("W101", "W102", "W111"):  # 30 thin locks: one line per rule, not 30
+        lines = [f for f in found if f.rule == rule]
+        assert len(lines) <= 1, (rule, len(lines))
+    assert any("more lock parts like it" in f.message for f in found), [f.format() for f in found]

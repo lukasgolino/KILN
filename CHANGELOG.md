@@ -107,6 +107,9 @@ before 1.0).
 
 ### Changed
 
+- Lint names parts as the model file has them: their `parts:` entry (before hardware expands), the kind written
+  (`garment shirt`, not the box it became), the id and the line; per-part warnings (W101, W102, W111, W128) about
+  more than three parts of one kind come as one line with the rest listed (#314, #235).
 - Lint W102 says how wide the part is at its thinnest and offers `hard: true` / `sides:` (for shapes that can be
   exact) and `resolution:` besides making it thicker; W128 leads with `density` on the part and says how many
   triangles each fix costs (#304, #323).
