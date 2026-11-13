@@ -42,9 +42,10 @@ def test_clear_writes_a_blended_material(project: Project) -> None:
 def test_the_preview_shows_what_is_behind(project: Project) -> None:
     image = np.asarray(render(built_of(project, PANE), View(), 128)).astype(int)
     middle = image[50:78, 50:78, :3].reshape(-1, 3)
-    reds = (middle[:, 0] > 120) & (middle[:, 2] < 90)
-    blues = (middle[:, 2] > 120) & (middle[:, 0] < 90)
-    assert reds.mean() > 0.3 and blues.mean() > 0.15  # the red board through the dithered pane, and the pane
+    mean = middle.mean(axis=0)
+    assert mean[0] > 90 and mean[2] > 60  # the red board through the blue pane: mixed (#342)
+    off = np.abs(middle - np.median(middle, axis=0)).max(axis=1) > 20
+    assert off.mean() < 0.2  # blended evenly, not dithered into dots
 
 
 def test_alpha_is_checked(tmp_path: Path) -> None:

@@ -49,6 +49,8 @@ before 1.0).
 
 ### Fixed
 
+- See-through parts (`clear`, glass) are alpha-blended in software previews instead of dithered, so they read
+  as in the engine (#342).
 - Previews draw `tonemapper = "agx"` and `"aces"` with their own curves (close stand-ins), not as filmic (#337).
 - Pose sheets: bigger tiles when there are few frames (one pose up to 450 px), and the style's background (`--bg`)
   as the other sheets have, so glows read on low-key looks (#322, #331).
