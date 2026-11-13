@@ -317,12 +317,12 @@ def test_w136_a_band_that_misses_its_part(project: Project) -> None:
     assert "W136" not in hit and any(f.rule == "W136" and "measured from" in f.message for f in miss), [f.format() for f in miss]
 
 
-def test_e016_a_big_part_that_vanishes_is_an_error(project: Project) -> None:
+def test_w141_a_big_part_that_vanishes(project: Project) -> None:
     """#324: a part a tenth of the model or more lost to the budget breaks the model: an error, not W111."""
     text = ("name: thing\nbudget: 40\nparts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.4 }\n    color: red\n"
             "  - capsule: { from: [0.5, 0.1, 0], to: [0.5, 0.9, 0], radius: 0.012 }\n    color: blue\n")  # fmt: skip
     found = lint_paths(project, [write_model(project, text)]).findings
-    assert any(f.rule == "E016" and f.severity == "error" for f in found), [f.format() for f in found]
+    assert any(f.rule == "W141" for f in found), [f.format() for f in found]
 
 
 def test_w137_off_palette_pixel_art_with_variants(project: Project) -> None:

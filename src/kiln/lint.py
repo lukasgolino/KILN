@@ -65,6 +65,7 @@ WARNING_RULES = {
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
     "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
     "W138": "a part's emission is above the cap for its colour in this look: the extra strength changes nothing",
+    "W141": "a substantial part (a leg, a head) vanished when the mesh was reduced to its budget: the model is broken",
     "W140": "a mirrored part blends into one side of a mirror_id pair: its other half meets the other side crisply",
     "W139": "the triangle budget took bevels off hard parts (they became plain edges)",
     "W137": "a pixel-art texture or decal has colours off the palette: the model's variants can't swap them",
@@ -95,13 +96,13 @@ class LintResult:
 
 
 GROUND_DIP = 0.002  # W123: metres below y = 0 a grounded model's built mesh may reach unremarked (or a tenth of a cell)
-LOST_THICK = 0.02  # E016: and thicker than this share (a lock, a fin or a blade lost to the budget stays W111)
-LOST_SHARE = 0.15  # E016: a lost part bigger than this share of the model (its box's diagonal) breaks it
+LOST_THICK = 0.02  # W141: and thicker than this share (a lock, a fin or a blade lost to the budget stays W111)
+LOST_SHARE = 0.15  # W141: a lost part bigger than this share of the model (its box's diagonal) breaks it
 CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than asked
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
-BUILT_RULES = ("E009", "E013", "E016", "W101", "W102", "W103", "W106", "W108", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135", "W136", "W139")  # fmt: skip
+BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W106", "W108", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
+               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135", "W136", "W139", "W141")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -215,7 +216,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             blo, bhi = _rep(part.geometry, mirror=(), copies=(IDENTITY,)).bounds()  # one copy: mirrored eyes aren't one wide part
             thick = part_thickness(part.geometry)
             if float(np.linalg.norm(bhi - blo)) > LOST_SHARE * whole and (thick is None or thick > LOST_THICK * whole):  # a leg, a head (#324)
-                warn("E016", f"{part_name(part)} vanished when the mesh was reduced to its triangle "
+                warn("W141", f"{part_name(part)} vanished when the mesh was reduced to its triangle "
                      f"budget ({m.budget or built.style.budget(m.cls)}): raise budget:, paint fine patterns into the colour map (paint: map), "
                      "or use fewer cut patterns", part.line, part.where)  # fmt: skip
                 continue

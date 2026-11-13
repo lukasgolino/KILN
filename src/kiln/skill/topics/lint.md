@@ -7,7 +7,7 @@ Lint rules: what each means and how to fix it.
 Errors: E000 usage/config, E001 file/YAML, E002 unknown field, E003 bad value, E004 unknown colour, E005 unknown
 material, E006 style problem, E007 rig problem, E008 animation problem, E009 nothing to mesh, E010 import file
 problem, E011 decal or texture image missing or unreadable, E012 extends problem (no such model, not a template, a loop, unknown remove id),
-E016 a substantial part (15% of the model across and not a thin blade: a leg, a head) vanished when the mesh was reduced to its budget (smaller ones: W111): raise `budget:` or paint fine patterns into the colour map (`paint: map`). E013 the built mesh has open edges (cracks), edges with more than two faces or sheets touching at a vertex (a KILN
+W141 a substantial part (15% of the model across and not a thin blade: a leg, a head) vanished when the mesh was reduced to its budget (smaller ones: W111): raise `budget:` or paint fine patterns into the colour map (`paint: map`). E013 the built mesh has open edges (cracks), edges with more than two faces or sheets touching at a vertex (a KILN
 bug; report it), E014 `kiln.lock` problem (a pack-imported file changed, a licence that isn't CC0-1.0), E015 scatter problem
 (an unknown or unsuitable model to place or stand on, too many instances).
 
@@ -31,7 +31,7 @@ its parts show no smooth surface of their own. W127 a `color_blend` fades nothin
 
 `kiln lint --fast` runs only the checks that need no built model (YAML, fields, values, names, the rig's and
 animations' structure): quick while writing. It can't give the findings that come from the built model, and its
-summary lists them: E009 (nothing to mesh, a build failure), E013, E016, W101-W103, W106, W108, W110, W111, W113, W120-W129, W132, W133, W135, W136, W139. That
+summary lists them: E009 (nothing to mesh, a build failure), E013, W101-W103, W106, W108, W110, W111, W113, W120-W129, W132, W133, W135, W136, W139, W141. That
 includes some that read like text checks (W104 a colour outside the palette, W109 an animated part without a pivot).
 A scatter's surface model is still built. Plain `kiln lint` prints the static findings first (a `static checks:` line), then builds each model named (all without names) for the full
 list; `kiln build` runs that full lint first on every model, on the same cached meshes, so a model that passes plain

@@ -37,8 +37,9 @@ before 1.0).
   specks | scratches | grid | noise`), recoloured by variants (each such variant gets its own glb); lint W137: a
   pixel-art image off the palette on a model with variants. Decals and textures moved to `kiln docs textures` (#325).
 - Patterns painted per texel into the base colour map (`paint: map`; by default pixel and dots patterns of a model
-  that bakes maps), so trims cost no triangles; error E016 when a substantial part (15% of the model across, not a
-  thin blade) vanishes to the budget (others stay W111) (#324).
+  that bakes maps), so trims cost no triangles; lint W141 when a substantial part (15% of the model across, not a
+  thin blade) vanishes to the budget (others stay W111); a warning, not an error: which parts survive the budget can
+  differ between machines (#27) (#324).
 - Lint W136: a band, pixel or stripes pattern that paints nothing on its part; the docs say a pixel band's `at` is
   from the part's own `at` (a lathe's origin) (#326).
 - Motif prints: `texture: { motif: { images, count, scale, rotate, seed } }` scatters multicolour stamps over a
