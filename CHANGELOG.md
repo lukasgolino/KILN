@@ -6,6 +6,14 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-11-13
+
+### Fixed
+
+- A `mirror` part written on the negative side of its axis (e.g. a left leg at x < 0) vanished along with its mirror
+  image: the mirror folded space onto the positive side only. It now folds onto the side the part is on, so left and
+  right mirror alike (#363). Meshes change only for such parts (they now appear); everything else is unchanged.
+
 ## [0.33.0] - 2026-11-13
 
 Retro tuning (milestone 0.33): the retro pass is tunable live, with four new dither patterns and an opt-in world-space
@@ -1229,7 +1237,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.33.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.33.1...HEAD
+[0.33.1]: https://github.com/lukasgolino/kiln/compare/v0.33.0...v0.33.1
 [0.33.0]: https://github.com/lukasgolino/kiln/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/lukasgolino/kiln/compare/v0.31.0...v0.32.0
 [0.23.0]: https://github.com/lukasgolino/kiln/compare/v0.22.0...v0.23.0
