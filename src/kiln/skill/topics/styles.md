@@ -84,6 +84,12 @@ fog_color = "#c8d8e8"
 rim_light = 0.0                # an added fresnel rim on every surface (Godot: a next pass; previews too): 0.5-1 reads on bright skies
 rim_light_color = "#ffffff"
 rim_light_power = 3.0          # higher: thinner rim
+post = ""                      # "retro": a low-res, fixed-palette, dithered screen (see Retro looks); "" = none
+post_lines = 200               # retro: vertical resolution (200: CGA / Atari ST; 400: ST mono)
+pixel_aspect = 0.8333          # retro: pixel width / height (320x200 on a 4:3 screen: 5/6; 640x400: 1.0)
+post_palette = "cga"           # retro: the palette every pixel is snapped to (palettes/ or KILN's library), at most 16 colours
+dither = "bayer4"              # retro: bayer4 | bayer8 | none
+dither_strength = 1.0          # retro: 0 (nearest colour only) to 1 (full ordered dithering)
 
 [shade]                        # shade paint baked into the vertex colours (off by default; each 0 to 0.9)
 cavity = 0.25                  # crevices darker: x the field's occlusion (as atlas_ao)
@@ -144,4 +150,27 @@ Eyes, teeth and claws: a crisp seam (no `blend`) keeps them out of the fade, or 
 border stays crisp from both sides). The style's fade skips parts made hard (`hard_surface`, `bevel`, `blend: none`)
 and parts blending only into their own colour (a one-colour prop bakes no map), and stays off when baking isn't
 installed (`kiln-gen[bake]`).
+
+## Retro looks
+
+`retro_st` (Atari ST colour: 320x200, 16 colours), `retro_cga` (CGA: 320x200, black/cyan/magenta/white) and
+`retro_mono` (ST mono: 640x400, black and white) draw every frame at a low resolution, snapped to a fixed palette with
+ordered dithering (`[look] post = "retro"`). They extend `low_poly` (faceted, flat colours) with hard toon bands, so
+light falls into a few clean dither patterns. `kiln init --style retro_cga` writes the matching hardware palette as
+`main`, so models paint with colours the screen can show.
+
+- Godot: the look kit (`looks/<style>.tscn`) carries the pass as a CanvasLayer over the whole screen: put the look kit
+  in the scene (it takes no input). kiln.toml `looks = ["retro_st", "retro_cga", "retro_mono"]` builds kits no model's
+  style asks for, so a game can switch looks at runtime (the demo's showcase: L). The layer is 100: canvas layers
+  below it (a HUD) are pixelated and dithered too; put UI that should stay sharp on a layer above 100. Keep
+  `rendering/viewport/hdr_2d` off (Godot's default): the pass reads the screen as sRGB.
+- Previews draw the same pass, treating each tile as a screen `post_lines` tall; `kiln preview --no-post` shows what's
+  under it. `--engine` renders through the real shader (its background comes out black: a game's screen is opaque).
+- Method, per low-res pixel: one sample at its centre, the two nearest palette colours, and a Bayer threshold
+  choosing between them by how far the colour lies from the first to the second.
+- Your own palette: copy `cga.pal.yaml`, `atari_st.pal.yaml` or `st_mono.pal.yaml` from KILN's library (they carry
+  PAGAN's `hardware:`, so `pagan lint` keeps edits legal), and set `post_palette` in a project style that extends a
+  retro preset. A hardware palette's colours are checked when KILN loads it (E004 names the nearest legal colour).
+- Model for it: big flat colour areas, few colours per object, strong silhouettes; parts under a few pixels vanish.
+  The dither is in screen space, so it shimmers when the camera moves: slow or fixed cameras suit it.
 

@@ -1,5 +1,8 @@
 {
   "files": [
+    "looks/retro_cga.tscn",
+    "looks/retro_mono.tscn",
+    "looks/retro_st.tscn",
     "looks/soft_toy.tscn",
     "models/archer.glb",
     "models/archer.tscn",
@@ -32,8 +35,11 @@
     "manifest.json"
   ],
   "front": "+Z",
-  "generator": "kiln 0.31.0",
+  "generator": "kiln 0.32.0",
   "looks": {
+    "retro_cga": "res://assets/kiln/looks/retro_cga.tscn",
+    "retro_mono": "res://assets/kiln/looks/retro_mono.tscn",
+    "retro_st": "res://assets/kiln/looks/retro_st.tscn",
     "soft_toy": "res://assets/kiln/looks/soft_toy.tscn"
   },
   "models": {

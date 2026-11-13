@@ -710,6 +710,12 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
                 looks[sname] = res
                 produced.add((out / "looks" / f"{sname}.tscn").resolve())
     if godot_root is not None:
+        for sname in project.config.looks:  # kiln.toml `looks`: kits no model's style asked for (#360)
+            if sname not in styles_used:
+                extra, found = project.style(sname)
+                result.findings += [Finding(f.rule, f.message, f.path or project.config_path, f.line, f.where or "looks") for f in found]
+                if extra is not None:
+                    styles_used[sname] = extra
         for sname, style in sorted(styles_used.items()):
             path = out / "looks" / f"{sname}.tscn"
             write(path, look_scene(style).encode())

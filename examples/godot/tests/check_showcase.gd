@@ -28,9 +28,18 @@ func _process(_delta: float) -> bool:
 			if player == null or not player.is_playing():
 				printerr("CHECK_FAIL ", name, " isn't animating")
 				problems += 1
+	var kits: Dictionary = manifest.get("looks", {})
+	if _scene.looks.size() != kits.size():
+		printerr("CHECK_FAIL the showcase cycles ", _scene.looks.size(), " look kits, the manifest has ", kits.size())
+		problems += 1
+	for i in _scene.looks.size():  # every look kit (L) swaps in
+		_scene._show_look(i)
+		if _scene.look_kit == null or _scene.look_kit.find_child("WorldEnvironment", false, false) == null:
+			printerr("CHECK_FAIL look kit ", _scene.looks[i], " doesn't load")
+			problems += 1
 	if problems:
 		quit(1)
 	else:
-		print("CHECK_OK ", manifest["models"].size(), " models")
+		print("CHECK_OK ", manifest["models"].size(), " models, ", _scene.looks.size(), " look kits")
 		quit(0)
 	return true

@@ -109,6 +109,19 @@ def _init_output(root: Path, godot: Path | None) -> tuple[str, tuple[str, ...], 
     return rel, ("glb", "godot"), True
 
 
+def _init_palette(style_name: str) -> str:
+    """palettes/main.pal.yaml: the starter, or for a retro style (#360) its post palette's colours, so models paint with
+    colours the screen can show."""
+    from kiln.notation import library_dir
+    from kiln.style import load_style
+
+    style, _ = load_style(style_name)
+    if style is None or not style.look.post:
+        return _template("main.pal.yaml")
+    text = (library_dir() / f"{style.look.post_palette}.pal.yaml").read_text(encoding="utf-8")
+    return re.sub(r"^name: .*$", "name: main", text, count=1, flags=re.MULTILINE)
+
+
 def cmd_init(args: argparse.Namespace, out: Output) -> int:
     root = Path(args.dir).resolve()
     if (root / CONFIG_NAME).exists():
@@ -126,7 +139,7 @@ def cmd_init(args: argparse.Namespace, out: Output) -> int:
               "output_note": "the Godot project's assets/kiln: Godot imports it" if inside else 'put this inside your Godot project, e.g. "../game/assets/kiln"',
               "export_note": "glb + Godot scenes and look kits" if "godot" in export else 'add "godot" for .tscn scenes + look kits (output_dir must be in a Godot project)'}
     (root / CONFIG_NAME).write_text(Template(_template("kiln.toml")).safe_substitute(values), encoding="utf-8")
-    (root / "palettes" / "main.pal.yaml").write_text(_template("main.pal.yaml"), encoding="utf-8")
+    (root / "palettes" / "main.pal.yaml").write_text(_init_palette(args.style), encoding="utf-8")
     for doc in ("BRIEF.md", "STYLE.md"):
         if not (root / doc).exists():
             (root / doc).write_text(Template(_template(doc)).safe_substitute(values), encoding="utf-8")
@@ -549,6 +562,9 @@ def _stamp_drafts(outputs: Any) -> None:
 
 def cmd_preview(args: argparse.Namespace, out: Output) -> int:
     from kiln import preview as pv
+    from kiln import render as rd
+
+    rd.POST = not args.no_post
 
     project = load_project(start=Path(args.model) if Path(args.model).suffix == ".yaml" else None)
     terrain = _terrain_preview(project, args, out)
@@ -767,6 +783,13 @@ def _compare(project: Project, built: Any, ref_path: Path, ref_height: float | N
 ENGINE_VIEWS = [("front-left", 45.0), ("back-left", 135.0), ("back-right", 225.0), ("front-right", 315.0)]  # as preview.HEADINGS
 
 
+def _render_post() -> bool:
+    """`kiln preview --no-post` (set on kiln.render.POST by cmd_preview)."""
+    from kiln import render as rd
+
+    return rd.POST
+
+
 def _engine_preview(project: Project, built: Any, folder: Path, yaws: list[tuple[str, float]], pitches: list[float], size: int | None) -> str:
     """`preview --engine`: the model through Godot under its look kit, offscreen (#160), framed and laid out like the
     software views (#162): --views/--pitch/--size apply, the background is the previews' tile colour."""
@@ -790,7 +813,7 @@ def _engine_preview(project: Project, built: Any, folder: Path, yaws: list[tuple
     centre, half = pv.fit_of(built)
     views = [(yaw, pitch) for pitch in pitches for _, yaw in yaws]
     images, output = render_engine(godot, root, entry["godot_scene"], looks[built.style.name], views, half,
-                                   (float(centre[0]), float(centre[1]), float(centre[2])), tile, folder / "engine")  # fmt: skip
+                                   (float(centre[0]), float(centre[1]), float(centre[2])), tile, folder / "engine", post=_render_post())  # fmt: skip
     if not images:
         raise _usage(f"Godot couldn't render offscreen: {output[-400:]}")
     tiles = []
@@ -1515,6 +1538,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--at", metavar="T,T,...", help="with --effect: a contact sheet at these times (seconds) instead of 8 evenly spaced frames")
     s.add_argument("--frame", metavar="N,N,...", help="with --pose: only these frames (e.g. one, up close with --size)")
     s.add_argument("--engine", action="store_true", help="render through Godot, offscreen (needs a build; Linux: xvfb); --views/--pitch/--size pick its views")
+    s.add_argument("--no-post", action="store_true", help="without the style's retro pass ([look] post): the shapes and colours under it")
     s.add_argument("--variant")
     s.add_argument("--with", dest="with_", metavar="MODELS", help="other models shown with it, in their shared frame (each at its mount: if it mounts on this one)")
     s.add_argument("--variants", action="store_true", help="every variant side by side in one sheet (a row each; --views and --pitch pick the views)")

@@ -6,6 +6,25 @@ before 1.0).
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-11-13
+
+Retro looks: 3D that reads as CGA, Atari ST colour or Atari ST mono (milestone 0.32). Existing styles' output is
+unchanged.
+
+### Added
+
+- `[look] post = "retro"` (#358): every frame drawn at a low resolution (`post_lines`, `pixel_aspect`), snapped to a
+  palette (`post_palette`, at most 16 colours) with ordered dithering (`dither` bayer4 | bayer8 | none,
+  `dither_strength`). In Godot it is a CanvasLayer with a canvas shader inside the style's look kit; headless verify
+  compiles it.
+- Previews draw the same pass (#359), each tile as a screen `post_lines` tall; `kiln preview --no-post` skips it.
+- Presets `retro_st`, `retro_cga` and `retro_mono` (#360), with library palettes `atari_st`, `cga` and `st_mono`;
+  `kiln init --style retro_*` writes the matching palette as `main`.
+- kiln.toml `looks`: look kits to build that no model's style asks for (a game switching looks). The demo builds the
+  three retro kits and the showcase cycles them with L.
+- Palettes take PAGAN 0.23's `hardware: cga | atari-st | atari-st-mono` (#357): a colour the machine can't show or
+  too many colours is E004, naming the nearest legal colour.
+
 ## [0.31.0] - 2026-11-13
 
 Milestones 0.26 to 0.31 (not released one by one): characters and clothing (an idle cycle, bundled CC0 clips,
@@ -1186,7 +1205,8 @@ First release.
   MCP server (`kiln[mcp]`), Python API for generator scripts, Claude skill.
 - Demo project (toy airline + toy siege) and a Godot 4.7 showcase.
 
-[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/lukasgolino/kiln/compare/v0.32.0...HEAD
+[0.32.0]: https://github.com/lukasgolino/kiln/compare/v0.31.0...v0.32.0
 [0.23.0]: https://github.com/lukasgolino/kiln/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/lukasgolino/kiln/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/lukasgolino/kiln/compare/v0.20.0...v0.21.0

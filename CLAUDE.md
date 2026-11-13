@@ -26,7 +26,7 @@ anything that changes output.
 - `src/kiln/`:
   - `sdf.py` shapes (distance functions), transforms, copies, noise, the combined `Field`;
   - `notation.py` `.kiln.yaml` parsing/validation -> `Model` (parts, rig, animations, variants, imports);
-  - `style.py` style profiles (`styles/*.style.toml` presets: soft_toy, low_poly, toon, clay, diorama);
+  - `style.py` style profiles (`styles/*.style.toml` presets: soft_toy, low_poly, toon, clay, diorama, skin, retro_st, retro_cga, retro_mono); `post.py` the retro post pass (Godot shader + numpy);
   - `project.py` `kiln.toml`, palettes (PAGAN format), loading models with their style;
   - `mesher.py` sparse sampling + dual contouring + decimation (fast-simplification) + surface projection;
   - `paint.py` part ownership with clean borders (triangle splitting), patterns (refined first), decals, normals;
@@ -226,3 +226,10 @@ anything that changes output.
 - 2026-11-12: 0.23.0 (look and features). Toon lighting in Godot divides LIGHT_COLOR by PI (#183: it was PI x too
   bright; toon models got darker, matching the preview). Work goes in merge trains (several issues per PR, one review
   and one CI round per train). Commercial game names never go in this repo or its issues (look references stay private).
+- 2026-11-13: #357-#360 (0.32 retro look): `[look] post = "retro"` is a screen-space pass in the look kit (CanvasLayer +
+  canvas shader, so the kit must be in the scene) and in previews (numpy, same maths): block-centre sample, two
+  nearest palette colours in sRGB, Bayer threshold against the projection onto c1 -> c2 (two-colour ordered dithering:
+  right for 2-4 colour palettes, where noise-then-round bands). Screen-space dither (swims with the camera) was
+  accepted over object-space for v1. The palette is resolved when the project loads the style (`post_colors`, not a
+  TOML key), at most 16 (a uniform-free const array). PAGAN 0.23's `hardware:` is vendored (its E017 is E004 here;
+  W015 stays PAGAN's). kiln.toml `looks` builds look kits no model uses (a game switching looks).
