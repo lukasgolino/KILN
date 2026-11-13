@@ -298,3 +298,58 @@ def test_cover_samples_every_copy(project: Project) -> None:
     points = surface_samples(field_of(model, 0.01).parts[1], 0.01)
     angles = np.round(np.degrees(np.arctan2(points[:, 2], points[:, 0])) / 45) % 8
     assert len(set(angles.tolist())) == 8 and len(points) > 8 * 100  # every bead of the ring, densely
+
+
+def test_w123_names_the_part_that_dips(project: Project) -> None:
+    """#195: W123 says which part is under the ground and by how much."""
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.6, 0], size: [0.5, 0.5, 0.5] }\n    color: red\n"
+            "  - sphere: { at: [0.1, 0.195, 0], radius: 0.2 }\n    id: foot\n    color: red\n    blend: 0.05\n")  # fmt: skip
+    result = lint_paths(project, [write_model(project, text)])
+    w = [f for f in result.findings if f.rule == "W123"]
+    assert w and "under foot" in w[0].message and w[0].where == "parts[1]", [f.format() for f in result.findings]
+
+
+def test_w136_a_band_that_misses_its_part(project: Project) -> None:
+    """#326: a band placed off the part paints nothing: W136 says so (and where `at` is measured from)."""
+    base = "name: thing\nparts:\n  - cylinder: { at: [0, 0.5, 0], radius: 0.2, height: 1.0 }\n    color: red\n    pattern: { type: band, color: blue, axis: y, at: AT, size: 0.1 }\n"
+    hit = warnings(lint(project, base.replace("AT", "0.5")))
+    miss = lint_paths(project, [write_model(project, base.replace("AT", "1.6"))]).findings
+    assert "W136" not in hit and any(f.rule == "W136" and "measured from" in f.message for f in miss), [f.format() for f in miss]
+
+
+def test_e016_a_big_part_that_vanishes_is_an_error(project: Project) -> None:
+    """#324: a part a tenth of the model or more lost to the budget breaks the model: an error, not W111."""
+    text = ("name: thing\nbudget: 40\nparts:\n  - sphere: { at: [0, 0.5, 0], radius: 0.4 }\n    color: red\n"
+            "  - capsule: { from: [0.5, 0.1, 0], to: [0.5, 0.9, 0], radius: 0.012 }\n    color: blue\n")  # fmt: skip
+    found = lint_paths(project, [write_model(project, text)]).findings
+    assert any(f.rule == "E016" and f.severity == "error" for f in found), [f.format() for f in found]
+
+
+def test_w137_off_palette_pixel_art_with_variants(project: Project) -> None:
+    from PIL import Image
+
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 8), (12, 200, 200, 255)).save(project.root / "textures" / "odd.png")
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n"
+            "    texture: { image: textures/odd.png, project: box, texel: 0.05 }\nVARIANTS")  # fmt: skip
+    with_variants = lint_paths(project, [write_model(project, text.replace("VARIANTS", "variants:\n  b: { swap: { red: blue } }\n"))], geometry=False)
+    without = lint_paths(project, [write_model(project, text.replace("VARIANTS", ""))], geometry=False)
+    assert "W137" in warnings(with_variants.findings) and "W137" not in warnings(without.findings)
+
+
+def test_w138_emission_above_its_colours_cap(project: Project) -> None:
+    text = "name: thing\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: white\n    material: glow\n    emission: 3\n"
+    assert "W138" in warnings(lint_paths(project, [write_model(project, text)], geometry=False).findings)
+    assert "W138" not in warnings(lint_paths(project, [write_model(project, text.replace("emission: 3", "emission: 0.5"))], geometry=False).findings)
+
+
+def test_w139_bevels_dropped_for_the_budget_step_by_step(project: Project) -> None:
+    """#334: under budget pressure bevels go a few parts at a time, the smallest first, and lint says what keeps them."""
+    parts = "".join(f"  - box: {{ at: [{x * 0.5}, 0.2, 0], size: [{0.1 + 0.08 * x}, 0.4, 0.3] }}\n    color: red\n    bevel: 0.02\n    segments: 3\n" for x in range(4))
+    roomy = lint_paths(project, [write_model(project, "name: thing\nbudget: 20000\nparts:\n" + parts)])
+    assert "W139" not in warnings(roomy.findings)
+    tight = lint_paths(project, [write_model(project, "name: thing\nbudget: 300\nparts:\n" + parts)])  # chamfered: 368
+    w = [f for f in tight.findings if f.rule == "W139"]
+    assert w and "keeps them" in w[0].message, [f.format() for f in tight.findings]
+    built = tight.built["thing"]
+    assert built.hard_note is not None and built.hard_note[0] < built.hard_note[1]  # some kept theirs: not all at once

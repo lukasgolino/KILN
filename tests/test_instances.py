@@ -118,3 +118,50 @@ def test_no_dependents_builds_only_what_is_named(desk: Project, monkeypatch: pyt
     assert code == 0 and out["models"] == ["screw"], out
     code, out = run_json(["build", "screw"], capsys)
     assert code == 0 and sorted(out["models"]) == ["desk", "screw"], out
+
+
+def test_instances_keep_their_textures_and_decals(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#295: a placed model's texture and decal come with it (back in its own frame), turned with the instance; a
+    scaled instance leaves them out."""
+    from PIL import Image
+
+    from kiln.cli import _built
+    from kiln.paint import corner_uv
+
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 8), (0, 0, 255, 255)).save(project.root / "textures" / "tile.png")
+    write_model(project, "name: crate\nparts:\n  - box: { at: [0, 0.1, 0], size: [0.2, 0.2, 0.2] }\n    color: wood\n"
+                "    texture: { image: textures/tile.png, project: box, texel: 0.01 }\n", "crate")  # fmt: skip
+    write_model(project, "name: shelf\nparts:\n  - box: { at: [0, 0.05, 0], size: [1.0, 0.1, 0.6] }\n    color: grey\ninstances:\n"
+                "  - { model: crate, at: [0.3, 0.1, 0], rotate: [0, 30, 0] }\n  - { model: crate, at: [-0.3, 0.1, 0], scale: 0.5 }\n", "shelf")  # fmt: skip
+    monkeypatch.chdir(project.root)
+    crate, shelf = _built(project, "crate"), _built(project, "shelf")
+    p = shelf.painted
+    textured = p.face_decal >= 0
+    assert textured.sum() == (crate.painted.face_decal >= 0).sum()  # the turned crate's faces; not the scaled one's
+    d = p.decals[int(p.face_decal[textured][0])]
+    assert d.copy is not None
+    own = corner_uv(crate.painted.decals[0], crate.painted.vertices[crate.painted.faces[crate.painted.face_decal >= 0]])
+    placed = corner_uv(d, p.vertices[p.faces[textured]])
+    assert np.allclose(np.sort(own.reshape(-1)), np.sort(placed.reshape(-1)), atol=1e-6)  # the same image coordinates
+    assert not build(project).errors
+    doc, _ = read_glb((project.output_dir / "models" / "shelf.glb").read_bytes())
+    assert doc.get("images")
+
+
+def test_lint_sees_the_instances_and_a_scene_of_instances_only(project: Project) -> None:
+    """#333: lint measures the scene with its instances (size, triangle line, pieces joined by them); the budget is
+    the model's own; a scene needs no parts of its own."""
+    write_model(project, SCREW, "screw")
+    write_model(project, "name: link\nparts:\n  - box: { at: [0, 0.01, 0], size: [0.1, 0.02, 0.02] }\n    color: grey\n", "link")
+    clasp = ("name: clasp\nparts:\n  - box: { at: [-0.1, 0.01, 0], size: [0.1, 0.02, 0.04] }\n    color: wood\n"
+             "  - box: { at: [0.1, 0.01, 0], size: [0.1, 0.02, 0.04] }\n    color: wood\ninstances:\n  - { model: link, at: [0, 0, 0] }\n")  # fmt: skip
+    result = lint_paths(project, [write_model(project, clasp, "clasp")])
+    rules = [f.rule for f in result.findings]
+    assert "W103" not in rules, [f.format() for f in result.findings]  # the link joins the two halves
+    built = result.built["clasp"]
+    assert built.own_triangles and built.triangles > built.own_triangles
+    tray = lint_paths(project, [write_model(project, "name: tray\ninstances:\n  - { model: screw, at: [0.1, 0, 0] }\n  - { model: screw, at: [-0.1, 0, 0] }\n", "tray")])
+    assert not [f for f in tray.findings if f.severity == "error"], [f.format() for f in tray.findings]
+    assert tray.built["tray"].triangles > 0
+    assert not build(project).errors

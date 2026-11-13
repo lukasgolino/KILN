@@ -96,7 +96,7 @@ def test_lint_reports_errors_and_warnings(in_project: Project, capsys: pytest.Ca
     code, result = run_json(["lint", "--fast", "good"], capsys)
     assert code == 0 and result["warnings"] == 0 and result["geometry"] is False  # (#186) it says nothing was meshed
     assert main(["lint", "--fast", "good"]) == 0
-    assert "--fast: the findings that need the built model were not looked for (E009, E013, W101-W104, W106, W108-W111, W113, W120-W129, W132, W133, W135)" \
+    assert "--fast: the findings that need the built model were not looked for (E009, E013, E016, W101-W104, W106, W108-W111, W113, W120-W129, W132, W133, W135, W136, W139)" \
         in capsys.readouterr().out  # fmt: skip
     code, result = run_json(["lint", "--fast", "bad"], capsys)  # a failing fast lint says so too
     assert code == 1 and result["ok"] is False and result["geometry"] is False
@@ -583,3 +583,63 @@ def test_lint_and_build_report_the_same_findings(in_project: Project, capsys: py
     code, built = run_json(["build"], capsys)
     key = lambda f: (f["rule"], f.get("path"), f.get("where"), f["message"])  # noqa: E731
     assert sorted(map(key, linted["findings"])) == sorted(map(key, built["findings"]))
+
+
+def test_clips_lists_and_adds_the_bundled_cc0_clips(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#150: KILN ships KayKit's CC0 humanoid clips; `kiln clips add` copies them, with their licence, into imports/."""
+    code, result = run_json(["clips"], capsys)
+    assert code == 0 and any("Idle_A" in r["clips"] for r in result["files"]) and any("Walking_A" in r["clips"] for r in result["files"])
+    code, result = run_json(["clips", "add"], capsys)
+    folder = in_project.root / "imports" / "kaykit-animations"
+    assert code == 0 and (folder / "Rig_Medium_General.glb").is_file() and "CC0" in (folder / "LICENSE-kaykit-animations.txt").read_text()
+
+
+def test_preview_variants_sheet(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#330: every variant in one sheet."""
+    from PIL import Image
+
+    (in_project.models_dir / "ball.kiln.yaml").write_text(
+        "name: ball\nparts:\n  - sphere: { at: [0, 0.3, 0], radius: 0.3 }\n    color: red\nvariants:\n  b: { swap: { red: blue } }\n  g: { swap: { red: green } }\n")
+    code, result = run_json(["preview", "ball", "--variants", "--size", "96"], capsys)
+    assert code == 0, result
+    sheet = Image.open(in_project.root / result["variants"])
+    assert sheet.height > 3 * 96  # base + two variants
+
+
+def test_a_hard_only_model_reports_no_mesh_cells(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#243: a model of hard parts only isn't meshed on a grid: the summary says so, and lint --json lists no cells."""
+    (in_project.models_dir / "crate.kiln.yaml").write_text("name: crate\nparts:\n  - box: { at: [0, 0.3, 0], size: [0.6, 0.6, 0.6] }\n    color: red\n    chamfer: 0.02\n")
+    assert main(["lint", "crate"]) == 0
+    text = capsys.readouterr().out
+    assert "hard parts (exact polygons, no mesh cells)" in text and "mm mesh cells" not in text
+    code, result = run_json(["lint", "crate"], capsys)
+    assert "crate" not in result.get("cells", {})
+
+
+def test_fit_reports_overlap_and_gap(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#341: kiln fit a b: overlap, depth and the smallest gap between two models in their shared frame."""
+    (in_project.models_dir / "case.kiln.yaml").write_text("name: case\nparts:\n  - box: { at: [0, 0.05, 0], size: [0.2, 0.1, 0.2] }\n    color: grey\n")
+    (in_project.models_dir / "lid.kiln.yaml").write_text("name: lid\nparts:\n  - box: { at: [0, 0.12, 0], size: [0.18, 0.03, 0.18] }\n    color: red\n")
+    code, result = run_json(["fit", "case", "lid"], capsys)
+    assert code == 0, result
+    assert result["fits"] and result["gap_mm"] is not None and result["gap_mm"] < 10
+    code, result = run_json(["fit", "case", "lid", "--at", "0,-0.02,0"], capsys)
+    assert code == 0 and not result["fits"] and result["b_into_a_mm"] > 3
+
+
+def test_mount_shares_a_frame_and_preview_with(in_project: Project, capsys: pytest.CaptureFixture[str]) -> None:
+    """#181: a model mounted on another shares its frame: no ground warnings, a manifest entry; preview --with shows
+    them together (the mounted one at its mount)."""
+    (in_project.models_dir / "case.kiln.yaml").write_text("name: case\nparts:\n  - box: { at: [0, 0.05, 0], size: [0.2, 0.1, 0.2] }\n    color: grey\n")
+    (in_project.models_dir / "lid.kiln.yaml").write_text(
+        "name: lid\nmount: { to: case, at: [0, 0.1, 0] }\nparts:\n  - box: { at: [0, 0.6, 0], size: [0.2, 0.03, 0.2] }\n    color: red\n")
+    code, result = run_json(["lint", "lid"], capsys)
+    assert code == 0 and not [f for f in result["findings"] if f["rule"] in ("W106", "W123")], result["findings"]
+    code, result = run_json(["build"], capsys)
+    assert code == 0
+    import json as _json
+
+    manifest = _json.loads((in_project.output_dir / "manifest.json").read_text())
+    assert manifest["models"]["lid"]["mount"] == {"to": "case", "at": [0, 0.1, 0], "rotate": [0, 0, 0]}
+    code, result = run_json(["preview", "case", "--with", "lid", "--views", "front", "--size", "96"], capsys)
+    assert code == 0, result

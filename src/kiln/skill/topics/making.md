@@ -8,7 +8,7 @@ Making a model: plan in metres, scaffold, parts, lint, look, fit with the rest; 
    chair seat 0.45 m high, a barrel 0.9 m. Sketch the parts as a list: shape, centre, size, colour. Models stand on
    y = 0, face +Z (their front), +X is their left.
 2. **Scaffold:** `kiln new model <name> --template bean|prop|empty --class character|prop|building|...`.
-3. **Write the parts** (`kiln docs parts`; patterns, decals, hardware: `kiln docs surfaces`). Big shapes first, details after. Rules of thumb:
+3. **Write the parts** (`kiln docs parts`; patterns, hardware: `kiln docs surfaces`; decals, textures: `kiln docs textures`). Big shapes first, details after. Rules of thumb:
    - Join body parts with `blend` (0.02-0.06 m in soft styles); give crisp seams (`blend: 0`, the default) to things
      that sit ON a surface: eyes, buttons, belts, trims.
    - Symmetric things: write the left one (+X) with `mirror: x`; if it must move separately (arms, legs) add
@@ -149,10 +149,27 @@ A shirt, a robe or a jumper over a soft body, as its own layer (a hem, an open n
 
 It wraps the earlier parts with those ids: a shell `thickness` thick, `gap` off their surface, between `from_y` (the
 hem) and `to_y` (default: their own extent); it is open where it ends horizontally (the hem, the neck, and the cuffs of
-arms hanging down; a T-posed arm's sleeve ends closed). List every part under it: an unlisted part pokes through.
+arms hanging down). A sleeve or a trouser leg takes `length: 0.6` instead (the share of its limb, a capsule or tube,
+from the end nearest the body): it runs along the limb and ends square and open there, T-posed or not. List every part under it: an unlisted part pokes through.
 `hem` adds a band twice that tall at the bottom, a little thicker. An earlier garment can be wrapped too (a shirt over
 trousers: `fit: [chest, trousers]`). `openings` are boxes cut through the garment alone, so it needs an `id` of its
-own; a mirrored garment (`mirror`, `mirror_id`) gets them mirrored.
+own; a mirrored garment (`mirror`, `mirror_id`) gets them mirrored. An opening with `shape: v` is a V, `size: [w, h,
+d]` with w its width at the top (a V neck).
+
+```yaml
+  - garment: { fit: [chest], from_y: 1.0, to_y: 1.5, collar: { style: open, height: 0.035, depth: 0.16, lapel: 0.045 },
+               placket: { width: 0.03, buttons: 4, button_color: black, to_y: 1.3 } }
+    id: shirt
+  - garment: { fit: [upperarm_l], length: 0.5, hem: 0 }   # a short sleeve
+    id: upperarm_l
+    mirror: x
+    mirror_id: upperarm_r
+```
+
+`collar` is a band round the neck at the garment's top (`fit`: the part(s) it rounds, default `neck`, else `head`;
+`height`); `style: open` cuts a V `depth` deep at the front and lays a lapel `lapel` wide along each side of it.
+`placket` is a raised strip `width` wide down the front (`from_y`, `to_y`: default the garment's) with `buttons`
+(`button_color`). They are fitted shells too, so they lie on the body's shape.
 
 On a rigged, soft-skinned character a garment moves with the bone of its `id`: sleeves as their own garments with the
 arm's id (`fit: [upperarm_l]`, `id: upperarm_l`, mirrored) move with the arms (and wholly with `skin_falloff: 0`);

@@ -178,15 +178,18 @@ def test_locks_and_ellipsoids_agree_in_both_paths() -> None:
                                    "cylinder: { at: [0.1, 0.4, 0], radius: 0.25, height: 0.6 }",
                                    "cylinder: { at: [0.1, 0.4, 0], radius: 0.25, height: 0.6 }\n    rotate: [20, 30, 10]",
                                    "cone: { at: [0.3, 0.4, 0], radius: 0.2, radius_top: 0.1, height: 0.6 }\n    array: { count: 3, around: y }",
-                                   "cylinder: { at: [0, 0.4, 0], radius: 0.25, height: 0.6 }\n    scale: [1, 1.5, 0.8]"])  # fmt: skip
+                                   "cylinder: { at: [0, 0.4, 0], radius: 0.25, height: 0.6 }\n    scale: [1, 1.5, 0.8]",
+                                   "capsule: { from: [0.05, 0.1, 0], to: [0.2, 0.8, 0.1], radius: 0.12 }",
+                                   "tube: { points: [[0, 0.05, 0], [0.1, 0.4, 0.05], [0.1, 0.8, 0]], radius: 0.1 }",
+                                   "capsule: { from: [0.05, 0.1, 0], to: [0.05, 0.8, 0], radius: 0.12 }\n    folds: { count: 5, depth: 0.02, from_y: 0.0, to_y: 0.4, bunch: true }"])  # fmt: skip
 def test_folds_in_the_compiled_path_match_numpy(shape: str) -> None:
     """#281: the fold term in the kernel, the same as sdf.folds per copy, before the shell."""
     from conftest import parse
 
     from kiln.builder import field_of
 
-    model, findings = parse(f"name: m\nparts:\n  - {shape}\n    color: red\n    folds: {{ count: 7, depth: 0.03, from_y: 0.0, to_y: 0.8, sharp: 0.6 }}\n"
-                            "    shell: 0.02\n    mirror: x\n")  # fmt: skip
+    fold = "" if "folds:" in shape else "    folds: { count: 7, depth: 0.03, from_y: 0.0, to_y: 0.8, sharp: 0.6 }\n"
+    model, findings = parse(f"name: m\nparts:\n  - {shape}\n    color: red\n{fold}    shell: 0.02\n    mirror: x\n")  # fmt: skip
     assert model is not None, findings
     field = field_of(model, 0.01)
     assert jit.supported(field.parts[0])

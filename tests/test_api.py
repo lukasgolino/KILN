@@ -231,3 +231,53 @@ def test_gibs_keep_their_own_key_and_no_clips(project: Project) -> None:
     moved, _ = ok_model(project, text.replace("rotate: [0, 0, -60]", "rotate: [0, 0, -80]"), "hero")
     for part_id, g in dict(gib_models(moved)).items():
         assert builder.motion_key(g) == builder.motion_key(gibs[part_id]) and builder.cache_key(g, style, {}) == builder.cache_key(gibs[part_id], style, {})
+
+
+def test_a_cut_part_keeps_its_wall_colour() -> None:
+    """#344: api.part(..., cut=True) keeps color and material (they paint the cut's walls)."""
+    from kiln.api import part
+
+    assert part("box", color="ink", material="matte", cut=True, size=[0.1, 0.1, 0.1]) == {
+        "box": {"size": [0.1, 0.1, 0.1]}, "color": "ink", "material": "matte", "cut": True}
+    assert "color" not in part("box", cut=True, size=[0.1, 0.1, 0.1])
+
+
+def test_offset_moves_mirrors_part_level_at_array_centres_and_decals() -> None:
+    """#172: offset writes a mirrored part out as a pair (its mirror was about the origin), moves a lathe's part-level
+    at (not a second one in the shape), an array's centre and a decal's centre."""
+    from kiln.api import offset, part
+
+    ear = part("sphere", "red", at=[0.3, 1, 0], radius=0.1, mirror="x", mirror_id="ear_r", id="ear_l")
+    moved = offset([ear], dx=1.0)
+    assert len(moved) == 2 and moved[0]["sphere"]["at"] == [1.3, 1, 0] and moved[1]["sphere"]["at"] == [0.7, 1, 0]
+    assert moved[1]["id"] == "ear_r" and "mirror" not in moved[0]
+    lathe = {"lathe": {"profile": [[0, 0], [0.2, 0], [0, 0.4]]}, "at": [0, 0.5, 0], "color": "red"}
+    out = offset([lathe], dy=0.1)[0]
+    assert out["at"] == [0, 0.6, 0] and "at" not in out["lathe"]
+    ring_ = part("box", "red", at=[0.5, 0, 0], size=[0.1, 0.1, 0.1], array={"count": 6, "around": "y", "center": [0, 0, 0]},
+                 decal={"image": "d.png", "axis": "z", "at": [0.5, 0, 0.05], "size": [0.1, 0.1]})  # fmt: skip
+    out = offset([ring_], dx=2.0)[0]
+    assert out["array"]["center"] == [2.0, 0, 0] and out["decal"]["at"] == [2.5, 0, 0.05]
+
+
+def test_transform_turns_positions_rotations_decal_axes_and_scopes_cuts() -> None:
+    from kiln.api import part, transform
+
+    box = part("box", "red", at=[1, 0, 0], size=[0.2, 0.2, 0.4], decal={"image": "d.png", "axis": "z", "at": [1, 0, 0.2], "size": [0.1, 0.1]})
+    hole = part("sphere", at=[1, 0, 0.2], radius=0.05, cut=True)
+    turned = transform([box, hole], rotate=(0, 90, 0), translate=(0, 1, 0), cut_only=["box"])
+    assert np.allclose(turned[0]["box"]["at"], [0, 1, -1], atol=1e-9)  # +x turned 90 about y goes to -z
+    assert np.allclose(turned[0]["box"]["rotate"], [0, 90, 0], atol=1e-6)
+    assert turned[0]["decal"]["axis"] == "x" and np.allclose(turned[0]["decal"]["at"], [0.2, 1, -1], atol=1e-9)
+    assert turned[1]["cut"] == ["box"]
+    with pytest.raises(ValueError, match="no longer faces"):
+        transform([box], rotate=(0, 45, 0))
+
+
+def test_from_alias_and_surface_point() -> None:
+    from kiln.api import part, surface_point
+
+    assert part("capsule", "red", from_=[0, 0, 0], to=[0, 1, 0], radius=0.1)["capsule"]["from"] == [0, 0, 0]
+    point, normal = surface_point([[0.4, -0.5], [0.0, 0.5]], 0.0, 90.0, at=[0, 1, 0])  # a cone, half way up, on +x
+    assert np.allclose(point, [0.2, 1, 0]) and normal[0] > 0 and normal[1] > 0  # leaning up and out
+    assert abs(np.linalg.norm(normal) - 1.0) < 1e-3  # (rounded to 4 places)

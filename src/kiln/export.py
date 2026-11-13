@@ -44,6 +44,8 @@ class Built:
     asked_step: float = 0.0  # the mesh step the style or model asked for; above it, the grid cap decided `step` (lint W120)
     step_reason: str = ""  # why `step` is what it is, in words (kiln lint / build print it)
     ao: Array | None = None  # (F, 3) per corner: shade paint / baked occlusion (kiln.shade) the previews multiply in, as the engine does
+    hard_note: Any = None  # (bevelled parts that lost them, bevelled parts, triangles with them) when the budget dropped bevels (#334)
+    own_triangles: int = 0  # with instances placed (#333): the model's own triangles (its budget counts these); 0: all its own
     ao_strength: float = 0.0  # kiln.toml atlas_ao the previews' shade was made with (a cavity strength)
     corner_fade: Any = None  # colour fades without the maps (#262): per corner (F x 3) group toward, weight, second group, weight
     bake: Any = None  # kiln.bake.Bake: the normal map with its UVs and tangents (model normal_map)
@@ -76,10 +78,18 @@ GLOW_PEAK = 0.75  # a glowing colour's brightest channel x its strength at most:
 GLOW_ALBEDO = 0.3  # a glowing part's lit colour, scaled: the glow carries it
 
 
-def glow_strength(rgb: list[float] | tuple[float, ...], emission: float) -> float:
+def glow_peak(look: Any = None) -> float:
+    """The brightest a glowing channel x its strength may be for a look (#290): GLOW_PEAK was measured under filmic
+    at exposure 1; exposure scales it down; a linear tone curve clips at 1 instead of bending."""
+    if look is None:
+        return GLOW_PEAK
+    return (1.0 if look.tonemapper == "linear" else GLOW_PEAK) / max(float(look.exposure), 1e-6)
+
+
+def glow_strength(rgb: list[float] | tuple[float, ...], emission: float, peak: float = GLOW_PEAK) -> float:
     """The emissive strength a colour gets (#202): the preset's, capped so its brightest channel stays under GLOW_PEAK
     (a pale pink at strength 2 went white in Godot and in previews; capped, it keeps its hue)."""
-    return float(min(emission, GLOW_PEAK / max(max(rgb), 1e-6)))
+    return float(min(emission, peak / max(max(rgb), 1e-6)))
 
 
 def fade_colors(built: Built, swap: dict[str, str] | None = None) -> Array | None:
@@ -200,6 +210,9 @@ class _Writer:
             pbr["baseColorFactor"] = [1.0, 1.0, 1.0, 1.0]
             pbr["baseColorTexture"] = {"index": self.texture(decal, color)}
             mat["name"] += f"_decal{decal}"
+            d = self.b.painted.decals[decal]
+            if d.project == "triplanar":  # KILN's Godot scenes blend three projections (uv1_triplanar) at this tile size
+                mat["name"] += f"_tri{d.size[0]:.6g}x{d.size[1]:.6g}"
         elif self.mapped and color_name == MAPPED:
             pbr["baseColorTexture"] = {"index": self.color_map()}
         mat["name"] += color
@@ -209,7 +222,7 @@ class _Writer:
             pbr["baseColorFactor"][3] = preset.alpha
             mat["alphaMode"] = "BLEND"
         if preset.emission > 0:
-            strength = glow_strength(rgb, preset.emission)
+            strength = glow_strength(rgb, preset.emission, glow_peak(self.b.style.look))
             if decal < 0:  # (a decal keeps its white factor: the image is its colour)
                 dim = [c * GLOW_ALBEDO for c in rgb] if "baseColorTexture" not in pbr else [GLOW_ALBEDO] * 3
                 pbr["baseColorFactor"] = [*dim, preset.alpha]
@@ -256,7 +269,9 @@ class _Writer:
         key = (str(d.image), d.project, base_color)  # one texture per image and colour: per-copy decals share it (#211)
         if key in self.textures:
             return self.textures[key]
-        image = Image.open(d.image).convert("RGBA")
+        from kiln.notation import indexed_image
+
+        image = indexed_image(d, self.swap)  # a palette-indexed texture takes the variant's colours (#325)
         backdrop = Image.new("RGBA", image.size, tuple(int(base_color[i : i + 2], 16) for i in (1, 3, 5)) + (255,))
         backdrop.alpha_composite(image)
         buf = io.BytesIO()
@@ -355,7 +370,7 @@ class _Writer:
                 uvs = np.zeros((len(sel), 3, 2))
                 for d in np.unique(own):
                     m = own == d
-                    uvs[m] = decal_uv(p.decals[int(d)], corners[m].reshape(-1, 3)).reshape(-1, 3, 2)
+                    uvs[m] = corner_uv(p.decals[int(d)], corners[m])
                 rows = np.concatenate([rows, np.round(uvs.reshape(-1, 2), 6)], axis=1)
             elif per_corner:  # a texture's UVs per corner: split along its seam
                 rows = np.concatenate([rows, np.round(corner_uv(p.decals[key[3]], p.vertices[p.faces[sel]]).reshape(-1, 2), 6)], axis=1)

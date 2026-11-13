@@ -12,12 +12,15 @@ above them ends, on their own box: wrist, ankle; spine, chest, head at their bot
 soft. The manifest maps each joint to its KayKit, Mixamo and Godot SkeletonProfileHumanoid name.
 
 Then any CC0 clip library on the same joints (KayKit Character Animations' `Rig_Medium_*.glb`: Idle_A, Walking_A,
-Running_A, Death_A, Hit_A, Throw, Jump_*, ... ~80 clips) plays on the character, retargeted when it's built:
+Running_A, Death_A, Hit_A, Throw, Jump_*, ... ~80 clips) plays on the character, retargeted when it's built. KILN
+ships two of them (26 clips: idles, walks, runs, jumps, hits, deaths, throw, pick up): `kiln clips` lists them,
+`kiln clips add` copies them into `imports/kaykit-animations/`:
 
 ```yaml
 animations:
-  walk:  { import: imports/Rig_Medium_MovementBasic.glb, clip: Walking_A }
-  death: { import: imports/Rig_Medium_General.glb, clip: Death_A, loop: false, fps: 30, speed: 1 }
+  idle:  { import: imports/kaykit-animations/Rig_Medium_General.glb, clip: Idle_A }
+  walk:  { import: imports/kaykit-animations/Rig_Medium_MovementBasic.glb, clip: Walking_A }
+  death: { import: imports/kaykit-animations/Rig_Medium_General.glb, clip: Death_A, loop: false, fps: 30, speed: 1 }
 ```
 
 Each bone points where the clip's bone points (the clip's rest pose may be a T-pose; yours can be anything), bone

@@ -150,14 +150,61 @@ def cmd_library(args: argparse.Namespace, out: Output) -> int:
     from kiln.notation import library_dir
     from kiln.vendor.yamlio import parse_yaml
 
+    name = getattr(args, "name", None)
+    if name:  # one template: its text, to read its parts, ids and sizes before extending it (#188)
+        path = library_dir() / f"{name}{SUFFIX}"
+        if not path.is_file():
+            names = sorted(p.name[: -len(SUFFIX)] for p in library_dir().glob(f"*{SUFFIX}"))
+            raise _usage(f"no template {name!r} (kiln library lists them: {', '.join(names)})")
+        text = path.read_text(encoding="utf-8")
+        out.say(text.rstrip("\n"))
+        out.result({"name": name, "path": str(path), "text": text})
+        return 0
     items = []
     for path in sorted(library_dir().glob(f"*{SUFFIX}")):
         data = parse_yaml(path.read_text(encoding="utf-8"))
         name = path.name[: -len(SUFFIX)]
         items.append({"name": name, "kind": name.split("_")[0], "description": str(data.get("description", ""))})
         out.say(f"{name:22s} {data.get('description', '')}")
-    out.say("combine: `kiln new model <name> --extends body_stocky,head_bearded,helmet_nasal,armour_cape`")
+    out.say("combine: `kiln new model <name> --extends body_stocky,head_bearded,helmet_nasal,armour_cape`; one template's parts: "
+            "`kiln library <name>`; toy proportions (soft_toy): body_toy, head_toy")
     out.result({"templates": items})
+    return 0
+
+
+CLIPS_DIR = "kaykit-animations"  # imports/<this>/: the bundled CC0 humanoid clips (#150)
+
+
+def cmd_clips(args: argparse.Namespace, out: Output) -> int:
+    """The CC0 humanoid clips that ship with KILN (KayKit Character Animations, Rig_Medium): list them, or copy them
+    into the project's imports/ to play on a humanoid with `import:` animations or `animation_library`."""
+    import shutil
+
+    from kiln.vendor.gltf import read_glb
+
+    here = Path(__file__).parent / "clips"
+    files = sorted(here.glob("*.glb"))
+    rows = []
+    for f in files:
+        doc, _ = read_glb(f.read_bytes())
+        names = [str(a.get("name", "")) for a in doc.get("animations", [])]
+        rows.append({"file": f.name, "clips": names})
+    if args.clips_cmd == "add":
+        project = _require_project()
+        dest = project.root / "imports" / CLIPS_DIR
+        dest.mkdir(parents=True, exist_ok=True)
+        for f in [*files, here / "LICENSE-kaykit-animations.txt"]:
+            shutil.copyfile(f, dest / f.name)
+        for r in rows:
+            out.say(f"imports/{CLIPS_DIR}/{r['file']}: {', '.join(r['clips'])}")
+        out.say(f"play one: animations: {{ idle: {{ import: imports/{CLIPS_DIR}/Rig_Medium_General.glb, clip: Idle_A }} }} "
+                "(a humanoid skeleton; `kiln docs humanoids`). CC0: crediting Kay Lousberg is welcome, not required")
+        out.result({"folder": f"imports/{CLIPS_DIR}", "files": rows})
+        return 0
+    for r in rows:
+        out.say(f"{r['file']}: {', '.join(r['clips'])}")
+    out.say(f"`kiln clips add` copies them into imports/{CLIPS_DIR}/ (CC0, KayKit Character Animations)")
+    out.result({"files": rows})
     return 0
 
 
@@ -235,16 +282,20 @@ def cmd_lint(args: argparse.Namespace, out: Output) -> int:
         if f not in shown:
             out.say(f.format())
     seconds = time.monotonic() - start
-    meshed = {n: b for n, b in result.built.items() if b.step_reason}
+    meshed = {n: b for n, b in result.built.items() if b.model.source is None}
     if meshed and len(meshed) <= MESH_LINES:  # what each model was meshed at, and why (#223)
         for n, b in meshed.items():
+            if not b.step_reason:  # (#243) all hard parts: nothing on a grid
+                hard = sum(1 for p in b.model.parts if p.geometry.op == "add")
+                out.say(f"{n}: {b.triangles} triangles, {hard} hard parts (exact polygons, no mesh cells)")
+                continue
             out.say(f"{n}: {b.triangles} triangles, {b.step * 1000:.3g} mm mesh cells ({b.step_reason})")
     skipped = f"; --fast: the findings that need the built model were not looked for ({_rule_ranges(BUILT_RULES)}): kiln lint or kiln build gives them" if args.fast else ""
     out.say(f"{len(paths)} models: {len(result.errors)} errors, {len(result.warnings)} warnings ({cost_line(seconds)}){skipped}")
     data = {"models": len(paths), "errors": len(result.errors), "warnings": len(result.warnings), "geometry": not args.fast,
             "findings": [f.to_dict() for f in result.findings], "seconds": round(seconds, 1), "peak_memory_gb": peak_gb(),
             "cells": {n: {"step": b.step, "asked": b.asked_step, "capped": b.step > b.asked_step * (1 + 1e-9), "why": b.step_reason}
-                      for n, b in meshed.items()}}  # fmt: skip
+                      for n, b in meshed.items() if b.step_reason}}  # fmt: skip
     if result.errors:
         if out.as_json:  # human output: the findings are printed above already
             out.failure(result.findings, data)
@@ -285,8 +336,10 @@ def cmd_build(args: argparse.Namespace, out: Output) -> int:
     meshed = {n: entries[n] for n in result.models if "step" in entries.get(n, {})}
     if meshed and len(meshed) <= MESH_LINES:
         for n, e in meshed.items():
-            why = f" ({result.cells[n]})" if n in result.cells else ""
-            out.say(f"{n}: {e['triangles']} triangles, {e['step'] * 1000:.3g} mm mesh cells{why}")
+            if n not in result.cells:  # (#243) all hard parts: no grid
+                out.say(f"{n}: {e['triangles']} triangles, exact polygons only (no mesh cells)")
+                continue
+            out.say(f"{n}: {e['triangles']} triangles, {e['step'] * 1000:.3g} mm mesh cells ({result.cells[n]})")
     if args.verify_godot:
         godot = find_godot_binary()
         if godot is None or result.godot_root is None:
@@ -476,6 +529,23 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
         raise _usage("--draft is a quick look at the model itself (turntable, --views, --closeup, --pose, --detach): not with --engine, --vs, --fit or --effect")
     built = _built(project, args.model, args.draft)
     name = built.model.name
+    if args.with_:  # (#181) an assembly's parts together: each placed as an instance at its mount, else in the shared frame
+        from dataclasses import replace as _replace
+
+        from kiln.instances import InstanceError, place
+        from kiln.notation import Instance
+
+        extra = []
+        for other in [n.strip() for n in args.with_.split(",") if n.strip()]:
+            om, _, _ = project.load(project.models_dir / f"{other}{MODEL_SUFFIX}")
+            if om is None:
+                raise _usage(f"--with: no model {other!r}")
+            mount = om.mount if om.mount is not None and om.mount.model == name else None
+            extra.append(Instance(other, mount.at if mount else (0.0, 0.0, 0.0), mount.rotate if mount else (0.0, 0.0, 0.0)))
+        try:
+            built = place(project, _replace(built, model=_replace(built.model, instances=tuple(extra))))  # (its own are in already)
+        except InstanceError as exc:
+            raise _usage(f"--with: {exc}") from None
     folder = project.preview_dir / name / "draft" if args.draft else project.preview_dir / name  # drafts never replace the real sheets
     folder.mkdir(parents=True, exist_ok=True)
     outputs: dict[str, Any] = {}
@@ -512,6 +582,19 @@ def cmd_preview(args: argparse.Namespace, out: Output) -> int:
         raise _usage("--ref-height goes with --vs <ref.glb>")
     if args.at is not None and not args.effect:
         raise _usage("--at goes with --effect")
+    if args.variants:  # every variant in one sheet (#330)
+        if not built.model.variants:
+            raise _usage(f"{name} has no variants")
+        try:
+            sides = [pv.heading(v) for v in args.views.split(",")] if args.views else [pv.heading(v) for v in ("front", "34", "back")]
+            pitch = float(args.pitch.split(",")[0]) if args.pitch else 15.0
+        except ValueError as exc:
+            raise _usage(str(exc)) from None
+        path = folder / "variants.png"
+        pv.variants_sheet(built, sides, pitch, size or 300, tiles).save(path)
+        out.say(f"{name} variants: {display_path(path)}")
+        out.result({"variants": display_path(path)})
+        return 0
     if args.turntable or not wanted_any:
         path = folder / (f"turntable.{args.variant}.png" if args.variant else "turntable.png")
         pv.turntable(built, swap=swap, tiles=tiles, **tile).save(path)
@@ -709,6 +792,62 @@ def _is_scatter(path: Path) -> bool:
         return any(line.split("#")[0].rstrip() == "scatter:" for line in path.read_text(encoding="utf-8").splitlines())
     except (OSError, UnicodeDecodeError):
         return False
+
+
+def cmd_fit(args: argparse.Namespace, out: Output) -> int:
+    """Does b fit a? (#341) Both built, in their shared frame (b moved by --at / turned by --rotate first): how much of
+    them overlaps, the deepest point of b inside a (and of a inside b), and the smallest gap between their surfaces."""
+    import numpy as np
+
+    from kiln.fitting import CELL, MeshDistance
+    from kiln.sdf import rotation_matrix
+
+    project = _require_project()
+
+    def triple(text: str | None, what: str) -> np.ndarray:
+        if not text:
+            return np.zeros(3)
+        try:
+            v = [float(x) for x in text.split(",")]
+        except ValueError:
+            v = []
+        if len(v) != 3:
+            raise _usage(f"--{what} is x,y,z")
+        return np.array(v)
+
+    a, b = _built(project, args.a), _built(project, args.b)
+    rot = rotation_matrix(tuple(triple(args.rotate, "rotate")))
+    va, fa = a.painted.vertices, a.painted.faces
+    vb, fb = b.painted.vertices @ rot.T + triple(args.at, "at"), b.painted.faces
+    if not len(fa) or not len(fb):
+        raise _usage("both models need a surface")
+    da, db = MeshDistance.build(va, fa), MeshDistance.build(vb, fb)
+    b_in_a, a_in_b = da.distance(vb), db.distance(va)
+    deepest_b, deepest_a = float(-min(b_in_a.min(), 0.0)), float(-min(a_in_b.min(), 0.0))
+    near = CELL * 1.5
+    gap = float(min(b_in_a[b_in_a > 0].min(initial=near), a_in_b[a_in_b > 0].min(initial=near)))
+    lo, hi = np.maximum(va.min(axis=0), vb.min(axis=0)), np.minimum(va.max(axis=0), vb.max(axis=0))
+    volume = 0.0
+    where = None
+    if (hi > lo).all():
+        cell = max(float(np.prod(hi - lo) / 200_000) ** (1 / 3), 1e-4)
+        axes = [np.arange(lo[k] + cell / 2, hi[k], cell) for k in range(3)]
+        if all(len(x) for x in axes):
+            pts = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
+            both = (da.distance(pts) < 0) & (db.distance(pts) < 0)
+            volume = float(both.sum()) * cell**3
+            if both.any():
+                where = [round(float(x), 4) for x in pts[both].mean(axis=0)]
+    fits = volume == 0.0 and deepest_b == 0.0 and deepest_a == 0.0
+    gap_text = f"{gap * 1000:.1f} mm" if gap < near else f"more than {near * 1000:.0f} mm"
+    if fits:
+        out.say(f"{args.b} fits {args.a}: no overlap; the smallest gap between them is {gap_text}")
+    else:
+        out.say(f"{args.b} and {args.a} overlap: {volume * 1e6:.2f} cm3 in both" + (f" around {where}" if where else "")
+                + f"; {args.b} goes {deepest_b * 1000:.1f} mm into {args.a}, {args.a} {deepest_a * 1000:.1f} mm into {args.b}")
+    out.result({"fits": fits, "overlap_cm3": round(volume * 1e6, 4), "where": where, "b_into_a_mm": round(deepest_b * 1000, 2),
+                "a_into_b_mm": round(deepest_a * 1000, 2), "gap_mm": round(gap * 1000, 2) if gap < near else None})
+    return 0
 
 
 def cmd_lineup(args: argparse.Namespace, out: Output) -> int:
@@ -1226,7 +1365,12 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--class", dest="cls")
     s.add_argument("--description")
     s.add_argument("--force", action="store_true")
-    sub.add_parser("library", parents=[common], help="KILN's templates: bodies, heads, helmets, armour")
+    s = sub.add_parser("library", parents=[common], help="KILN's templates: bodies, heads, helmets, armour; a name prints that one")
+    s.add_argument("name", nargs="?", help="a template: print its YAML (parts, ids, sizes)")
+    s = sub.add_parser("clips", parents=[common], help="the CC0 humanoid clips KILN ships (idle, walk, run, jump, ...): list, or add to imports/")
+    cs = s.add_subparsers(dest="clips_cmd")
+    cs.add_parser("list", parents=[common], help="the clip files and their clips")
+    cs.add_parser("add", parents=[common], help="copy them into imports/kaykit-animations/")
     s = sub.add_parser("lint", parents=[common], help="check models (errors and warnings)")
     s.add_argument("paths", nargs="*")
     s.add_argument("--fast", action="store_true", help="only the checks that need no built model: notation, fields, names (skips E009, E013 and most warnings; the summary lists them)")
@@ -1258,8 +1402,15 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--frame", metavar="N,N,...", help="with --pose: only these frames (e.g. one, up close with --size)")
     s.add_argument("--engine", action="store_true", help="render through Godot, offscreen (needs a build; Linux: xvfb); --views/--pitch/--size pick its views")
     s.add_argument("--variant")
+    s.add_argument("--with", dest="with_", metavar="MODELS", help="other models shown with it, in their shared frame (each at its mount: if it mounts on this one)")
+    s.add_argument("--variants", action="store_true", help="every variant side by side in one sheet (a row each; --views and --pitch pick the views)")
     s.add_argument("--draft", action="store_true",
                    help="a quick coarse look while iterating (coarser mesh cells, rough colour edges, plain hard parts, no normal map): shapes and placement, not the final surface")
+    s = sub.add_parser("fit", parents=[common], help="does model b fit model a (overlap, depth, smallest gap) in their shared frame")
+    s.add_argument("a")
+    s.add_argument("b")
+    s.add_argument("--at", help="move b by x,y,z first")
+    s.add_argument("--rotate", help="turn b by x,y,z degrees first (about its origin)")
     s = sub.add_parser("lineup", parents=[common], help="models side by side at one scale")
     s.add_argument("models", nargs="*")
     s.add_argument("--pitch", type=float, default=8.0, metavar="DEG", help="degrees above the horizon (default 8; past 10: from above, each model framed on its footprint)")
@@ -1335,16 +1486,22 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_build, "preview": cmd_preview, "lineup": cmd_lineup,
+COMMANDS = {"init": cmd_init, "new": cmd_new, "lint": cmd_lint, "build": cmd_build, "preview": cmd_preview, "lineup": cmd_lineup, "fit": cmd_fit,
             "gallery": cmd_gallery, "status": cmd_status, "mark": cmd_mark, "style": cmd_style, "config": cmd_config,
-            "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "docs": cmd_docs, "mcp": cmd_mcp, "library": cmd_library}  # fmt: skip
+            "import": cmd_import, "pack": cmd_pack, "credits": cmd_credits, "doctor": cmd_doctor, "skill": cmd_skill, "docs": cmd_docs, "mcp": cmd_mcp, "library": cmd_library, "clips": cmd_clips}  # fmt: skip
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     out = Output(args.json)
+    import warnings
+
+    import numpy as np
+
     try:
-        return COMMANDS[args.cmd](args, out)
+        with warnings.catch_warnings(), np.errstate(divide="ignore", invalid="ignore", over="ignore"):  # (#339) never raw numpy noise
+            warnings.simplefilter("ignore", RuntimeWarning)
+            return COMMANDS[args.cmd](args, out)
     except PaganError as exc:
         out.failure(exc.findings)
         return 1

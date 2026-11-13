@@ -119,6 +119,11 @@ def render(
     and outlines leave them alone. `colors`: a linear albedo per face corner (F, 3, 3) instead of the paint groups'
     colours (terrains: blended splat layers)."""
     hide = with_unrevealed(built, hide)
+    mapped_shade_all = None
+    if built.bake is not None and built.bake.layers is not None:
+        from kiln.shade import texel_shade as _ts
+
+        mapped_shade_all = _ts(built, built.ao_strength)
     if colors is None and built.corner_fade is not None:  # colour fades in the vertices (#262), as COLOR_0
         from kiln.export import fade_colors
 
@@ -182,15 +187,23 @@ def render(
                 m = dec == k
                 if not m.any():
                     continue
-                img = np.asarray(Image.open(d.image).convert("RGBA"), dtype=float) / 255.0
+                from kiln.notation import indexed_image
+
+                img = np.asarray(indexed_image(d, swap), dtype=float) / 255.0
                 if d.project == "planar":
                     uv = decal_uv(d, rest[m]).clip(0, 0.999999)
+                elif d.project == "triplanar":  # (#320) three planar projections blended by the normal, as KILN's Godot scenes do
+                    from kiln.paint import _copy_of
+
+                    back = _copy_of(d).to_local(rest[m]) if d.copy is not None else rest[m]
+                    texel = _triplanar(img, back - np.array(d.at), n[m], d.size)
                 else:  # textures: the glTF's per-corner coordinates, interpolated as the GPU does; they repeat
                     uv = (corner_uv(d, p.vertices[p.faces[T[m]]]) * bary[m][:, :, None]).sum(axis=1)
                     uv = np.mod(uv, 1.0).clip(0, 0.999999)
-                tx = (uv[:, 0] * img.shape[1]).astype(int)
-                ty = (uv[:, 1] * img.shape[0]).astype(int)
-                texel = img[ty, tx]
+                if d.project != "triplanar":
+                    tx = (uv[:, 0] * img.shape[1]).astype(int)
+                    ty = (uv[:, 1] * img.shape[0]).astype(int)
+                    texel = img[ty, tx]
                 lin = np.array([[c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in row] for row in texel[:, :3]])
                 albedo[m] = albedo[m] * (1 - texel[:, 3:4]) + lin * texel[:, 3:4]
         lit_albedo = albedo  # what glows: Godot's EMISSION doesn't take COLOR, so no occlusion there
@@ -202,14 +215,18 @@ def render(
                 corner = np.where((dec >= 0) | glow_, corner, 1.0)
             albedo = albedo * corner[:, None]
         presets = [built.style.materials.get(gr.material, built.style.materials["default"]) for gr in groups]
+        grain = np.array([pr.grain for pr in presets])[g]
+        if (grain > 0).any() and look.shader != "toon":  # a fine bumpy finish in the normals (#329), as the Godot material's noise map
+            n = _grained(n, (corners[T] * bary[:, :, None]).sum(axis=1), grain, np.array([pr.grain_size for pr in presets])[g], dec >= 0)
         rough = np.array([pr.roughness for pr in presets])[g]
         metal = np.array([pr.metallic for pr in presets])[g]
         emit = np.array([pr.emission for pr in presets])[g]
         if (emit > 0).any():  # as export: a glowing colour's strength capped so it keeps its hue, its lit colour dimmed (#202)
-            from kiln.export import GLOW_ALBEDO, GLOW_PEAK
+            from kiln.export import GLOW_ALBEDO, glow_peak
 
             glowing = emit > 0
-            emit = np.where(glowing, np.minimum(emit, GLOW_PEAK / np.maximum(lit_albedo.max(axis=1), 1e-6)), 0.0)
+            flat = albedo_table[g]  # (#290) capped per material from its flat colour, as the glb is, not per texel
+            emit = np.where(glowing, np.minimum(emit, glow_peak(look) / np.maximum(flat.max(axis=1), 1e-6)), 0.0)
             albedo = np.where(glowing[:, None], albedo * GLOW_ALBEDO, albedo)
         rim = np.array([pr.rim for pr in presets])[g]
         lights = [(look.sun_pitch, look.sun_yaw, look.sun_color, look.sun_energy)]
@@ -275,14 +292,28 @@ def render(
         back = (hx[:, 1] - hx[:, 0]) * (hy[:, 2] - hy[:, 0]) - (hx[:, 2] - hx[:, 0]) * (hy[:, 1] - hy[:, 0]) > 0
         if hidden is not None:
             back &= ~hidden
-        hull_depth, hull_tri, _, _ = _raster(hx, hy, hz, np.flatnonzero(back), res, fade)  # dithered as its face
+        hull_depth, hull_tri, hull_bary, _ = _raster(hx, hy, hz, np.flatnonzero(back), res, fade)  # dithered as its face
         holes = (dropped < best_depth).reshape(res, res)  # dither holes: a faded piece isn't outlined around every hole
         holes = holes | np.roll(holes, 1, 0) | np.roll(holes, -1, 0) | np.roll(holes, 1, 1) | np.roll(holes, -1, 1)
         drawn = (hull_tri >= 0) & (hull_depth < best_depth) & ~holes.reshape(-1)
         flat = image.reshape(-1, 4)
-        if look.outline_color == "darken":  # each part's flat colour, darkened (Godot also multiplies in vertex colours and colour maps: #292)
-            table = np.array([srgb_to_linear(swap.get(gr.color, gr.color)) for gr in built.painted.groups]) * TOON_DARKEN
-            flat[drawn, :3] = _to_srgb(_grade(table[built.painted.face_group[hull_tri[drawn]]], look))
+        if look.outline_color == "darken":  # each part's colour darkened, as Godot's outline takes the material's albedo (#290, #292)
+            from kiln.export import GLOW_ALBEDO
+
+            groups_ = built.painted.groups
+            table = np.array([srgb_to_linear(swap.get(gr.color, gr.color)) for gr in groups_])
+            presets_ = built.style.materials
+            glows_ = np.array([presets_.get(gr.material, presets_["default"]).emission > 0 for gr in groups_])
+            table = np.where(glows_[:, None], table * GLOW_ALBEDO, table)  # a glowing part's lit colour is dimmed
+            ht, hb = hull_tri[drawn], hull_bary[drawn]
+            col = table[built.painted.face_group[ht]]
+            if colors is not None:  # per-corner colours (colour fades in COLOR_0, terrains)
+                col = (colors[ht] * hb[:, :, None]).sum(axis=1)
+            elif built.bake is not None and built.bake.layers is not None:  # the colour map, as the outline shader samples it
+                col = _mapped_colours(built.bake, ht, hb, [gr.color for gr in groups_], swap, mapped_shade_all)
+            if built.ao is not None and mapped_shade_all is None:  # baked shade / occlusion in COLOR (none on mapped faces: #266)
+                col = col * (built.ao[ht] * hb).sum(axis=1)[:, None]
+            flat[drawn, :3] = _to_srgb(_grade(col * TOON_DARKEN, look))
         else:
             flat[drawn, :3] = _to_srgb(_grade(np.array([srgb_to_linear(look.outline_color)]), look))
         flat[drawn, 3] = 1.0
@@ -290,6 +321,36 @@ def render(
         image = _bloom(image, glow.reshape(res, res, 3), max(1, int(res * 0.025)))
     out = Image.fromarray((image * 255 + 0.5).astype(np.uint8), "RGBA")
     return out.resize((size, size), Image.Resampling.BOX)
+
+
+def _grained(n: Array, pos: Array, grain: Array, size: Array, skip: Array) -> Array:
+    """Normals tilted by smooth noise `size` metres across, `grain` strong (not where a texture or decal shows)."""
+    from kiln.sdf import Noise, noise
+
+    on = (grain > 0) & ~skip
+    if not on.any():
+        return n
+    out = n.copy()
+    p = pos[on] / size[on, None] * 0.2  # the noise's own scale is 0.2 m
+    tilt = np.stack([noise(p + off, Noise(1.0, 0.2, seed)) for seed, off in ((11, 0.0), (12, 3.1), (13, 7.7))], axis=1)
+    tilt -= (tilt * n[on]).sum(axis=1, keepdims=True) * n[on]  # across the surface only
+    out[on] = n[on] + tilt * (0.6 * grain[on, None])
+    out[on] /= np.maximum(np.linalg.norm(out[on], axis=1, keepdims=True), 1e-12)
+    return out
+
+
+def _triplanar(img: Array, pos: Array, normal: Array, size: tuple[float, float]) -> Array:
+    """RGBA per point: the image tiled `size` metres along the three planes, mixed by the normal's share of each axis
+    (to the fourth power: a sharp blend, as Godot's uv1_triplanar_sharpness 4)."""
+    h, w = img.shape[:2]
+    weights = np.abs(normal) ** 4
+    weights /= np.maximum(weights.sum(axis=1, keepdims=True), 1e-12)
+    out = np.zeros((len(pos), img.shape[2]))
+    for axis, (a, b) in enumerate(((2, 1), (0, 2), (0, 1))):  # x: the zy plane, y: xz, z: xy
+        u = np.mod(pos[:, a] / size[0], 1.0)
+        v = np.mod(-pos[:, b] / size[1], 1.0)
+        out += weights[:, axis, None] * img[(v * h).astype(int).clip(0, h - 1), (u * w).astype(int).clip(0, w - 1)]
+    return out
 
 
 def _grade(color: Array, look: Look) -> Array:

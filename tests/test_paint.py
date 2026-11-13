@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
-from conftest import built_of, closed_faces, sphere_text
+from conftest import built_of, closed_faces, errors_of, ok_model, sphere_text
 from PIL import Image
 
 from kiln.builder import field_of
@@ -281,3 +283,122 @@ def test_decal_paints_over_a_texture(project: Project) -> None:
             "    texture: { image: textures/tile.png, project: box, size: [0.1, 0.1] }\n")  # fmt: skip
     p = built_of(project, text).painted
     assert p.decals[0].project == "planar" and (p.face_decal == 0).any() and (p.face_decal >= 0).all()
+
+
+def test_named_textures_and_triplanar(project: Project) -> None:
+    """#320: a texture defined once under textures: and used by name on several parts; project: triplanar gives box
+    UVs in the glb, a material name KILN's Godot scenes turn into uv1_triplanar, and a blended preview."""
+    from kiln.builder import build_model
+    from kiln.export import to_glb
+    from kiln.render import View, render
+    from kiln.vendor.gltf import read_glb
+
+    _texture_image(project)
+    text = ("name: thing\ntextures:\n  print: { image: textures/tile.png, project: triplanar, size: [0.1, 0.1] }\nparts:\n"
+            "  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n    texture: print\n"
+            "  - sphere: { at: [0, 0.6, 0], radius: 0.15 }\n    color: red\n    texture: print\n")  # fmt: skip
+    model, style = ok_model(project, text)
+    assert all(p.texture is not None and p.texture.project == "triplanar" for p in model.parts)
+    built = build_model(model, style, palette=project.palette(None)[0])
+    doc, _ = read_glb(to_glb(built, "kiln"))
+    assert any("_tri0.1x0.1#" in m["name"] for m in doc["materials"])
+    image = np.asarray(render(built, View(30.0, 20.0), 96))
+    blue = (image[..., 2] > 150) & (image[..., 0] < 80) & (image[..., 3] > 0)
+    assert blue.sum() > 200  # the print shows in the preview
+    errors = errors_of(project, text.replace("texture: print\n  - sphere", "texture: nope\n  - sphere"))
+    assert any("isn't one of the model's textures" in f.message for f in errors)
+
+
+def test_a_motif_print_scatters_coloured_stamps(project: Project) -> None:
+    """#312: texture motif: stamps in several colours scattered over a seamless tile, seeded, made once."""
+    from kiln.notation import load_model
+
+    (project.root / "decals").mkdir(exist_ok=True)
+    flower = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    for x in range(16):
+        for y in range(16):
+            if (x - 7.5) ** 2 + (y - 7.5) ** 2 < 49:
+                flower.putpixel((x, y), (230, 60, 140, 255) if (x - 7.5) ** 2 + (y - 7.5) ** 2 > 9 else (250, 210, 40, 255))
+    flower.save(project.root / "decals" / "flower.png")
+    Image.new("RGBA", (8, 16), (40, 150, 60, 255)).save(project.root / "decals" / "leaf.png")
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: white\n"
+            "    texture: { motif: { images: [decals/flower.png, decals/leaf.png], count: 20, seed: 3 }, project: triplanar, size: [0.2, 0.2] }\n")  # fmt: skip
+    model, _ = ok_model(project, text)
+    tex = model.parts[0].texture
+    assert tex is not None and tex.image.is_file() and ".kiln-cache" in str(tex.image)
+    tile = np.asarray(Image.open(tex.image).convert("RGBA"))
+    colours = {tuple(int(c) // 40 for c in px[:3]) for px in tile.reshape(-1, 4) if px[3] > 200}
+    assert len(colours) >= 3  # pink, yellow, green
+    again, _ = ok_model(project, text)
+    assert again.parts[0].texture is not None and again.parts[0].texture.image == tex.image  # the same seed: the same tile
+    palette, _ = project.palette(None)
+    _, findings = load_model(write_model_text(project, text.replace("count: 20", "count: 0")), palette, set())
+    assert any("motif is" in f.message for f in findings)
+
+
+def write_model_text(project: Project, text: str) -> Path:
+    path = project.models_dir / "thing.kiln.yaml"
+    path.write_text(text)
+    return path
+
+
+def test_a_part_frame_band_on_a_hard_part(project: Project) -> None:
+    """#286: a band in the part's own frame on a hard (exact) part paints its faces, turned with the part."""
+    text = ("name: thing\nparts:\n  - cylinder: { at: [0, 0.5, 0], radius: 0.2, height: 0.8, rotate: [0, 0, 60], sides: 12 }\n    color: red\n"
+            "    pattern: { type: band, color: blue, axis: y, at: 0.1, size: 0.15, frame: part }\n")  # fmt: skip
+    built = built_of(project, text)
+    p = built.painted
+    blue = np.isin(p.face_group, [g for g, grp in enumerate(p.groups) if grp.color_name.split("#")[0] == "blue"])
+    tri = p.vertices[p.faces]
+    area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2
+    share = float(area[blue].sum() / area.sum())
+    assert 0.08 < share < 0.25, share  # about 0.15 of the 0.8 side, plus none of the caps
+
+
+def test_small_dots_show_at_their_share(project: Project) -> None:
+    """#283: dots a fifth of their spacing wide cover about their share of the surface (edges refine to the dot)."""
+    text = ("name: thing\nbudget: 60000\nresolution: 0.01\nparts:\n  - box: { at: [0, 0.3, 0], size: [0.6, 0.6, 0.6] }\n    color: red\n"
+            "    pattern: { type: dots, color: blue, size: 0.1, width: 0.2 }\n")  # fmt: skip
+    built = built_of(project, text)
+    p = built.painted
+    blue = np.isin(p.face_group, [g for g, grp in enumerate(p.groups) if grp.color_name.split("#")[0] == "blue"])
+    tri = p.vertices[p.faces]
+    area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2
+    share = float(area[blue].sum() / area.sum())
+    assert share > 0.0025, share  # was 0.0011 against about 0.004 expected
+
+
+def test_palette_indexed_and_generated_textures_follow_variants(project: Project) -> None:
+    """#325: a texture written as rows of palette colours (or generated in them) is swapped by a variant, like the
+    parts' colours; its variant gets its own glb."""
+    from kiln.build import build
+    from kiln.notation import indexed_image
+    from kiln.vendor.gltf import read_glb
+
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: white\n"
+            "    texture: { rows: [\"ab..\", \"ba..\"], key: { a: red, b: blue }, project: box, texel: 0.05 }\n"
+            "  - sphere: { at: [0, 0.6, 0], radius: 0.15 }\n    color: white\n    texture: { generate: brushed, colors: [grey, black], pixels: 16, project: box, texel: 0.01 }\n"
+            "variants:\n  green: { swap: { red: green } }\n")  # fmt: skip
+    model, _ = ok_model(project, text)
+    tex = model.parts[0].texture
+    assert tex is not None and tex.rows == ("ab..", "ba..") and dict(tex.key)["a"] == "#e8413c"
+    red, green = indexed_image(tex).getpixel((0, 0)), indexed_image(tex, {"#e8413c": "#4caf50"}).getpixel((0, 0))
+    assert red[:3] == (0xE8, 0x41, 0x3C) and green[:3] == (0x4C, 0xAF, 0x50) and indexed_image(tex).getpixel((3, 0))[3] == 0
+    brushed = model.parts[1].texture
+    assert brushed is not None and len(brushed.rows) == 16 and {"a", "b"} >= {ch for r in brushed.rows for ch in r}
+    write_model_text(project, text)
+    result = build(project)
+    assert not result.errors, [f.format() for f in result.errors]
+    entry = result.manifest["models"]["thing"]
+    assert "glb" in entry["variants"]["green"]
+    doc, binary = read_glb((project.output_dir / entry["variants"]["green"]["glb"]).read_bytes())
+    import io as _io
+
+    pngs = []
+    for im in doc["images"]:
+        view = doc["bufferViews"][im["bufferView"]]
+        start = view.get("byteOffset", 0)
+        pngs.append(np.asarray(Image.open(_io.BytesIO(binary[start : start + view["byteLength"]])).convert("RGB")).reshape(-1, 3))
+    assert any(((p == (0x4C, 0xAF, 0x50)).all(axis=1)).any() for p in pngs)  # the swapped colour is in the variant's texture
+    errors = errors_of(project, text.replace("key: { a: red, b: blue }", "key: { a: red }"))
+    assert any("not in its key" in f.message for f in errors)

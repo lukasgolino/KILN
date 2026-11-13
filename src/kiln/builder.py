@@ -43,7 +43,7 @@ from kiln.sdf import Array, Field, Geometry, part_thickness
 from kiln.style import SHAPE_KEYS, Style
 from kiln.usage import MANY_PARTS, Phases, Progress
 
-BUILDER_VERSION = 35  # bump when meshing/painting changes output
+BUILDER_VERSION = 38  # bump when meshing/painting changes output
 BORDER_SCHEDULE = (0.04, 0.06, 0.08, 0.15, 0.3)  # how far borders may stray, x the target edge length, in turn
 PRESHAPE = 3  # x the budget: decimate freely to this first, then cut colour borders and keep them
 PROTECT = 2.0  # parts thinner than this many budget-sized triangle edges keep their outline
@@ -89,6 +89,8 @@ def kept_parts(model: Model, hard: frozenset[int]) -> frozenset[int]:
     separate = {pid for pid, e in model.rig.items() if e.separate} if model.skin != "none" else set()
     adding = [i for i, p in enumerate(model.parts) if p.geometry.op == "add"]
     boxes = [model.parts[i].geometry.bounds() for i in adding]
+    if not boxes:
+        return frozenset()
     lo, hi = np.min([b[0] for b in boxes], axis=0), np.max([b[1] for b in boxes], axis=0)
     size = float(np.linalg.norm(hi - lo))
     out = set()
@@ -101,7 +103,7 @@ def kept_parts(model: Model, hard: frozenset[int]) -> frozenset[int]:
     return frozenset(out)
 
 
-def hard_spec(part: Part, style: Style, level: int = 0) -> HardSpec:
+def hard_spec(part: Part, style: Style, level: int = 0, keep: frozenset[int] = frozenset()) -> HardSpec:
     """How finely a hard part is made (a shape's `round` is a chamfer). Lower `level`s of detail (LODs, tight
     budgets) turn bevels into chamfers, then drop them, then halve the sides of round shapes."""
     g = part.geometry
@@ -111,11 +113,11 @@ def hard_spec(part: Part, style: Style, level: int = 0) -> HardSpec:
         bevel, segments = float(g.params["round"]), 1
     if level >= 1:
         segments = 1
-    if level >= 2:
+    if level >= 2 and not (level == 2 and part.index in keep):  # (#334) the biggest parts keep a chamfer a try longer
         bevel = 0.0
     if level >= 3:
         sides = max(min(sides, 6), sides >> (level - 2))
-    return HardSpec(sides, bevel, segments)
+    return HardSpec(sides, bevel, segments, part.bevel_edges)
 
 
 def _hard_cut_applies(g: Geometry, include: frozenset[int]) -> bool:
@@ -139,7 +141,7 @@ HARD_CHECKPOINT = 8  # joined hard steps between two cached solids (#214: a rebu
 _hard_cache: Path | None = None  # where joined hard solids are kept (set by build_cached for its build)
 
 
-def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int, tick: Any = None) -> Solid:
+def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int, tick: Any = None, keep: frozenset[int] = frozenset()) -> Solid:
     """The hard parts of one piece combined in order: adding parts unite; every later cut or intersect applies
     (`tick()` after each one). With a cache, the solid after every HARD_CHECKPOINT steps is kept under a hash of
     the steps so far (each part's index, geometry and detail level), and a later build resumes at the last of them
@@ -150,7 +152,7 @@ def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int,
     for i in steps:
         p = model.parts[i]
         g = p.geometry  # its fields only: the compiled kernels cache tables on the object (not part of the shape)
-        h.update(pickle.dumps((i, [getattr(g, f.name) for f in fields(g)], hard_spec(p, style, level)), protocol=pickle.HIGHEST_PROTOCOL))
+        h.update(pickle.dumps((i, [getattr(g, f.name) for f in fields(g)], hard_spec(p, style, level, keep)), protocol=pickle.HIGHEST_PROTOCOL))
         keys.append(h.hexdigest()[:32])
     acc: Solid = []
     start = 0
@@ -175,9 +177,9 @@ def _hard_solid(model: Model, style: Style, include: frozenset[int], level: int,
         p = model.parts[i]
         g = p.geometry
         if g.op == "add":
-            acc = union(acc, solid(g, hard_spec(p, style, level), i))
+            acc = union(acc, solid(g, hard_spec(p, style, level, keep), i))
         elif acc:
-            other = solid(g, hard_spec(p, style, level), i)
+            other = solid(g, hard_spec(p, style, level, keep), i)
             acc = subtract(acc, other) if g.op == "cut" else intersect(acc, other)
         if folder is not None and ((k + 1) % HARD_CHECKPOINT == 0 or k == len(steps) - 1):
             folder.mkdir(parents=True, exist_ok=True)
@@ -204,10 +206,10 @@ HARD_GROWTH = 1.0  # time against joins done, as a power: about linear since tre
 ROUND_SHAPES = frozenset({"cylinder", "cone", "capsule", "tube", "lathe", "torus", "sphere", "ellipsoid"})
 
 
-def _spec_key(part: Part, spec: HardSpec) -> tuple[int, float, int]:
+def _spec_key(part: Part, spec: HardSpec) -> tuple[int, float, int, str]:
     """What of a HardSpec changes this part's solid: bevel bands only with a bevel, sides only on round shapes."""
     sides = int(part.geometry.params.get("sides") or spec.sides)  # as hard.local_polys reads it
-    return (sides if part.geometry.shape in ROUND_SHAPES else 0, spec.bevel, spec.segments if spec.bevel else 0)
+    return (sides if part.geometry.shape in ROUND_SHAPES else 0, spec.bevel, spec.segments if spec.bevel else 0, spec.edges if spec.bevel else "all")
 
 
 def _box_area(g: Geometry) -> float:
@@ -229,6 +231,9 @@ def _hard_share(model: Model, hard: set[int] | frozenset[int], adding: list[int]
     return 1.0 - (1.0 - HARD_SHARE) * min(1.0, max(SOFT_FLOOR, 2.0 * share))
 
 
+HARD_NOTES: dict[str, tuple[int, int, int]] = {}  # model -> (bevelled parts that lost them, bevelled parts, triangles with them) (#334)
+
+
 def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[int]], budget: float, rigged: bool,
                progress: Progress | None = None) -> tuple[list[Regions], list[HardMesh]]:  # fmt: skip
     """Every piece's hard parts as a mesh (fewer details while they'd go over `budget`), cut into paint groups."""
@@ -236,8 +241,16 @@ def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[
     specs = None
     total = hard_joins(model, pieces)
     tries = 0
-    for level in ((DRAFT_HARD_LEVEL,) if model.draft else range(5)):  # a draft: plain shapes at once, whatever the budget
-        level_specs = [_spec_key(p, hard_spec(p, style, level)) for p in model.parts]
+    bevelled = sorted((i for i in set().union(*pieces) if hard_spec(model.parts[i], style).bevel > 0),
+                      key=lambda i: -float(np.linalg.norm(np.subtract(*model.parts[i].geometry.bounds()[::-1]))))  # biggest first
+    steps: list[tuple[int, frozenset[int]]] = [(0, frozenset()), (1, frozenset())]
+    if len(bevelled) > 1:  # (#334) bevels go a few parts at a time, the smallest first, not all at once
+        steps += [(2, frozenset(bevelled[: len(bevelled) * k // 4])) for k in (3, 2, 1) if len(bevelled) * k // 4 > 0]
+    steps += [(2, frozenset()), (3, frozenset()), (4, frozenset())]
+    with_bevels = 0
+    HARD_NOTES.pop(model.name, None)
+    for level, keep in ([(DRAFT_HARD_LEVEL, frozenset())] if model.draft else steps):  # a draft: plain shapes at once, whatever the budget
+        level_specs = [_spec_key(p, hard_spec(p, style, level, keep)) for p in model.parts]
         if level_specs == specs:  # this level details nothing less: same meshes, try the next (#207)
             continue
         specs = level_specs
@@ -252,8 +265,13 @@ def build_hard(model: Model, style: Style, field: Field, pieces: list[frozenset[
             if progress is not None:
                 progress(label, done, total)  # noqa: B023 (called within this level)
 
-        meshes = [to_mesh(_hard_solid(model, style, include, level, tick)) for include in pieces]
-        if sum(m.triangles for m in meshes) <= budget:
+        meshes = [to_mesh(_hard_solid(model, style, include, level, tick, keep)) for include in pieces]
+        made = sum(m.triangles for m in meshes)
+        if level <= 1:
+            with_bevels = made
+        if made <= budget:
+            if level >= 2 and bevelled and not model.draft:  # bevels went for the budget: lint says what budget keeps them
+                HARD_NOTES[model.name] = (len(bevelled) - len(keep), len(bevelled), with_bevels)
             break
     out = []
     for include, mesh in zip(pieces, meshes, strict=True):
@@ -287,6 +305,10 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
         from kiln.importer import build_imported
 
         return build_imported(model, style, palette)
+    if not model.parts:  # a scene of instances only (#333): nothing of its own; place() brings the rest
+        empty = Painted(np.zeros((0, 3)), np.zeros((0, 3), np.int64), np.zeros(0, np.int64), [], np.zeros(0, np.int64), [])
+        root = Skeleton([Bone(ROOT_ID, -1, np.zeros(3), {}, False)])
+        return Built(model, style, empty, np.zeros((0, 3, 3)), root, "none", None, None, [], 0.01, 0)
     field = field_of(model, 0.01)
     for part in model.parts:
         lo, hi = part.geometry.bounds()
@@ -297,7 +319,8 @@ def build_model(model: Model, style: Style, budget: int | None = None, palette: 
     with Phases(model.name) as phase:  # its heartbeat stops with the build, however it ends
         phase.loud = len(model.parts) >= MANY_PARTS  # a big model's build is rarely short: say each phase at once (#221)
         built = _build_meshed(model, style, budget, step, asked, phase, reason)
-        built.step_reason = reason
+        built.hard_note = HARD_NOTES.pop(model.name, None)
+        built.step_reason = "" if _all_hard(model, style) else reason  # (nothing meshed on a grid: no cell size to report, #243)
         return built
 
 
@@ -421,6 +444,12 @@ def _build_meshed(model: Model, style: Style, budget: int | None, step: float, a
     elif model.vertex_fades:  # colour fades without the maps: per face corner (COLOR_0)
         built.corner_fade = vertex_fade(model, built, step, [inc for inc in groups_of if inc], kept)
     return built
+
+
+def _all_hard(model: Model, style: Style) -> bool:
+    """Whether every adding part is made as exact polygons (nothing is meshed on a grid)."""
+    adding = [k for k, p in enumerate(model.parts) if p.geometry.op == "add"]
+    return bool(adding) and set(adding) <= set(hard_parts(model, style))
 
 
 def soft_faces(built: Built, face_field: Array) -> Array:
@@ -588,6 +617,31 @@ def vertex_fade(model: Model, built: Built, step: float, soft_pieces: list[list[
     return o1, w1, o2, w2
 
 
+def _map_paint(model: Model, p: Any, owner: Array) -> dict[int, list[tuple[Any, int]]]:
+    """Per part with patterns painted in the colour map (#324): (the pattern's function, its paint group), in order.
+    The group is the one paint made for it (the part's own group, in the pattern's colour)."""
+    from dataclasses import replace
+
+    from kiln.paint import _pattern_fn
+
+    out: dict[int, list[tuple[Any, int]]] = {}
+    index = {g: k for k, g in enumerate(p.groups)}
+    for i, part in enumerate(model.parts):
+        pats = [pat for pat in part.patterns if pat.in_map]
+        mine = p.face_group[owner == i]
+        if not pats or not len(mine):
+            continue
+        base = p.groups[int(np.bincount(mine).argmax())]
+        entries = []
+        for pat in pats:
+            k = index.get(replace(base, color=pat.color, color_name=pat.color_name, material=part.material))
+            if k is not None:
+                entries.append((_pattern_fn(pat, part.geometry), k))
+        if entries:
+            out[i] = entries
+    return out
+
+
 def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list[int]], kept: frozenset[int], size: int,
                  progress: Progress | None = None, lod: bool = False) -> Any:  # fmt: skip
     """The model's normal map. Each face is baked with its own piece's field, as it was meshed (a separate helmet's
@@ -646,8 +700,9 @@ def bake_normals(model: Model, built: Built, step: float, soft_pieces: list[list
         from kiln.atlas import occlusion
 
         occ = occlusion(built)
+    map_paint = _map_paint(model, p, owner) if adding else None
     baked = bake.bake(fields, face_field, p.vertices, p.faces, built.normals, size, step, model.normal_strength, patches, p.face_group,
-                      np.array(on) if model.relief else None, fading, progress, occ)  # fmt: skip
+                      np.array(on) if model.relief else None, fading, progress, occ, map_paint or None, owner)  # fmt: skip
     if patches is not None and len(patches) and any(layer.displace for layer in model.relief):
         _displace(built, model, patches, on)
     return baked
@@ -1188,7 +1243,7 @@ def build_cached(model: Model, style: Style, palette: dict[str, str], cache_dir:
                 built.tracks = tracks(model, built.skeleton)
                 built.motion_key = motion
                 _store(built, path)
-        if not built.step_reason and model.source is None:  # cached before builds kept it
+        if not built.step_reason and model.source is None and not _all_hard(model, style):  # cached before builds kept it
             built.step_reason = mesh_cells(field_of(model, built.step), model, style)[2]
         if budget is None and model.relief:
             _BASE_PATCHES[model.name] = getattr(built, "relief_patches", None)

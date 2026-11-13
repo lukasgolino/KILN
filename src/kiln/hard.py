@@ -471,11 +471,53 @@ def _unit(v: Array) -> Array:
     return np.asarray(v / np.linalg.norm(v))
 
 
-def bevelled(normals: Array, offsets: Array, radius: float, segments: int) -> list[tuple[Array, int]]:
+def _face_edges(faces: list[tuple[Array, int]]) -> set[tuple[int, int]]:
+    """The pairs of plane indices that meet along an edge of a convex shape's faces."""
+    points = np.concatenate([p for p, _ in faces])
+    _, index = _weld(points, 1e-7)
+    edge_faces: dict[tuple[int, int], set[int]] = {}
+    pos = 0
+    for pts, idx in faces:
+        ids = [int(i) for i in index[pos : pos + len(pts)]]
+        pos += len(pts)
+        for k, v in enumerate(ids):
+            w = ids[(k + 1) % len(ids)]
+            if v != w:
+                edge_faces.setdefault((min(v, w), max(v, w)), set()).add(idx)
+    return {(min(f), max(f)) for f in edge_faces.values() if len(f) == 2}
+
+
+def _bevelled_edges(normals: Array, offsets: Array, radius: float, segments: int, wanted: str) -> list[tuple[Array, int]]:
+    """Only the chosen edges rounded (#345): the faces along them pulled in by `radius` to find where the bands sit;
+    every other face stays where it is, and corners stay as the planes meet."""
+    picked = sorted(e for e in _face_edges(convex(normals, offsets)) if _edge_wanted(normals[e[0]], normals[e[1]], wanted))
+    if not picked:
+        return convex(normals, offsets)
+    involved = np.zeros(len(normals), bool)
+    for a, b in picked:
+        involved[a] = involved[b] = True
+    core = convex(normals, offsets - radius * involved)
+    points = np.concatenate([p for p, _ in core])
+    extra = [_unit(normals[a] * i + normals[b] * (segments + 1 - i)) for a, b in picked for i in range(1, segments + 1)]
+    ns = np.array(extra)
+    return convex(np.concatenate([normals, ns]), np.concatenate([offsets, (points @ ns.T).max(axis=0) + radius]))
+
+
+def _edge_wanted(na: Array, nb: Array, edges: str) -> bool:
+    """Whether the edge between faces with normals na and nb is bevelled under `edges` (#345)."""
+    if edges == "vertical":
+        return abs(float(na[1])) < 0.5 and abs(float(nb[1])) < 0.5
+    top, bottom = max(float(na[1]), float(nb[1])) > 0.5, min(float(na[1]), float(nb[1])) < -0.5
+    return {"top": top, "bottom": bottom, "horizontal": top or bottom}.get(edges, True)
+
+
+def bevelled(normals: Array, offsets: Array, radius: float, segments: int, wanted: str = "all") -> list[tuple[Array, int]]:
     """The convex shape with every edge and corner rounded by `radius` in `segments` flat bands (1 = a chamfer):
     the shape shrunk by `radius`, grown back by a ball cut to those bands. Its flat faces stay where they were."""
     if radius <= 0:
         return convex(normals, offsets)
+    if wanted != "all":
+        return _bevelled_edges(normals, offsets, radius, segments, wanted)
     core = convex(normals, offsets - radius)
     points = np.concatenate([p for p, _ in core])
     # which faces meet at each edge and corner of the core
@@ -494,10 +536,11 @@ def bevelled(normals: Array, offsets: Array, radius: float, segments: int) -> li
     edges = {(min(f), max(f)) for f in edge_faces.values() if len(f) == 2}
     extra: list[Array] = []
     s = segments
-    for a, b in sorted(edges):
+    picked = {e for e in edges if _edge_wanted(normals[e[0]], normals[e[1]], wanted)}
+    for a, b in sorted(picked):
         for i in range(1, s + 1):
             extra.append(_unit(normals[a] * i + normals[b] * (s + 1 - i)))
-    for key in sorted(vertex_faces):
+    for key in sorted(vertex_faces) if wanted == "all" else ():  # (chosen edges only: corners stay as the planes meet)
         around = sorted(vertex_faces[key])
         if len(around) < 3:
             continue
@@ -539,7 +582,7 @@ def _planes_wedge(size: Sequence[float]) -> tuple[Array, Array]:
     n, off = _planes_box(size)
     keep = [0, 1, 3]  # x sides and the floor; the top is the ridge
     slope = np.array([[0.0, d / 2, h], [0.0, d / 2, -h]])
-    slope /= np.linalg.norm(slope, axis=1, keepdims=True)
+    slope /= np.maximum(np.linalg.norm(slope, axis=1, keepdims=True), 1e-12)  # (a degenerate edge: no NaN, #339)
     # both slopes pass through the ridge (y = h/2, z = 0)
     return np.concatenate([n[keep], slope]), np.concatenate([off[keep], slope[:, 1] * h / 2])
 
@@ -852,6 +895,7 @@ class HardSpec:
     sides: int = DEFAULT_SIDES
     bevel: float = 0.0
     segments: int = 2  # bevel bands; a chamfer is 1
+    edges: str = "all"  # which edges the bevel rounds (#345): all | vertical | top | bottom | horizontal
 
 
 def _oriented(polys: list[list[Point]]) -> list[list[Point]]:
@@ -862,6 +906,37 @@ def _oriented(polys: list[list[Point]]) -> list[list[Point]]:
         for b, c in zip(poly[1:-1], poly[2:], strict=True):
             volume += _dot(a, _cross(b, c))
     return [list(reversed(p)) for p in polys] if volume < 0 else polys
+
+
+def _rounded_profile(profile: Sequence[Sequence[float]], radius: float, segments: int) -> list[list[float]]:
+    """A lathe's (r, y) outline with its corners off the axis cut back by up to `radius` along each side (never more
+    than a third of a side) and joined by `segments` straight bands (1: a chamfer). Points on the axis stay."""
+    pts = [[float(a), float(b)] for a, b in profile]
+    closed = len(pts) > 2 and pts[0] == pts[-1]
+    if closed:
+        pts = pts[:-1]
+    n = len(pts)
+    out: list[list[float]] = []
+    for k in range(n):
+        p = np.array(pts[k])
+        if p[0] <= 1e-9 or (not closed and k in (0, n - 1)):  # on the axis, or an open outline's end: kept as it is
+            out.append([float(p[0]), float(p[1])])
+            continue
+        a, b = np.array(pts[k - 1]), np.array(pts[(k + 1) % n])
+        da, db = a - p, b - p
+        la, lb = float(np.linalg.norm(da)), float(np.linalg.norm(db))
+        if la < 1e-9 or lb < 1e-9 or abs(float(da @ db)) / (la * lb) > 0.999:  # straight on: no corner
+            out.append([float(p[0]), float(p[1])])
+            continue
+        cut = min(radius, la / 3, lb / 3)
+        s0, s1 = p + da / la * cut, p + db / lb * cut
+        for i in range(segments + 1):  # a quadratic curve from s0 through the corner's pull to s1
+            t = i / segments
+            q = (1 - t) ** 2 * s0 + 2 * (1 - t) * t * p + t**2 * s1
+            out.append([float(max(q[0], 0.0)), float(q[1])])
+    if closed:
+        out.append(out[0])
+    return out
 
 
 def local_polys(shape: str, p: dict[str, object], spec: HardSpec) -> list[list[Point]]:
@@ -878,7 +953,7 @@ def local_polys(shape: str, p: dict[str, object], spec: HardSpec) -> list[list[P
     elif shape == "cone":
         planes = _planes_prism(float(p["radius"]), float(p["radius_top"]), float(p["height"]), sides)  # type: ignore[arg-type]
     if planes is not None:
-        faces = bevelled(planes[0], planes[1], bevel, seg) if bevel > 0 else convex(*planes)
+        faces = bevelled(planes[0], planes[1], bevel, seg, spec.edges) if bevel > 0 else convex(*planes)
         return [[(float(x), float(y), float(z)) for x, y, z in pts] for pts, _ in faces]
     if shape == "sphere":
         return _oriented(_lathe_polys(_sphere_profile(float(p["radius"]), sides), sides))  # type: ignore[arg-type]
@@ -888,6 +963,8 @@ def local_polys(shape: str, p: dict[str, object], spec: HardSpec) -> list[list[P
         return _oriented([[(x * r[0], y * r[1], z * r[2]) for x, y, z in poly] for poly in unit])
     if shape == "lathe":
         prof = p.get("hard_profile") or p["profile"]
+        if bevel > 0:  # (#338) the outline's corners rounded in `seg` bands before it is spun: a ring with a lip
+            prof = _rounded_profile(prof, bevel, seg)  # type: ignore[arg-type]
         return _oriented(_lathe_polys(prof, sides))  # type: ignore[arg-type]
     if shape == "torus":
         return _oriented(_torus_polys(float(p["radius"]), float(p["thickness"]), sides))  # type: ignore[arg-type]
@@ -904,7 +981,7 @@ def _capsule_solid(a: Array, b: Array, ra: float, rb: float, sides: int, tag: in
     y = axis / length if length > 0 else np.array([0.0, 1.0, 0.0])
     helper = np.array([1.0, 0.0, 0.0]) if abs(y[0]) < 0.9 else np.array([0.0, 0.0, 1.0])
     x = np.cross(y, helper)
-    x /= np.linalg.norm(x)
+    x /= max(float(np.linalg.norm(x)), 1e-12)
     z = np.cross(x, y)
     m = np.stack([x, y, z], axis=1)
     return _place(polys, m, a, tag)
@@ -1051,7 +1128,7 @@ def _shrunk(g: Geometry, spec: HardSpec, tag: int, t: float) -> Solid:
     else:
         return []
     m = g.rotation if g.rotation is not None else np.eye(3)
-    return _place(local_polys(g.shape, p, HardSpec(spec.sides, max(spec.bevel - t, 0.0), spec.segments)), m, g.at, tag)
+    return _place(local_polys(g.shape, p, HardSpec(spec.sides, max(spec.bevel - t, 0.0), spec.segments, spec.edges)), m, g.at, tag)
 
 
 # --- the model's hard solid -> a welded triangle mesh -------------------------------------------------------------
@@ -1439,6 +1516,10 @@ def _patches(mesh: HardMesh) -> Array:
     return np.array([find(i) for i in range(len(f))])
 
 
+FLAT_DOMINANT = 4.0  # a face whose flat patch is this many times the biggest other at a corner keeps its own normal there
+# (a flank beside its bevel band; a cylinder's equal sides still blend round)
+
+
 def corner_normals(mesh: HardMesh, smooth: bool, sharp_angle: float) -> Array:
     """(F, 3, 3): each face's polygon normal; smooth styles blend it with neighbouring faces of the same part that
     turn less than `sharp_angle`, weighted by their flat patch's area: big faces stay flat, bevel bands between them
@@ -1470,6 +1551,10 @@ def corner_normals(mesh: HardMesh, smooth: bool, sharp_angle: float) -> Array:
         weight = patch_area[patches]
         for c, fi in zip(corners, fids, strict=True):
             mine = (parts == mesh.face_part[fi]) & (normals @ mesh.face_normal[fi] >= cos_limit)
+            own = patch_area[patch[fi]]
+            others = weight[mine & (patches != patch[fi])]
+            if len(others) and own >= others.max() * FLAT_DOMINANT:  # a big flat face stays flat to its corners (#335): only
+                continue  # the narrow bands between flats blend, so long triangles across a flank shade no diagonal crease
             acc = (normals[mine] * weight[mine, None]).sum(axis=0)
             length = float(np.linalg.norm(acc))
             if length > 0:

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from kiln.export import Built
 
 FIELDS = ("cavity", "top", "under")
+SLENDER = 12.0  # a triangle whose longest edge squared is this many times its doubled area is a sliver (#335)
 LIMIT = 0.9  # each term at most: a multiplier of 0.1 is already near black
 
 
@@ -71,6 +72,12 @@ def shading(built: Built, atlas_ao: float = 0.0) -> Array | None:
         return None
     faces = built.painted.faces
     mult = ambient_occlusion(built, shade.cavity)[faces] if shade.cavity > 0 else np.ones(faces.shape)
+    if shade.cavity > 0 and len(faces):  # (#335) a long thin triangle (a hard flank's fan) would smear its corners' occlusion across
+        tri = built.painted.vertices[faces]  # itself in a streak: it takes their mean, evenly
+        edges = np.linalg.norm(tri[:, [1, 2, 0]] - tri, axis=2)
+        area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+        slender = edges.max(axis=1) ** 2 > SLENDER * np.maximum(area, 1e-18)
+        mult[slender] = mult[slender].mean(axis=1, keepdims=True)
     if shade.top > 0 or shade.under > 0:
         ny = built.normals[..., 1] / np.maximum(np.linalg.norm(built.normals, axis=2), 1e-12)
         mult = mult * (1.0 - shade.top * (1.0 - np.maximum(ny, 0.0))) * (1.0 - shade.under * np.maximum(-ny, 0.0))

@@ -152,6 +152,8 @@ def model_entry(built: Built, out: Path, glb: Path, merged: bool = False) -> dic
             entry["mesh_node"] = f"{m.node_prefix}mesh"  # the skinned mesh
     if m.origin is not None:  # the glb's origin in model space (everything else here is model space): glb = model - origin
         entry["origin"] = [_f(v) for v in built.origin()]
+    if m.mount is not None:  # an assembly part (#181): where it snaps onto another model (its glb in that model's frame)
+        entry["mount"] = {"to": m.mount.model, "at": [_f(v) for v in m.mount.at], "rotate": [_f(v) for v in m.mount.rotate]}
     if m.fit_to is not None:  # an attachment: hang it on this bone of that character (the glb is in the bone's space)
         entry["attach"] = {"file": m.fit_to[0].name, "bone": m.fit_to[1]}
     if m.skeleton == "humanoid":  # the standard names of its joints, for engines' retargeting (Godot: SkeletonProfileHumanoid)
@@ -610,7 +612,8 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             if vcolor is not None:  # a variant's colours are in its own map
                 write(out / "models" / vcolor, built.bake.color_png(group_colors, swap, texel_shade(built, ao)))
                 variants[vname]["color_map"] = {"png": f"models/{vcolor}", "size": [built.bake.width, built.bake.height]}
-            if project.config.variant_glbs or textured:  # (a mapped model's variant scene needs the glb that names its map)
+            indexed = any(d.rows for d in built.painted.decals)  # palette-indexed textures: the variant's own pixels (#325)
+            if project.config.variant_glbs or textured or indexed:  # (a mapped model's variant scene needs the glb that names its map)
                 vpath = out / "models" / f"{name}.{vname}.glb"
                 write(vpath, to_glb(built, generator, swap, project.config.vertex_colors, vatlas, merge_rigid=project.config.merge_rigid,
                                     normal_uri=normal_png, ao=ao, color_uri=vcolor))  # fmt: skip

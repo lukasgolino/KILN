@@ -8,7 +8,9 @@ The template library: bodies, heads, helmets, armour to extend.
 clothes, gloves, boots, a `grip` socket per hand), heads (`head_young`, `head_old`, `head_bearded`, `head_stern`,
 `head_goofy`, `head_female`), helmets (`helmet_kettle`, `helmet_nasal`, `helmet_barbute`, `helmet_great`,
 `helmet_sallet`, `helmet_crown`: detachable, fitted to whatever head they go on) and armour (`armour_breastplate`,
-`armour_pauldrons`, `armour_gauntlets`, `armour_cape`, `armour_hood`: shells fitted to the body). Combine them:
+`armour_pauldrons`, `armour_gauntlets`, `armour_cape`, `armour_hood`: shells fitted to the body). For toy
+proportions (soft_toy: a head about half the height, big eyes) use `body_toy` with `head_toy` (the other heads sit at
+an adult's neck). `kiln library <name>` prints one template's YAML: its parts, ids and sizes. Combine them:
 
 ```yaml
 name: sergeant

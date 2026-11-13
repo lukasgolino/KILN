@@ -90,10 +90,10 @@ class Atlas:
 
     def _emission(self, built: Built, c: str, m: str, swap: dict[str, str] | None = None) -> float:
         """A cell's emissive strength, capped per colour as the material's is (export.glow_strength)."""
-        from kiln.export import glow_strength
+        from kiln.export import glow_peak, glow_strength
 
         e = built.style.materials.get(m, built.style.materials["default"]).emission
-        return glow_strength([_decode(v) for v in _rgb((swap or {}).get(c, c))], e) if e > 0 else 0.0
+        return glow_strength([_decode(v) for v in _rgb((swap or {}).get(c, c))], e, glow_peak(built.style.look)) if e > 0 else 0.0
 
     def glow_strength(self, built: Built, swaps: list[dict[str, str]] | None = None) -> float:
         """The largest emission of any cell, in the base colours or any variant's (0: no glow texture). It becomes the

@@ -1,7 +1,7 @@
 # Surfaces
 
-Hard surfaces (exact polygons), hardware (rivets, bands, planks, bolts, slits, garments), patterns, decals, textures,
-cloth folds, relief fur, soft colour borders.
+Hard surfaces (exact polygons), hardware (rivets, bands, planks, bolts, slits, garments, hands, feet, eyes), patterns,
+cloth folds, relief fur, soft colour borders. Decals and textures: `kiln docs textures`.
 
 ## Hard surface
 
@@ -13,7 +13,9 @@ character (its joints bend by blending) and parts with `twist` or `noise`. Hard 
 (union, cut, intersect, in order); every later cut or intersect, of any shape, applies to them too. They sit in
 smooth parts without blending. A box's `round` is a chamfer on a hard part. Round hard shapes get the style's
 `hard_sides` (12 by default; low_poly 8) unless they say `sides`. When hard parts would take most of the budget
-(LODs), bevels become chamfers, then go, then round shapes lose sides. Flat faces stay flat; in smooth styles bevel
+(LODs), bevels become chamfers, then go (the smallest parts first; lint W139), then round shapes lose sides.
+`bevel_edges: vertical` (or `top`, `bottom`, `horizontal`; default `all`) rounds only those edges, in the part's own
+frame: a thin seat's corners without its top and bottom edges (the limit is then half its width, not its thickness). Flat faces stay flat; in smooth styles bevel
 bands shade round and designed edges stay crisp.
 
 ```yaml
@@ -32,7 +34,7 @@ material, id, mirror, ...) go to each.
 | hardware | meaning |
 |---|---|
 | `rivets: { count: 8, along: [[x, y, z], ...], size: 0.03 }` | rivets evenly along a path (model space, ends included); or `around: { center, radius, axis: y }` in a ring |
-| `band: { fit: body, at: [0, 0.12, 0], width: 0.05, thickness: 0.012, axis: y }` | an iron band round an earlier part's surface at `at` (or `radius:` instead of `fit`): barrels, doors, posts |
+| `band: { fit: body, at: [0, 0.12, 0], width: 0.05, thickness: 0.012, axis: y }` | an iron band round an earlier part's surface at `at` (or `radius:` instead of `fit`): barrels, doors, posts. `fit: [hips, belly]` takes several; where their surface isn't round there the band hugs it as a fitted soft shell (a belt), else it is an exact hard ring |
 | `planks: { size: [1, 2, 0.08], count: 5, gap: 0.015, axis: x, jitter: 0.05, seed: 1 }` | boards side by side along `axis` with gaps, chamfered; `jitter` shortens each by up to that share of its length (with `at`, `rotate`) |
 | `bolt: { at: [x, y, z], radius: 0.02, length: 0.02 }` | a hex bolt head along y (rotate it) |
 | `slit: { at: [x, y, z], size: [0.3, 0.04, 0.3] }` | a cut: visor and arrow slits |
@@ -51,7 +53,8 @@ material, id, mirror, ...) go to each.
 
 - `stripes`: bands across `axis`, one every `size` metres, `width` = fraction in the second colour.
 - `band`: one band of thickness `size` centred at `at` (one number: metres along `axis`, in model space): belts, trims,
-  hat bands. E.g. `{ type: band, color: brown, size: 0.06, at: 0.4, axis: y }` = a belt 0.4 m above the ground.
+  hat bands. E.g. `{ type: band, color: brown, size: 0.06, at: 0.4, axis: y }` = a belt 0.4 m above the ground
+  (with `frame: part`, from the part's own `at`). A pattern that misses its part's surface is lint W136.
 - `checker`: checks `size` metres across.
 - `dots`: dots on a grid `size` metres apart, diameter `width` x size; `jitter` (0-1: up to half that of a cell each
   way) and `vary` (size +-) at random (`seed`); `offset: [x, y, z]` shifts a repeat (a 2nd dots pattern moves itself).
@@ -59,39 +62,17 @@ material, id, mirror, ...) go to each.
   space bare, any other character painted; top row first) or `image: trims/key.png` (alpha over half painted, or with
   no transparency its dark pixels; up to 256x64). Each cell is `size` metres tall along `axis` (heights along the axis,
   not the slope: a shallow cone stretches them; a flat brim takes none), the band centred on `at` (from the part's
-  centre: `frame: part` is the default here); `repeat` times round, or `auto` (the default: about square cells at the
+  own `at`, its origin: `frame: part` is the default here; a lathe's origin, not the middle of its profile); `repeat` times round, or `auto` (the default: about square cells at the
   part's widest radius). It reads left to right seen from outside, like a cylindrical texture; a mirrored part reads
   mirrored. Near the axis (a cone's tip, a cap) columns too narrow aren't painted. One colour per pattern: list several
   for more. Smooth parts only (a hard part with one is an error). E.g. `{ type: pixel, color: gold, size: 0.02, at: -0.1,
   rows: [...] }`.
+- Where a pattern is painted: `paint: cut` cuts it into the mesh (exact borders, but every cell costs triangles: many
+  pixel trims starve the budget); `paint: map` paints it per texel into the base colour map (no triangles; it brings
+  the maps, needs `kiln-gen[bake]`). `auto` (the default): pixel and dots patterns go in the map when the model has
+  baked maps anyway (relief, colour fades, `normal_map`), else they are cut. Hard parts' patterns are always cut.
 
-## Decals
-
-```yaml
-    decal: { image: decals/logo.png, axis: z, at: [0, 0.6, 0.3], size: [0.2, 0.1] }
-```
-
-Projects an image (PNG with transparency, e.g. made with PAGAN) onto the faces of this part that face `axis`
-(x, -x, y, -y, z, -z), centred at `at` (model space, on or near the surface), `size` = width, height in metres. It
-shows on that side only (a flag needs a second decal with `axis: -z` for its back). Transparent pixels show the part's colour.
-Small images (<= 256 px) are sampled crisp (pixel art). `texel: 0.004` instead of `size`: metres per image pixel, so
-props at different scales keep the same pixel size. On an arrayed part, `per_copy: true` puts the decal on every
-copy, placed on each as written for the first (a badge on each of 12 links); the copies share one texture.
-
-## Textures
-
-```yaml
-    texture: { image: textures/brushed.png, project: box, texel: 0.004 }                       # every face, from the side it faces
-    texture: { image: textures/trim.png, project: cylindrical, at: [0, 0, 0], axis: y, size: [0.1, 0.05] }
-```
-
-Tiles an image over the whole part (a shirt print, pixel-art metal, a trim band), as one material. `box`: each face
-takes it from the side it faces (its main normal direction, no blending), upright seen from there. `cylindrical`:
-round `axis` through `at` (u = arc length: texels keep their size), caps taken flat; seam at -z for `axis: y`, -y
-for x, -x for z (it shows unless the circumference is whole tiles). `at`: the part's centre by default. Cylindrical
-can't follow `mirror`/`array` copies: use `mirror_id` or `box`. Tile: `size: [w, h]` metres or `texel:` metres per
-pixel. It repeats; images <= 256 px are crisp (pixel art on smooth shapes). Clear pixels show the part's colour
-(after swaps); its pattern colours paint over it; a `decal` replaces it there.
+Decals and textures (images on parts, named, triplanar, motif prints, palette-indexed and generated pixel art): `kiln docs textures`.
 
 ## Cloth folds: `folds`
 
@@ -104,6 +85,16 @@ the fold spacing there (2 pi r / count), so near the axis and with many folds th
 shape: they show in silhouette and in Godot without a normal map; keep `depth` at least two mesh cells. A shell's wall
 folds with them; a fitted shell can't fold (fold the parts it wraps); hard parts can't; colour borders follow the
 unfolded shapes (a belt doesn't wiggle).
+
+On a capsule or a tube (a trouser leg, a sleeve) the folds run round its own axis (a tube's: from its first point to
+its last), wherever it points, faded by the height of the nearest point on that axis. `bunch: true` stacks `count`
+rings across the axis instead, over `from_y`..`to_y`: cloth bunched at an ankle or a wrist.
+
+```yaml
+  - capsule: { from: [0.1, 0.12, 0], to: [0.1, 0.9, 0], radius: 0.09 }
+    id: lowerleg_l
+    folds: { count: 4, depth: 0.012, from_y: 0.05, to_y: 0.35, bunch: true }
+```
 
 ## Relief: fur without parts
 

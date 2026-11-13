@@ -22,7 +22,7 @@ from kiln.cover import covers, mostly_covered
 from kiln.export import Built
 from kiln.jit import set_threads
 from kiln.mesher import CELL_LIMIT, crack_groups, mesh_steps, open_edges, pinches
-from kiln.notation import Model
+from kiln.notation import ROOT_ID, Model
 from kiln.packs import lock_findings
 from kiln.project import Project
 from kiln.retarget import JOINTS
@@ -63,6 +63,10 @@ WARNING_RULES = {
     "W131": "a see-through material (alpha < 1) in an atlas project: the atlas draws every part opaque",
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
     "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
+    "W138": "a part's emission is above the cap for its colour in this look: the extra strength changes nothing",
+    "W139": "the triangle budget took bevels off hard parts (they became plain edges)",
+    "W137": "a pixel-art texture or decal has colours off the palette: the model's variants can't swap them",
+    "W136": "a pattern paints nothing: it misses the part's surface (a band's `at` or a pixel strip's place)",
     "W135": "a limb is fused to another branch of a soft-skinned body at rest, away from its joint: posing it stretches the skin",
     "W134": "colour fades go in the vertex colours here (no baked maps), but the project doesn't export vertex colours",
 }
@@ -89,11 +93,13 @@ class LintResult:
 
 
 GROUND_DIP = 0.002  # W123: metres below y = 0 a grounded model's built mesh may reach unremarked (or a tenth of a cell)
+LOST_THICK = 0.02  # E016: and thicker than this share (a lock, a fin or a blade lost to the budget stays W111)
+LOST_SHARE = 0.15  # E016: a lost part bigger than this share of the model (its box's diagonal) breaks it
 CAPPED = 1.05  # W120: the grid cap made the mesh cells this much coarser than asked
 # The findings that need the built model, so `kiln lint --fast` can't give them (tests check the list against
 # geometry_warnings): E009 is the build itself failing.
-BUILT_RULES = ("E009", "E013", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
-               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135")  # fmt: skip
+BUILT_RULES = ("E009", "E013", "E016", "W101", "W102", "W103", "W104", "W106", "W108", "W109", "W110", "W111", "W113", "W120", "W121", "W122", "W123",
+               "W124", "W125", "W126", "W127", "W128", "W129", "W132", "W133", "W135", "W136", "W139")  # fmt: skip
 CRACKS_SHOWN = 5  # E013 lists this many cracks
 
 
@@ -104,6 +110,26 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
     def warn(rule: str, message: str, line: int | None = None, where: str = "") -> None:
         out.append(Finding(rule, message, m.path, line, where))
 
+    with_patterns = [k for k, q in enumerate(m.parts) if q.patterns and q.geometry.op == "add"]
+    if with_patterns and m.source is None:  # a pattern that misses its part (#326)
+        from kiln.paint import _pattern_fn
+
+        pv = built.painted
+        adding = [k for k, q in enumerate(m.parts) if q.geometry.op == "add"]
+        owner = np.asarray(adding)[field_of(m, built.step).nearest(adding, pv.vertices[pv.faces].mean(axis=1))[0]]
+        for k in with_patterns:
+            part = m.parts[k]
+            mine = pv.vertices[np.unique(pv.faces[owner == k])]
+            if not len(mine):
+                continue
+            for j, pat in enumerate(part.patterns):
+                if pat.type not in ("band", "pixel", "stripes") or pat.mix is not None:
+                    continue  # (dots and checkers land between vertices; a gradient's thin bands are its own business)
+                if not (np.asarray(_pattern_fn(pat, part.geometry)(mine)) >= 0).any():
+                    where = f"{part.where}.pattern" if len(part.patterns) == 1 else f"{part.where}.patterns[{j}]"
+                    hint = (" (a band's `at` is measured from the model's origin along its axis; with frame: part, from the part's own `at`, "
+                            "a lathe's origin, not the middle of its profile)" if pat.type in ("band", "pixel") else "")
+                    warn("W136", f"pattern {pat.type} ({pat.color_name}) paints nothing on part {k}: it misses the part's surface{hint}", part.line, where)
     if built.skin == "soft":  # limbs fused to the body at rest (#255)
         from kiln.fused import fused_limbs
 
@@ -166,8 +192,21 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             part = m.parts[i]
             warn("W124", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is {c.covered * 100:.0f}% inside {named(c.by)}: only "
                  "a sliver shows (clipped flat or nearly gone); move it out, or make it bigger", part.line, part.where)  # fmt: skip
+        lo_all, hi_all = built.bounds()
+        whole = float(np.linalg.norm(hi_all - lo_all))
         for i in built.lost:
             part = m.parts[i]
+            from dataclasses import replace as _rep
+
+            from kiln.sdf import IDENTITY
+
+            blo, bhi = _rep(part.geometry, mirror=(), copies=(IDENTITY,)).bounds()  # one copy: mirrored eyes aren't one wide part
+            thick = part_thickness(part.geometry)
+            if float(np.linalg.norm(bhi - blo)) > LOST_SHARE * whole and (thick is None or thick > LOST_THICK * whole):  # a leg, a head (#324)
+                warn("E016", f"part {part.index} ({part.geometry.shape}, {part.color_name}) vanished when the mesh was reduced to its triangle "
+                     f"budget ({m.budget or built.style.budget(m.cls)}): raise budget:, paint fine patterns into the colour map (paint: map), "
+                     "or use fewer cut patterns", part.line, part.where)  # fmt: skip
+                continue
             warn("W111", f"part {part.index} ({part.geometry.shape}, {part.color_name}) is there at full detail but the triangle budget "
                  f"({m.budget or built.style.budget(m.cls)}) is too low to keep it: raise budget:, or make it thicker", part.line, part.where)  # fmt: skip
         hard = hard_parts(m, built.style)  # exact polygons: no mesh resolution
@@ -213,7 +252,8 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
         if m.detail:
             details = m.detail
             lo, hi = built.bounds()
-            texel = texel_size(float((hi - lo).max()), m.normal_map) if m.normal_map else 0.0
+            texel = (built.bake.texel if built.bake is not None and built.bake.texel else texel_size(float((hi - lo).max()), m.normal_map)) \
+                if m.normal_map else 0.0  # (the bake's own texel density, #257)
             for g in details:
                 t = part_thickness(g)
                 if not m.normal_map:
@@ -224,7 +264,7 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
                          "won't show; make it thicker or the map bigger")  # fmt: skip
         if m.relief and m.normal_map:  # patches narrower than four texels blur out in the map (#261)
             lo, hi = built.bounds()
-            texel = texel_size(float((hi - lo).max()), m.normal_map)
+            texel = built.bake.texel if built.bake is not None and built.bake.texel else texel_size(float((hi - lo).max()), m.normal_map)
             for k, layer in enumerate(m.relief):
                 if layer.width < 4 * texel:
                     warn("W133", f"relief layer {k} is {layer.width:.3g} m wide, under four texels of the {m.normal_map} map "
@@ -273,26 +313,43 @@ def geometry_warnings(built: Built, palette: dict[str, str], project: Project) -
             warn("W113", f"{int(inside.sum())} points of it are inside {m.fit_to[0].name} (up to {float(-depth.min()) * 100:.1f} cm) around "
                  f"[{where[0]:.2f}, {where[1]:.2f}, {where[2]:.2f}]: move it out, or wrap it with fit: target", None, "fit_to")  # fmt: skip
     budget = m.budget or built.style.budget(m.cls)
-    if m.source is None and built.triangles > budget * 1.25:
+    own = built.own_triangles or built.triangles  # (#333) the budget is the model's own parts; instances bring their own
+    if m.source is None and m.parts and own > budget * 1.25:
         patterned = sum(1 for p in m.parts if p.pattern is not None)
         why = f"its {patterned} pattern(s) need edges shorter than their repeat" if patterned else "fine details and colour borders"
-        warn("W110", f"{built.triangles} triangles for a budget of {budget}: {why}. Use bigger pattern repeats, fewer patterns, model "
+        warn("W110", f"{own} triangles for a budget of {budget}: {why}. Use bigger pattern repeats, fewer patterns, model "
              "the details as parts, or raise budget:")  # fmt: skip
-    if built.pieces > 1:
-        warn("W103", f"the model is {built.pieces} separate pieces: a floating part, or a gap between parts that should touch")
+    if built.hard_note and budget:  # (#334)
+        lost, bevelled, need = built.hard_note
+        warn("W139", f"the budget ({budget}) took the bevels off {lost} of {bevelled} bevelled hard part(s), the smallest first: with them "
+             f"the hard parts take {need} triangles; budget: {int(need * 1.1) + 1} keeps them (or fewer segments, or chamfer instead of bevel)")
+    pieces = built.pieces
+    if m.instances and len(built.painted.faces):  # instances set against the model join what they touch (#333)
+        from kiln.instances import joined_pieces
+
+        pieces = joined_pieces(built.painted.vertices, built.painted.faces, max(built.step, 0.002) * 1.5)
+    if pieces > 1 and not (m.instances and not m.parts):  # (a scene of instances only: its pieces are separate models)
+        warn("W103", f"the model is {pieces} separate pieces: a floating part, or a gap between parts that should touch")
     lo, hi = built.bounds()
     size = float((hi - lo).max())
     tol = max(0.01, 0.01 * size)
-    grounded = m.origin is not None or abs(float(lo[1])) <= tol  # a model with an explicit `origin` chose its own anchor
+    grounded = m.origin is not None or m.mount is not None or abs(float(lo[1])) <= tol  # an explicit `origin` / `mount`: its own frame (#181)
     if not grounded and m.parts:  # the mesh may sit up to a cell above the shapes' own bottom (rounded edges, coarse cells)
         shapes_lo = float((field or field_of(m, built.step)).bounds()[0][1])
         grounded = abs(shapes_lo) <= tol and 0 <= float(lo[1]) - shapes_lo <= 1.5 * built.step
     if not grounded:
         warn("W106", f"the lowest point is at y = {float(lo[1]):.3g} m: models stand on y = 0 (feet, wheels, base). Move the parts, "
              "or disable W106 for things that hang or float")  # fmt: skip
-    elif m.origin is None and float(lo[1]) < -max(GROUND_DIP, 0.1 * built.step):  # coarse cells round a little anyway
-        warn("W123", f"the built mesh dips to y = {float(lo[1]) * 1000:.3g} mm, below the ground (blends and meshing can push it under the "
-             "shapes' bottom): set origin: ground to lift the exported mesh onto y = 0, or raise the lowest parts a little")  # fmt: skip
+    elif m.origin is None and m.mount is None and float(lo[1]) < -max(GROUND_DIP, 0.1 * built.step):  # coarse cells round a little anyway
+        v = built.painted.vertices
+        low = v[np.argmin(v[:, 1])]
+        adding = [i for i, q in enumerate(m.parts) if q.geometry.op == "add"]
+        culprit = m.parts[adding[int((field or field_of(m, built.step)).nearest(adding, low[None, :])[0][0])]] if adding else None
+        dip_at = (f" at [{low[0]:.2f}, {low[1]:.3f}, {low[2]:.2f}], under {culprit.id if culprit.id != ROOT_ID else 'part ' + str(culprit.index)}"
+                 if culprit is not None else "")  # fmt: skip
+        warn("W123", f"the built mesh dips to y = {float(lo[1]) * 1000:.3g} mm{dip_at}, below the ground (blends and meshing can push it under the "
+             f"shapes' bottom): set origin: ground to lift the exported mesh onto y = 0, or raise {'that part' if culprit else 'the lowest parts'} "
+             f"by {-float(lo[1]) * 1000:.2g} mm", culprit.line if culprit else None, culprit.where if culprit else "")  # fmt: skip
     limits = CLASS_SIZES.get(m.cls)
     if limits and not limits[0] <= size <= limits[1]:
         warn("W108", f"a {m.cls} {size:.3g} m across is unusual (expected {limits[0]:g}-{limits[1]:g} m): units are metres")
@@ -375,13 +432,18 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
     centres = pv.vertices[pv.faces].mean(axis=1)
     owner = np.asarray(adding)[field.nearest(adding, centres)[0]]
     step = built.step
+    fits = [m.parts[k].geometry.fit for k in shells]
+    worn = [t for f in fits if f is not None for t in f[0]]  # what garments wrap (#313)
     out = []
     for i in shells:
         gi = m.parts[i].geometry
+        openings = [g for g in (p.geometry for p in m.parts) if g.op == "cut" and g.cut_only is not None and i in g.cut_only]
         for j in adding:
             if j == i or m.parts[j].id == m.parts[i].id or m.parts[j].geometry.shell or (gi.fit is not None and any(m.parts[j].geometry is t for t in gi.fit[0])) \
                     or (m.parts[j].id in m.rig and m.parts[i].id in m.rig[m.parts[j].id].revealed):
                 continue  # its own details, other shells, what it's fitted around (kept a gap away by construction), what it hides (hair)
+            if gi.fit is not None and any(m.parts[j].geometry is t for t in worn):
+                continue  # a body part another garment wraps (the chest under a sleeve's shoulder, an arm through an armhole)
             lo = np.maximum(field.boxes[i][0], field.boxes[j][0])
             hi = np.minimum(field.boxes[i][1], field.boxes[j][1])
             if (hi <= lo).any():
@@ -392,6 +454,12 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
                 continue
             pts = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
             overlap = (m.parts[j].geometry.distance(pts) < 0) & (gi.distance(pts) < 0)
+            # through an opening, not the wall: near the open rim (a garment's hem and neck, an open shell's side) or in
+            # a cut that opens this shell alone (#313)
+            margin = gi.shell + (gi.fit[1] if gi.fit is not None else 0.0) + 3 * step
+            overlap &= _rim_distance(gi, pts) > margin
+            for g in openings:
+                overlap &= g.distance(pts) > margin
             volume = float(overlap.sum()) * h**3
             if volume < (2 * step) ** 3:
                 continue
@@ -404,6 +472,75 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
     return out
 
 
+def glow_caps(model: Model, style: Style) -> list[Finding]:
+    """W138 (#290): a glowing part's strength above its colour's cap in this look (export.glow_peak) does nothing."""
+    from kiln.export import glow_peak, srgb_to_linear
+
+    peak = glow_peak(style.look)
+    out, seen = [], set()
+    for part in model.parts:
+        preset = style.materials.get(part.material, style.materials["default"])
+        if preset.emission <= 0 or part.geometry.op != "add" or (part.color, part.material) in seen:
+            continue
+        seen.add((part.color, part.material))
+        cap = peak / max(max(srgb_to_linear(part.color)), 1e-6)
+        if preset.emission > cap * 1.05:
+            out.append(Finding("W138", f"emission {preset.emission:g} on {part.color_name} is above what that colour can show in this look ({cap:.2g}: "
+                               f"brighter would bend its hue): it glows at {cap:.2g}; lower it, or pick a darker colour to glow brighter",
+                               model.path, part.line, f"{part.where}.material"))  # fmt: skip
+    return out
+
+
+def off_palette(model: Model, palette: dict[str, str]) -> list[Finding]:
+    """W137 (#325): with variants, a pixel-art image (up to 256 px) whose opaque pixels are mostly not palette colours
+    stays as drawn while the parts around it swap; palette-indexed rows would swap with them."""
+    if not model.variants or not palette:
+        return []
+    from PIL import Image, UnidentifiedImageError
+
+    hexes = np.array([[int(h[i : i + 2], 16) for i in (1, 3, 5)] for h in set(palette.values())], dtype=float)
+    out = []
+    seen: set[str] = set()
+    for part in model.parts:
+        for d, slot in ((part.texture, "texture"), (part.decal, "decal")):
+            if d is None or d.rows or str(d.image) in seen:
+                continue
+            seen.add(str(d.image))
+            try:
+                with Image.open(d.image) as im:
+                    if max(im.size) > 256:
+                        continue
+                    px = np.asarray(im.convert("RGBA"), dtype=float).reshape(-1, 4)
+            except (OSError, UnidentifiedImageError):
+                continue
+            opaque = px[px[:, 3] > 128, :3]
+            if not len(opaque):
+                continue
+            near = np.min(np.linalg.norm(opaque[:, None, :] - hexes[None, :, :], axis=2), axis=1) <= 12
+            if near.mean() < 0.9:
+                out.append(Finding("W137", f"{d.image.name}: {100 * (1 - near.mean()):.0f}% of its pixels aren't palette colours, so variants leave "
+                                   "them as drawn: write it as rows with a palette key (texture: { rows, key }), or use palette colours",
+                                   model.path, part.line, f"{part.where}.{slot}"))  # fmt: skip
+    return out
+
+
+def _rim_distance(g: Geometry, pts: Array) -> Array:
+    """How far each point is from where a shell is open: an open side's plane, or a garment box's hem and top (its
+    fitted wall ends there). Elsewhere: infinity."""
+    p = pts.copy()
+    for axis in g.mirror or ():
+        p[:, axis] = np.abs(p[:, axis])
+    q = p - g.at
+    if g.rotation is not None:
+        q = q @ g.rotation
+    if g.open is not None:
+        return np.asarray(np.abs(q[:, g.open[0]] - g.open_plane()))
+    if g.fit is not None and g.shape == "box":
+        half = float(g.params["size"][1]) / 2
+        return np.asarray(np.minimum(np.abs(q[:, 1] - half), np.abs(q[:, 1] + half)))
+    return np.full(len(pts), np.inf)
+
+
 def _moved(m: Model, anim: str) -> set[str]:
     a = m.animations[anim]
     from kiln.rig import animation_poses
@@ -413,8 +550,12 @@ def _moved(m: Model, anim: str) -> set[str]:
 
 
 def _build_job(job: tuple[Model, Style, dict[str, str], Path]) -> Built | str:
+    import warnings
+
     try:
-        return build_cached(*job)
+        with warnings.catch_warnings(), np.errstate(divide="ignore", invalid="ignore", over="ignore"):  # (#339) a worker prints none either
+            warnings.simplefilter("ignore", RuntimeWarning)
+            return build_cached(*job)
     except ValueError as exc:
         return build_error(exc)
 
@@ -488,6 +629,8 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                                     "check it still fits, then `kiln mark <model> --current`", path, None, "style_version"))  # fmt: skip
             palette, _ = project.palette(model.palette)
             keep += variant_warnings(model, palette)
+            keep += off_palette(model, palette)
+            keep += glow_caps(model, style)
             if model.vertex_fades and not project.config.vertex_colors:  # #262
                 first = next((p for p in model.parts if p.color_blend > 0), None)
                 keep.append(Finding("W134", "color_blend fades per vertex here (the model has no baked maps"
@@ -520,6 +663,13 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                 keep.append(Finding("E009", built, path, None, "parts"))
             else:
                 assert model is not None
+                if model.instances:  # lint sees the scene as built: its instances placed (#333)
+                    from kiln.instances import InstanceError, place
+
+                    try:
+                        built = place(project, built)
+                    except InstanceError as exc:
+                        keep.append(Finding("E011", str(exc), path, None, "instances"))
                 result.built[model.name] = built
                 keep += geometry_warnings(built, palette, project)
         if geometry and model is not None and model.terrain is not None and not any(f.severity == "error" for f in keep):

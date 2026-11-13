@@ -240,9 +240,17 @@ def test_e003_bad_part_values(part: str, where: str, words: str) -> None:
 
 
 def test_e003_cut_parts_have_no_paint() -> None:
-    _, findings = parse("name: m\nparts:\n  - sphere: { radius: 1 }\n    color: red\n  - sphere: { radius: 0.5 }\n    cut: true\n    id: hole\n")
-    f = only(findings, "E003")  # (a cut's color paints its walls, #178; an id, pattern or decal it can't have)
-    assert f.where == "parts[1].id" and "removes material" in f.message
+    _, findings = parse("name: m\nparts:\n  - sphere: { radius: 1 }\n    color: red\n  - sphere: { radius: 0.5 }\n    cut: true\n    pattern: { type: stripes, color: blue }\n")
+    f = only(findings, "E003")  # (a cut's color paints its walls, #178; a pattern or decal it can't have)
+    assert f.where == "parts[1].pattern" and "removes material" in f.message
+
+
+def test_a_cut_takes_an_id_and_mirror_id_as_names() -> None:
+    """#153: a cut accepts id and mirror_id (shared option sets in generators); they name it, it moves with nothing."""
+    model, findings = parse("name: m\nparts:\n  - sphere: { radius: 1 }\n    color: red\n  - sphere: { at: [0.3, 0, 0.9], radius: 0.2 }\n    cut: true\n"
+                            "    id: eye_l\n    mirror: x\n    mirror_id: eye_r\n")  # fmt: skip
+    assert model is not None and not findings, findings
+    assert [p.id for p in model.parts] == ["root", "root", "root"] and model.ids == ["root"]
 
 
 @pytest.mark.parametrize(
@@ -361,6 +369,7 @@ def test_e007_cycle_reports_its_line(project: Project) -> None:
         ("animations:\n  Idle: { poses: [{}] }\n  idle: { poses: [{}] }", "animations.idle", "differ only in case"),
         ("animations:\n  x: { fps: 12 }", "animations.x", "or both"),
         ("animations:\n  x: { fps: 500, poses: [{}] }", "animations.x", "fps (1-120)"),
+        ("animations:\n  x: { frames: 16, cycle: { type: bob, part: a } }", "animations.x", "frames goes inside the cycle"),
         ("animations:\n  x: { poses: [] }", "animations.x.poses", "a list of poses"),
         ("animations:\n  x: { poses: [{ zz: { rotate: [0, 0, 1] } }] }", "animations.x.poses[0].zz", "unknown part id 'zz'"),
         ("animations:\n  x: { poses: [{ a: { turn: [0, 0, 1] } }] }", "animations.x.poses[0].a", "offset: [x, y, z]"),
@@ -501,3 +510,21 @@ def test_texture_rejects_cylindrical_with_mirror_or_array_and_unreadable_images(
     assert [f.rule for f in errors_of(project, cyl + "    array: { count: 3, step: [0, 0, 0.3] }\n" + tex)] == ["E003"]
     assert not errors_of(project, cyl + "    mirror: x\n    texture: { image: textures/tile.png, project: box, texel: 0.01 }\n")
     assert [f.rule for f in errors_of(project, cyl + "    texture: { image: textures/bad.png, texel: 0.01 }\n")] == ["E011"]
+
+
+def test_no_rig_e007_for_a_part_that_failed() -> None:
+    """#327: a part that fails (a pixel pattern on a part `sides` made hard) gives its own error, not E007 on top."""
+    model, findings = parse("name: m\nparts:\n  - cylinder: { radius: 0.3, height: 0.2, sides: 8 }\n    id: hat\n    color: red\n"
+                            "    pattern: { type: pixel, color: blue, size: 0.02, rows: [\"#.\"] }\nrig:\n  hat: { pivot: [0, 0, 0] }\n")  # fmt: skip
+    rules = [f.rule for f in findings]
+    assert "E003" in rules and "E007" not in rules, findings
+
+
+def test_base_places_a_cone_by_its_bottom() -> None:
+    """#332: base: the bottom centre of a cone or cylinder (turned with it), instead of at (its middle)."""
+    model, findings = parse("name: m\nparts:\n  - cone: { base: [0, 1.0, 0], radius: 0.2, radius_top: 0, height: 0.4 }\n    color: red\n"
+                            "  - cylinder: { base: [0, 0, 0], radius: 0.1, height: 0.2, rotate: [90, 0, 0] }\n    color: red\n")  # fmt: skip
+    assert model is not None and not findings, findings
+    assert np.allclose(model.parts[0].geometry.at, [0, 1.2, 0]) and np.allclose(model.parts[1].geometry.at, [0, 0, 0.1])
+    _, findings = parse("name: m\nparts:\n  - sphere: { base: [0, 0, 0], radius: 0.2 }\n    color: red\n")
+    assert any(f.where == "parts[0].sphere.base" for f in findings)

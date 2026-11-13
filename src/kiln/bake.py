@@ -23,7 +23,7 @@ from PIL import Image
 
 from kiln.sdf import Array, Field
 
-PADDING = 8  # texels between UV charts: mip levels up to 3 don't bleed between them
+PADDING = 8  # texels between UV charts: mip levels up to 3 don't bleed between them (xatlas pads each side by half)
 GROW = 8  # texels the baked colours are grown past chart borders (into that padding)
 CHUNK = 200_000  # texels per field evaluation batch
 FLAT = (128, 128, 255)  # a texel no chart covers: the mesh normal as it is
@@ -75,6 +75,7 @@ class Bake:
     size: int  # the map is size x size texels, as asked for
     fit: float = 1.0  # under 1: the charts didn't fit the map and were squeezed in by this much (lint W125)
     layers: Layers | None = None  # a model with relief: what its base colour map is made of (color_png)
+    texel: float = 0.0  # metres per texel, the area-weighted mean over the surface as packed (lint W121, W133; #257)
 
     @property
     def width(self) -> int:
@@ -221,7 +222,7 @@ def _pack(xatlas: Any, size: int, texels_per_unit: float) -> Any:
     pack = xatlas.PackOptions()
     pack.resolution = size
     pack.texels_per_unit = texels_per_unit
-    pack.padding = PADDING
+    pack.padding = PADDING // 2  # xatlas pads every chart by this on each side, so two charts sit twice it apart (#257)
     pack.bilinear = True
     return pack
 
@@ -328,7 +329,8 @@ SUPERSAMPLE_COS = math.cos(math.radians(3))  # a texel whose own normal turns th
 
 def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, normals: Array, size: int, step: float,
          strength: float = 1.0, patches: Any = None, face_group: Array | None = None, face_on: Array | None = None,
-         fade: Any = None, progress: Any = None, occlusion: Array | None = None) -> Bake:  # fmt: skip
+         fade: Any = None, progress: Any = None, occlusion: Array | None = None,
+         map_paint: dict[int, list[tuple[Any, int]]] | None = None, face_part: Array | None = None) -> Bake:  # fmt: skip
     """Unwrap the mesh and bake into its tangent frames the normals of each face's own field (`face_field`: an index
     into `fields`, -1: the mesh normal as it is, e.g. exact hard parts). Each texel is filtered (#125): the normals
     at four points a quarter texel around its centre, averaged, each with a gradient step of half a texel, so detail
@@ -338,7 +340,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     layer over the surface, tilting the map by the slope of its height (scaled by `strength` too) and kept per texel
     in `Bake.layers` for the base colour map. `fade` (kiln.fade.Fade): colours fading across part borders, kept in
     the layers too. With a colour map, each texel's normal height and (`occlusion`: per vertex, 0..1) occlusion are
-    kept for shade paint per texel (#266)."""
+    kept for shade paint per texel (#266). `map_paint`: per part (index, with each face's part in `face_part`) its
+    patterns painted per texel, in order: (the pattern's function, its paint group) (#324)."""
     if progress is not None:  # the unwrap has its own counter, so the texels' estimate doesn't count it (#300)
         progress("baking maps: unwrapping", 0, 1)
     uv, fit = unwrap(vertices, faces, size)
@@ -360,6 +363,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     frame_y = np.zeros((width * height, 3), dtype=np.float16)  # per texel: the y of its tangent, bitangent and normal (#266)
     frame_y[:, 2] = 1.0
     fades: list[tuple[Array, ...]] = []  # texels near a colour border: (texel, point, face, normal)
+    painted: list[tuple[Array, ...]] = []  # texels of parts with patterns in the map: (texel, point, face)
+    paint_faces = np.isin(np.asarray(face_part), list(map_paint)) if map_paint and face_part is not None else None
     reliefs: list[tuple[Array, ...]] = []  # texels a patch may touch: (texel, point, normal, tangent, up, metres per texel, face)
     owner = np.asarray(face_field)[face]
     done, to_do = 0, int((owner >= 0).sum())
@@ -402,6 +407,9 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
             if fade is not None:
                 near = fade.touches(centre) & (off <= step)
                 fades.append((texel[rows][near], centre[near], f[near], n[near]))
+            if paint_faces is not None:
+                on = paint_faces[f]
+                painted.append((texel[rows][on], centre[on], f[on]))
             if patches is not None and len(patches):
                 near = patches.touches(centre) & (off <= step)
                 reliefs.append((texel[rows][near], centre[near], n[near], t[near], up[near], size_m[near], f[near]))
@@ -410,8 +418,17 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     filled = np.zeros(width * height, dtype=bool)
     filled[texel] = True
     layers = None
-    if (patches is not None or fade is not None) and face_group is not None:
+    if (patches is not None or fade is not None or paint_faces is not None) and face_group is not None:
         layers = _relief(patches, reliefs, out, face_group[face], texel, width * height, strength, face_on)
+        if painted and map_paint and face_part is not None:  # patterns per texel, each part's in order (#324)
+            tex, point, pface = (np.concatenate([r[k] for r in painted]) for k in range(3))
+            owner = np.asarray(face_part)[pface]
+            for part, pats in map_paint.items():
+                mine = owner == part
+                for fn, group in pats:
+                    hit = mine.copy()
+                    hit[mine] = np.asarray(fn(point[mine])) >= 0
+                    layers.group[tex[hit]] = group
         if fade is not None:
             layers.other = np.zeros(width * height, dtype=np.uint16)
             layers.mix = np.zeros(width * height, dtype=np.uint8)
@@ -438,7 +455,8 @@ def bake(fields: list[Field], face_field: Array, vertices: Array, faces: Array, 
     image = _grow(image, filled.reshape(height, width), GROW)
     buf = io.BytesIO()
     Image.fromarray(image, "RGB").save(buf, format="PNG", optimize=False)
-    return Bake(uv, tan, buf.getvalue(), size, fit, layers)
+    texel_m = float(np.sqrt(area.sum() / max(float(texels.sum()), 1e-12)))  # (both twice the areas: the ratio is m^2 per texel)
+    return Bake(uv, tan, buf.getvalue(), size, fit, layers, texel_m)
 
 
 def _relief(patches: Any, reliefs: list[tuple[Array, ...]], out: Array, group: Array, texel: Array, count: int, strength: float,

@@ -207,3 +207,77 @@ def test_eye_errors(project: Project) -> None:
     for hw in ("eye: { radius: 0.03 }", "eye: { at: [0, 0, 0.3], facing: [0, 0, 0] }", "eye: { at: [0, 0, 0.3], rim: 2 }", "eye: { at: [0, 0, 0.3], iris: 1 }"):
         errs = errors_of(project, base.replace("{hw}", hw))
         assert any("E003" in f.format() for f in errs), (hw, [f.format() for f in errs])
+
+
+def test_a_belt_hugs_hips_and_belly(project: Project) -> None:
+    """#316: band fit round a surface that isn't round (hips and a belly in front) hugs it as a fitted shell, not a
+    cylinder sized to the farthest point (a flange at the back); a barrel keeps its exact iron band."""
+    text = """\
+name: thing
+parts:
+  - ellipsoid: { at: [0, 0.5, 0], radii: [0.2, 0.25, 0.14] }
+    id: hips
+    color: wood
+  - sphere: { at: [0, 0.55, 0.08], radius: 0.13 }
+    id: belly
+    color: wood
+  - band: { fit: [hips, belly], at: [0, 0.55, 0], width: 0.05, thickness: 0.012 }
+    color: black
+"""
+    model, style = ok_model(project, text)
+    belt = model.parts[2]
+    assert belt.geometry.fit is not None and belt.geometry.shell == 0.012 and not belt.hard
+    built = build_model(model, style, palette=project.palette(None)[0])
+    p = built.painted
+    black = np.isin(p.face_group, [g for g, grp in enumerate(p.groups) if grp.color == "#141414"])
+    v = p.vertices[np.unique(p.faces[black])]
+    assert float(v[:, 2].min()) > -0.14 - 0.012 - 0.02  # no flange at the back
+    model, _ = ok_model(project, BARREL)
+    assert model.parts[1].geometry.shape == "cylinder" and model.parts[1].hard
+
+
+def test_chamfer_only_the_vertical_edges(project: Project) -> None:
+    """#345: bevel_edges: vertical rounds a thin seat's corners only (the chamfer limit is then its width, not its
+    thickness); the top and bottom faces stay whole squares to the edge."""
+    text = "name: thing\nparts:\n  - box: { at: [0, 0.02, 0], size: [0.5, 0.04, 0.5] }\n    color: wood\n    chamfer: 0.05\n    bevel_edges: vertical\n"
+    model, style = ok_model(project, text)
+    built = build_model(model, style, palette=project.palette(None)[0])
+    v = built.painted.vertices
+    top = v[np.isclose(v[:, 1], 0.04)]
+    assert np.isclose(np.abs(top[:, 0]).max(), 0.25) and not np.any(np.isclose(np.abs(top[:, 0]), 0.25) & np.isclose(np.abs(top[:, 2]), 0.25))  # corners cut
+    assert np.isclose(v[:, 1].max(), 0.04) and np.isclose(v[:, 1].min(), 0.0)  # top and bottom edges sharp: no band in y
+    side = v[np.isclose(np.abs(v[:, 0]), 0.25)]
+    assert np.isclose(side[:, 1].min(), 0.0) and np.isclose(side[:, 1].max(), 0.04)
+    assert errors_of(project, text.replace("vertical", "diagonal"))
+
+
+def test_a_bevelled_hard_lathe_ring(project: Project) -> None:
+    """#338: bevel and chamfer on a lathe round its outline's corners (a bezel ring with a lip), made hard."""
+    ring = "name: thing\nparts:\n  - lathe: { profile: [[0.3, 0], [0.4, 0], [0.4, 0.06], [0.3, 0.06], [0.3, 0]] }\n    color: grey\n    BEVEL\n"
+    model, style = ok_model(project, ring.replace("BEVEL", "chamfer: 0.015"))
+    assert model.parts[0].bevel == 0.015
+    built = build_model(model, style, palette=project.palette(None)[0])
+    v = built.painted.vertices
+    r = np.hypot(v[:, 0], v[:, 2])
+    top_outer = (np.isclose(v[:, 1], 0.06, atol=1e-6)) & (r > 0.39)
+    assert not top_outer.any()  # the outer top corner is cut back
+    assert np.isclose(r.max(), 0.4, atol=1e-3) and len(open_edges(v, built.painted.faces)) == 0
+
+
+def test_hard_flats_shade_flat_to_their_corners(project: Project) -> None:
+    """#335: a bevelled hard box's big flat flanks keep their own normal at every corner (only the bevel bands blend),
+    so long triangles across a flank shade no diagonal crease; a cylinder's equal sides still blend round."""
+    text = "name: thing\nparts:\n  - box: { at: [0, 0.3, 0], size: [0.8, 0.6, 0.4] }\n    color: wood\n    bevel: 0.03\n"
+    model, style = ok_model(project, text)
+    built = build_model(model, style, palette=project.palette(None)[0])
+    n = built.normals
+    tri = built.painted.vertices[built.painted.faces]
+    face_n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    face_n /= np.linalg.norm(face_n, axis=1, keepdims=True)
+    flank = face_n[:, 2] > 0.999  # the front face
+    assert flank.any() and np.allclose(n[flank], face_n[flank][:, None, :], atol=1e-6)
+    cyl = "name: thing\nparts:\n  - cylinder: { at: [0, 0.3, 0], radius: 0.3, height: 0.6, sides: 12 }\n    color: wood\n"
+    model, style = ok_model(project, cyl)
+    built = build_model(model, style, palette=project.palette(None)[0])
+    side = np.abs(built.normals[..., 1]) < 0.5
+    assert np.abs(built.normals[side] - built.normals[side].mean()).max() > 0  # (not every corner the same flat normal)

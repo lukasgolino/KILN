@@ -6,6 +6,100 @@ before 1.0).
 
 ## [Unreleased]
 
+### Added
+
+- `bevel` and `chamfer` on lathes: the outline's corners are rounded before it is spun (a bezel ring with a lip),
+  as a hard part (#338).
+- `bevel_edges: vertical | top | bottom | horizontal` picks the edges a bevel or chamfer rounds (a thin seat's corners
+  only) (#345).
+- Assemblies: `mount: { to, at, rotate }` on a model built to sit on another (a shared frame: no W106/W123 ground
+  checks; `mount` in the manifest), and `kiln preview <model> --with <others>` to see them together (#181).
+- `kiln fit <a> <b> [--at] [--rotate]`: does b fit a in their shared frame: overlap volume, how deep each goes into
+  the other, the smallest gap (a movement in its case, a crystal under its lip) (#341).
+- `base: [x, y, z]` places a cone or cylinder by its bottom centre (turned with it) instead of `at` (#332).
+- `kiln.api.transform(parts, rotate, about, translate, cut_only)` (positions, rotations, aims, array centres, decal
+  centres and axes; mirrors written out as pairs; scoped cuts), `kiln.api.surface_point()` on lathes and cones,
+  `from_=` for capsules, and a reference with signatures in `kiln docs api` (#172, #206, #346).
+- `kiln preview <model> --variants`: every variant side by side in one sheet, a row each (#330).
+- Palette-indexed textures (`texture: { rows, key }`) and generated pixel art in palette colours (`generate: brushed |
+  specks | scratches | grid | noise`), recoloured by variants (each such variant gets its own glb); lint W137: a
+  pixel-art image off the palette on a model with variants. Decals and textures moved to `kiln docs textures` (#325).
+- Patterns painted per texel into the base colour map (`paint: map`; by default pixel and dots patterns of a model
+  that bakes maps), so trims cost no triangles; error E016 when a substantial part (15% of the model across, not a
+  thin blade) vanishes to the budget (others stay W111) (#324).
+- Lint W136: a band, pixel or stripes pattern that paints nothing on its part; the docs say a pixel band's `at` is
+  from the part's own `at` (a lathe's origin) (#326).
+- Motif prints: `texture: { motif: { images, count, scale, rotate, seed } }` scatters multicolour stamps over a
+  seamless, seeded tile made in KILN (a floral shirt), tiled like any texture (#312).
+- Material `grain` and `grain_size` in a style: a fine bumpy finish in the normals (rough cloth, felt) without
+  geometry or triangles; a tiling noise normal map in KILN's Godot scenes, the same bumps in the previews (#329).
+- Named textures: `textures: { print: {...} }` at the top of a model, `texture: print` on each part; and
+  `project: triplanar` (box UVs in the glb; KILN's Godot scenes and the previews blend the three projections, so no
+  seam at a sleeve's side) (#320).
+- `kiln library <name>` prints a template's YAML; toy-proportioned templates `body_toy` and `head_toy` for
+  soft_toy characters (#188).
+- Garments: `collar: { style: band | open, height, depth, lapel }` (an open collar cuts a V and lays lapels on the
+  chest), `placket: { width, buttons, button_color }` down the front, V openings (`shape: v`), and `length:` for a
+  sleeve or trouser leg that runs along its limb and ends square and open (T-posed arms too) (#279).
+- `folds:` on a capsule or a tube run round its own axis (trouser legs, sleeves), and `bunch: true` stacks rings
+  along the axis (cloth bunched at an ankle); the compiled path has both (#315).
+- An `idle` cycle: breathing, a slow sway, the head glancing to either side, arms and elbows settling. KILN ships
+  KayKit's CC0 humanoid clips (26: idles, walks, runs, jumps, hits, deaths, throw, pick up): `kiln clips` lists
+  them, `kiln clips add` copies them with their licence into `imports/kaykit-animations/` (#150).
+
+### Fixed
+
+- Hard flat faces keep their own normal to every corner when their flat is clearly the biggest there (only bevel
+  bands blend), so long triangles across a flank no longer shade a diagonal crease; cavity shade on a sliver
+  triangle (a fan across a flat where parts rest) is evened out over it instead of streaking (#335).
+- Lint measures a scene with its instances placed (W108 size, W103 pieces joined by instances, the triangle line;
+  W110 holds the model's own parts to its budget); a scene may be instances only, without `parts:`; the docs say
+  `rotate` turns an instance about its origin before `at` (#333).
+- `kiln.api.offset()` moves mirrored parts as written-out pairs, a lathe's part-level `at` (not a second one), array
+  centres and decal centres (#172).
+- Scatter LODs of a model with a normal map (or colour map) keep their own maps instead of LOD 0's on their own
+  UVs (#259).
+- A part that fails to read no longer drags in rig E007 for its id; the docs say `sides` makes a part hard (#327).
+- `kiln.api.part(..., cut=True)` keeps `color` and `material` (they paint the cut's walls) (#344).
+- A cut accepts `id` and `mirror_id` (they name it; shared option sets in generators work) instead of E003; a
+  mirrored part's texture keeps its palette key (#153).
+- No raw numpy RuntimeWarnings in `kiln` output (lint workers too); degenerate hard normals are guarded (#339).
+- An instance's decals and textures come with it into the scene, turned with it (they were dropped); scaled
+  instances still leave them out. Shared meshes and maps through instances: #353 (#295).
+- Toon `outline_color = "darken"` previews take what Godot's outline takes: a glowing part's dimmed colour, vertex
+  colours and shade, and the colour map (#290, #292).
+- Godot variant scenes that recolour by the swap table cap and dim a recoloured glow as the glb does (standard and
+  toon), instead of keeping the source colour's strength (#288).
+- Small cut dots no longer vanish: the mesh refines down to the smallest dot, not the dot spacing (#283).
+- A `band` or `stripes` pattern with `frame: part` on a hard part painted nothing: it is cut along its planes in the
+  part's frame (#286).
+- Docs: textures over 256 px are filtered smoothly with mipmaps, uncapped; a cylindrical texture's v = 0 is at its
+  `at` (#321).
+- `band: { fit: ... }` round a surface that isn't round (a belt round hips and belly) hugs it as a fitted shell
+  instead of a cylinder sized to its farthest point (a flange at the back); `fit` takes a list of ids. Round ones
+  (barrels, posts) keep their exact hard ring (#316).
+- Lint W113 no longer flags intended overlaps with clothing: parts passing through a garment's hem, neck or
+  openings or an open shell's open side, and body parts another garment wraps (an arm through an armhole, the chest
+  under a sleeve) (#313).
+- The `wave` cycle on an arm with a forearm (humanoids) holds the upper arm out to the side and waves the forearm
+  from a bent elbow, whatever the rest pose, instead of raising the straight arm up by the head (#319).
+- `frames:` written on an animation instead of inside its `cycle:` now says where it goes (E008); the docs show it
+  inside the cycle (#318).
+
+### Changed
+
+- Under budget pressure hard parts lose their bevels a few at a time, the smallest first, after the chamfer step,
+  instead of all at once; lint W139 says when bevels went and what budget keeps them (#334).
+- UV charts in baked maps sit 8 texels apart as meant (they were 17: xatlas pads each side), so the maps hold more
+  detail; lint W121 and W133 use the bake's real texel size instead of assuming a half-full map (#257).
+- A model of hard parts only reports its hard part count instead of a mesh cell size in the lint and build
+  summaries, and lint `--json` lists no `cells` entry for it (#243).
+- The glow cap follows the look: divided by its `exposure`, and 1 (where it clips) instead of 0.75 under a linear
+  tone curve; previews cap per material from its flat colour, as the glb does; lint W138 for an emission above its
+  colour's cap (#290).
+- Lint W123 (the mesh dips under the ground) names the part that dips, where, and by how much, on that part's line
+  (#195).
+
 ## [0.25.0] - 2026-11-13
 
 Iteration speed and the hero skin look (milestones 0.24 and 0.25; 0.24 was not released on its own). A colour or

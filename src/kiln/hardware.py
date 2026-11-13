@@ -15,7 +15,7 @@ HARDWARE = ("rivets", "band", "planks", "bolt", "slit", "garment", "hand", "foot
 AXES = {"x": 0, "y": 1, "z": 2}
 HELP = {
     "rivets": "rivets: { count: 8, along: [[x, y, z], ...] (a path, model space) or around: { center: [x, y, z], radius, axis: y }, size: 0.03 }",
-    "band": "band: { at: [x, y, z], radius (or fit: <part id>: its surface there), width, thickness, axis: y, sides }",
+    "band": "band: { at: [x, y, z], radius (or fit: <part id> or [ids]: their surface there; hugs it where it isn't round), width, thickness, axis: y, sides }",
     "planks": "planks: { size: [x, y, z], count, gap, axis: x (side by side along it), jitter: 0.1, seed: 1 } (with at, rotate)",
     "bolt": "bolt: { at: [x, y, z], radius, length, sides: 6 } (a hex head along y; rotate it)",
     "slit": "slit: { at: [x, y, z], size: [w, h, d] } (a cut: visors, arrow slits)",
@@ -52,10 +52,16 @@ def _axis_rotate(axis: str) -> list[float]:
 def _surface_radius(parts: list[Geometry], centre: np.ndarray, axis: int, half_width: float) -> float:
     """How far the parts' surface is from the axis line through `centre`: the most, over a ring of directions and
     the band's width (so a band sits on a barrel's bulge)."""
+    return max(_surface_radii(parts, centre, axis, half_width), default=0.0)
+
+
+def _surface_radii(parts: list[Geometry], centre: np.ndarray, axis: int, half_width: float) -> list[float]:
+    """Per direction round the axis (16), the farthest the parts' surface is from it over the band's width."""
     others = [a for a in range(3) if a != axis]
-    best = 0.0
-    for along in (-half_width, 0.0, half_width):
-        for k in range(16):
+    out = []
+    for k in range(16):
+        best = 0.0
+        for along in (-half_width, 0.0, half_width):
             t = 2 * math.pi * k / 16
             direction = np.zeros(3)
             direction[others[0]], direction[others[1]] = math.cos(t), math.sin(t)
@@ -70,15 +76,44 @@ def _surface_radius(parts: list[Geometry], centre: np.ndarray, axis: int, half_w
                 # between the last inside sample and the first outside one
                 r0, r1, d0, d1 = radii[i - 1], radii[i], d[i - 1], d[i]
                 best = max(best, float(r0 + (r1 - r0) * (-d0) / (d1 - d0)))
-    return best
+        out.append(best)
+    return out
+
+
+GARMENT_KEYS = ("fit", "gap", "thickness", "from_y", "to_y", "hem", "openings", "length", "collar", "placket")
+V_ROTATE = [0.0, 90.0, 180.0]  # a wedge turned so its triangle is in the xy plane, apex down, run along z (a V opening)
+
+
+def _limb_axis(g: Geometry) -> tuple[np.ndarray, np.ndarray] | None:
+    """A capsule's or tube's axis ends (model space), or None."""
+    if g.shape == "capsule":
+        return np.asarray(g.params["from"], float) + g.at, np.asarray(g.params["to"], float) + g.at
+    if g.shape in ("tube", "lock"):
+        pts = np.asarray(g.params["points"], float)
+        return pts[0] + g.at, pts[-1] + g.at
+    return None
+
+
+def _surface_along(parts: list[Geometry], base: np.ndarray, direction: np.ndarray) -> float | None:
+    """How far from `base` along `direction` the parts' surface is (the first crossing out), or None."""
+    radii = np.linspace(0.0, 2.0, 801)
+    d = np.min([g.distance(base + radii[:, None] * direction) for g in parts], axis=0)
+    outside = np.flatnonzero(d > 0)
+    if not len(outside) or outside[0] == 0:
+        return None
+    i = int(outside[0])
+    r0, r1, d0, d1 = radii[i - 1], radii[i], d[i - 1], d[i]
+    return float(r0 + (r1 - r0) * (-d0) / (d1 - d0))
 
 
 def _garment(spec: dict[str, Any], rest: dict[str, Any], earlier: list[tuple[str, Geometry]]) -> tuple[list[dict[str, Any]], str | None]:
     """A layer of clothing (#193): a box over the wrapped parts between from_y and to_y, a shell `thickness` thick
     fitted `gap` off their surface (open where the box ends: hem, neck and cuffs), a second, thicker band at the hem,
-    and `openings` cut through the garment alone (a placket, a neckline)."""
-    keys = ("fit", "gap", "thickness", "from_y", "to_y", "hem", "openings")
-    if any(k not in keys for k in spec):
+    and `openings` cut through the garment alone (a placket, a neckline; `shape: v` a V). `length` (#279): a sleeve
+    or trouser leg along its limb's axis, ending square and open at that share of it; `collar` a fitted band round
+    the neck (`style: open`: cut in a V at the front, with lapels lying on the chest); `placket` a raised strip with
+    buttons down the front. Every piece is a fitted shell, so it hugs the body."""
+    if any(k not in GARMENT_KEYS for k in spec):
         return [], HELP["garment"]
     ids = spec.get("fit")
     ids = [ids] if isinstance(ids, str) else ids
@@ -91,38 +126,130 @@ def _garment(spec: dict[str, Any], rest: dict[str, Any], earlier: list[tuple[str
         return [], f"garment fit: no earlier part has id {', '.join(ids)} (it wraps parts listed before it)"
     boxes = [g.bounds() for g in wrapped]
     lo, hi = np.min([b[0] for b in boxes], axis=0), np.max([b[1] for b in boxes], axis=0)
-    y0, y1 = spec.get("from_y", float(lo[1])), spec.get("to_y", float(hi[1]))
-    if not _num(y0) or not _num(y1) or y1 <= y0:
-        return [], "garment from_y and to_y are its hem's and its top's height in metres (from_y < to_y)"
     room = float(gap) + float(thick) + 0.02  # the box reaches past the wall all round, except at its hem and top
-    centre = [(lo[0] + hi[0]) / 2, (y0 + y1) / 2, (lo[2] + hi[2]) / 2]
-    size = [float(hi[0] - lo[0]) + 2 * room, float(y1 - y0), float(hi[2] - lo[2]) + 2 * room]
     dropped = [k for k in ("at", "rotate", "hard") if k in rest]
     if dropped:
         return [], f"garment takes no {', '.join(dropped)}: it sits on the parts it fits (from_y, to_y give its extent; it is soft cloth)"
     garment_id = rest.get("id")
-    out: list[dict[str, Any]] = [{**rest, "box": {"at": [float(v) for v in centre], "size": size}, "shell": float(thick),
-                                   "fit": {"to": list(ids), "gap": float(gap)}}]  # fmt: skip
+    fitted = {"to": list(ids), "gap": float(gap)}
+    length = spec.get("length")
+    if length is not None:  # a sleeve or a trouser leg along its limb, cut square at `length` of it (#279)
+        if not _num(length) or not 0 < length <= 1 or "from_y" in spec or "to_y" in spec:
+            return [], "garment length is the share of its limb it covers (0-1, e.g. 0.6: a short sleeve), instead of from_y / to_y"
+        axes = [ax for g in wrapped if (ax := _limb_axis(g)) is not None]
+        if not axes:
+            return [], "garment length runs along a limb: fit a capsule or tube (an upper arm, a leg) first"
+        middle = np.array([(b[0] + b[1]) / 2 for _, g in earlier for b in [g.bounds()]]).mean(axis=0)
+        first, last = axes[0], axes[-1]
+        start = first[0] if np.linalg.norm(first[0] - middle) <= np.linalg.norm(first[1] - middle) else first[1]
+        end = last[1] if np.linalg.norm(last[1] - start) >= np.linalg.norm(last[0] - start) else last[0]
+        along = end - start
+        span = float(np.linalg.norm(along))
+        u = along / max(span, 1e-9)
+        top, cuff = -room, float(length) * span
+        centre_along = start + u * (top + cuff) / 2
+        corners = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])
+        reach = float(np.linalg.norm(np.cross(corners - start, u), axis=1).max()) + room
+        turn = _euler(_y_onto(u))
+        out: list[dict[str, Any]] = [{**rest, "box": {"at": [float(v) for v in centre_along], "size": [2 * reach, cuff - top, 2 * reach], "rotate": turn},
+                                      "shell": float(thick), "fit": fitted}]  # fmt: skip
+        return out, None
+    y0, y1 = spec.get("from_y", float(lo[1])), spec.get("to_y", float(hi[1]))
+    if not _num(y0) or not _num(y1) or y1 <= y0:
+        return [], "garment from_y and to_y are its hem's and its top's height in metres (from_y < to_y)"
+    centre = [(lo[0] + hi[0]) / 2, (y0 + y1) / 2, (lo[2] + hi[2]) / 2]
+    size = [float(hi[0] - lo[0]) + 2 * room, float(y1 - y0), float(hi[2] - lo[2]) + 2 * room]
+    out = [{**rest, "box": {"at": [float(v) for v in centre], "size": size}, "shell": float(thick), "fit": fitted}]
     if hem > 0:
         band = min(float(hem) * 2, size[1])
         out.append({**rest, "box": {"at": [float(centre[0]), float(y0 + band / 2), float(centre[2])], "size": [size[0], band, size[2]]},
-                    "shell": float(thick) * 1.8, "fit": {"to": list(ids), "gap": float(gap)}})  # fmt: skip
+                    "shell": float(thick) * 1.8, "fit": fitted})  # fmt: skip
+    cuts: list[dict[str, Any]] = []
     openings = spec.get("openings", [])
     if not isinstance(openings, list):
         return [], HELP["garment"]
     for k, o in enumerate(openings):
         at, osize = (_vec(o.get("at")), _vec(o.get("size"))) if isinstance(o, dict) else (None, None)
-        if at is None or osize is None or min(osize) <= 0 or any(key not in ("at", "size") for key in o):
-            return [], f"garment openings[{k}] is {{ at: [x, y, z], size: [w, h, d] }} (cut through the garment)"
+        if at is None or osize is None or min(osize) <= 0 or any(key not in ("at", "size", "shape") for key in o) or o.get("shape", "box") not in ("box", "v"):
+            return [], f"garment openings[{k}] is {{ at: [x, y, z], size: [w, h, d], shape: box | v }} (cut through the garment; a V: w wide at its top)"
+        if o.get("shape") == "v":
+            cuts.append({"wedge": {"at": at, "size": [osize[2], osize[1], osize[0]], "rotate": V_ROTATE}})
+        else:
+            cuts.append({"box": {"at": at, "size": osize}})
+    front = np.array([0.0, 0.0, 1.0])
+    base_y = float(y1)
+
+    def surface_z(x: float, y: float) -> float | None:
+        r = _surface_along(wrapped, np.array([x, y, centre[2]]), front)
+        return None if r is None else float(centre[2]) + r
+
+    collar = spec.get("collar")
+    if collar is not None:
+        if not isinstance(collar, dict) or any(k not in ("style", "height", "fit", "lapel", "depth") for k in collar) or collar.get("style", "band") not in ("band", "open") \
+                or not _num(collar.get("height", 0.04)) or collar.get("height", 0.04) <= 0 or not _num(collar.get("lapel", 0.05)) or collar.get("lapel", 0.05) < 0 \
+                or not _num(collar.get("depth", 0.18)) or collar.get("depth", 0.18) <= 0:
+            return [], ("garment collar is { style: band | open (a V at the front with lapels), height: 0.04, fit: neck (what it rounds; default: "
+                        "neck, else head), depth: 0.18 (an open collar's V), lapel: 0.05 (its lapels' width; 0: none) }")  # fmt: skip
+        neck = collar.get("fit", next((n for n in ("neck", "head") if any(pid == n for pid, _ in earlier)), None))
+        neck_ids = [neck] if isinstance(neck, str) else neck
+        if not isinstance(neck_ids, list) or not neck_ids or not any(pid in neck_ids for pid, _ in earlier):
+            return [], "garment collar fit: name the earlier part(s) it goes round (a neck or head id)"
+        height = float(collar.get("height", 0.04))
+        out.append({**rest, "box": {"at": [float(centre[0]), base_y + height / 2 - 0.005, float(centre[2])], "size": [size[0], height + 0.01, size[2]]},
+                    "shell": float(thick), "fit": {"to": list(neck_ids) + list(ids), "gap": float(gap) + float(thick) * 0.5}})  # fmt: skip
+        if collar.get("style") == "open":
+            depth = float(collar.get("depth", 0.18))
+            wide = depth * 0.7
+            z = surface_z(float(centre[0]), base_y - depth / 2)
+            if z is None:
+                return [], "garment collar: no front surface under the neck to open (the fitted parts don't reach the front there)"
+            cuts.append({"wedge": {"at": [float(centre[0]), base_y + height - depth / 2, z], "size": [0.3, depth + height, wide], "rotate": V_ROTATE}})
+            lapel = float(collar.get("lapel", 0.05))
+            if lapel > 0:  # a flap along each edge of the V, lying on the chest (a fitted shell over the garment)
+                edge = float(np.hypot(wide / 2, depth + height))
+                tilt = math.degrees(math.atan2(wide / 2, depth + height))
+                for sgn in (-1.0, 1.0):
+                    mid = [float(centre[0]) + sgn * (wide / 4 + lapel / 2), base_y + height - (depth + height) / 2, z]
+                    out.append({**rest, "box": {"at": mid, "size": [lapel, edge, 2 * room], "rotate": [0.0, 0.0, sgn * tilt]},
+                                "shell": float(thick), "fit": {"to": list(ids), "gap": float(gap) + float(thick)}})  # fmt: skip
+    placket = spec.get("placket")
+    if placket is not None:
+        if not isinstance(placket, dict) or any(k not in ("width", "buttons", "button_color", "from_y", "to_y") for k in placket) \
+                or not _num(placket.get("width", 0.03)) or placket.get("width", 0.03) <= 0 or not isinstance(placket.get("buttons", 5), int) \
+                or isinstance(placket.get("buttons", 5), bool) or not 0 <= placket.get("buttons", 5) <= 20:
+            return [], "garment placket is { width: 0.03, buttons: 5 (0-20), button_color, from_y, to_y (default: the garment's) } down the front"
+        p0, p1 = float(placket.get("from_y", y0)), float(placket.get("to_y", y1))
+        width = float(placket.get("width", 0.03))
+        zc = surface_z(float(centre[0]), (p0 + p1) / 2)
+        if zc is None:
+            return [], "garment placket: no front surface at the garment's middle"
+        out.append({**rest, "box": {"at": [float(centre[0]), (p0 + p1) / 2, zc], "size": [width, p1 - p0, 2 * room]},
+                    "shell": float(thick), "fit": {"to": list(ids), "gap": float(gap) + float(thick)}})  # fmt: skip
+        count = int(placket.get("buttons", 5))
+        for i in range(count):
+            y = p1 - (i + 0.5) * (p1 - p0) / count
+            zb = surface_z(float(centre[0]), y)
+            if zb is None:
+                continue
+            button = {k: v for k, v in rest.items() if k not in ("color", "material", "id", "mirror", "mirror_id")}
+            if garment_id is not None:
+                button["id"] = garment_id
+            button["color"] = placket.get("button_color", rest.get("color"))
+            r = width * 0.28
+            out.append({**button, "sphere": {"at": [float(centre[0]), y, zb + float(gap) + float(thick) * 1.6 + r * 0.3], "radius": r}, "scale": [1, 1, 0.5]})
+    if cuts:
         if not isinstance(garment_id, str) or garment_id in ids:
             return [], ("garment openings cut the garment alone: give it an id of its own (e.g. id: shirt), not one of the parts it "
                         "fits (the cut would open those too)")  # fmt: skip
-        out.append({"box": {"at": at, "size": osize}, "cut": garment_id})
         twin, axis = rest.get("mirror_id"), rest.get("mirror")
-        if isinstance(twin, str) and isinstance(axis, str) and axis.lstrip("+-") in AXES:  # the mirrored garment's opening too
-            flipped = list(at)
-            flipped[AXES[axis.lstrip("+-")]] *= -1
-            out.append({"box": {"at": flipped, "size": osize}, "cut": twin})
+        for c in cuts:
+            out.append({**c, "cut": garment_id})
+            if isinstance(twin, str) and isinstance(axis, str) and axis.lstrip("+-") in AXES:  # the mirrored garment's opening too
+                shape = next(iter(c))
+                flipped = dict(c[shape])
+                flipped["at"] = list(flipped["at"])
+                flipped["at"][AXES[axis.lstrip("+-")]] *= -1
+                out.append({shape: flipped, "cut": twin})
     return out, None
 
 
@@ -189,12 +316,21 @@ def expand(kind: str, spec: Any, raw: dict[str, Any], earlier: list[tuple[str, G
                 or any(k not in ("at", "rotate", "radius", "fit", "width", "thickness", "axis", "sides") for k in spec):
             return [], HELP[kind]
         if "fit" in spec:
-            parts = [g for pid, g in earlier if pid == spec["fit"]]
+            ids = [spec["fit"]] if isinstance(spec["fit"], str) else spec["fit"]
+            if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+                return [], HELP[kind]
+            parts = [g for pid, g in earlier if pid in ids]
             if not parts:
-                return [], f"band fit: no earlier part has id {spec['fit']!r} (the band goes around its surface)"
-            radius = _surface_radius(parts, np.asarray(at), AXES[axis], float(width) / 2)
+                return [], f"band fit: no earlier part has id {', '.join(map(str, ids))} (the band goes around its surface)"
+            radii = _surface_radii(parts, np.asarray(at), AXES[axis], float(width) / 2)
+            radius = max(radii)
             if radius <= 0:
-                return [], f"band fit: the axis through {at} isn't inside part {spec['fit']!r}"
+                return [], f"band fit: the axis through {at} isn't inside part {', '.join(map(str, ids))}"
+            if radius - min(radii) > max(float(thick), 0.005):  # not round (a belt round hips and belly): hug the surface (#316)
+                rest.pop("hard", None)
+                room = 2 * (radius + float(thick) + 0.02)
+                slab = {"at": at, "size": [room, float(width), room], "rotate": _axis_rotate(axis)}
+                return [{**rest, "box": slab, "shell": float(thick), "fit": {"to": ids, "gap": 0.0}}], None
         elif _num(_get(spec, "radius")) and spec["radius"] > 0:
             radius = float(spec["radius"])
         else:

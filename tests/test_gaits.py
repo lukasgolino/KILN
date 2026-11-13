@@ -115,3 +115,35 @@ def test_wave_raises_a_humanoids_arm(project: Project) -> None:
     model, _, _ = load(project, CYCLES.replace("  walk: { fps: 12, cycle: { type: walk } }", "  hi: { fps: 8, cycle: { type: wave } }"))
     assert model is not None
     assert all(set(f) == {"upperarm_r"} for f in animation_poses(model.animations["hi"], model))
+
+
+def test_idle_breathes_sways_glances_and_settles(project: Project) -> None:
+    """#150: an idle cycle with life: the chest breathes and sways, the head looks aside, arms and elbows settle."""
+    text = HERO.split("animations:")[0] + "animations:\n  idle: { fps: 8, cycle: { type: idle, frames: 24 } }\n"
+    model, _, findings = load(project, text)
+    assert model is not None and not [f for f in findings if f.severity == "error"], findings
+    frames = animation_poses(model.animations["idle"], model)
+    assert len(frames) == 24
+    chest = [f["chest"].scale[1] for f in frames]
+    look = [f["head"].rotate[1] for f in frames]
+    assert max(chest) > 1.01 and min(chest) < 0.99 and max(look) > 8 and min(look) < -8
+    assert all({"upperarm_l", "upperarm_r", "lowerarm_l"} <= set(f) for f in frames)
+
+
+def test_a_humanoid_wave_holds_the_arm_out_and_bends_the_elbow(project: Project) -> None:
+    """#319: the upper arm out to the side (not straight up by the head), the forearm up, waving from the elbow."""
+    text = HERO.split("animations:")[0] + "animations:\n  wave: { fps: 12, cycle: { type: wave } }\n"
+    built = lint_paths(project, [write_model(project, text)]).built["thing"]
+    sk = built.skeleton
+    pos, _ = posed(built, [t.name for t in built.tracks].index("wave"), 0)
+    p = built.painted
+    bones = np.array([p.groups[g].bone for g in p.face_group])
+
+    def centre(part: str) -> np.ndarray:
+        return np.asarray(pos[bones == part].reshape(-1, 3).mean(axis=0))
+
+    shoulder = sk.bones[sk.index("upperarm_r")].pivot
+    elbow, hand = centre("lowerarm_r"), centre("hand_r")
+    upper = centre("upperarm_r") - shoulder
+    assert -40 < math.degrees(math.atan2(upper[1], abs(upper[0]))) < 20  # out to the side near shoulder height (raise 80), not up by the head
+    assert hand[1] > elbow[1] + 0.1 and hand[1] > shoulder[1]  # forearm up

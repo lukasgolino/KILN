@@ -96,3 +96,72 @@ def test_an_id_clash_with_openings_and_dropped_fields_are_errors(project: Projec
     for extra in ("    rotate: [0, 10, 0]\n", "    hard: true\n"):
         _, _, findings = load(project, TORSO.replace("    id: shirt\n", "    id: shirt\n" + extra))
         assert any("garment takes no" in f.message for f in findings), (extra, findings)
+
+
+def test_w113_quiet_on_openings_and_worn_parts_but_not_a_real_poke(project: Project) -> None:
+    """#313: a head through a garment's open neck, an arm in its own sleeve through the side: intended. A spike through
+    the shirt's wall still warns."""
+    head = "  - sphere: { at: [0, 1.42, 0], radius: 0.16 }\n    id: head\n    color: wood\n    blend: 0.03\n"
+    arm = ("  - capsule: { from: [0.12, 1.12, 0], to: [0.55, 0.95, 0], radius: 0.07 }\n    id: arm\n    color: wood\n    blend: 0.03\n"
+           "  - garment: { fit: [arm], gap: 0.008, thickness: 0.02, hem: 0 }\n    id: sleeve\n    color: blue\n")  # fmt: skip
+    text = TORSO.replace("  - garment:", head + arm + "  - garment:", 1)
+    rules = [f for f in lint_paths(project, [write_model(project, text)]).findings if f.rule == "W113"]
+    assert not rules, [f.format() for f in rules]
+    spike = "  - cone: { aim: [[0.1, 0.85, 0.1], [0.2, 0.85, 0.4]], radius: 0.04 }\n    color: wood\n"
+    rules = [f for f in lint_paths(project, [write_model(project, text + spike)]).findings if f.rule == "W113"]
+    assert rules, "a cone through the shirt's front wall"
+
+
+SHIRT = """\
+name: thing
+resolution: 0.008
+budget: 12000
+parts:
+  - ellipsoid: { at: [0, 1.25, 0], radii: [0.2, 0.28, 0.13] }
+    id: chest
+    color: wood
+  - capsule: { from: [0, 1.5, 0], to: [0, 1.62, 0], radius: 0.06 }
+    id: neck
+    color: wood
+    blend: 0.03
+  - capsule: { from: [0.17, 1.42, 0], to: [0.7, 1.42, 0], radius: 0.055 }
+    id: upperarm_l
+    color: wood
+    blend: 0.04
+  - garment: { fit: [chest], gap: 0.008, thickness: 0.016, from_y: 1.0, to_y: 1.5, collar: { style: open, height: 0.035, depth: 0.16, lapel: 0.045 },
+               placket: { width: 0.03, buttons: 4, button_color: black, to_y: 1.3 } }
+    id: shirt
+    color: blue
+  - garment: { fit: [upperarm_l], gap: 0.006, thickness: 0.016, hem: 0, length: 0.5 }
+    id: sleeve
+    color: blue
+"""
+
+
+def test_collar_lapels_placket_and_a_short_open_sleeve(project: Project) -> None:
+    """#279: an open collar (a V cut, a band round the neck, two lapels), a placket with buttons, and a T-posed sleeve
+    that ends square and open half way down the arm."""
+    model, _, findings = load(project, SHIRT)
+    assert model is not None and not [f for f in findings if f.severity == "error"], findings
+    shirt = [p for p in model.parts if p.id == "shirt"]
+    assert sum(1 for p in shirt if p.geometry.op == "add" and p.geometry.shape == "sphere") == 4  # buttons
+    assert any(p.geometry.shape == "wedge" and p.geometry.op == "cut" for p in model.parts)  # the V
+    built = lint_paths(project, [write_model(project, SHIRT)]).built["thing"]
+    p = built.painted
+    blue = np.isin(p.face_group, [g for g, grp in enumerate(p.groups) if grp.color_name.split("#")[0] == "blue"])
+    v = p.vertices[np.unique(p.faces[blue])]
+    arm = v[(v[:, 0] > 0.3)]
+    assert float(arm[:, 0].max()) < 0.17 + 0.53 * 0.5 + 0.03  # the sleeve stops half way, not over the hand's end
+    wood = ~blue & ~np.isin(p.face_group, [g for g, grp in enumerate(p.groups) if grp.color_name.split("#")[0] == "black"])
+    assert float(p.vertices[np.unique(p.faces[wood])][:, 0].max()) > 0.7  # the arm shows past the cuff (open, no dome)
+    black = np.isin(p.face_group, [g for g, grp in enumerate(p.groups) if grp.color_name.split("#")[0] == "black"])
+    assert black.sum() > 20
+
+
+def test_bad_collar_placket_length_and_v(project: Project) -> None:
+    for bad in ("collar: { style: wing }", "placket: { buttons: 99 }", "length: 2", "openings: [{ at: [0, 1.3, 0.1], size: [0.1, 0.1, 0.1], shape: star }]"):
+        text = SHIRT.replace("collar: { style: open, height: 0.035, depth: 0.16, lapel: 0.045 },", bad + ",")
+        if "placket" in bad:
+            text = SHIRT.replace("placket: { width: 0.03, buttons: 4, button_color: black, to_y: 1.3 }", "placket: { buttons: 99 }")
+        _, _, findings = load(project, text)
+        assert any(f.severity == "error" and "garment" in f.message for f in findings), (bad, findings)

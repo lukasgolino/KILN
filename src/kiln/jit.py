@@ -65,7 +65,7 @@ class Packed:
     noise_total: float
     scale: Array  # (3,) stretch in the part's frame (ones: none)
     has_scale: bool
-    folds: Array  # (6,) count, depth, from_y, to_y, sharp, base y (count 0: none), as sdf.folds (#281)
+    folds: Array  # (19,) count, depth, from_y, to_y, sharp, base y, bunch, axis (count 0: none), as sdf.folds (#281, #315)
 
 
 def set_threads(n: int) -> None:
@@ -148,10 +148,16 @@ def pack(g: Geometry) -> Packed:
                     -1 if g.open is None else int(g.open[0]), 0.0 if g.open is None else float(g.open[1]),
                     g.open_plane() if g.open is not None else 0.0, float(g.shell), g.shell_side == "in", float(amount),
                     dirs, phase, freq, weight, float(total), np.ones(3) if g.scale is None else np.asarray(g.scale, float),
-                    g.scale is not None, np.zeros(6) if g.folds is None else
-                    np.array([g.folds.count, g.folds.depth, g.folds.from_y, g.folds.to_y, g.folds.sharp, float(g.at[1])], float))  # fmt: skip
+                    g.scale is not None, np.zeros(19) if g.folds is None else _fold_pack(g))  # fmt: skip
     object.__setattr__(g, "_packed", packed)
     return packed
+
+
+def _fold_pack(g: Geometry) -> Array:
+    assert g.folds is not None
+    out = g.folds.frame()
+    out[5] = float(g.at[1])
+    return out
 
 
 def _table(geoms: list[Geometry]) -> tuple[Any, ...]:
@@ -446,14 +452,30 @@ if AVAILABLE:  # module-level functions: numba caches them on disk (nested ones 
             if has_scale[i]:
                 lx, ly, lz = lx / scale[i, 0], ly / scale[i, 1], lz / scale[i, 2]
             d = shape(kind[i], lx, ly, lz, prm, pts, aux)
-            if fold[i, 0] > 0.0:  # cloth folds round the copy's own axis, before the shell (sdf.folds, #281)
+            if fold[i, 0] > 0.0:  # cloth folds round the copy's own axis, before the shell (sdf.folds, #281, #315)
                 count, depth, from_y, to_y, sharp, base_y = fold[i, 0], fold[i, 1], fold[i, 2], fold[i, 3], fold[i, 4], fold[i, 5]
-                r = math.sqrt(lx * lx + lz * lz)
-                wave = 0.5 - 0.5 * math.cos(count * math.atan2(lz, lx))
-                profile = 1.0 - (1.0 - wave) ** (1.0 + 2.0 * sharp)
+                dx, dy, dz = fold[i, 10], fold[i, 11], fold[i, 12]
+                if dx != 0.0 or dy != 0.0 or dz != 0.0:  # a capsule's or tube's own axis
+                    px, py, pz = lx - fold[i, 7], ly - fold[i, 8], lz - fold[i, 9]
+                    ss = min(max((px * dx + py * dy + pz * dz) / max(dx * dx + dy * dy + dz * dz, 1e-18), 0.0), 1.0)
+                    rx, ry, rz = px - ss * dx, py - ss * dy, pz - ss * dz
+                    r = math.sqrt(rx * rx + ry * ry + rz * rz)
+                    theta = math.atan2(rx * fold[i, 16] + ry * fold[i, 17] + rz * fold[i, 18], rx * fold[i, 13] + ry * fold[i, 14] + rz * fold[i, 15])
+                    height = base_y + fold[i, 8] + ss * dy
+                else:
+                    r = math.sqrt(lx * lx + lz * lz)
+                    theta = math.atan2(lz, lx)
+                    height = base_y + ly
                 span = to_y - from_y
-                tt = min(max((base_y + ly - from_y) / span, 0.0), 1.0) if span != 0.0 else 0.0
-                d = d + min(depth, 0.25 * 2.0 * math.pi * r / count) * (1.0 - tt) ** 1.5 * profile
+                if fold[i, 6] > 0.0:  # bunched: rings along the axis
+                    wave = 0.5 - 0.5 * math.cos(2.0 * math.pi * count * (height - from_y) / span) if span != 0.0 else 0.0
+                    cap = 0.25 * span / count
+                else:
+                    wave = 0.5 - 0.5 * math.cos(count * theta)
+                    cap = 0.25 * 2.0 * math.pi * r / count
+                profile = 1.0 - (1.0 - wave) ** (1.0 + 2.0 * sharp)
+                tt = min(max((height - from_y) / span, 0.0), 1.0) if span != 0.0 else 0.0
+                d = d + min(depth, cap) * (1.0 - tt) ** 1.5 * profile
             if has_scale[i]:
                 d = d * shrink
             if oa >= 0:

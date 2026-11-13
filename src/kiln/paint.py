@@ -413,12 +413,14 @@ def corner_uv(d: Decal, corners: Array) -> Array:
     flat = corners.reshape(-1, 3)
     if d.project == "planar":
         return decal_uv(d, flat).reshape(-1, 3, 2)
+    if d.copy is not None:  # a placed copy (an instance, #295): its points back in the frame the texture was made in
+        corners = _copy_of(d).to_local(flat).reshape(-1, 3, 3)
     rel = corners - np.array(d.at)
     normal = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
     normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
     dominant = np.argmax(np.abs(normal), axis=1)
     sign = np.where(normal[np.arange(len(normal)), dominant] >= 0, 1.0, -1.0)
-    if d.project == "box":
+    if d.project in ("box", "triplanar"):  # (triplanar: box UVs in the glb; KILN's Godot scenes and previews blend three)
         return _box_uv(d, rel.reshape(-1, 3), np.repeat(dominant, 3), np.repeat(sign, 3)).reshape(-1, 3, 2)
     a = "xyz".index(d.axis)
     b, c = (a + 1) % 3, (a + 2) % 3
@@ -641,8 +643,11 @@ def _patterns(
         # paint the same colours (every tuft with the same gradient), so "owner in own" would take theirs too (#131)
         mine = owner == g
         for pat in part.patterns:
-            fn = _pattern_fn(pat, part.geometry)
             own = [g, *pattern_groups.get(g, ())]  # a later pattern paints over the earlier ones' colours too
+            if pat.in_map and not flat:  # painted per texel in the colour map (#324): only its colour group, no cuts
+                owner = _paint_alt(owner, own, np.zeros(len(owner), dtype=bool), pat, part, g, groups, group_index, pattern_groups)
+                continue
+            fn = _pattern_fn(pat, part.geometry)
             if not mine.any():
                 break
             borders = _border_planes(pat, vertices[np.unique(faces[mine])], part.geometry) if flat else None
@@ -659,6 +664,8 @@ def _patterns(
             # along its borders to cut them cleanly; areas between borders stay coarse (the budget). A gradient's band
             # runs one way (its coordinate only grows along the part), so its border pass is enough.
             cell = pixel_cell(pat, part.geometry) if pat.type == "pixel" else pat.size
+            if pat.type == "dots":  # (#283) edges down to the smallest dot, or one with no vertex inside never shows
+                cell = max(pat.size * pat.width * (1 - pat.vary), pat.size / 8)
             passes = [(cell / 2 if pat.type != "band" else pat.size, False), (cell / 4, True)]
             for limit, border_only in passes[1:] if pat.type == "along" else passes:
                 for _ in range(12):
@@ -716,8 +723,23 @@ def _border_planes(pat: Pattern, points: Array, geometry: Geometry | None = None
     if pat.type == "along" and any(pat.axis) and geometry is not None and len(geometry.copies) == 1 and not geometry.mirror \
             and not geometry.twist:  # fmt: skip
         return [_along_fn(pat, geometry)]
-    if pat.frame == "part" or pat.type not in ("band", "stripes"):
+    if pat.type not in ("band", "stripes"):
         return None
+    if pat.frame == "part":  # (#286) planes in the part's frame: affine in model space for one plain copy
+        if geometry is None or len(geometry.copies) != 1 or geometry.mirror or geometry.twist or geometry.scale is not None:
+            return None
+        from kiln.uv import local
+
+        model_frame = replace(pat, frame="model")
+        planes = _border_planes(model_frame, local(geometry, points))
+        if planes is None:
+            return None
+        g = geometry
+
+        def through(f: Callable[[Array], Array]) -> Callable[[Array], Array]:
+            return lambda x: f(local(g, x))
+
+        return [through(f) for f in planes]
     axis = np.array(pat.axis, float)
     if pat.type == "band":
         levels = [pat.at - pat.size / 2, pat.at + pat.size / 2]

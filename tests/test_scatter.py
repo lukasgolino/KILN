@@ -424,3 +424,17 @@ def test_godot_loads_a_toon_scatter(tmp_path: Path) -> None:
     assert godot is not None and result.godot_root is not None and result.errors == []
     check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
     assert check.ok, check.output[-3000:]
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(find_godot_binary() is None, reason="needs a Godot 4 binary (GODOT=/path)")
+def test_godot_loads_a_scatter_of_a_normal_mapped_lod_model(tmp_path: Path) -> None:
+    """#259: LOD surfaces take their own maps (the script's LOD path with normal textures runs)."""
+    project = scatter_project(tmp_path)
+    write_model(project, TUFT.replace("lod: [60]", "lod: [60]\nnormal_map: 256"), "tuft")
+    result = build(project)
+    godot = find_godot_binary()
+    assert godot is not None and result.godot_root is not None and result.errors == [], result.errors
+    assert (project.output_dir / "models" / "tuft.lod1.normal.png").is_file()
+    check = verify(godot, result.godot_root, "res://assets/kiln/manifest.json")
+    assert check.ok, check.output[-3000:]

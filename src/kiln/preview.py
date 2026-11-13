@@ -175,6 +175,17 @@ def views(built: Built, yaws: list[tuple[str, float]], pitches: list[float], siz
     return sheet(f"{m.name} views", f"style {built.style.name} · {built.triangles} triangles · {m.cls} · front = +Z{_notes(tiles)}", rows)
 
 
+def variants_sheet(built: Built, yaws: list[tuple[str, float]], pitch: float = 15.0, size: int = 300, tiles: Tiles | None = None) -> Image.Image:
+    """Every variant side by side (#330): a row per variant (the base colours first), the same views and scale."""
+    tiles = tiles or PLAIN
+    fit = tiles.fit(built)
+    rows = [("base", [(n, tiles.render(built, View(yaw, pitch), size, fit)) for n, yaw in yaws])]
+    for vname, swap in sorted(built.model.variants.items()):
+        rows.append((vname, [(n, tiles.render(built, View(yaw, pitch), size, fit, swap=swap)) for n, yaw in yaws]))
+    m = built.model
+    return sheet(f"{m.name} variants", f"style {built.style.name} · {len(m.variants)} variants · {pitch:+g} degrees{_notes(tiles)}", rows)
+
+
 def closeup(built: Built, part_id: str, size: int = 260, tiles: Tiles | None = None) -> Image.Image:
     """One part (bone) filling the view, in place: what a close camera (a kill cam, a dialogue shot) sees. A number
     is a part's place in the file's `parts:` list (0 = the first), so a hat or a face can be framed apart from the

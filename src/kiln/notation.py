@@ -55,15 +55,15 @@ PATTERNS = ("stripes", "checker", "dots", "band", "pixel")
 STATUSES = ("draft", "approved")
 SKINS = ("none", "rigid", "soft")
 UNIONS = ("whole", "per_bone")
-CYCLES = ("walk", "waddle", "run", "sneak", "hop", "bob", "spin", "swing", "breathe", "wave", "chain")
+CYCLES = ("walk", "waddle", "run", "sneak", "hop", "bob", "spin", "swing", "breathe", "wave", "chain", "idle")
 INTERPOLATIONS = ("linear", "step")
 
-PART_FIELDS = {"id", "color", "material", "emission", "blend", "color_blend", "density", "resolution", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
+PART_FIELDS = {"bevel_edges", "id", "color", "material", "emission", "blend", "color_blend", "density", "resolution", "skin_falloff", "cut", "intersect", "mirror", "mirror_id", "array", "at", "rotate",
                "shell", "twist", "scale", "blend_to", "detail", "noise", "pattern", "gradient", "decal", "texture", "loose", "hard", "bevel", "chamfer", "segments", "fit", "keep", "uv", "aim", "attr", "on", "folds"}  # fmt: skip
-BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude")
+BEVEL_SHAPES = ("box", "wedge", "cylinder", "cone", "extrude", "lathe")
 OPEN_SIDES = ("x", "-x", "y", "-y", "z", "-z", "+x", "+y", "+z")
 ATTR_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
-TOP_FIELDS = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances", "transforms",
+TOP_FIELDS = {"mount", "name", "description", "tags", "status", "style_version", "class", "style", "palette", "budget", "resolution", "max_cells", "normal_map", "normal_strength", "relief", "shade", "parts", "instances", "transforms", "textures",
               "rig", "skin", "animations", "variants", "lod", "lint", "source", "process", "template", "extends", "remove", "skeleton", "fit_to", "origin", "effect", "node_prefix",
               "animation_library", "animations_only", "union", "terrain", "scatter"}  # fmt: skip
 TERRAIN_TOP = {"name", "description", "tags", "status", "style_version", "class", "style", "palette", "lint", "terrain"}  # a terrain's model fields
@@ -106,6 +106,8 @@ class Pattern:
     seed: int = 0
     pixels: tuple[str, ...] = ()  # pixel: the motif's rows, top first ("#" painted, "." not), tiled round the axis
     repeat: int = 0  # pixel: how many times the motif goes round (0: auto, about square cells at the part's radius)
+    paint: str = "auto"  # cut: into the mesh; map: into the base colour map per texel (no triangles); auto: map for pixel and dots
+    in_map: bool = False  # decided once the model is read: painted in the colour map (#324)
 
 
 @dataclass(frozen=True)
@@ -114,9 +116,28 @@ class Decal:
     axis: str  # x, -x, y, -y, z, -z: the direction the decal faces (it is projected along it)
     at: tuple[float, float, float]
     size: tuple[float, float]  # width, height in metres on the surface (a texture: one tile)
-    project: str = "planar"  # planar: a decal; box, cylindrical: a texture tiled over the whole part
+    project: str = "planar"  # planar: a decal; box, triplanar, cylindrical: a texture tiled over the whole part
     per_copy: bool = False  # on an arrayed part: the decal on every copy, placed as on the first
     copy: tuple[float, ...] | None = None  # a per-copy decal's copy: its rotation (9), pivot (3), offset (3), so points map back
+    rows: tuple[str, ...] = ()  # a palette-indexed texture (#325): its pixels as characters, top row first
+    key: tuple[tuple[str, str], ...] = ()  # each character's colour (hex): variants swap them as they swap the parts'
+
+
+def indexed_image(d: Decal, swap: dict[str, str] | None = None) -> Any:
+    """A palette-indexed texture's image (PIL RGBA) with a variant's `swap` applied; any other decal's file as it is."""
+    from PIL import Image
+
+    if not d.rows:
+        return Image.open(d.image).convert("RGBA")
+    swap = swap or {}
+    colours = {ch: swap.get(hx, hx) for ch, hx in d.key}
+    img = Image.new("RGBA", (len(d.rows[0]), len(d.rows)), (0, 0, 0, 0))
+    for y, row in enumerate(d.rows):
+        for x, ch in enumerate(row):
+            hx = colours.get(ch)
+            if hx is not None:
+                img.putpixel((x, y), (int(hx[1:3], 16), int(hx[3:5], 16), int(hx[5:7], 16), 255))
+    return img
 
 
 @dataclass(frozen=True)
@@ -149,6 +170,7 @@ class Part:
     hard: bool | None = None  # exact polygons (True), the smooth field (False), or the style decides (None)
     crisp: bool = False  # blend: none (a hard part when the style allows)
     bevel: float = 0.0  # hard edges rounded in `segments` bands (a chamfer: one band)
+    bevel_edges: str = "all"  # which edges (#345): all | vertical | top | bottom | horizontal (top and bottom), in the part's frame
     segments: int = 2
     fit: tuple[tuple[str, ...], float] | None = None  # a shell wrapping the parts with these ids, this far from them
     cut_only: tuple[str, ...] | None = None  # a cut that only cuts the parts with these ids (#209: several)
@@ -302,7 +324,8 @@ class Model:
     shape_text: str = ""  # the fields a build's mesh, paint and skin come from, as one text (the mesh cache's key)
     motion_text: str = ""  # the animations, as one text (the cached build's tracks are made again when it changes)
     effect: Effect | None = None  # a burst of other models' meshes (models/<name>.effect.json)
-    instances: tuple[Instance, ...] = ()  # other models placed in this one, each its own build (a desk with its props)
+    instances: tuple[Instance, ...] = ()
+    mount: Instance | None = None  # an assembly part (#181): where it sits on another model, in a shared frame (no ground checks)  # other models placed in this one, each its own build (a desk with its props)
     terrain: Terrain | None = None  # a heightfield with splat layers instead of parts (kiln.terrain)
     scatter: Scatter | None = None  # other models placed many times over a surface instead of parts (kiln.scatter)
 
@@ -323,6 +346,7 @@ class _Ctx:
         self.ramps: dict[str, tuple[str, ...]] = getattr(palette, "ramps", {})  # the palette's ramps: name -> hexes (#205)
         self.materials = materials
         self.findings: list[Finding] = []
+        self.failed_ids: set[str] = set()  # ids of parts that failed to read: no rig E007 for them on top (#327)
 
     def error(self, rule: str, message: str, line: int | None, where: str) -> None:
         self.findings.append(Finding(rule, message, self.path, line, where))
@@ -463,6 +487,15 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if not isinstance(spec, dict):
         ctx.error("E003", f"{kind} takes a mapping: {SHAPES[kind].help}", line, swhere)
         return []
+    if "base" in spec:  # (#332) a cone's or cylinder's bottom centre instead of its middle: where a hat or collar sits
+        base, height = _vec(spec.get("base")), spec.get("height", 0)
+        if kind not in ("cone", "cylinder") or base is None or not _num(height) or "at" in spec or "at" in raw or "aim" in spec or "aim" in raw:
+            ctx.error("E003", "base: [x, y, z] places a cone's or cylinder's bottom centre (with its height), instead of at (its middle) or aim",
+                      line, f"{swhere}.base")  # fmt: skip
+            return []
+        spin = _vec(spec.get("rotate", raw.get("rotate", [0, 0, 0]))) or [0.0, 0.0, 0.0]
+        up = rotation_matrix((spin[0], spin[1], spin[2])) @ np.array([0.0, float(height) / 2, 0.0])
+        spec = {**{k: v for k, v in spec.items() if k != "base"}, "at": [round(float(base[i] + up[i]), 6) for i in range(3)]}
     sdef = SHAPES[kind]
     params: dict[str, Any] = dict(sdef.defaults)
     ok = True
@@ -666,16 +699,18 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     fold = None
     if "folds" in raw:
         fr = raw["folds"]
-        keys = ("count", "depth", "from_y", "to_y", "sharp")
+        keys = ("count", "depth", "from_y", "to_y", "sharp", "bunch")
         good = isinstance(fr, dict) and not any(k not in keys for k in fr) and isinstance(fr.get("count"), int) and not isinstance(fr.get("count"), bool) \
             and 2 <= fr["count"] <= 48 and _num(fr.get("depth")) and 0 < fr["depth"] <= 0.1 and all(_num(fr.get(k, 0.0)) for k in ("from_y", "to_y")) \
-            and "from_y" in fr and "to_y" in fr and fr["to_y"] > fr["from_y"] and _num(fr.get("sharp", 0.5)) and 0 <= fr.get("sharp", 0.5) <= 1
+            and "from_y" in fr and "to_y" in fr and fr["to_y"] > fr["from_y"] and _num(fr.get("sharp", 0.5)) and 0 <= fr.get("sharp", 0.5) <= 1 and isinstance(fr.get("bunch", False), bool)
         if not good:
             ctx.error("E003", "folds is { count: 12 (2-48), depth: metres (e.g. 0.02, at most 0.1), from_y: the hem's height, to_y: where they fade out "
-                      "(model space, from_y < to_y), sharp: 0-1 (0.5) }: cloth folds round the part's own y axis", line, f"{where}.folds")  # fmt: skip
+                      "(model space, from_y < to_y), sharp: 0-1 (0.5), bunch: false (true: rings along the axis, bunched cloth) }: cloth folds round "
+                      "the part's own y axis (a capsule's or tube's own axis)", line, f"{where}.folds")  # fmt: skip
             ok = False
         else:
-            fold = Folds(int(fr["count"]), float(fr["depth"]), float(fr["from_y"]), float(fr["to_y"]), float(fr.get("sharp", 0.5)))
+            fold = Folds(int(fr["count"]), float(fr["depth"]), float(fr["from_y"]), float(fr["to_y"]), float(fr.get("sharp", 0.5)),
+                         bool(fr.get("bunch", False)))
     mirror_raw = raw.get("mirror")
     mirror: tuple[int, ...] = ()
     if mirror_raw is not None:
@@ -775,7 +810,7 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
                 ok = False
     else:
         for paint in ("color", "material", "pattern", "gradient", "decal", "texture", "id"):
-            if paint in raw and not (op == "cut" and paint in ("color", "material")):
+            if paint in raw and not (op == "cut" and paint in ("color", "material", "id")):  # (a cut's id: a name only, #153)
                 ctx.error("E003", f"a {op} part removes material: it has no {paint}" + (" (a cut's color paints the walls it makes)" if op == "cut" else ""),
                           line, f"{where}.{paint}")  # fmt: skip
                 ok = False
@@ -814,9 +849,16 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if ok and (bevel or chamfer) and kind not in BEVEL_SHAPES:
         ctx.error("E003", f"bevel and chamfer work on {', '.join(BEVEL_SHAPES)} (round shapes: use sides)", line, where)
         ok = False
+    bevel_edges = raw.get("bevel_edges", "all")
+    if bevel_edges not in BEVEL_EDGES or (bevel_edges != "all" and not (bevel or chamfer)):
+        ctx.error("E003", f"bevel_edges picks the edges a bevel or chamfer rounds: {' | '.join(BEVEL_EDGES)} (in the part's own frame), with bevel or chamfer",
+                  line, f"{where}.bevel_edges")  # fmt: skip
+        ok = False
     if ok and (bevel or chamfer):
         limit = (min(params["size"]) if kind in ("box", "wedge") else min(2 * params["radius"], params["height"]) if kind in ("cylinder", "cone")
-                 else params["height"]) / 2  # fmt: skip
+                 else math.inf if kind == "lathe" else params["height"]) / 2  # fmt: skip  (a lathe's corners take what their sides allow)
+        if kind == "box" and bevel_edges == "vertical":  # only the x and z sides meet at those edges
+            limit = min(params["size"][0], params["size"][2]) / 2
         if max(bevel, chamfer) >= limit:
             ctx.error("E003", f"{'bevel' if bevel else 'chamfer'} {max(bevel, chamfer):g} must be less than half the {kind}'s smallest side ({limit:g})",
                       line, where)  # fmt: skip
@@ -882,9 +924,16 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
     if kind in ("tube", "lock") and params.pop("smooth", False):  # a curve through the points, as short straight pieces;
         exact = hard is True or raw.get("blend") == "none" or "sides" in spec or bool(bevel or chamfer)  # fewer for exact
         params["points"] = smooth_path(params["points"], HARD_PATH_STEPS if exact else PATH_STEPS)  # polygons (a union of pieces)
+    if fold is not None and kind == "capsule":  # round its own axis (#315)
+        fold = replace(fold, axis=(tuple(map(float, params["from"])), tuple(map(float, params["to"]))))  # type: ignore[arg-type]
+    elif fold is not None and kind == "tube":  # round its ends' line (a trouser leg)
+        fold = replace(fold, axis=(tuple(map(float, params["points"][0])), tuple(map(float, params["points"][-1]))))  # type: ignore[arg-type]
+    if op == "cut":  # a cut's id and mirror_id name it only (shared option sets, generators): it moves with nothing (#153)
+        part_id = ROOT_ID
     geom = Geometry(kind, params, np.array(at), rotation, mirror if mirror_id is None else (), copies or (IDENTITY,),
                     op, float(blend), float(shell), float(twist), noise, str(shell_side), open_axis, scale=scale, folds=fold)  # fmt: skip
     hard_fields = {"hard": hard, "crisp": crisp, "bevel": float(bevel or chamfer), "segments": 1 if chamfer else int(segments), "fit": fit,
+                   "bevel_edges": str(bevel_edges),
                    "keep": keep, "cut_only": cut_only, "blend_to": blend_to, "detail": detail, "uv": uv, "patterns": patterns, "attr": attr,
                    "texture": texture, "color_blend": float(color_blend), "color_blend_set": "color_blend" in raw, "density": float(density), "fine": None if fine is None else float(fine), "on": on,
                    "skin_falloff": None if skin_falloff is None else float(skin_falloff), "wall": op == "cut" and "color" in raw}  # fmt: skip
@@ -901,8 +950,9 @@ def _parse_part(ctx: _Ctx, raw: Any, index: int, line: int | None) -> list[Part]
         if texture is not None:  # the tiling's centre mirrored too
             t_at = list(texture.at)
             t_at[mirror[0]] = -t_at[mirror[0]]
-            twin_fields["texture"] = Decal(texture.image, texture.axis, (t_at[0], t_at[1], t_at[2]), texture.size, texture.project)
-        parts.append(Part(index, str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where, str(part_id), mirror[0],
+            twin_fields["texture"] = replace(texture, at=(t_at[0], t_at[1], t_at[2]))  # (a palette key and the rest kept)
+        parts.append(Part(index, ROOT_ID if op == "cut" else str(mirror_id), mirrored, color[0], color[1], material, pattern, twin_decal, line, where,
+                          None if op == "cut" else str(part_id), mirror[0],
                           bool(loose), **twin_fields))  # fmt: skip
     return parts
 
@@ -1167,6 +1217,28 @@ def _fades(raw_parts: Any) -> bool:
     return isinstance(raw_parts, list) and any(isinstance(p, dict) and _num(p.get("color_blend")) and float(p["color_blend"]) > 0 for p in raw_parts)
 
 
+BEVEL_EDGES = ("all", "vertical", "top", "bottom", "horizontal")
+MAP_PATTERNS = ("pixel", "dots")  # painted in the colour map by default when the model has one (#324)
+
+
+def _map_patterns(model: Model) -> None:
+    """Which patterns go in the base colour map (#324): `paint: map` ones (they bring the maps), and pixel and dots
+    patterns of a model that bakes maps anyway, unless they say `paint: cut`. Hard parts' patterns stay cut (exact)."""
+    if model.source is not None:
+        return
+    asked = any(pat.paint == "map" for p in model.parts for pat in p.patterns)
+    if asked and not model.normal_map and not model.normal_map_off:
+        model.normal_map = RELIEF_MAP
+        model.fade_maps = True
+    if not model.normal_map:
+        return
+    for p in model.parts:
+        if p.hard or not p.patterns:
+            continue
+        p.patterns = tuple(replace(pat, in_map=pat.paint == "map" or (pat.paint == "auto" and pat.type in MAP_PATTERNS)) for pat in p.patterns)
+        p.pattern = p.patterns[0]
+
+
 def _soft_colours(ctx: _Ctx, data: dict[str, Any], model: Model) -> None:
     """Parts with color_blend need the base colour map (the fade is per texel): the baked maps come on."""
     for p in model.parts:
@@ -1253,7 +1325,7 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
         ctx.error("E003", f"pattern is {{ type: {'|'.join(PATTERNS)}, color, size (metres), axis: x|y|z }}", line, where)
         return None
     bad = [k for k in raw if k not in ("type", "color", "size", "axis", "width", "at", "frame", "offset", "jitter", "vary", "seed", "rows", "image",
-                                       "repeat")]  # fmt: skip
+                                       "repeat", "paint")]  # fmt: skip
     size, width = raw.get("size", 0.1), raw.get("width", 0.5)
     axis = raw.get("axis", "y")
     c = _color(ctx, raw.get("color"), line, f"{where}.color")
@@ -1282,6 +1354,10 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
         problems.append("seed is a whole number, 0 to 2147483647")
     if "offset" in raw and raw["type"] == "band":
         problems.append("offset moves a repeat (stripes, checker, dots); a band is placed by at")
+    paint = raw.get("paint", "auto")
+    if paint not in ("auto", "map", "cut"):
+        problems.append("paint is map (into the base colour map: no triangles; the default for pixel and dots when the model has maps), "
+                        "cut (into the mesh) or auto")  # fmt: skip
     pixels: tuple[str, ...] = ()
     repeat = raw.get("repeat", "auto")
     if raw["type"] == "pixel":
@@ -1307,7 +1383,7 @@ def _parse_pattern(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Pattern
         frame = "part"  # round the part's own axis (a hat band round the hat, wherever it sits)
     return Pattern(str(raw["type"]), c[0], c[1], float(size), (unit[0], unit[1], unit[2]), float(width), float(at), str(frame),
                    offset=(offset[0], offset[1], offset[2]), jitter=float(jitter), vary=float(vary), seed=int(seed), pixels=pixels,
-                   repeat=int(repeat))  # fmt: skip
+                   repeat=int(repeat), paint=str(paint))  # fmt: skip
 
 
 def _pixel_rows(ctx: _Ctx, raw: dict[str, Any], line: int | None, where: str) -> tuple[tuple[str, ...], str | None]:
@@ -1416,20 +1492,98 @@ def _parse_decal(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal | N
     return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]), per_copy=bool(per_copy))
 
 
-TEXTURE_KEYS = ("image", "project", "size", "texel", "at", "axis")
+TEXTURE_KEYS = ("image", "motif", "rows", "key", "generate", "project", "size", "texel", "at", "axis")
+GENERATORS = ("brushed", "specks", "scratches", "grid", "noise")
+MOTIF_KEYS = ("images", "count", "scale", "rotate", "seed", "pixels")
+
+
+def _motif_tile(ctx: _Ctx, raw: Any, line: int | None, where: str) -> str | None:
+    """A motif print (#312): `count` stamps from `images` (PNGs with alpha, several colours) scattered over one tile,
+    each turned up to `rotate` degrees and scaled within `scale` (a share of the tile), wrapping round its edges so it
+    tiles without seams; seeded. Written once to .kiln-cache/motifs/ (named by its content); returns its path from the
+    project folder, for the texture to tile."""
+    import hashlib
+
+    from PIL import Image, UnidentifiedImageError
+
+    form = ("motif is { images: [decals/flower.png, decals/leaf.png] (stamps with alpha), count: 12 (stamps per tile), scale: [0.15, 0.25] "
+            "(a stamp's size, share of the tile), rotate: 180 (degrees, either way), seed: 1, pixels: 256 (the tile) }, with the texture's "
+            "size: [w, h] or texel")  # fmt: skip
+    if not isinstance(raw, dict) or [k for k in raw if k not in MOTIF_KEYS]:
+        ctx.error("E003", form, line, where)
+        return None
+    images, count, scale = raw.get("images"), raw.get("count", 12), raw.get("scale", [0.15, 0.25])
+    turn, seed, pixels = raw.get("rotate", 180), raw.get("seed", 1), raw.get("pixels", 256)
+    if not isinstance(images, list) or not images or not all(isinstance(i, str) for i in images) or not isinstance(count, int) \
+            or isinstance(count, bool) or not 1 <= count <= 400 or not (isinstance(scale, list) and len(scale) == 2 and all(_num(v) for v in scale)
+                                                                    and 0 < scale[0] <= scale[1] <= 1) \
+            or not _num(turn) or not 0 <= turn <= 180 or not isinstance(seed, int) or not isinstance(pixels, int) or not 32 <= pixels <= 2048:
+        ctx.error("E003", form, line, where)
+        return None
+    base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+    stamps = []
+    for k, name in enumerate(images):
+        path = (base / name).resolve()
+        try:
+            with Image.open(path) as im:
+                stamps.append(im.convert("RGBA"))
+        except (OSError, UnidentifiedImageError):
+            ctx.error("E011", f"motif image {name} not found or not a PNG (paths are relative to the project folder)", line, f"{where}.images[{k}]")
+            return None
+    digest = hashlib.sha256(repr((images, count, scale, turn, seed, pixels)).encode())
+    for st in stamps:
+        digest.update(st.tobytes())
+    out = base / ".kiln-cache" / "motifs" / f"{digest.hexdigest()[:20]}.png"
+    if not out.is_file():
+        rng = np.random.default_rng(seed)
+        canvas = Image.new("RGBA", (3 * pixels, 3 * pixels), (0, 0, 0, 0))  # the tile and its eight neighbours
+        for _ in range(count):
+            st = stamps[int(rng.integers(len(stamps)))]
+            side = max(2, int(round(pixels * float(rng.uniform(scale[0], scale[1])))))
+            stamp = st.resize((side, max(2, int(round(side * st.height / st.width)))), Image.Resampling.LANCZOS)
+            stamp = stamp.rotate(float(rng.uniform(-turn, turn)), resample=Image.Resampling.BICUBIC, expand=True)
+            x, y = int(rng.integers(pixels)), int(rng.integers(pixels))
+            for dx in (0, pixels, 2 * pixels):  # in every copy, so the middle tile repeats without seams
+                for dy in (0, pixels, 2 * pixels):
+                    left, top = x + dx - stamp.width // 2, y + dy - stamp.height // 2
+                    if left >= 0 and top >= 0 and left + stamp.width <= 3 * pixels and top + stamp.height <= 3 * pixels:
+                        canvas.alpha_composite(stamp, (left, top))
+        tile = canvas.crop((pixels, pixels, 2 * pixels, 2 * pixels))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tile.save(out)
+    return str(out.relative_to(base))
 
 
 def _parse_texture(ctx: _Ctx, raw: Any, line: int | None, where: str, part_at: tuple[float, ...] | None = None) -> Decal | None:
     """`texture: { image, project: box | cylindrical, size: [w, h] | texel: m, at, axis }`: an image tiled over the
     whole part (#184): box faces take it from the side they face, cylindrical wraps it round `axis` through `at`."""
-    form = ("texture is { image: textures/x.png, project: box | cylindrical, size: [w, h] (metres per tile) or texel: m (per pixel), "
+    form = ("texture is { image: textures/x.png, project: box | triplanar | cylindrical, size: [w, h] (metres per tile) or texel: m (per pixel), "
             "at: [x, y, z] (default: the part's centre), axis: x|y|z (cylindrical) }")
+    indexed: tuple[tuple[str, ...], tuple[tuple[str, str], ...]] | None = None
+    if isinstance(raw, dict) and ("rows" in raw or "generate" in raw) and "image" not in raw:  # palette-indexed pixels (#325)
+        indexed = _indexed_rows(ctx, raw, line, where)
+        if indexed is None:
+            return None
+        rows_, key_ = indexed
+        base_ = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+        import hashlib
+
+        out_ = base_ / ".kiln-cache" / "textures" / f"{hashlib.sha256(repr((rows_, key_)).encode()).hexdigest()[:20]}.png"
+        if not out_.is_file():
+            out_.parent.mkdir(parents=True, exist_ok=True)
+            indexed_image(Decal(out_, "y", (0.0, 0.0, 0.0), (1.0, 1.0), "box", rows=rows_, key=key_)).save(out_)
+        raw = {**{k: v for k, v in raw.items() if k not in ("rows", "key", "generate", "colors", "pixels", "seed")}, "image": str(out_.relative_to(base_))}
+    if isinstance(raw, dict) and "motif" in raw and "image" not in raw:  # a print scattered from stamps (#312)
+        image_rel = _motif_tile(ctx, raw["motif"], line, f"{where}.motif")
+        if image_rel is None:
+            return None
+        raw = {**{k: v for k, v in raw.items() if k != "motif"}, "image": image_rel}
     if not isinstance(raw, dict) or not isinstance(raw.get("image"), str) or [k for k in raw if k not in TEXTURE_KEYS]:
         ctx.error("E003", form, line, where)
         return None
     project, axis = raw.get("project", "box"), raw.get("axis", "y")
     at = _vec(raw["at"]) if "at" in raw else (part_at or (0.0, 0.0, 0.0))  # default: the part's own centre
-    if project not in ("box", "cylindrical") or axis not in ("x", "y", "z") or at is None or ("size" in raw) == ("texel" in raw):
+    if project not in ("box", "cylindrical", "triplanar") or axis not in ("x", "y", "z") or at is None or ("size" in raw) == ("texel" in raw):
         ctx.error("E003", form + "; give size or texel, not both", line, where)
         return None
     base = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
@@ -1453,7 +1607,77 @@ def _parse_texture(ctx: _Ctx, raw: Any, line: int | None, where: str, part_at: t
     if size is None or min(size) <= 0:
         ctx.error("E003", form + "; size and texel are positive", line, where)
         return None
+    if indexed is not None:
+        return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]), str(project), rows=indexed[0], key=indexed[1])
     return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]), str(project))
+
+
+def _indexed_rows(ctx: _Ctx, raw: dict[str, Any], line: int | None, where: str) -> tuple[tuple[str, ...], tuple[tuple[str, str], ...]] | None:
+    """`rows` + `key` (characters -> palette colours; `.` or space: the part's own colour shows), or `generate` a
+    pixel-art surface in palette colours: brushed, specks, scratches, grid, noise (`colors`: 2-3 names, base first;
+    `pixels`: 32; `seed`)."""
+    form = ("a palette-indexed texture is { rows: [\"aab.\", ...], key: { a: navy, b: gold } } or { generate: brushed | specks | scratches | grid | noise, "
+            "colors: [base, mark, (third)], pixels: 32, seed: 1 }, with size or texel")  # fmt: skip
+    if "generate" in raw:
+        kind, names = raw.get("generate"), raw.get("colors")
+        pixels, seed = raw.get("pixels", 32), raw.get("seed", 1)
+        if kind not in GENERATORS or not isinstance(names, list) or not 2 <= len(names) <= 3 or not isinstance(pixels, int) \
+                or isinstance(pixels, bool) or not 4 <= pixels <= 256 or not isinstance(seed, int) or "rows" in raw:
+            ctx.error("E003", form, line, where)
+            return None
+        rows: list[str] = _generated(str(kind), len(names), pixels, seed)
+        key_raw: dict[Any, Any] = {"abc"[k]: n for k, n in enumerate(names)}
+    else:
+        given, keyed = raw.get("rows"), raw.get("key")
+        if not isinstance(given, list) or not given or not all(isinstance(r, str) and r for r in given) or len({len(r) for r in given}) != 1 \
+                or not isinstance(keyed, dict) or len(given) > 256 or len(given[0]) > 256:
+            ctx.error("E003", form + " (rows of equal length, up to 256)", line, where)
+            return None
+        rows, key_raw = [str(r) for r in given], dict(keyed)
+    key: list[tuple[str, str]] = []
+    for ch, name in key_raw.items():
+        if not isinstance(ch, str) or len(ch) != 1 or ch in ". ":
+            ctx.error("E003", f"texture key: one character per colour (not '.' or a space, which show the part's colour): {ch!r}", line, f"{where}.key")
+            return None
+        c = _color(ctx, name, line, f"{where}.key.{ch}")
+        if c is None:
+            return None
+        key.append((ch, c[0]))
+    known = {ch for ch, _ in key}
+    unknown = sorted({ch for r in rows for ch in r} - known - {".", " "})
+    if unknown:
+        ctx.error("E003", f"texture rows use {', '.join(map(repr, unknown))}, not in its key ({', '.join(sorted(known))})", line, f"{where}.rows")
+        return None
+    return tuple(rows), tuple(key)
+
+
+def _generated(kind: str, colours: int, n: int, seed: int) -> list[str]:
+    """Rows of a generated pixel-art surface: `a` the base, `b` the marks, `c` a few highlights (with three colours)."""
+    rng = np.random.default_rng(seed)
+    grid = np.zeros((n, n), dtype=int)
+    if kind == "brushed":  # horizontal streaks of varying length
+        for y in range(n):
+            for _ in range(max(1, n // 6)):
+                if rng.random() < 0.5:
+                    x0, length = int(rng.integers(n)), int(rng.integers(2, max(3, n // 2)))
+                    grid[y, [(x0 + k) % n for k in range(length)]] = 1
+    elif kind == "specks":
+        grid[rng.random((n, n)) < 0.08] = 1
+    elif kind == "scratches":  # a few thin diagonal lines
+        for _ in range(max(2, n // 8)):
+            x, y, dx = int(rng.integers(n)), int(rng.integers(n)), int(rng.choice([-1, 1]))
+            for k in range(int(rng.integers(n // 4, n // 2 + 1))):
+                grid[(y + k) % n, (x + dx * k) % n] = 1
+    elif kind == "grid":
+        step = max(2, n // 4)
+        grid[::step, :] = 1
+        grid[:, ::step] = 1
+    else:  # noise: smooth blobs, thresholded
+        coarse = rng.random((max(2, n // 4), max(2, n // 4)))
+        grid = (np.kron(coarse, np.ones((4, 4)))[:n, :n] > 0.6).astype(int)
+    if colours == 3:  # highlights: a few base pixels lifted
+        grid[(grid == 0) & (rng.random((n, n)) < 0.03)] = 2
+    return ["".join("abc"[v] for v in row) for row in grid]
 
 
 def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, template: bool = False) -> dict[str, RigEntry]:
@@ -1467,7 +1691,7 @@ def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, template: b
         rline = _line(raw, part_id) or line
         where = f"rig.{part_id}"
         if part_id not in ids:
-            if not template:  # a template's rig may name parts another template brings
+            if not template and part_id not in ctx.failed_ids:  # a template's rig may name parts another template brings
                 ctx.error("E007", f"rig: no part has id {part_id!r} (ids: {', '.join(sorted(ids))})", rline, where)
             continue
         spec = spec if spec is not None else {}
@@ -1818,7 +2042,10 @@ def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, huma
         loop = spec.get("loop", True)
         interp = spec.get("interpolation", "linear")
         if bad or not _num(fps) or not 0 < fps <= 120 or not isinstance(loop, bool) or interp not in INTERPOLATIONS:
-            ctx.error("E008", "animation fields: fps (1-120), loop (true/false), interpolation (linear|step), poses or cycle", aline, where)
+            hint = ""
+            if "frames" in bad:  # (#318) a cycle's frame count goes inside it
+                hint = ": frames goes inside the cycle, e.g. walk: { cycle: { type: walk, frames: 16 } }; a poses animation has one frame per pose"
+            ctx.error("E008", "animation fields: fps (1-120), loop (true/false), interpolation (linear|step), poses or cycle" + hint, aline, where)
             continue
         poses: list[dict[str, PartPose]] = []
         if "poses" in spec:
@@ -1837,7 +2064,7 @@ def _parse_animations(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, huma
             if not isinstance(cycle, dict) or cycle.get("type") not in CYCLES:
                 ctx.error("E008", f"cycle needs type: {'|'.join(CYCLES)} (see the reference for each one's options)", aline, f"{where}.cycle")
                 continue
-            named = [v for k, v in cycle.items() if k in ("legs", "arms", "parts", "part", "body", "head")]
+            named = [v for k, v in cycle.items() if k in ("legs", "arms", "parts", "part", "body", "head", "chest", "elbows")]
             flat = [x for v in named for x in (v if isinstance(v, list) else [v])]
             unknown = [x for x in flat if x not in ids]
             if unknown:
@@ -2079,15 +2306,34 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
             ctx.error("E003", "normal_map bakes from a KILN model's shapes: an imported mesh (source) has none", _line(data, "normal_map"), "normal_map")
     else:
         raw_parts = data.get("parts")
-        if not isinstance(raw_parts, list) or not raw_parts:
-            ctx.error("E003", "parts must be a non-empty list, e.g. - sphere: { at: [0, 0.5, 0], radius: 0.5 }", _line(data, "parts"), "parts")
+        if raw_parts is None and data.get("instances"):  # a scene of instances only (#333)
+            pass
+        elif not isinstance(raw_parts, list) or not raw_parts:
+            ctx.error("E003", "parts must be a non-empty list, e.g. - sphere: { at: [0, 0.5, 0], radius: 0.5 } (or none, with instances:)",
+                      _line(data, "parts"), "parts")  # fmt: skip
         else:
+            named = data.get("textures", {})  # model-level textures used by name (#320)
+            if not isinstance(named, dict) or not all(isinstance(v, dict) for v in named.values()):
+                ctx.error("E003", "textures maps names to textures, e.g. textures: { print: { image: textures/print.png, project: box, texel: 0.004 } }; "
+                          "a part then writes texture: print", _line(data, "textures"), "textures")  # fmt: skip
+                named = {}
+            for i, raw in enumerate(raw_parts):
+                if isinstance(raw, dict) and isinstance(raw.get("texture"), str):
+                    if raw["texture"] in named:
+                        raw["texture"] = dict(named[raw["texture"]])
+                    else:
+                        ctx.error("E003", f"texture {raw['texture']!r} isn't one of the model's textures: ({', '.join(named) or 'none'}); a texture "
+                                  "is { image, project, size | texel } or a name from textures:", _line(raw) or _line(data, "parts"), f"parts[{i}].texture")  # fmt: skip
+                        raw.pop("texture")
             placed: set[int] = set()  # parts placed with on: already
             for i, raw in enumerate(raw_parts):
                 pline = _line(raw) or _line(data, "parts")
                 kinds = [k for k in raw if k in HARDWARE] if isinstance(raw, dict) else []
                 if not kinds:
-                    model.parts.extend(_parse_part(ctx, raw, i, pline))
+                    read = _parse_part(ctx, raw, i, pline)
+                    if not read and isinstance(raw, dict):
+                        ctx.failed_ids |= {str(raw[k]) for k in ("id", "mirror_id") if isinstance(raw.get(k), str)}
+                    model.parts.extend(read)
                     continue
                 if len(kinds) > 1 or any(k in SHAPES for k in raw):
                     ctx.error("E003", f"each part needs exactly one shape: {', '.join(SHAPES)}, or one hardware part: {', '.join(HARDWARE)}", pline, f"parts[{i}]")
@@ -2158,10 +2404,21 @@ def parse_model(data: Any, path: Path | None, palette: dict[str, str], materials
                 _split_detail(ctx, model)
     _parse_relief(ctx, data, model)
     _soft_colours(ctx, data, model)
+    _map_patterns(model)
     ids = set(model.ids) if model.parts else {ROOT_ID}
     model.rig = _mirror_rig(_parse_rig(ctx, data.get("rig"), ids, _line(data, "rig"), model.template), model.parts)
     if "instances" in data:  # (after the parts: `id` names one)
         model.instances = _parse_instances(ctx, data["instances"], _line(data, "instances"), model)
+    if "mount" in data:  # (#181) a part of an assembly: shares the frame of the model it mounts on
+        mraw = data["mount"]
+        usage = "mount is { to: <model>, at: [x, y, z], rotate: [x, y, z] }: where this model sits on another, in their shared frame"
+        mat = _vec(mraw.get("at", [0, 0, 0])) if isinstance(mraw, dict) else None
+        mrot = _vec(mraw.get("rotate", [0, 0, 0])) if isinstance(mraw, dict) else None
+        if not isinstance(mraw, dict) or not isinstance(mraw.get("to"), str) or not NAME_RE.match(mraw["to"]) or mat is None or mrot is None \
+                or any(k not in ("to", "at", "rotate") for k in mraw):
+            ctx.error("E003", usage, _line(data, "mount"), "mount")
+        else:
+            model.mount = Instance(str(mraw["to"]), (mat[0], mat[1], mat[2]), (mrot[0], mrot[1], mrot[2]), line=_line(data, "mount"))
     if "transforms" in data:  # (last: the parts as placed, fitted and rigged)
         _apply_transforms(ctx, data["transforms"], _line(data, "transforms"), model)
     skeleton = data.get("skeleton")
