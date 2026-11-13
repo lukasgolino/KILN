@@ -34,12 +34,12 @@ ALL: dict[str, Any] = {"toon_softness": 0.4, "toon_shadow_color": "#5b4f9e", "to
                        "outline_space": "pixels", "outline": 2.0, "outline_color": "darken"}  # fmt: skip
 
 # sha256 (16 hex) of the scenes before #26: (plain scene, variant + atlas textures + revealed scene, look kit)
-BEFORE = {  # look kits changed on purpose in #161 (tonemap_white, the Compatibility sun script); scenes in #183 (toon light / PI), and in 0.26-0.28 (triplanar, grain, the glow cap in variant scenes; a bright ambient's sky, #350)
-    "toon": ("1c082bd0ac85dcea", "4aabaece9465f491", "e58c506d45228c13"),
-    "soft_toy": ("d9d304776374552f", "7f9f1d86d54d72e7", "b39d8959ee681048"),
-    "low_poly": ("03bde653c1320175", "9dc58e987fae1d6f", "b3662df45bfd1a14"),
-    "clay": ("21f0d0eae071e0ed", "27659918daee652f", "f26bfc1b66870fa7"),
-    "diorama": ("ddcd8be4919b9dd2", "80799237f783c79b", "901d6833e7a3a02f"),
+BEFORE = {  # look kits changed on purpose in #161 (tonemap_white, the Compatibility sun script); scenes in #183 (toon light / PI), and in 0.26-0.28 (triplanar, grain, the glow cap in variant scenes; a bright ambient's sky, #350; references, #355)
+    "toon": ("63feb8fd43594dc6", "eff2a906aa6e04c8", "e58c506d45228c13"),
+    "soft_toy": ("1654ecb897b0abcf", "363a59a7dea310f9", "b39d8959ee681048"),
+    "low_poly": ("fc7588318e6b6114", "53ff159bf6d13133", "b3662df45bfd1a14"),
+    "clay": ("69d51249abbede3e", "05a978ff720dc6e4", "f26bfc1b66870fa7"),
+    "diorama": ("fbe1d031cc832982", "eea06a0da643ad71", "901d6833e7a3a02f"),
 }
 
 
