@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import TypeAlias
 
 from kiln.export import GLOW_ALBEDO, GLOW_PEAK, glow_peak
+from kiln.post import RETRO_SCRIPT
+from kiln.post import material_params as post_material_params
 from kiln.post import shader as post_shader
 from kiln.style import FILMIC_WHITE, TOON_DARKEN, Look, Style
 
@@ -762,7 +764,12 @@ def look_scene(style: Style) -> str:
             f"code = {_quote(post_shader(look))}",
             "",
             '[sub_resource type="ShaderMaterial" id="ShaderMaterial_post"]',
+            "resource_local_to_scene = true",  # each instance of the kit tunes its own pass
             'shader = SubResource("Shader_post")',
+            *post_material_params(look),
+            "",
+            '[sub_resource type="GDScript" id="GDScript_retro"]',
+            f"script/source = {_quote(RETRO_SCRIPT)}",
         ]
     nodes = [
         "",
@@ -792,6 +799,7 @@ def look_scene(style: Style) -> str:
         nodes += [
             '[node name="Retro" type="CanvasLayer" parent="."]',
             "layer = 100",
+            'script = SubResource("GDScript_retro")',
             "",
             '[node name="Pass" type="ColorRect" parent="Retro"]',
             'material = SubResource("ShaderMaterial_post")',

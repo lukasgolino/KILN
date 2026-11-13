@@ -43,7 +43,7 @@ def test_defaults_are_off_and_scenes_unchanged() -> None:
 @pytest.mark.parametrize(("text", "where"), [
     ('post = "crt"', "look.post"),
     ('post = "retro"', "look.post_palette"),
-    ('dither = "noise"', "look.dither"),
+    ('dither = "spiral"', "look.dither"),
     ("post_lines = 8", "look.post_lines"),
     ("pixel_aspect = 0", "look.pixel_aspect"),
     ("dither_strength = 1.5", "look.dither_strength"),
@@ -77,8 +77,9 @@ def test_look_scene_has_the_pass(tmp_path: Path) -> None:
     style, findings = _retro_project(tmp_path).style()
     assert style is not None and not findings
     scene = look_scene(style)
-    for text in ('[node name="Retro" type="CanvasLayer"', "mouse_filter = 2", "hint_screen_texture", "const int COUNT = 4;",
-                 "vec3(0.333333, 1, 1)", "const int N = 4;"):  # fmt: skip
+    for text in ('[node name="Retro" type="CanvasLayer"', "mouse_filter = 2", "hint_screen_texture", "shader_parameter/count = 4",
+                 "0.333333, 1.0, 1.0", "shader_parameter/pattern = 0", 'script = SubResource("GDScript_retro")',
+                 "func set_palette", "resource_local_to_scene = true"):  # fmt: skip
         assert text in scene, text
 
 
@@ -211,8 +212,9 @@ def test_float_literals_and_none_thresholds() -> None:
     from dataclasses import replace
 
     assert post._float(1.0) == "1.0" and post._float(0.03125) == "0.03125" and post._float(1e-7) == "1e-07"
+    assert "float[16](0.0, 8.0," in post.SHADER and "float[4](0.0, 2.0, 1.0, 3.0)" in post.SHADER
     look = replace(_look(("#000000", "#ffffff")), dither="none")
-    assert "float[1](1.0)" in post.shader(look)
+    assert "shader_parameter/pattern = 2" in post.material_params(look)
 
 
 def test_blocks_never_shrink_below_a_pixel() -> None:
@@ -228,3 +230,21 @@ def test_alpha_is_snapped() -> None:
     image[..., 3] = np.linspace(0, 1, 10)[None, :]
     out = post.retro(image, _look(("#000000", "#ffffff")))
     assert set(np.unique(out[..., 3])) == {0.0, 1.0}
+
+
+@pytest.mark.parametrize("pattern", post.PATTERNS)
+def test_every_pattern_dithers_in_proportion(pattern: str) -> None:
+    look = _look(("#000000", "#ffffff"), post_lines=64, dither=pattern)
+    thr = post.threshold(pattern, np.arange(64)[None, :], np.arange(64)[:, None])
+    assert thr.shape == (64, 64) and ((thr > 0) & (thr <= 1)).all()
+    if pattern == "none":
+        return
+    for level in (0.25, 0.5, 0.75):  # about that share of white cells for that grey
+        out = post.retro(np.full((64, 64, 3), level), look)
+        assert abs(out[..., 0].mean() - level) < 0.12, (pattern, level, out[..., 0].mean())
+
+
+def test_shader_names_every_pattern_in_order() -> None:
+    for i, name in enumerate(post.PATTERNS):
+        assert f"{i} {name}" in post.SHADER
+    assert set(post.PATTERNS) == set(__import__("kiln.style", fromlist=["DITHERS"]).DITHERS)

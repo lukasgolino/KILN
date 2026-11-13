@@ -27,7 +27,7 @@ TONEMAPPERS = ("linear", "filmic", "aces", "agx")
 OUTLINE_SPACES = ("metres", "pixels")
 TOON_SHADOWS = ("soft", "band")
 POSTS = ("", "retro")
-DITHERS = ("bayer4", "bayer8", "none")
+DITHERS = ("bayer4", "bayer8", "none", "halftone", "lines", "hatch", "noise")  # kiln.post.PATTERNS
 MAX_POST_COLORS = 16  # the retro pass's palette uniform
 TOON_DARKEN = 0.15  # outline_color = "darken": the part's linear colour times this (~0.42 in sRGB)
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -90,7 +90,7 @@ class Look:
     post_lines: int = 200  # retro: vertical resolution (200: CGA / Atari ST low res; 400: ST mono)
     pixel_aspect: float = 0.8333  # retro: pixel width / height (320x200 on a 4:3 screen: 5/6; 640x400: 1)
     post_palette: str = ""  # retro: the palette (palettes/<name>.pal.yaml) every pixel is snapped to, at most 16 colours
-    dither: str = "bayer4"  # retro: bayer4 | bayer8 | none
+    dither: str = "bayer4"  # retro: bayer4 | bayer8 | none | halftone | lines | hatch | noise
     dither_strength: float = 1.0  # retro: 0 (nearest colour only) to 1 (full ordered dithering)
     post_colors: tuple[str, ...] = ()  # retro: post_palette's colours, filled in when the project loads the style
 
