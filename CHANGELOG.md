@@ -56,6 +56,8 @@ before 1.0).
 
 ### Fixed
 
+- The MCP server's instructions point at `kiln://docs/{topic}` (not the gone `kiln://reference`); a test checks every
+  `kiln://` URI it names is served (#159).
 - CI: the godot job and its long steps have timeouts (a hung render once ran 4 hours); a test checks the committed
   demo says the package's version, so a release can't forget to rebuild it (#264, #254).
 - W122 is quiet when a blend_to id has a soft part to melt into, though its crisp details (eyes, teeth) are kept

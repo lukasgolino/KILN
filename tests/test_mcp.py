@@ -98,3 +98,18 @@ def test_untitled_keeps_property_names_and_data() -> None:
               "n": {"anyOf": [{"type": "integer", "title": "N"}, {"type": "null"}]}}, "$defs": {"T": {"title": "T", "enum": [{"title": 1}]}}}  # fmt: skip
     assert _untitled(schema) == {"type": "object", "properties": {"title": {"type": "string", "default": {"title": "x"}},
                                  "n": {"anyOf": [{"type": "integer"}, {"type": "null"}]}}, "$defs": {"T": {"enum": [{"title": 1}]}}}  # fmt: skip
+
+
+def test_every_kiln_uri_in_the_server_text_is_served() -> None:
+    """#159: the server's instructions and tool docs only name kiln:// resources it serves."""
+    import re
+    from pathlib import Path
+
+    import kiln.mcp_server as srv
+
+    text = Path(srv.__file__).read_text()
+    served = set(re.findall(r'@server\.resource\("(kiln://[^"]+)"', text))
+    named = set(re.findall(r"kiln://[\w/{}]+", text))
+    topics = {"kiln://docs/" + t.name for t in __import__("kiln.topics", fromlist=["topics"]).topics()}
+    for uri in named:
+        assert uri in served or uri in topics, f"{uri} isn't a resource the server serves"

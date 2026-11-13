@@ -43,7 +43,7 @@ OVERWRITE = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempot
 INSTRUCTIONS = """\
 KILN turns text into smooth stylised 3D game models: parts (spheres, capsules, rounded boxes, ...) that blend like
 clay, painted from a palette, rigged and animated, built into glTF and Godot scenes. Read the workflow first
-(resource kiln://workflow; notation: kiln://reference). Call `status` and `read_docs` before making anything.
+(resource kiln://workflow; notation: kiln://docs/parts, every topic: kiln://docs/{topic}). Call `status` and `read_docs` before making anything.
 Loop: `scaffold` -> `write_model` (lints + shows a turntable) -> fix -> LOOK at `preview` images -> report.
 Units are metres, +Y up, models face +Z and stand on y = 0. Colours come from the palette. `build` writes the game's
 files; only after the owner approved.
@@ -273,7 +273,7 @@ def create_server(root: Path, allow_godot: bool = False) -> MCPServer:
     @server.tool(annotations=OVERWRITE)
     @_results
     def style_write(name: str, text: str) -> dict[str, Any]:
-        """Write styles/<name>.style.toml (usually `extends` a preset and overrides a few values; see kiln://reference)."""
+        """Write styles/<name>.style.toml (usually `extends` a preset and overrides a few values; see kiln://docs/styles)."""
         _check_name(name)
         _check_text(text)
         path = kiln.root / "styles" / f"{name}{STYLE_SUFFIX}"
