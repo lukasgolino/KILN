@@ -139,13 +139,14 @@ def read_mesh(path: Path) -> tuple[Array, Array, Array, list[str]]:
         node = doc["nodes"][index]
         world = parent @ _node_matrix(node)
         if "mesh" in node:
+            placed = np.eye(4) if "skin" in node else world  # glTF: a skinned mesh ignores its node's transform (#227)
             for prim in doc["meshes"][node["mesh"]]["primitives"]:
                 if prim.get("mode", 4) != 4:
                     continue
                 pos = _accessor(doc, buffers, prim["attributes"]["POSITION"])
                 idx = _accessor(doc, buffers, prim["indices"]).astype(np.int64).reshape(-1, 3) if "indices" in prim else np.arange(len(pos)).reshape(-1, 3)
-                wpos = (np.concatenate([pos, np.ones((len(pos), 1))], axis=1) @ world.T)[:, :3]
-                if np.linalg.det(world[:3, :3]) < 0:
+                wpos = (np.concatenate([pos, np.ones((len(pos), 1))], axis=1) @ placed.T)[:, :3]
+                if np.linalg.det(placed[:3, :3]) < 0:
                     idx = idx[:, ::-1]
                 mat = doc.get("materials", [])[prim["material"]] if "material" in prim else {}
                 pbr = mat.get("pbrMetallicRoughness", {})
@@ -299,7 +300,8 @@ def _scene_primitives(doc: dict[str, Any]) -> list[tuple[dict[str, Any], Array]]
         node = doc["nodes"][index]
         world = parent @ _node_matrix(node)
         if "mesh" in node:
-            out.extend((prim, world) for prim in doc["meshes"][node["mesh"]]["primitives"] if prim.get("mode", 4) == 4)
+            placed = np.eye(4) if "skin" in node else world  # (a skinned mesh ignores its node's transform, #227)
+            out.extend((prim, placed) for prim in doc["meshes"][node["mesh"]]["primitives"] if prim.get("mode", 4) == 4)
         for child in node.get("children", []):
             visit(child, world)
 
