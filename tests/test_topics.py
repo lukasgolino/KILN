@@ -72,3 +72,12 @@ def test_status_is_terse_by_default(capsys: pytest.CaptureFixture[str], monkeypa
     assert main(["--json", "status"]) == 0
     raw = capsys.readouterr().out
     assert raw.count("\n") == 1 and '"description"' not in raw  # compact JSON, descriptions only with -v
+
+
+def test_search_knows_engine_words() -> None:
+    """#164: engine vocabulary finds KILN's words (emissive -> glow, metallic -> metal, transparent -> alpha)."""
+    from kiln.topics import search
+
+    for word, expect in (("emissive", "glow"), ("transparent", "alpha"), ("instancing", "instances")):
+        hits = search(word)
+        assert hits and any(expect in h.text.lower() for h in hits), word

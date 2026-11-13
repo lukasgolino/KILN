@@ -8,6 +8,8 @@ before 1.0).
 
 ### Added
 
+- `kiln docs --search` knows engine words: emissive finds glow, metallic metal, transparent alpha and clear,
+  instancing instances, and more (#164).
 - `bevel` and `chamfer` on lathes: the outline's corners are rounded before it is spun (a bezel ring with a lip),
   as a hard part (#338).
 - `bevel_edges: vertical | top | bottom | horizontal` picks the edges a bevel or chamfer rounds (a thin seat's corners
