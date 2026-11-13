@@ -96,7 +96,7 @@ def test_engine_preview_takes_views_pitch_size_and_framing(tmp_path: Path, monke
     calls: dict[str, object] = {}
 
     def fake_render(godot_bin: str, root: Path, scene: str, look: str, views: list[tuple[float, float]], half: float,
-                    centre: tuple[float, float, float], size: int, out_dir: Path) -> tuple[list[Path], str]:  # fmt: skip
+                    centre: tuple[float, float, float], size: int, out_dir: Path, post: bool = True) -> tuple[list[Path], str]:  # fmt: skip
         calls.update(views=views, half=half, centre=centre, size=size)
         out_dir.mkdir(parents=True, exist_ok=True)
         paths = []
