@@ -783,6 +783,13 @@ def _compare(project: Project, built: Any, ref_path: Path, ref_height: float | N
 ENGINE_VIEWS = [("front-left", 45.0), ("back-left", 135.0), ("back-right", 225.0), ("front-right", 315.0)]  # as preview.HEADINGS
 
 
+def _render_post() -> bool:
+    """`kiln preview --no-post` (set on kiln.render.POST by cmd_preview)."""
+    from kiln import render as rd
+
+    return rd.POST
+
+
 def _engine_preview(project: Project, built: Any, folder: Path, yaws: list[tuple[str, float]], pitches: list[float], size: int | None) -> str:
     """`preview --engine`: the model through Godot under its look kit, offscreen (#160), framed and laid out like the
     software views (#162): --views/--pitch/--size apply, the background is the previews' tile colour."""
@@ -806,7 +813,7 @@ def _engine_preview(project: Project, built: Any, folder: Path, yaws: list[tuple
     centre, half = pv.fit_of(built)
     views = [(yaw, pitch) for pitch in pitches for _, yaw in yaws]
     images, output = render_engine(godot, root, entry["godot_scene"], looks[built.style.name], views, half,
-                                   (float(centre[0]), float(centre[1]), float(centre[2])), tile, folder / "engine")  # fmt: skip
+                                   (float(centre[0]), float(centre[1]), float(centre[2])), tile, folder / "engine", post=_render_post())  # fmt: skip
     if not images:
         raise _usage(f"Godot couldn't render offscreen: {output[-400:]}")
     tiles = []

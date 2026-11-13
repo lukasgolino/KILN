@@ -129,11 +129,13 @@ def test_pixel_aspect_widens_blocks() -> None:
 
 @pytest.mark.slow
 @pytest.mark.skipif(find_godot_binary() is None, reason="needs a Godot 4 binary (GODOT=/path)")
-def test_godot_loads_the_pass(tmp_path: Path) -> None:
+@pytest.mark.parametrize("dither", ["bayer4", "bayer8", "none"])
+def test_godot_loads_the_pass(tmp_path: Path, dither: str) -> None:
     godot = find_godot_binary()
     assert godot is not None
     (tmp_path / "project.godot").write_text("config_version=5\n")
-    project = _retro_project(tmp_path / "art", extra='output_dir = "../assets/kiln"\nexport = ["glb", "godot"]\n')
+    project = _retro_project(tmp_path / "art", RETRO + f'dither = "{dither}"\ndither_strength = 0.5\n',
+                             extra='output_dir = "../assets/kiln"\nexport = ["glb", "godot"]\n')
     result = build(project)
     assert not result.errors and result.godot_root is not None
     assert "Retro" in (project.output_dir / "looks" / "fast.tscn").read_text()
@@ -203,3 +205,26 @@ def test_hardware_palette_rules_in_kiln(tmp_path: Path) -> None:
     assert pal is None and findings[0].rule == "E004" and "nearest is #242449" in findings[0].message
     pal, findings = parse_palette(parse_yaml('name: p\nhardware: cga\ncolors:\n  "0": "#000000"\n  "1": "#ffffff"\n'))
     assert pal is not None and pal.hardware == "cga" and not findings
+
+
+def test_float_literals_and_none_thresholds() -> None:
+    from dataclasses import replace
+
+    assert post._float(1.0) == "1.0" and post._float(0.03125) == "0.03125" and post._float(1e-7) == "1e-07"
+    look = replace(_look(("#000000", "#ffffff")), dither="none")
+    assert "float[1](1.0)" in post.shader(look)
+
+
+def test_blocks_never_shrink_below_a_pixel() -> None:
+    look = _look(("#000000", "#ffffff"), post_lines=400)
+    assert post.block_size(150, look) == (1.0, 1.0)
+    for size in (150, 300):  # shorter than post_lines: the tile's own pixels, every dither cell used
+        out = post.retro(np.full((size, size, 3), 0.25), look)
+        assert abs(out[..., 0].mean() - 0.25) < 0.02
+
+
+def test_alpha_is_snapped() -> None:
+    image = np.zeros((10, 10, 4))
+    image[..., 3] = np.linspace(0, 1, 10)[None, :]
+    out = post.retro(image, _look(("#000000", "#ffffff")))
+    assert set(np.unique(out[..., 3])) == {0.0, 1.0}

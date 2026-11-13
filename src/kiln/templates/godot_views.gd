@@ -30,7 +30,10 @@ func _init() -> void:
 	_viewport.transparent_bg = true
 	_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	root.add_child(_viewport)
-	_viewport.add_child(load(args[1]).instantiate())
+	var kit: Node = load(args[1]).instantiate()
+	if OS.get_environment("KILN_NO_POST") == "1" and kit.has_node("Retro"):  # kiln preview --engine --no-post
+		kit.get_node("Retro").free()
+	_viewport.add_child(kit)
 	_viewport.add_child(load(args[0]).instantiate())
 	_camera = Camera3D.new()
 	_camera.projection = Camera3D.PROJECTION_ORTHOGONAL

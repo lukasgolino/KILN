@@ -161,7 +161,9 @@ light falls into a few clean dither patterns. `kiln init --style retro_cga` writ
 
 - Godot: the look kit (`looks/<style>.tscn`) carries the pass as a CanvasLayer over the whole screen: put the look kit
   in the scene (it takes no input). kiln.toml `looks = ["retro_st", "retro_cga", "retro_mono"]` builds kits no model's
-  style asks for, so a game can switch looks at runtime (the demo's showcase: L).
+  style asks for, so a game can switch looks at runtime (the demo's showcase: L). The layer is 100: canvas layers
+  below it (a HUD) are pixelated and dithered too; put UI that should stay sharp on a layer above 100. Keep
+  `rendering/viewport/hdr_2d` off (Godot's default): the pass reads the screen as sRGB.
 - Previews draw the same pass, treating each tile as a screen `post_lines` tall; `kiln preview --no-post` shows what's
   under it. `--engine` renders through the real shader (its background comes out black: a game's screen is opaque).
 - Method, per low-res pixel: one sample at its centre, the two nearest palette colours, and a Bayer threshold

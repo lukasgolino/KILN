@@ -948,7 +948,7 @@ def offscreen_command(size: int = 1024) -> Offscreen | str:
 
 
 def render_engine(godot: str, godot_root: Path, scene_res: str, look_res: str, views: list[tuple[float, float]], half: float,
-                  centre: tuple[float, float, float], size: int, out_dir: Path, timeout: int = 300) -> tuple[list[Path], str]:  # fmt: skip
+                  centre: tuple[float, float, float], size: int, out_dir: Path, timeout: int = 300, post: bool = True) -> tuple[list[Path], str]:  # fmt: skip
     """Render a model scene under its look kit through Godot, offscreen (`offscreen_command`). Returns (PNGs, output)."""
     offscreen = offscreen_command(max(size, 256))
     if isinstance(offscreen, str):  # refuse before copying or launching anything
@@ -964,7 +964,7 @@ def render_engine(godot: str, godot_root: Path, scene_res: str, look_res: str, v
             subprocess.run([godot, "--headless", "--path", str(project), "--import"], capture_output=True, text=True, timeout=timeout)
             run = subprocess.run([*offscreen.prefix, godot, *offscreen.godot_args, "--path", str(project), "-s", str(path), "--", scene_res,
                                   look_res, str(out_dir), str(size), f"{half:g}", *(f"{c:g}" for c in centre), *pairs],
-                                 capture_output=True, text=True, timeout=timeout, env=offscreen.env)  # fmt: skip
+                                 capture_output=True, text=True, timeout=timeout, env={**offscreen.env, "KILN_NO_POST": "0" if post else "1"})  # fmt: skip
         except (OSError, subprocess.TimeoutExpired) as exc:
             return [], f"couldn't run Godot: {exc}"
     output = (run.stdout + run.stderr).strip()
