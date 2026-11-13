@@ -235,13 +235,25 @@ func _check_panel() -> void:
 	panel.snap.button_pressed = true
 	if not player.snap_pixels:
 		_fail("dev panel: snap turning didn't reach the player")
-	var yaw_before: float = player.rotation.y
-	player._yaw += 0.0005  # far less than one block's angle: a snapped view doesn't move
+	player._pitch = 0.0
+	var step: float = player.turn_steps().x
+	player._yaw = 3.0 * step
 	player._turn()
-	if absf(player.rotation.y - yaw_before) > 0.0001:
-		_fail("dev panel: a turn smaller than a pixel moved the snapped view (%f -> %f)" % [yaw_before, player.rotation.y])
+	var at_three: float = player.rotation.y
+	player._yaw = 3.3 * step  # under half a pixel more: a snapped view doesn't move
+	player._turn()
+	if absf(player.rotation.y - at_three) > 1e-6 or absf(at_three - 3.0 * step) > 1e-6:
+		_fail("dev panel: snapped turning moved for under half a pixel (%f -> %f)" % [at_three, player.rotation.y])
+	player._yaw = 3.8 * step  # past half a pixel: exactly one step
+	player._turn()
+	if absf(player.rotation.y - 4.0 * step) > 1e-6:
+		_fail("dev panel: snapped turning didn't step one pixel (%f, expected %f)" % [player.rotation.y, 4.0 * step])
 	panel.snap.button_pressed = false
-	player._yaw -= 0.0005
+	player._yaw = 3.3 * step
+	player._turn()
+	if absf(player.rotation.y - 3.3 * step) > 1e-6:
+		_fail("dev panel: with snapping off the view should turn freely")
+	player._yaw = 0.0
 	player._turn()
 	if panel.space.disabled == _retro().has_method("set_space"):
 		_fail("dev panel: the dither space toggle is %s, the kit %s set_space" % [

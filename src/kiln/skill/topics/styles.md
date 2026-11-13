@@ -183,7 +183,8 @@ light falls into a few clean dither patterns. `kiln init --style retro_cga` writ
   yaw and pitch in whole blocks, so turning moves the pattern with the image instead of re-dithering it (measured:
   after a 6-block turn 96% of the centre's blocks are unchanged, against at most 82% in screen space). Cells stay on
   the low-res grid; the match is exact at the centre and drifts a little towards the edges; walking still shimmers.
-  Any renderer, any pattern; the cheapest fix for first-person crawl. Pairs well with turning in whole-block steps.
+  Any renderer and pattern, with a perspective camera (others keep screen space); the cheapest fix for first-person
+  crawl. Pairs well with turning in whole-block steps.
 - World-space dither (`dither_space = "world"`, or `set_space("world")` on the Retro node at runtime): the pattern is
   fixed to surfaces, so it stays put as the camera moves instead of crawling. A full-screen quad in the look kit
   (`Retro/World`) reads the depth buffer, takes each block's pattern cell from the block centre's world position

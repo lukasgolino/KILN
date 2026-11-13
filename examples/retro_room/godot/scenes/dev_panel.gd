@@ -278,8 +278,15 @@ func load_kit(kit_retro: Node) -> void:
 	var has_space := retro != null and retro.has_method("set_space")
 	space.disabled = not has_space
 	space.tooltip_text = "" if has_space else "this kit's Retro pass has no set_space"
-	if has_space:
-		spaces = retro.get_script().get_script_constant_map().get("SPACES", spaces)
+	if has_space:  # the kit's spaces, listed screen / view / world
+		var offered: Array = retro.get_script().get_script_constant_map().get("SPACES", spaces)
+		spaces = []
+		for name in ["screen", "view", "world"]:
+			if name in offered:
+				spaces.append(name)
+		for name in offered:
+			if name not in spaces:
+				spaces.append(name)
 	space.clear()
 	for s in spaces:
 		space.add_item(s)

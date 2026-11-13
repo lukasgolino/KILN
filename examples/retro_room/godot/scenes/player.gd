@@ -43,12 +43,17 @@ func _turn() -> void:
 	var yaw := _yaw
 	var pitch := _pitch
 	if snap_pixels and snap_lines > 0.0:
-		var half := tan(deg_to_rad(_camera.fov) / 2.0)
-		var step := 2.0 * atan(half / snap_lines)
-		yaw = snappedf(yaw, step * snap_aspect)
-		pitch = snappedf(pitch, step)
+		var steps := turn_steps()
+		pitch = snappedf(pitch, steps.y)
+		yaw = snappedf(yaw, steps.x / maxf(cos(pitch), 0.05))  # turning moves the centre cos(pitch) as far
 	rotation.y = yaw
 	_camera.rotation.x = pitch
+
+
+## One low-res pixel's angle at the screen centre (x: across, y: up), as the retro shader's view space counts them.
+func turn_steps() -> Vector2:
+	var half := tan(deg_to_rad(_camera.fov) / 2.0)
+	return Vector2(atan(2.0 * half * snap_aspect / snap_lines), atan(2.0 * half / snap_lines))
 
 
 func _physics_process(delta: float) -> void:
