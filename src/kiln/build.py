@@ -610,7 +610,8 @@ def build(project: Project, only_valid: bool = True, progress: Callable[[str], N
             if vcolor is not None:  # a variant's colours are in its own map
                 write(out / "models" / vcolor, built.bake.color_png(group_colors, swap, texel_shade(built, ao)))
                 variants[vname]["color_map"] = {"png": f"models/{vcolor}", "size": [built.bake.width, built.bake.height]}
-            if project.config.variant_glbs or textured:  # (a mapped model's variant scene needs the glb that names its map)
+            indexed = any(d.rows for d in built.painted.decals)  # palette-indexed textures: the variant's own pixels (#325)
+            if project.config.variant_glbs or textured or indexed:  # (a mapped model's variant scene needs the glb that names its map)
                 vpath = out / "models" / f"{name}.{vname}.glb"
                 write(vpath, to_glb(built, generator, swap, project.config.vertex_colors, vatlas, merge_rigid=project.config.merge_rigid,
                                     normal_uri=normal_png, ao=ao, color_uri=vcolor))  # fmt: skip

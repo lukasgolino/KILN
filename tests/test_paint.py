@@ -366,3 +366,39 @@ def test_small_dots_show_at_their_share(project: Project) -> None:
     area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / 2
     share = float(area[blue].sum() / area.sum())
     assert share > 0.0025, share  # was 0.0011 against about 0.004 expected
+
+
+def test_palette_indexed_and_generated_textures_follow_variants(project: Project) -> None:
+    """#325: a texture written as rows of palette colours (or generated in them) is swapped by a variant, like the
+    parts' colours; its variant gets its own glb."""
+    from kiln.build import build
+    from kiln.notation import indexed_image
+    from kiln.vendor.gltf import read_glb
+
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: white\n"
+            "    texture: { rows: [\"ab..\", \"ba..\"], key: { a: red, b: blue }, project: box, texel: 0.05 }\n"
+            "  - sphere: { at: [0, 0.6, 0], radius: 0.15 }\n    color: white\n    texture: { generate: brushed, colors: [grey, black], pixels: 16, project: box, texel: 0.01 }\n"
+            "variants:\n  green: { swap: { red: green } }\n")  # fmt: skip
+    model, _ = ok_model(project, text)
+    tex = model.parts[0].texture
+    assert tex is not None and tex.rows == ("ab..", "ba..") and dict(tex.key)["a"] == "#e8413c"
+    red, green = indexed_image(tex).getpixel((0, 0)), indexed_image(tex, {"#e8413c": "#4caf50"}).getpixel((0, 0))
+    assert red[:3] == (0xE8, 0x41, 0x3C) and green[:3] == (0x4C, 0xAF, 0x50) and indexed_image(tex).getpixel((3, 0))[3] == 0
+    brushed = model.parts[1].texture
+    assert brushed is not None and len(brushed.rows) == 16 and {"a", "b"} >= {ch for r in brushed.rows for ch in r}
+    write_model_text(project, text)
+    result = build(project)
+    assert not result.errors, [f.format() for f in result.errors]
+    entry = result.manifest["models"]["thing"]
+    assert "glb" in entry["variants"]["green"]
+    doc, binary = read_glb((project.output_dir / entry["variants"]["green"]["glb"]).read_bytes())
+    import io as _io
+
+    pngs = []
+    for im in doc["images"]:
+        view = doc["bufferViews"][im["bufferView"]]
+        start = view.get("byteOffset", 0)
+        pngs.append(np.asarray(Image.open(_io.BytesIO(binary[start : start + view["byteLength"]])).convert("RGB")).reshape(-1, 3))
+    assert any(((p == (0x4C, 0xAF, 0x50)).all(axis=1)).any() for p in pngs)  # the swapped colour is in the variant's texture
+    errors = errors_of(project, text.replace("key: { a: red, b: blue }", "key: { a: red }"))
+    assert any("not in its key" in f.message for f in errors)

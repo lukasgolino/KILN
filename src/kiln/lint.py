@@ -63,6 +63,7 @@ WARNING_RULES = {
     "W131": "a see-through material (alpha < 1) in an atlas project: the atlas draws every part opaque",
     "W132": "a pose's reach is on a part without exactly one child part: it only points the part there (aim)",
     "W133": "a relief layer's patches are under four texels of the map wide: they blur out",
+    "W137": "a pixel-art texture or decal has colours off the palette: the model's variants can't swap them",
     "W136": "a pattern paints nothing: it misses the part's surface (a band's `at` or a pixel strip's place)",
     "W135": "a limb is fused to another branch of a soft-skinned body at rest, away from its joint: posing it stretches the skin",
     "W134": "colour fades go in the vertex colours here (no baked maps), but the project doesn't export vertex colours",
@@ -452,6 +453,39 @@ def penetrations(built: Built) -> list[tuple[int, int, float, Array]]:
     return out
 
 
+def off_palette(model: Model, palette: dict[str, str]) -> list[Finding]:
+    """W137 (#325): with variants, a pixel-art image (up to 256 px) whose opaque pixels are mostly not palette colours
+    stays as drawn while the parts around it swap; palette-indexed rows would swap with them."""
+    if not model.variants or not palette:
+        return []
+    from PIL import Image, UnidentifiedImageError
+
+    hexes = np.array([[int(h[i : i + 2], 16) for i in (1, 3, 5)] for h in set(palette.values())], dtype=float)
+    out = []
+    seen: set[str] = set()
+    for part in model.parts:
+        for d, slot in ((part.texture, "texture"), (part.decal, "decal")):
+            if d is None or d.rows or str(d.image) in seen:
+                continue
+            seen.add(str(d.image))
+            try:
+                with Image.open(d.image) as im:
+                    if max(im.size) > 256:
+                        continue
+                    px = np.asarray(im.convert("RGBA"), dtype=float).reshape(-1, 4)
+            except (OSError, UnidentifiedImageError):
+                continue
+            opaque = px[px[:, 3] > 128, :3]
+            if not len(opaque):
+                continue
+            near = np.min(np.linalg.norm(opaque[:, None, :] - hexes[None, :, :], axis=2), axis=1) <= 12
+            if near.mean() < 0.9:
+                out.append(Finding("W137", f"{d.image.name}: {100 * (1 - near.mean()):.0f}% of its pixels aren't palette colours, so variants leave "
+                                   "them as drawn: write it as rows with a palette key (texture: { rows, key }), or use palette colours",
+                                   model.path, part.line, f"{part.where}.{slot}"))  # fmt: skip
+    return out
+
+
 def _rim_distance(g: Geometry, pts: Array) -> Array:
     """How far each point is from where a shell is open: an open side's plane, or a garment box's hem and top (its
     fitted wall ends there). Elsewhere: infinity."""
@@ -553,6 +587,7 @@ def lint_paths(project: Project, paths: list[Path], geometry: bool = True) -> Li
                                     "check it still fits, then `kiln mark <model> --current`", path, None, "style_version"))  # fmt: skip
             palette, _ = project.palette(model.palette)
             keep += variant_warnings(model, palette)
+            keep += off_palette(model, palette)
             if model.vertex_fades and not project.config.vertex_colors:  # #262
                 first = next((p for p in model.parts if p.color_blend > 0), None)
                 keep.append(Finding("W134", "color_blend fades per vertex here (the model has no baked maps"

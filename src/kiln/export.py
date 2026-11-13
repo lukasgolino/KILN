@@ -259,7 +259,9 @@ class _Writer:
         key = (str(d.image), d.project, base_color)  # one texture per image and colour: per-copy decals share it (#211)
         if key in self.textures:
             return self.textures[key]
-        image = Image.open(d.image).convert("RGBA")
+        from kiln.notation import indexed_image
+
+        image = indexed_image(d, self.swap)  # a palette-indexed texture takes the variant's colours (#325)
         backdrop = Image.new("RGBA", image.size, tuple(int(base_color[i : i + 2], 16) for i in (1, 3, 5)) + (255,))
         backdrop.alpha_composite(image)
         buf = io.BytesIO()

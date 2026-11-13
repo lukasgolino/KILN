@@ -1,7 +1,7 @@
 # Surfaces
 
-Hard surfaces (exact polygons), hardware (rivets, bands, planks, bolts, slits, garments), patterns, decals, textures,
-cloth folds, relief fur, soft colour borders.
+Hard surfaces (exact polygons), hardware (rivets, bands, planks, bolts, slits, garments, hands, feet, eyes), patterns,
+cloth folds, relief fur, soft colour borders. Decals and textures: `kiln docs textures`.
 
 ## Hard surface
 
@@ -70,46 +70,7 @@ material, id, mirror, ...) go to each.
   the maps, needs `kiln-gen[bake]`). `auto` (the default): pixel and dots patterns go in the map when the model has
   baked maps anyway (relief, colour fades, `normal_map`), else they are cut. Hard parts' patterns are always cut.
 
-## Decals
-
-```yaml
-    decal: { image: decals/logo.png, axis: z, at: [0, 0.6, 0.3], size: [0.2, 0.1] }
-```
-
-Projects an image (PNG with transparency, e.g. made with PAGAN) onto the faces of this part that face `axis`
-(x, -x, y, -y, z, -z), centred at `at` (model space, on or near the surface), `size` = width, height in metres. It
-shows on that side only (a flag needs a second decal with `axis: -z` for its back). Transparent pixels show the part's colour.
-Small images (<= 256 px) are sampled crisp (pixel art). `texel: 0.004` instead of `size`: metres per image pixel, so
-props at different scales keep the same pixel size. On an arrayed part, `per_copy: true` puts the decal on every
-copy, placed on each as written for the first (a badge on each of 12 links); the copies share one texture.
-
-## Textures
-
-```yaml
-    texture: { image: textures/brushed.png, project: box, texel: 0.004 }                       # every face, from the side it faces
-    texture: { image: textures/trim.png, project: cylindrical, at: [0, 0, 0], axis: y, size: [0.1, 0.05] }
-```
-
-Tiles an image over the whole part (a shirt print, pixel-art metal, a trim band), as one material. `box`: each face
-takes it from the side it faces (its main normal direction, no blending), upright seen from there. `cylindrical`:
-round `axis` through `at` (u = arc length: texels keep their size), caps taken flat; seam at -z for `axis: y`, -y
-for x, -x for z (it shows unless the circumference is whole tiles). `at`: the part's centre by default. Cylindrical
-can't follow `mirror`/`array` copies: use `mirror_id` or `box`. Tile: `size: [w, h]` metres or `texel:` metres per
-pixel. It repeats; images up to 256 px on their longer side are crisp (nearest filtering, no mipmaps: pixel art on
-smooth shapes); larger ones are filtered smoothly (linear, with mipmaps), at full size: no cap, so keep them as small
-as the look needs. Cylindrical: v = 0 is at the part's `at` height, the image's bottom row toward low y. Clear pixels show the part's colour
-(after swaps); its pattern colours paint over it; a `decal` replaces it there. `triplanar`: box UVs in the glb, but
-KILN's Godot scenes (standard looks) and the previews blend the three projections by the surface's facing, so no seam
-shows where box would switch sides (a sleeve's side).
-
-A texture used on several parts is defined once at the top and named: `textures: { print: { image:
-textures/print.png, project: triplanar, texel: 0.004 } }`, then `texture: print` on each part.
-
-A busy multicolour print (flowers, leaves) made in KILN: `motif:` in place of `image` scatters stamps from a list of
-PNGs (alpha, any colours) over one seamless tile, seeded: `texture: { motif: { images: [decals/flower.png,
-decals/leaf.png], count: 14, scale: [0.12, 0.2], rotate: 180, seed: 2 }, project: triplanar, size: [0.14, 0.14] }`
-(`scale`: a stamp's size as a share of the tile, up to 0.5 to wrap cleanly; `pixels`: the tile, 256). The tile is
-written once to `.kiln-cache/motifs/`.
+Decals and textures (images on parts, named, triplanar, motif prints, palette-indexed and generated pixel art): `kiln docs textures`.
 
 ## Cloth folds: `folds`
 

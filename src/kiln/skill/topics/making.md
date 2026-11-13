@@ -8,7 +8,7 @@ Making a model: plan in metres, scaffold, parts, lint, look, fit with the rest; 
    chair seat 0.45 m high, a barrel 0.9 m. Sketch the parts as a list: shape, centre, size, colour. Models stand on
    y = 0, face +Z (their front), +X is their left.
 2. **Scaffold:** `kiln new model <name> --template bean|prop|empty --class character|prop|building|...`.
-3. **Write the parts** (`kiln docs parts`; patterns, decals, hardware: `kiln docs surfaces`). Big shapes first, details after. Rules of thumb:
+3. **Write the parts** (`kiln docs parts`; patterns, hardware: `kiln docs surfaces`; decals, textures: `kiln docs textures`). Big shapes first, details after. Rules of thumb:
    - Join body parts with `blend` (0.02-0.06 m in soft styles); give crisp seams (`blend: 0`, the default) to things
      that sit ON a surface: eyes, buttons, belts, trims.
    - Symmetric things: write the left one (+X) with `mirror: x`; if it must move separately (arms, legs) add

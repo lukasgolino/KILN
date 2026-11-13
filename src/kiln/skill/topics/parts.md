@@ -5,7 +5,7 @@ Part notation: every shape and part option (blend, cut, mirror, array, shell, fi
 ## Parts
 
 Each part is one shape plus options. Parts are combined **in order**: each one joins (or cuts) what came before.
-Hard surfaces, hardware (rivets, bands, planks, garments), patterns, decals and textures: `kiln docs surfaces`.
+Hard surfaces, hardware (rivets, bands, planks, garments), patterns: `kiln docs surfaces`; decals and textures: `kiln docs textures`.
 
 ```yaml
 parts:
@@ -72,8 +72,8 @@ model (decal `at`, rig pivots, poses' offsets) is in model space.
 | `folds: { count: 12, depth: 0.02, from_y, to_y }` | cloth folds round the part's own axis, deepest at the hem (`surfaces`) |
 | `pattern: {...}` | a second colour painted on the part (`kiln docs surfaces`) |
 | `gradient: { to: fur_light, steps: 3 }` | the part's colour going to `to` in `steps` bands (2-16, default 3), mixed in OKLab; `from:` replaces the part's colour at the start. `along: path` (the default for tube, capsule and lock: first point to last) or `x`/`y`/`z` (the default for other shapes: across the shape's own box, low to high). Patterns paint over it; variants recolour the mixed bands from the swapped ends |
-| `decal: {...}` | an image on the part (`kiln docs surfaces`) |
-| `texture: {...}` | an image tiled over the whole part, box or cylindrical projection, crisp when small (`kiln docs surfaces`) |
+| `decal: {...}` | an image on the part (`kiln docs textures`) |
+| `texture: {...}` | an image tiled over the whole part, box, triplanar or cylindrical, crisp when small, palette-indexed or generated (`kiln docs textures`) |
 | `loose: true` | this part may float free (flames, bees, sparks, rubble): W103 doesn't count it |
 | `blend: none` | a hard part, joined crisply (`kiln docs surfaces`) |
 | `hard: true` / `false` | make this part hard (exact polygons) or smooth, whatever the style says |

@@ -182,7 +182,9 @@ def render(
                 m = dec == k
                 if not m.any():
                     continue
-                img = np.asarray(Image.open(d.image).convert("RGBA"), dtype=float) / 255.0
+                from kiln.notation import indexed_image
+
+                img = np.asarray(indexed_image(d, swap), dtype=float) / 255.0
                 if d.project == "planar":
                     uv = decal_uv(d, rest[m]).clip(0, 0.999999)
                 elif d.project == "triplanar":  # (#320) three planar projections blended by the normal, as KILN's Godot scenes do

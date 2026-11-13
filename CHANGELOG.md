@@ -8,6 +8,9 @@ before 1.0).
 
 ### Added
 
+- Palette-indexed textures (`texture: { rows, key }`) and generated pixel art in palette colours (`generate: brushed |
+  specks | scratches | grid | noise`), recoloured by variants (each such variant gets its own glb); lint W137: a
+  pixel-art image off the palette on a model with variants. Decals and textures moved to `kiln docs textures` (#325).
 - Patterns painted per texel into the base colour map (`paint: map`; by default pixel and dots patterns of a model
   that bakes maps), so trims cost no triangles; error E016 when a part a tenth of the model or bigger vanishes to
   the budget (smaller ones stay W111) (#324).

@@ -119,6 +119,25 @@ class Decal:
     project: str = "planar"  # planar: a decal; box, triplanar, cylindrical: a texture tiled over the whole part
     per_copy: bool = False  # on an arrayed part: the decal on every copy, placed as on the first
     copy: tuple[float, ...] | None = None  # a per-copy decal's copy: its rotation (9), pivot (3), offset (3), so points map back
+    rows: tuple[str, ...] = ()  # a palette-indexed texture (#325): its pixels as characters, top row first
+    key: tuple[tuple[str, str], ...] = ()  # each character's colour (hex): variants swap them as they swap the parts'
+
+
+def indexed_image(d: Decal, swap: dict[str, str] | None = None) -> Any:
+    """A palette-indexed texture's image (PIL RGBA) with a variant's `swap` applied; any other decal's file as it is."""
+    from PIL import Image
+
+    if not d.rows:
+        return Image.open(d.image).convert("RGBA")
+    swap = swap or {}
+    colours = {ch: swap.get(hx, hx) for ch, hx in d.key}
+    img = Image.new("RGBA", (len(d.rows[0]), len(d.rows)), (0, 0, 0, 0))
+    for y, row in enumerate(d.rows):
+        for x, ch in enumerate(row):
+            hx = colours.get(ch)
+            if hx is not None:
+                img.putpixel((x, y), (int(hx[1:3], 16), int(hx[3:5], 16), int(hx[5:7], 16), 255))
+    return img
 
 
 @dataclass(frozen=True)
@@ -1449,7 +1468,8 @@ def _parse_decal(ctx: _Ctx, raw: Any, line: int | None, where: str) -> Decal | N
     return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]), per_copy=bool(per_copy))
 
 
-TEXTURE_KEYS = ("image", "motif", "project", "size", "texel", "at", "axis")
+TEXTURE_KEYS = ("image", "motif", "rows", "key", "generate", "project", "size", "texel", "at", "axis")
+GENERATORS = ("brushed", "specks", "scratches", "grid", "noise")
 MOTIF_KEYS = ("images", "count", "scale", "rotate", "seed", "pixels")
 
 
@@ -1515,6 +1535,20 @@ def _parse_texture(ctx: _Ctx, raw: Any, line: int | None, where: str, part_at: t
     whole part (#184): box faces take it from the side they face, cylindrical wraps it round `axis` through `at`."""
     form = ("texture is { image: textures/x.png, project: box | triplanar | cylindrical, size: [w, h] (metres per tile) or texel: m (per pixel), "
             "at: [x, y, z] (default: the part's centre), axis: x|y|z (cylindrical) }")
+    indexed: tuple[tuple[str, ...], tuple[tuple[str, str], ...]] | None = None
+    if isinstance(raw, dict) and ("rows" in raw or "generate" in raw) and "image" not in raw:  # palette-indexed pixels (#325)
+        indexed = _indexed_rows(ctx, raw, line, where)
+        if indexed is None:
+            return None
+        rows_, key_ = indexed
+        base_ = ctx.path.parent.parent if ctx.path is not None else Path.cwd()
+        import hashlib
+
+        out_ = base_ / ".kiln-cache" / "textures" / f"{hashlib.sha256(repr((rows_, key_)).encode()).hexdigest()[:20]}.png"
+        if not out_.is_file():
+            out_.parent.mkdir(parents=True, exist_ok=True)
+            indexed_image(Decal(out_, "y", (0.0, 0.0, 0.0), (1.0, 1.0), "box", rows=rows_, key=key_)).save(out_)
+        raw = {**{k: v for k, v in raw.items() if k not in ("rows", "key", "generate", "colors", "pixels", "seed")}, "image": str(out_.relative_to(base_))}
     if isinstance(raw, dict) and "motif" in raw and "image" not in raw:  # a print scattered from stamps (#312)
         image_rel = _motif_tile(ctx, raw["motif"], line, f"{where}.motif")
         if image_rel is None:
@@ -1549,7 +1583,77 @@ def _parse_texture(ctx: _Ctx, raw: Any, line: int | None, where: str, part_at: t
     if size is None or min(size) <= 0:
         ctx.error("E003", form + "; size and texel are positive", line, where)
         return None
+    if indexed is not None:
+        return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]), str(project), rows=indexed[0], key=indexed[1])
     return Decal(image, str(axis), (at[0], at[1], at[2]), (size[0], size[1]), str(project))
+
+
+def _indexed_rows(ctx: _Ctx, raw: dict[str, Any], line: int | None, where: str) -> tuple[tuple[str, ...], tuple[tuple[str, str], ...]] | None:
+    """`rows` + `key` (characters -> palette colours; `.` or space: the part's own colour shows), or `generate` a
+    pixel-art surface in palette colours: brushed, specks, scratches, grid, noise (`colors`: 2-3 names, base first;
+    `pixels`: 32; `seed`)."""
+    form = ("a palette-indexed texture is { rows: [\"aab.\", ...], key: { a: navy, b: gold } } or { generate: brushed | specks | scratches | grid | noise, "
+            "colors: [base, mark, (third)], pixels: 32, seed: 1 }, with size or texel")  # fmt: skip
+    if "generate" in raw:
+        kind, names = raw.get("generate"), raw.get("colors")
+        pixels, seed = raw.get("pixels", 32), raw.get("seed", 1)
+        if kind not in GENERATORS or not isinstance(names, list) or not 2 <= len(names) <= 3 or not isinstance(pixels, int) \
+                or isinstance(pixels, bool) or not 4 <= pixels <= 256 or not isinstance(seed, int) or "rows" in raw:
+            ctx.error("E003", form, line, where)
+            return None
+        rows: list[str] = _generated(str(kind), len(names), pixels, seed)
+        key_raw: dict[Any, Any] = {"abc"[k]: n for k, n in enumerate(names)}
+    else:
+        given, keyed = raw.get("rows"), raw.get("key")
+        if not isinstance(given, list) or not given or not all(isinstance(r, str) and r for r in given) or len({len(r) for r in given}) != 1 \
+                or not isinstance(keyed, dict) or len(given) > 256 or len(given[0]) > 256:
+            ctx.error("E003", form + " (rows of equal length, up to 256)", line, where)
+            return None
+        rows, key_raw = [str(r) for r in given], dict(keyed)
+    key: list[tuple[str, str]] = []
+    for ch, name in key_raw.items():
+        if not isinstance(ch, str) or len(ch) != 1 or ch in ". ":
+            ctx.error("E003", f"texture key: one character per colour (not '.' or a space, which show the part's colour): {ch!r}", line, f"{where}.key")
+            return None
+        c = _color(ctx, name, line, f"{where}.key.{ch}")
+        if c is None:
+            return None
+        key.append((ch, c[0]))
+    known = {ch for ch, _ in key}
+    unknown = sorted({ch for r in rows for ch in r} - known - {".", " "})
+    if unknown:
+        ctx.error("E003", f"texture rows use {', '.join(map(repr, unknown))}, not in its key ({', '.join(sorted(known))})", line, f"{where}.rows")
+        return None
+    return tuple(rows), tuple(key)
+
+
+def _generated(kind: str, colours: int, n: int, seed: int) -> list[str]:
+    """Rows of a generated pixel-art surface: `a` the base, `b` the marks, `c` a few highlights (with three colours)."""
+    rng = np.random.default_rng(seed)
+    grid = np.zeros((n, n), dtype=int)
+    if kind == "brushed":  # horizontal streaks of varying length
+        for y in range(n):
+            for _ in range(max(1, n // 6)):
+                if rng.random() < 0.5:
+                    x0, length = int(rng.integers(n)), int(rng.integers(2, max(3, n // 2)))
+                    grid[y, [(x0 + k) % n for k in range(length)]] = 1
+    elif kind == "specks":
+        grid[rng.random((n, n)) < 0.08] = 1
+    elif kind == "scratches":  # a few thin diagonal lines
+        for _ in range(max(2, n // 8)):
+            x, y, dx = int(rng.integers(n)), int(rng.integers(n)), int(rng.choice([-1, 1]))
+            for k in range(int(rng.integers(n // 4, n // 2 + 1))):
+                grid[(y + k) % n, (x + dx * k) % n] = 1
+    elif kind == "grid":
+        step = max(2, n // 4)
+        grid[::step, :] = 1
+        grid[:, ::step] = 1
+    else:  # noise: smooth blobs, thresholded
+        coarse = rng.random((max(2, n // 4), max(2, n // 4)))
+        grid = (np.kron(coarse, np.ones((4, 4)))[:n, :n] > 0.6).astype(int)
+    if colours == 3:  # highlights: a few base pixels lifted
+        grid[(grid == 0) & (rng.random((n, n)) < 0.03)] = 2
+    return ["".join("abc"[v] for v in row) for row in grid]
 
 
 def _parse_rig(ctx: _Ctx, raw: Any, ids: set[str], line: int | None, template: bool = False) -> dict[str, RigEntry]:

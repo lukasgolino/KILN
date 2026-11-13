@@ -323,3 +323,15 @@ def test_e016_a_big_part_that_vanishes_is_an_error(project: Project) -> None:
             "  - capsule: { from: [0.5, 0.1, 0], to: [0.5, 0.9, 0], radius: 0.012 }\n    color: blue\n")  # fmt: skip
     found = lint_paths(project, [write_model(project, text)]).findings
     assert any(f.rule == "E016" and f.severity == "error" for f in found), [f.format() for f in found]
+
+
+def test_w137_off_palette_pixel_art_with_variants(project: Project) -> None:
+    from PIL import Image
+
+    (project.root / "textures").mkdir(exist_ok=True)
+    Image.new("RGBA", (8, 8), (12, 200, 200, 255)).save(project.root / "textures" / "odd.png")
+    text = ("name: thing\nparts:\n  - box: { at: [0, 0.2, 0], size: [0.4, 0.4, 0.4] }\n    color: red\n"
+            "    texture: { image: textures/odd.png, project: box, texel: 0.05 }\nVARIANTS")  # fmt: skip
+    with_variants = lint_paths(project, [write_model(project, text.replace("VARIANTS", "variants:\n  b: { swap: { red: blue } }\n"))], geometry=False)
+    without = lint_paths(project, [write_model(project, text.replace("VARIANTS", ""))], geometry=False)
+    assert "W137" in warnings(with_variants.findings) and "W137" not in warnings(without.findings)
